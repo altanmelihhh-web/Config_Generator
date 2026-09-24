@@ -730,59 +730,77 @@ CgReference.certmap = {
     init(container) {
         container.innerHTML = `
 <div class="cg-ref-page">
-  <div class="cg-ref-title"><i class="fas fa-certificate"></i> Ağ Sertifikasyon Haritası</div>
-  <p class="cg-ref-intro">Bu generator'daki konular çeşitli vendor sertifikasyonlarıyla örtüşmektedir. Aşağıdaki tablo hangi generator'ın hangi sertifikasyonla ilgili olduğunu gösterir.</p>
+  <div class="cg-ref-title"><i class="fas fa-certificate"></i> Ağ & Güvenlik Sertifikasyon Haritası</div>
+  <p class="cg-ref-intro">Bu araçtaki konuların vendor sertifikasyonlarıyla eşleşmesi. Sertifikasyon programları sık değişir — aşağıdaki bilgiler <strong>Eylül 2026</strong> itibarıyla resmi vendor sayfalarından doğrulanmıştır. Yalnızca ağ ve güvenlik sertifikaları listelenmiştir.</p>
 
-  ${cgRefCard('Cisco Sertifikasyon Yolu', 'fas fa-road', cgRefTopo(`
-  CCNA (200-301)
-  ├── VLAN, STP, EtherChannel
-  ├── OSPF (single area), BGP temel
-  ├── ACL, NAT, DHCP, SSH
-  └── Temel güvenlik
-
-  CCNP Enterprise (350-401 ENCOR + seçmeli)
-  ├── Advanced OSPF, EIGRP Named Mode, BGP
-  ├── DMVPN, GRE, VRF-Lite
-  ├── MPLS LDP, L3VPN (ENARSI seçmeli)
-  └── SD-WAN (ENSDWI seçmeli)
-
-  CCIE Enterprise Infrastructure
-  └── Tüm CCNP konuları + VXLAN/EVPN, SR
-`))}
+  ${cgRefCard('Cisco — Enterprise ve Security', 'fas fa-road', cgDia({
+    w: 560, h: 200, alt: 'Cisco sertifikasyon seviyeleri',
+    nodes: [
+      { x: 90,  y: 44,  w: 160, h: 46, kind: 'server',   label: 'CCNA', sub: '200-301' },
+      { x: 300, y: 44,  w: 200, h: 46, kind: 'router',   label: 'CCNP Enterprise', sub: '350-401 ENCOR' },
+      { x: 500, y: 44,  w: 116, h: 46, kind: 'firewall', label: 'CCIE', sub: 'Enterprise' },
+      { x: 90,  y: 140, w: 160, h: 46, kind: 'server',   label: 'CCNA', sub: 'Cybersecurity' },
+      { x: 300, y: 140, w: 200, h: 46, kind: 'router',   label: 'CCNP Security', sub: '350-701 SCOR' },
+      { x: 500, y: 140, w: 116, h: 46, kind: 'firewall', label: 'CCIE', sub: 'Security' }
+    ],
+    links: [
+      { x1: 171, y1: 44,  x2: 198, y2: 44,  arrow: true },
+      { x1: 401, y1: 44,  x2: 440, y2: 44,  arrow: true },
+      { x1: 171, y1: 140, x2: 198, y2: 140, arrow: true },
+      { x1: 401, y1: 140, x2: 440, y2: 140, arrow: true }
+    ],
+    notes: [
+      '<strong>CCNA</strong> — VLAN, STP, EtherChannel, tek alan OSPF, ACL, NAT, DHCP, SSH',
+      '<strong>CCNP</strong> — core sınav + bir konsantrasyon. Enterprise: 350-401 ENCOR; ileri yönlendirme, MPLS ve L3VPN <code>ENARSI</code> konsantrasyonunda',
+      '<strong>CCIE</strong> — tüm CCNP konuları + VXLAN/EVPN, Segment Routing',
+      '<strong>CCNA Security artık yok</strong> — 2020 yeniden yapılandırmasında emekli edildi; yerine CCNA Cybersecurity ve CCNP Security'
+    ]
+  }))}
 
   ${cgRefCard('Vendor Sertifikasyon Eşleşmesi', 'fas fa-table', cgRefTable(
-      ['Generator Konusu', 'Cisco', 'Juniper', 'Palo Alto', 'F5', 'Fortinet'],
+      ['Konu', 'Cisco', 'Juniper', 'Huawei', 'Fortinet', 'Palo Alto', 'F5'],
       [
-          ['VLAN/L2', 'CCNA', 'JNCIA', '—', '—', 'NSE4'],
-          ['OSPF/BGP', 'CCNP ENCOR', 'JNCIP', '—', '—', 'NSE5'],
-          ['MPLS/L3VPN', 'CCNP ENARSI', 'JNCIP-SP', '—', '—', '—'],
-          ['Firewall Policy', 'CCNA Sec', 'JNCIA-SEC', 'PCNSA', '—', 'NSE4'],
-          ['VPN (IPsec/SSL)', 'CCNP Sec', 'JNCIP-SEC', 'PCNSE', '201-LTM', 'NSE5'],
-          ['Load Balancing', '—', '—', '—', 'F5-201/301', '—'],
-          ['VXLAN/EVPN', 'CCIE', 'JNCIP-DC', '—', '—', 'NSE7'],
-          ['HA/Clustering', 'CCNP Sec', 'JNCIP-SEC', 'PCNSE', 'F5-301', 'NSE5'],
+          ['VLAN / L2',        'CCNA',            'JNCIA-Junos', 'HCIA-Datacom',  'NSE 4',    '—', '—'],
+          ['OSPF / BGP',       'CCNP ENCOR',      'JNCIS-ENT',   'HCIP-Datacom',  '—',        '—', '—'],
+          ['MPLS / L3VPN',     'CCNP ENARSI',     'JNCIP-SP',    'HCIP-Datacom',  '—',        '—', '—'],
+          ['VXLAN / EVPN',     'CCIE Enterprise', 'JNCIP-DC',    'HCIE-Datacom',  '—',        '—', '—'],
+          ['Firewall politikası', 'CCNP Security', 'JNCIA-SEC',  'HCIA-Security', 'NSE 4',    'Network Security Analyst', '—'],
+          ['VPN (IPsec / SSL)','CCNP Security',   'JNCIP-SEC',   'HCIP-Security', 'NSE 6-7',  'NGFW Engineer', 'F5-CA'],
+          ['HA / Clustering',  'CCNP Security',   'JNCIP-SEC',   'HCIP-Security', 'NSE 6-7',  'NGFW Engineer', 'F5-CA'],
+          ['Load balancing',   '—',               '—',           '—',             '—',        '—', 'F5-CA (F5CAB1-5)']
       ]
   ))}
 
   <div class="cg-ref-cols">
     <div>
-      ${cgRefCard('Juniper Sertifikasyon Yolu', 'fas fa-leaf', `
+      ${cgRefCard('Juniper ve Huawei', 'fas fa-leaf', `
       <ul class="cg-ref-list">
-        <li><strong>JNCIA-Junos</strong> — JunOS CLI, routing basics</li>
+        <li><strong>JNCIA-Junos</strong> — Junos CLI, temel yönlendirme</li>
         <li><strong>JNCIS-ENT</strong> — OSPF, BGP, switching</li>
-        <li><strong>JNCIP-ENT</strong> — Advanced routing, MPLS</li>
-        <li><strong>JNCIA-SEC</strong> — SRX basics, policies, NAT</li>
-        <li><strong>JNCIP-SEC</strong> — VPN, AppSecure, chassis cluster</li>
-      </ul>`)}
+        <li><strong>JNCIP-ENT / -SP</strong> — ileri yönlendirme, MPLS</li>
+        <li><strong>JNCIA-SEC → JNCIP-SEC</strong> — SRX, politika, NAT, VPN, chassis cluster</li>
+        <li style="margin-top:8px"><strong>HCIA-Datacom</strong> — temel yönlendirme ve anahtarlama (VRP)</li>
+        <li><strong>HCIP-Datacom</strong> — Core + konsantrasyon (Advanced R&amp;S, Campus, WAN, SD-WAN, Solution Design, Automation)</li>
+        <li><strong>HCIE-Datacom</strong> — uzman seviye</li>
+        <li><strong>HCIA/HCIP/HCIE-Security</strong> — USG güvenlik yolu</li>
+      </ul>
+      <p style="font-size:.78rem;color:var(--text-tertiary,#95a5a6);margin:8px 0 0">
+      Huawei 2021 Q4'te R&amp;S sertifikalarını Datacom ile değiştirdi. Sınav kodları üçüncü parti kaynaklıdır, resmi teyit edilmedi.</p>`)}
     </div>
     <div>
-      ${cgRefCard('Güvenlik Sertifikasyonları', 'fas fa-shield-alt', `
+      ${cgRefCard('Güvenlik ve ADC', 'fas fa-shield-alt', `
       <ul class="cg-ref-list">
-        <li><strong>Palo Alto PCNSA/PCNSE</strong> — Zones, policies, URL filtering, GlobalProtect, HA</li>
-        <li><strong>Fortinet NSE 4-7</strong> — FortiGate politika, UTM, SD-WAN, HA</li>
-        <li><strong>Check Point CCSA/CCSE</strong> — SmartConsole, mgmt_cli, VPN, HA</li>
-        <li><strong>F5 201/301 LTM</strong> — Virtual server, pool, iRule, SSL profil</li>
-      </ul>`)}
+        <li><strong>Fortinet NSE 1-8</strong> — NSE 4 FortiOS operasyonu, NSE 6-7 ileri/uzman.
+            5 track: Secure Networking, Security Operations, Cloud Security, OT Security, SASE</li>
+        <li><strong>Palo Alto</strong> — Network Security Analyst, <strong>Next-Generation Firewall Engineer</strong>,
+            Network Security Professional, Network Security Architect</li>
+        <li><strong>Check Point CCSA / CCSE</strong> — R82: <code>156-215.82</code> / <code>156-315.82</code></li>
+        <li><strong>F5 Certified Administrator, BIG-IP</strong> — 5 sınav: <code>F5CAB1</code>–<code>F5CAB5</code>, yenileme <code>F5CABR</code></li>
+      </ul>
+      <p style="font-size:.78rem;color:var(--text-tertiary,#95a5a6);margin:8px 0 0">
+      <strong>Değişen adlar:</strong> Fortinet 2024'te FCP/FCSS'e geçti, 15 Temmuz 2026'da NSE adlandırmasına döndü.
+      Palo Alto PCNSA (2024) ve PCNSE (2025) emekli edildi, program rol bazlı oldu.
+      F5'te 101 sınavı Nisan 2025'te kaldırıldı; "201-LTM" ve "F5-301" kodları geçersiz.</p>`)}
     </div>
   </div>
 </div>`;

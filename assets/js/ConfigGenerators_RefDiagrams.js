@@ -36,10 +36,12 @@ function cgDiaNode(n) {
     const k = CG_DIA.kind[n.kind] || CG_DIA.kind.router;
     const w = n.w || 104, h = n.h || 46;
     const x = n.x - w / 2, y = n.y - h / 2;
+    // Baslik ve alt metni kutu yuksekligine gore yerlestir. Sabit ofset
+    // kullanilirsa alcak kutularda ikisi ust uste biniyor.
     const sub = n.sub
-        ? `<text x="${n.x}" y="${y + h - 12}" class="cg-dia-sub" text-anchor="middle">${cgDiaEsc(n.sub)}</text>`
+        ? `<text x="${n.x}" y="${n.y + 13}" class="cg-dia-sub" text-anchor="middle">${cgDiaEsc(n.sub)}</text>`
         : '';
-    const labelY = n.sub ? y + 22 : n.y + 5;
+    const labelY = n.sub ? n.y - 3 : n.y + 5;
     return `<g class="cg-dia-node">
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7"
           fill="${k.fill}" fill-opacity="0.13" stroke="${k.fill}" stroke-width="1.6"/>
