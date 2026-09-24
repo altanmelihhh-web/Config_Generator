@@ -254,7 +254,7 @@ MikroTik.nat = {
             ],
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
-            const natType = cgEsc(data._configType || 'masquerade');
+            const natType = cgEsc(data._cgtype || 'masquerade');
             let c = '# ========================================\n# MikroTik RouterOS — NAT\n# ========================================\n\n';
             c += '/ip firewall nat\n';
             if (natType === 'masquerade') {

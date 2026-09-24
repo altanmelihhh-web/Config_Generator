@@ -849,7 +849,7 @@ CiscoIOS.dhcp = {
 };
 function cgDhcpGen(data) {
     const g = k => cgEsc((data[k] || '').toString().trim());
-    const mode = data._configType || '';
+    const mode = data._cgtype || '';
     let c = '! ========================================\n! Cisco IOS DHCP Configuration\n! ========================================\n\n';
     if (mode === 'server') {
         const es = g('excl_start'), ee = g('excl_end');

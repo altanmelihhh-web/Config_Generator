@@ -7,6 +7,9 @@ function cgEsc(v) {
         ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]);
 }
 
+// Canlı önizleme sırasında true olur: cgValidate alanları işaretler ama engellemez.
+let cgSoftMode = false;
+
 const CG_VALIDATORS = {
     ip:       { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli bir IPv4 adresi girin (örn: 10.0.0.1)' },
     cidr:     { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/, msg: 'CIDR formatında girin (örn: 10.0.0.0/24)' },
@@ -49,7 +52,8 @@ function cgValidate(form) {
             _cgClearError(el);
         }
     });
-    return ok;
+    // Canlı önizlemede hata olsa bile üretime izin ver
+    return cgSoftMode ? true : ok;
 }
 
 // Yumuşak doğrulama: hatalı alanları işaretler ama üretimi engellemez.
@@ -77,6 +81,39 @@ function _cgClearError(el) {
     const fb = el.parentNode.querySelector('.cg-field-error');
     if (fb) fb.remove();
     el.classList.remove('is-invalid');
+}
+
+
+// cgFormBuilder kullanmayan (elle yazılmış) formları da canlıya bağlar.
+// Kendi submit handler'ları cgShowOutput çağırıyor; biz sadece tetikliyoruz.
+function cgBindLegacyLive(host) {
+    if (!host || host._cgLiveRun) return;          // cgFormBuilder zaten bağladı
+    const form = host.querySelector('form');
+    if (!form || form._cgLegacyBound) return;
+    form._cgLegacyBound = true;
+
+    let t = null;
+    const run = () => {
+        // Boş alanlara geçici placeholder koy -> çıktı çalışır bir örnek olsun
+        const filled = [];
+        form.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(el => {
+            if (el.disabled || el.type === 'checkbox' || el.type === 'radio') return;
+            if (!String(el.value || '').trim() && el.placeholder) { el.value = el.placeholder; filled.push(el); }
+        });
+        cgSoftMode = true;
+        try { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); }
+        catch (e) { /* yut */ }
+        finally {
+            cgSoftMode = false;
+            filled.forEach(el => { el.value = ''; });
+            form.querySelectorAll('.cg-validation-banner').forEach(b => b.remove());
+        }
+    };
+    const sched = () => { clearTimeout(t); t = setTimeout(run, 160); };
+    form.addEventListener('input', sched);
+    form.addEventListener('change', sched);
+    host._cgLiveRun = run;
+    run();
 }
 
 // ─── Canlı Çıktı (terminal paneli) ───────────────────────────────────────────
@@ -318,6 +355,8 @@ function cgFormBuilder(container, schema, generateFn) {
                 if (!String(data[el.name] || '').trim() && el.placeholder) data[el.name] = el.placeholder;
             });
         }
+        // Bazı generator'lar tip alanını '_configType' diye okuyor; iki adı da ver.
+        if (data._cgtype !== undefined) data._configType = data._cgtype;
         return data;
     }
 
@@ -1097,6 +1136,7 @@ const ConfigGenerator = {
         cgShowOutput('', []);
         gen.init(formArea);
         cgPostRender(formArea);
+        cgBindLegacyLive(formArea);
 
         // Formsuz (referans/doküman) sayfalarda terminali gizle, tam genişlik ver
         if (!formArea.querySelector('form')) {

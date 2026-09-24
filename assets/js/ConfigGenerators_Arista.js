@@ -848,7 +848,7 @@ Arista.snmp = {
     }
 };
 function cgAristaSnmpGen(data) {
-    const version = data._configType || 'v2c';
+    const version = data._cgtype || 'v2c';
     const trapHost = cgEsc(data.trap_host || '');
     const location = cgEsc(data.location || ''), contact = cgEsc(data.contact || '');
     let c = '! ========================================\n! Arista EOS — SNMP\n! ========================================\n\n';
