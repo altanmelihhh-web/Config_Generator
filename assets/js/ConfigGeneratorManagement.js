@@ -42,6 +42,11 @@ const CG_VALIDATORS = {
                        return _cgIface(m[1].trim()) && (/^[0-9/.]+$/.test(m[2].trim()) || _cgIface(m[2].trim()));
                    }), msg: 'Arayüz veya aralık girin (örn: Gi0/1-2, GigabitEthernet0/1, ethernet1/1/1-1/1/10)' },
 
+    // F5 BIG-IP arayuzleri ciplak sayisaldir: '1.1', '1.2', '2.1'
+    // Ayri tutulur; genel iface'e konursa diger vendor'larda '1.2' arayuz sanilir.
+    iface_f5: { fn: v => /^\d+(\.\d+)+$/.test(String(v).trim()) || _cgIface(String(v).trim()),
+                msg: 'F5 arayüzü girin (örn: 1.1, 1.2) veya trunk/VLAN adı' },
+
     // VLAN listesi: '10', '10,20,30', '10-20', '1,10-20,99', 'all', 'none'
     vlan_list:{ fn: v => { const t = String(v).trim().toLowerCase();
                        if (t === 'all' || t === 'none') return true;
@@ -69,7 +74,11 @@ const _CG_BARE_IF = ['bridge', 'irb', 'internal', 'wan', 'lan', 'dmz', 'mgmt',
                      'loopback', 'null', 'vlan', 'any', 'all'];
 function _cgIface(t) {
     if (!t || /\s/.test(t)) return false;              // bosluk yok
-    if (!/^[A-Za-z]/.test(t)) return /^\d+(\.\d+)+$/.test(t);  // F5 '1.1'
+    // Arayuz adi HARFLE baslar. F5'in '1.1' bicimi ciplak sayisaldir ve yalnizca
+    // F5 alanlarinda gecerlidir — genel dogrulayiciya konursa '1.2' gibi girdiler
+    // her vendor'da arayuz sanilir ve 'interface range 1.2' gibi gecersiz satir
+    // uretilir. O bicim ayri 'iface_f5' dogrulayicisinda.
+    if (!/^[A-Za-z]/.test(t)) return false;
     if (!/^[A-Za-z0-9/._:-]+$/.test(t)) return false;  // gecersiz karakter
     if (/\d/.test(t)) return true;                     // rakam iceriyorsa gecerli say
     return _CG_BARE_IF.includes(t.toLowerCase());      // rakamsizsa bilinen ad olmali
