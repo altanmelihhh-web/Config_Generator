@@ -517,7 +517,7 @@ CiscoIOS.ipsec = {
                     info: 'Sadece VTI veya FlexVPN yöntemi seçildiğinde kullanılır.',
                     fields: [
                         { name: 'tunnel_num', why: "Tunnel numarası yereldir, iki tarafta aynı olmak zorunda değil. Ancak kullanımdaki bir numarayı tekrar vermek çalışan VPN'i sessizce ezer.",  label: 'Tunnel No',    type: 'text', required: false, placeholder: '1',                  hint: 'Tunnel interface numarası' },
-                        { name: 'tunnel_ip', why: "VTI'da iki uç aynı /30 içinde olmalı. Fiziksel WAN ağından adres vermek yönlendirme döngüsü ve sürekli flap yaratır.",   label: 'Tunnel IP',    type: 'text', required: true, validate: 'ip', placeholder: '172.16.1.1',         hint: 'Tunnel IP (VTI/FlexVPN gerekli)' },
+                        { name: 'tunnel_ip', why: "VTI'da iki uç aynı /30 içinde olmalı. Fiziksel WAN ağından adres vermek yönlendirme döngüsü ve sürekli flap yaratır.",   label: 'Tunnel IP',    type: 'text', required: true, validate: 'ip', placeholder: '172.24.1.1',         hint: 'Tunnel IP (VTI/FlexVPN gerekli)' },
                         { name: 'tunnel_mask', why: "Point-to-point tünelde <code>255.255.255.252</code> (/30) yeterlidir. Daha geniş maske vermek, aynı blokta yapılandırılan başka bir tüneli istemeden kapsayabilir.", label: 'Tunnel Mask',  type: 'text', validate: 'subnet', required: false, placeholder: '255.255.255.252',    hint: 'Tunnel subnet maskesi' }
                     ]
                 },
@@ -1508,7 +1508,7 @@ CiscoIOS.gre = {
                     showFor: ['gre', 'ipsec', 'mgre'],
                     fields: [
                         { name: 'tun_int', why: "Tunnel numarası cihaz içinde benzersiz olmalı. Kullanımdaki bir numarayı seçmek çalışan tüneli habersizce yeniden yapılandırır.", label: 'Tunnel Interface', type: 'text', required: true, placeholder: 'Tunnel0', hint: 'Sanal tünel arayüzü numarası' },
-                        { name: 'tun_ip', why: "Tünel IP'si fiziksel WAN ağından farklı bir blokta olmalı. Tünel hedefine giden rota tünelin kendi üzerinden geçerse arayüz sürekli up/down olur (recursive routing).", label: 'Tunnel IP', type: 'text', validate: 'ip', placeholder: '10.10.10.1', optional: true },
+                        { name: 'tun_ip', why: "Tünel IP'si fiziksel WAN ağından farklı bir blokta olmalı. Tünel hedefine giden rota tünelin kendi üzerinden geçerse arayüz sürekli up/down olur (recursive routing).", label: 'Tunnel IP', type: 'text', validate: 'ip', placeholder: '10.128.10.1', optional: true },
                         { name: 'tun_mask', why: "Point-to-point tünelde /30 yeterlidir. mGRE (DMVPN) kullanıyorsan tüm spoke'lar <b>aynı</b> alt ağda olmalı; /30 vermek DMVPN'i tamamen bozar.", label: 'Tunnel Mask', type: 'text', validate: 'subnet', placeholder: '255.255.255.252', optional: true },
                         { name: 'tun_src', why: 'Tünel kaynağı olarak <b>Loopback</b> kullanmak, fiziksel arayüz down olsa bile tünelin ayakta kalmasını sağlar.', label: 'Tunnel Source', type: 'text', required: true, placeholder: 'GigabitEthernet0/0', hint: 'Tünelin kaynak interface veya IP adresi — arayüz adı veya IP adresi' },
                         { name: 'tun_dst', why: "Karşı tarafın ulaşılabilir IP'si. Bu adrese giden rota tünelin <b>kendi içinden</b> geçmemelidir — aksi halde tünel kendini yer (recursive routing) ve flap eder.", label: 'Tunnel Destination', type: 'text', placeholder: '5.6.7.8 (mGRE için boş)', hint: 'Karşı uç public IP. mGRE\'de boş bırakın.', optional: true },
@@ -1894,7 +1894,7 @@ CiscoIOS.dmvpn = {
                     title: 'Tunnel Temel', icon: 'fas fa-cloud', showFor: ['hub', 'spoke'], warn: null, info: null,
                     fields: [
                         { name: 'tun_num', why: "Tunnel numarası yereldir ama hub ve spoke'ta aynı tutmak sorun gidermeyi ciddi kolaylaştırır. Numara değiştirmek çalışan tüneli anında düşürür.",  label: 'Tunnel Numarası',  type: 'text', required: true, placeholder: '0',                       hint: 'Tunnel arayüz numarası' },
-                        { name: 'tun_ip', why: "DMVPN'de hub ve tüm spoke'lar <b>aynı</b> tünel alt ağında olmalı. /30 vermek ya da farklı bloklar seçmek spoke-to-spoke kısayollarını tamamen bozar.",   label: 'Tunnel IP / Mask', type: 'text', validate: 'ip_mask', required: true, placeholder: '10.100.0.1 255.255.255.0', hint: 'Tunnel interface IP adresi' },
+                        { name: 'tun_ip', why: "DMVPN'de hub ve tüm spoke'lar <b>aynı</b> tünel alt ağında olmalı. /30 vermek ya da farklı bloklar seçmek spoke-to-spoke kısayollarını tamamen bozar.",   label: 'Tunnel IP / Mask', type: 'text', validate: 'ip_mask', required: true, placeholder: '10.64.0.1 255.255.255.0', hint: 'Tunnel interface IP adresi' },
                         { name: 'wan_iface', why: "Tünelin kaynak arayüzü. Dinamik IP alan bir hatta <code>tunnel source</code> olarak arayüz adını kullan, IP'yi değil — IP değişince tünel kalıcı olarak down kalır.",label: 'WAN Interface',    type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0',       hint: 'Tunnel kaynağı (fiziksel WAN)' },
                         { name: 'nhrp_id', why: "NHRP network-id tüm DMVPN üyelerinde <b>aynı</b> olmalı. Farklı olması spoke'ların hub'ı bulamamasına yol açar.",  label: 'NHRP Network-ID', type: 'text', required: true, placeholder: '1',                        hint: 'NHRP network ID' },
                         { name: 'nhrp_key', why: 'NHRP kimlik doğrulaması olmadan, tünel ağına katılan herhangi bir cihaz sahte eşleme kaydedebilir.', label: 'NHRP Auth Key',   type: 'text', required: true, placeholder: 'cisco123',                 hint: 'NHRP kimlik doğrulama anahtarı' }
@@ -1904,7 +1904,7 @@ CiscoIOS.dmvpn = {
                     title: 'Spoke — NHS Bilgileri', icon: 'fas fa-sitemap', showFor: ['spoke'], warn: null, info: null,
                     fields: [
                         { name: 'hub_wan', why: "Hub'ın sabit dış IP'si. Spoke'lar dinamik IP alabilir ama hub'ın IP'si sabit olmalıdır.", label: 'Hub WAN IP (NHS)',    type: 'text', required: true, placeholder: '203.0.113.1', hint: 'Hub fiziksel WAN IP' },
-                        { name: 'hub_tun', why: "NHS adresi hub'ın <b>tünel</b> IP'sidir, genel IP'si değil. İkisini karıştırmak NHRP kaydının hiç tamamlanmamasına ve spoke'ların hub'ı bulamamasına yol açar.", label: 'Hub Tunnel IP (NHS)', type: 'text', required: true, placeholder: '10.100.0.1',  hint: 'Hub tunnel IP' }
+                        { name: 'hub_tun', why: "NHS adresi hub'ın <b>tünel</b> IP'sidir, genel IP'si değil. İkisini karıştırmak NHRP kaydının hiç tamamlanmamasına ve spoke'ların hub'ı bulamamasına yol açar.", label: 'Hub Tunnel IP (NHS)', type: 'text', required: true, placeholder: '10.64.0.1',  hint: 'Hub tunnel IP' }
                     ]
                 },
                 {
@@ -1944,9 +1944,9 @@ CiscoIOS.dmvpn = {
             }
             c += ' tunnel key ' + nhrpId + '\n!\n\n';
             if (routing === 'ospf') {
-                c += '! OSPF — Tunnel interface area 0\'a ekle:\n! router ospf 1\n!  network 10.100.0.0 0.0.0.255 area 0\n\n';
+                c += '! OSPF — Tunnel interface area 0\'a ekle:\n! router ospf 1\n!  network 10.64.0.0 0.0.0.255 area 0\n\n';
             } else if (routing === 'eigrp') {
-                c += '! EIGRP:\n! router eigrp 100\n!  network 10.100.0.0 0.0.0.255\n\n';
+                c += '! EIGRP:\n! router eigrp 100\n!  network 10.64.0.0 0.0.0.255\n\n';
             }
             c += '! Doğrulama:\n! show dmvpn\n! show ip nhrp\n! show interface Tunnel' + tunNum + '\n';
             return c;

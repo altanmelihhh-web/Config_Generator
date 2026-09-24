@@ -27,7 +27,11 @@ Dell.general = {
                     fields: [
                         { name: 'vlan', why: "VLAN ID karşı uçtaki trunk'ta izinli değilse arayüz <b>up</b> görünür ama trafik geçmez. OS10'da VLAN interface ayrıca <code>no shutdown</code> edilmediği sürece L3 çalışmaz.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'Layer 2 VLAN numarası' },
                         { name: 'wan_ip', why: "Bu adres alt cihazların gateway'i olur; ağda ikinci kez kullanılırsa duplicate address oluşur, ARP tablosu sürekli değişir ve trafik aralıklarla kesilir.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'SVI / WAN IP adresi' },
-                        { name: 'subnet', why: "Maske karşı uçla birebir aynı olmalıdır; farklı maskeler aynı fiziksel segmentteki hostların bir kısmını uzak ağ saydırır ve bu cihazlar sessizce erişilemez hâle gelir.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Noktalı ondalık subnet maskesi' },
+                        { name: 'ip_on', why: 'Aynı IP iki arayüze verilemez; OS10 ikinci satırı çakışma nedeniyle reddeder.', label: 'IP Hangi Arayüzde', type: 'select', options: [
+                            { value: 'svi', label: 'VLAN arayüzü (SVI)', selected: true },
+                            { value: 'wan', label: 'WAN portu (routed)' }
+                        ]},
+                        { name: 'subnet', why: "Maske karşı uçla birebir aynı olmalıdır; farklı maskeler aynı fiziksel segmentteki hostların bir kısmını uzak ağ saydırır ve bu cihazlar sessizce erişilemez hâle gelir.", label: 'Subnet Mask', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.255.0', hint: 'OS10\'a CIDR olarak yazılır (255.255.255.0 → /24)' },
                         { name: 'gw', why: "Varsayılan rota bu adrese kurulur. Gateway doğrudan bağlı bir subnet içinde değilse OS10 rotayı aktif etmez ve cihaz hiçbir uzak ağa ulaşamaz.", label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.254', hint: 'Varsayılan ağ geçidi IP adresi' }
                     ]
                 },
@@ -35,7 +39,7 @@ Dell.general = {
                     title: 'Interface Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "Port aralığı yazarken OS10 söz dizimine uyun (<code>ethernet 1/1/1-1/1/10</code>); yanlışlıkla uplink dâhil edilirse trunk access'e döner ve uzaktan yönetim anında kopar.", label: 'LAN Arayüzü (port aralığı)', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/1/1-1/1/4', hint: 'Access VLAN atanacak port aralığı' },
+                        { name: 'iface', why: "Port aralığı yazarken OS10 söz dizimine uyun (<code>ethernet 1/1/1-1/1/10</code>); yanlışlıkla uplink dâhil edilirse trunk access'e döner ve uzaktan yönetim anında kopar.", label: 'LAN Arayüzü (port aralığı)', type: 'text', validate: 'iface_range', required: true, placeholder: 'ethernet1/1/1-1/1/4', hint: 'Access VLAN atanacak port aralığı' },
                         { name: 'wan_iface', why: "WAN portu <code>no switchport</code> ile L3 moda alınmalıdır; switchport olarak kalan bir arayüze IP verilemez ve konfigürasyon sessizce etkisiz kalır.", label: 'WAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/1/5', hint: 'IP adresi atanacak WAN portu' }
                     ]
                 }
@@ -50,10 +54,16 @@ Dell.general = {
             c += 'configure terminal\n\n';
             c += '# Hostname\nhostname ' + hn + '\n\n';
             c += '# VLAN\nvlan ' + vlan + '\n name VLAN_' + vlan + '\n!\n';
-            c += 'interface vlan ' + vlan + '\n ip address ' + wanIp + ' ' + subnet + '\n no shutdown\n!\n\n';
-            c += '# Default Gateway\nip route 0.0.0.0 0.0.0.0 ' + gw + '\n\n';
-            c += '# WAN Interface\ninterface ' + wanIface + '\n ip address ' + wanIp + ' ' + subnet + '\n no shutdown\n!\n\n';
-            c += '# LAN Port — VLAN Access\ninterface range ' + iface + '\n switchport mode access\n switchport access vlan ' + vlan + '\n no shutdown\n!\n\n';
+            // OS10 IP'yi CIDR ile yazar (canli config: 'ip address A.B.C.D/24'); ayni IP iki arayuze verilmez.
+            const cidr = wanIp + '/' + cgMaskLen(subnet), onWan = data.ip_on === 'wan';
+            c += 'interface vlan ' + vlan + '\n' + (onWan ? '' : ' ip address ' + cidr + '\n') + ' no shutdown\n!\n\n';
+            // Canli config bicimi: 'ip route 0.0.0.0/0 <gw>'
+            c += '# Default Gateway\nip route 0.0.0.0/0 ' + gw + '\n\n';
+            c += '# WAN Interface\ninterface ' + wanIface + '\n' + (onWan ? ' no switchport\n ip address ' + cidr + '\n' : '') + ' no shutdown\n!\n\n';
+            // 'interface range' bicimi dogrulanmadi; portlar tek tek yazilir
+            c += '# LAN Portlari — VLAN Access\n';
+            cgExpandIfList(iface).forEach(i => { c += 'interface ' + i + '\n switchport mode access\n switchport access vlan ' + vlan + '\n no shutdown\n!\n'; });
+            c += '\n';
             c += 'end\n\n';
             c += '# Doğrulama:\n# show running-configuration\n# show vlan ' + vlan + '\n# show interfaces ' + wanIface + '\n# show ip route\n';
             return c;
@@ -110,7 +120,7 @@ ExtremeNet.general = {
             const aPorts = cgEsc(data.access_ports || ''), uPorts = cgEsc(data.uplink_ports || '');
             let c = '# ========================================\n# Extreme Networks ExtremeXOS — General Configuration\n# ========================================\n';
             c += '# NOT: ExtremeXOS VLAN-centric model kullanır.\n# Portlar VLAN\'a atanır (Cisco\'nun tersi).\n\n';
-            c += '# Hostname\nset system name "' + hn + '"\n\n';
+            c += '# Hostname (EXOS: configure snmp sysName)\nconfigure snmp sysName "' + hn + '"\n\n';
             c += '# VLAN Oluştur\ncreate vlan "' + vname + '" tag ' + vid + '\n\n';
             c += '# Access Portları VLAN\'a Untagged Ekle\nconfigure vlan "' + vname + '" add ports ' + aPorts + ' untagged\n\n';
             c += '# Uplink Portu VLAN\'a Tagged Ekle\nconfigure vlan "' + vname + '" add ports ' + uPorts + ' tagged\n\n';
@@ -787,7 +797,7 @@ Dell.syslog = {
             topic: {
                 icon: 'fas fa-file-alt',
                 title: 'Dell OS10 — Syslog',
-                desc: 'Merkezi log sunucusuna syslog iletimi. Severity seviyesi, facility ve kaynak arayüz yapılandırması.'
+                desc: 'Merkezi log sunucusuna syslog iletimi ve gönderilecek en düşük seviye (OS10: logging server IP severity log-*).'
             },
             sections: [
                 {
@@ -804,32 +814,19 @@ Dell.syslog = {
                             { value: 'notifications', label: 'notifications (5)' },
                             { value: 'informational', label: 'informational (6)' },
                             { value: 'debugging', label: 'debugging (7)' }
-                        ]},
-                        { name: 'facility', why: "Facility, syslog sunucusunda log'ların hangi dosyaya ve kurala düşeceğini belirler; yanlış seçim log'ların yazılmış ama <b>aranan yerde görünmüyor</b> olmasına neden olur.", label: 'Facility', type: 'select', options: [
-                            { value: 'local0', label: 'local0' },
-                            { value: 'local1', label: 'local1' },
-                            { value: 'local2', label: 'local2' },
-                            { value: 'local3', label: 'local3' },
-                            { value: 'local4', label: 'local4', selected: true },
-                            { value: 'local5', label: 'local5' },
-                            { value: 'local6', label: 'local6' },
-                            { value: 'local7', label: 'local7' }
-                        ]},
-                        { name: 'src_iface', why: "Kaynak arayüz sabitlenmezse aynı cihaz syslog sunucusunda farklı IP'lerle birden fazla host gibi görünür; korelasyon ve sunucu tarafındaki filtreler bozulur.", label: 'Source Interface', type: 'text', validate: 'iface', optional: true, placeholder: 'ManagementEthernet1/1/1', hint: 'Syslog paketleri için kaynak arayüz' }
+                        ]}
                     ]
                 }
             ],
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
             const syslogServer = cgEsc(data.syslog_server || ''), severity = cgEsc(data.severity || 'warnings');
-            const facility = cgEsc(data.facility || 'local4'), srcIface = cgEsc(data.src_iface || '');
-            let c = '# ========================================\n# Dell OS10 — Syslog\n# ========================================\n\n';
+                        let c = '# ========================================\n# Dell OS10 — Syslog\n# ========================================\n\n';
             c += 'configure terminal\n\n';
-            c += 'logging server ' + syslogServer + '\n';
-            c += 'logging level ' + severity + '\n';
-            c += 'logging facility ' + facility + '\n';
-            if (srcIface) c += 'logging source-interface ' + srcIface + '\n';
-            c += 'logging on\n\n';
+            // Canli config bicimi (4 cihaz): 'logging server <IP> severity <log-*>'. 'logging level/facility/on'
+            // OS10'da dogrulanmadigi icin kaldirildi.
+            const sevMap = { emergencies: 'log-emerg', alerts: 'log-alert', critical: 'log-crit', errors: 'log-err', warnings: 'log-warning', notifications: 'log-notice', informational: 'log-info', debugging: 'log-debug' };
+            c += 'logging server ' + syslogServer + ' severity ' + (sevMap[severity] || 'log-info') + '\n';
             c += 'end\n\n';
             c += '# Doğrulama:\n# show logging\n# show running-configuration logging\n';
             return c;
@@ -954,6 +951,1460 @@ Dell.stormControl = {
             ifaces.forEach(iface => {
                 c += '# show storm-control interface ' + iface + '\n';
             });
+            return c;
+        });
+    }
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Dell OS10 — ek araçlar (AAA, STP, VRF, statik rota, LLDP, mirroring, VRRP,
+// arayüz, breakout, iSCSI, sertleştirme)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// 'ethernet1/1/1, ethernet1/1/3-1/1/4' → ['ethernet1/1/1','ethernet1/1/3','ethernet1/1/4']
+// Aralık sözdizimi ('interface range') yerine her arayüz ayrı blok olarak yazılır;
+// böylece OS10 sürümleri arasındaki range yazım farkına bağımlı kalınmaz.
+function _otherDellIfList(s) {
+    const out = [];
+    String(s || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean).forEach(p => {
+        const m = p.match(/^([A-Za-z-]+)(\d+)\/(\d+)\/(\d+)-(?:(\d+)\/(\d+)\/)?(\d+)$/);
+        if (m && (!m[5] || (m[5] === m[2] && m[6] === m[3])) && +m[7] >= +m[4] && +m[7] - +m[4] < 128) {
+            for (let i = +m[4]; i <= +m[7]; i++) out.push(m[1] + m[2] + '/' + m[3] + '/' + i);
+        } else {
+            out.push(p);
+        }
+    });
+    return out.map(x => cgEsc(x));
+}
+
+// OS10 VLAN listesi: '10 20 30-40' → '10,20,30-40'
+function _otherDellVlanList(s) {
+    return String(s || '').trim().split(/[,\s]+/).filter(Boolean).join(',');
+}
+
+// Boşluk içeren açıklamalar tırnaklanır (dellemc.os10 os10_interface şablonu gibi)
+function _otherDellDesc(s) {
+    const t = String(s || '').replace(/"/g, '').trim();
+    if (!t) return '';
+    return /\s/.test(t) ? '"' + cgEsc(t) + '"' : cgEsc(t);
+}
+
+// ── Dell OS10: AAA / Kullanıcı / Parola Politikası ───────────────────────────
+// Sözdizimi: canlı config (username/role/priv-lvl 5 cihaz; aaa authentication
+//   login default/console local 5 cihaz; password-attributes lockout-period /
+//   max-retry 3 cihaz; ip access-list + line vty / ip access-class 3 cihaz)
+// Sözdizimi: password-attributes min-length / character-restriction —
+//   https://www.dell.com/support/manuals/en-us/smartfabric-os10-emp-partner/os10-scg-10-5-6-x/user-and-credential-management
+// Sözdizimi: tacacs-server/radius-server host … key 0, aaa authentication login default group … local —
+//   https://github.com/ansible-collections/dellemc.os10/tree/master/roles/os10_aaa
+Dell.aaa = {
+    label: 'AAA / Kullanıcı',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-shield',
+                title: 'Dell OS10 — AAA, Yerel Kullanıcı ve Parola Politikası',
+                desc: 'Yerel yönetici hesabı, parola kuralları (uzunluk, kilitleme), TACACS+/RADIUS ile giriş ve VTY erişim listesi.',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            sections: [
+                {
+                    title: 'Yerel Kullanıcı',
+                    icon: 'fas fa-user',
+                    info: 'AAA sunucusu erişilemez olduğunda cihaza bu yerel hesapla girilir; sunucu tabanlı girişte bile en az bir yerel yönetici hesabı bırakın.',
+                    fields: [
+                        { name: 'username', why: "OS10'da <code>admin</code> fabrika hesabıdır ve saldırganların ilk denediği addır; kişiye özel bir yönetici hesabı açıp admin'in parolasını değiştirmek denetim izini de anlamlı kılar.", label: 'Kullanıcı Adı', type: 'text', validate: 'objname', required: true, placeholder: 'netadmin01', hint: 'Harfle başlar; boşluk içermez' },
+                        { name: 'password', why: "Parola aşağıdaki <code>password-attributes</code> kurallarına uymazsa OS10 komutu reddeder ve hesap hiç oluşmaz. Config dosyasında hash'lenmiş görünür ama yapıştırılan metin düz yazıdır — ekran paylaşırken dikkat.", label: 'Parola', type: 'text', required: true, placeholder: 'Str0ng!Passw0rd', hint: 'Düz metin; cihaz kaydederken hash\'ler' },
+                        { name: 'role', why: "<code>sysadmin</code> tüm yetkilere sahiptir (Linux kabuğu dahil). Yalnız ağ ayarı yapacak personele <code>netadmin</code>, yalnız izleme yapacaklara <code>netoperator</code> vermek yanlışlıkla sistem ayarı değiştirilmesini önler.", label: 'Rol', type: 'select', options: [
+                            { value: 'sysadmin', label: 'sysadmin — tam yetki' },
+                            { value: 'netadmin', label: 'netadmin — ağ yapılandırma', selected: true },
+                            { value: 'secadmin', label: 'secadmin — güvenlik/AAA' },
+                            { value: 'netoperator', label: 'netoperator — salt okunur' }
+                        ]},
+                        { name: 'priv_lvl', why: "Privilege level, rol içinde hangi komut setinin açık olacağını belirler. Boş bırakılırsa rolün varsayılan seviyesi kullanılır; 15 vermek rolün tüm komutlarını açar.", label: 'Privilege Level (priv-lvl)', type: 'text', min: 0, max: 15, placeholder: '15', hint: '0-15; boş = rol varsayılanı' }
+                    ]
+                },
+                {
+                    title: 'Parola Politikası',
+                    icon: 'fas fa-key',
+                    fields: [
+                        { name: 'min_len', why: "OS10 varsayılanı 9 karakterdir. Kısa parolalar kaba kuvvet saldırısına dayanmaz; ancak politikayı sıkılaştırdıktan sonra mevcut kısa parolalı hesaplar bir sonraki değişiklikte reddedilir.", label: 'Minimum Parola Uzunluğu', type: 'text', min: 6, max: 32, placeholder: '12', hint: '6-32 (password-attributes min-length)' },
+                        { name: 'complex', why: "Büyük/küçük harf, rakam ve özel karakterin her birinden en az bir tane istemek sözlük saldırılarını büyük ölçüde etkisizleştirir.", label: 'Karmaşıklık zorunlu (büyük, küçük, rakam, özel karakter)', type: 'checkbox', checked: true },
+                        { name: 'lockout', why: "Belirtilen sayıda hatalı denemeden sonra hesap bu süre (dakika) boyunca kilitlenir; kaba kuvvet denemelerini yavaşlatır. Çok uzun tutmak, parolayı yanlış giren yöneticinin arıza anında dışarıda kalmasına yol açar.", label: 'Kilitleme Süresi (dakika)', type: 'text', validate: 'posint', placeholder: '30', hint: 'password-attributes lockout-period' },
+                        { name: 'max_retry', why: "Kilitlemeden önce izin verilen hatalı deneme sayısı. Kilitleme süresi tanımlı değilse tek başına etkisizdir.", label: 'Maksimum Hatalı Deneme', type: 'text', validate: 'posint', placeholder: '5', hint: 'password-attributes max-retry' }
+                    ]
+                },
+                {
+                    title: 'Kimlik Doğrulama Yöntemi',
+                    icon: 'fas fa-server',
+                    warn: 'Konsol girişi her durumda <b>local</b> bırakılır; AAA sunucusu çöktüğünde cihaza konsoldan girebilmek için.',
+                    fields: [
+                        { name: 'auth_method', why: "Merkezi AAA ile kim ne zaman girdi kaydı tek yerde tutulur. Listenin sonundaki <code>local</code> yedektir: sunucu erişilemezse yerel hesaplar devreye girer; olmazsa sunucu kesintisi cihazı kilitler.", label: 'VTY/SSH Giriş Yöntemi', type: 'select', options: [
+                            { value: 'local', label: 'Yalnız yerel hesaplar', selected: true },
+                            { value: 'tacacs', label: 'TACACS+ → yerel yedek' },
+                            { value: 'radius', label: 'RADIUS → yerel yedek' }
+                        ]},
+                        { name: 'aaa_server', why: "Sunucu cihazın yönetim ağından erişilebilir olmalı; erişilemezse her girişte zaman aşımı beklenir ve ardından yerel hesaba düşülür.", label: 'AAA Sunucu IP', type: 'text', validate: 'ip', requiredIf: { field: 'auth_method', in: ['tacacs', 'radius'] }, placeholder: '10.0.0.5', hint: 'TACACS+ veya RADIUS sunucusu' },
+                        { name: 'aaa_key', why: "Paylaşılan anahtar sunucudaki istemci tanımıyla birebir aynı olmalı; farklıysa sunucu isteği reddeder ve log'da yalnızca genel bir kimlik doğrulama hatası görünür.", label: 'Paylaşılan Anahtar', type: 'text', requiredIf: { field: 'auth_method', in: ['tacacs', 'radius'] }, placeholder: 'S3cretKey', hint: 'key 0 (düz metin) olarak yazılır' }
+                    ]
+                },
+                {
+                    title: 'VTY Erişim Listesi',
+                    icon: 'fas fa-filter',
+                    warn: 'Uzaktan bağlıysanız kendi yönetim alt ağınızın listede olduğundan emin olun; aksi halde <b>oturumunuz kapanır ve yeniden giremezsiniz</b>.',
+                    fields: [
+                        { name: 'vty_acl', why: "SSH'a yalnız yönetim ağından izin vermek, parola saldırılarının cihaza ulaşmasını en baştan keser.", label: 'VTY erişimini IP ile sınırla', type: 'checkbox', checked: false },
+                        { name: 'acl_name', why: "ACL adı <code>line vty</code> altındaki <code>ip access-class</code> ile eşleşmeli; ad yanlış yazılırsa kısıt uygulanmaz ve bu hata sessiz kalır.", label: 'ACL Adı', type: 'text', validate: 'objname', requiredIf: { field: 'vty_acl', checked: true }, placeholder: 'VTY-MGMT', hint: 'ip access-list adı' },
+                        { name: 'mgmt_net', why: "Yalnız bu alt ağdan gelen SSH oturumları kabul edilir; diğer her şey loglanarak reddedilir.", label: 'İzinli Yönetim Ağı', type: 'text', validate: 'cidr', requiredIf: { field: 'vty_acl', checked: true }, placeholder: '10.0.0.0/24', hint: 'CIDR biçiminde' },
+                        { name: 'mgmt_net2', why: "Yedek yönetim ağı veya atlama sunucusu. Tek ağa bağımlı kalmak, o ağ kesildiğinde cihaza erişimi imkânsız kılar.", label: 'İkinci İzinli Ağ', type: 'text', validate: 'cidr', placeholder: '192.0.2.0/28', hint: 'Opsiyonel' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const user = cgEsc(data.username || ''), pass = cgEsc(data.password || '');
+            const role = cgEsc(data.role || ''), priv = cgEsc(data.priv_lvl || '');
+            const minLen = cgEsc(data.min_len || ''), lockout = cgEsc(data.lockout || ''), maxRetry = cgEsc(data.max_retry || '');
+            const method = data.auth_method || 'local';
+            const srv = cgEsc(data.aaa_server || ''), key = cgEsc(data.aaa_key || '');
+            const aclName = cgEsc(data.acl_name || ''), net1 = cgEsc(data.mgmt_net || ''), net2 = cgEsc(data.mgmt_net2 || '');
+            let c = '# ========================================\n# Dell OS10 — AAA / Kullanıcı / Parola Politikası\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            const cr = data.complex ? 'character-restriction upper 1 lower 1 numeric 1 special-char 1' : '';
+            if (minLen || cr) {
+                c += '# Parola politikası (kullanıcı parolası bu kurallara uymalı)\n';
+                c += 'password-attributes' + (minLen ? ' min-length ' + minLen : '') + (cr ? ' ' + cr : '') + '\n';
+            }
+            if (lockout) c += 'password-attributes lockout-period ' + lockout + '\n';
+            if (maxRetry) c += 'password-attributes max-retry ' + maxRetry + '\n';
+            if (minLen || cr || lockout || maxRetry) c += '\n';
+            c += '# Yerel kullanıcı\n';
+            c += 'username ' + user + ' password ' + pass + ' role ' + role + (priv ? ' priv-lvl ' + priv : '') + '\n\n';
+            if (method === 'tacacs' && srv) {
+                c += '# TACACS+ sunucusu\ntacacs-server host ' + srv + (key ? ' key 0 ' + key : '') + '\n\n';
+            } else if (method === 'radius' && srv) {
+                c += '# RADIUS sunucusu\nradius-server host ' + srv + (key ? ' key 0 ' + key : '') + '\n\n';
+            }
+            c += '# Giriş yöntemi sırası (konsol her zaman yerel)\n';
+            if (method === 'tacacs' && srv) c += 'aaa authentication login default group tacacs+ local\n';
+            else if (method === 'radius' && srv) c += 'aaa authentication login default group radius local\n';
+            else c += 'aaa authentication login default local\n';
+            c += 'aaa authentication login console local\n\n';
+            if (data.vty_acl && aclName && net1) {
+                c += '# VTY erişim listesi\nip access-list ' + aclName + '\n';
+                c += ' seq 10 permit ip ' + net1 + ' any\n';
+                if (net2) c += ' seq 20 permit ip ' + net2 + ' any\n';
+                c += ' seq 100 deny ip any any log\n!\n';
+                c += 'line vty\n ip access-class ' + aclName + '\n!\n\n';
+            }
+            c += 'end\n\n';
+            c += '# Doğrulama:\n# show running-configuration users\n# show running-configuration | grep aaa\n';
+            if (data.vty_acl && aclName) c += '# show running-configuration | grep access-class\n';
+            return c;
+        });
+    }
+};
+
+// ── Dell OS10: Spanning Tree ─────────────────────────────────────────────────
+// Sözdizimi: canlı config (spanning-tree vlan X priority N 4 cihaz;
+//   spanning-tree mst configuration / name / instance N vlan X 2 cihaz;
+//   arayüzde spanning-tree port type edge 32 satır)
+// Sözdizimi: spanning-tree mode rstp|rapid-pvst|mst, spanning-tree rstp priority,
+//   spanning-tree mst N priority, revision, spanning-tree bpduguard enable, spanning-tree guard root —
+//   https://github.com/ansible-collections/dellemc.os10/tree/master/roles/os10_xstp
+//   https://github.com/ipspace/netlab/blob/dev/netsim/ansible/templates/stp/dellos10.j2
+Dell.stp = {
+    label: 'Spanning Tree',
+    init(container) {
+        const prio = [0, 4096, 8192, 12288, 16384, 20480, 24576, 28672, 32768, 36864, 40960, 45056, 49152, 53248, 57344, 61440]
+            .map(p => ({ value: String(p), label: String(p) + (p === 4096 ? ' — kök (root) adayı' : p === 8192 ? ' — yedek kök' : p === 32768 ? ' — varsayılan' : ''), selected: p === 32768 }));
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'Dell OS10 — Spanning Tree (RSTP / Rapid-PVST+ / MST)',
+                desc: 'STP modu, köprü önceliği, MST bölgesi, edge port ve BPDU Guard / Root Guard. OS10 varsayılan modu Rapid-PVST+\'tır.'
+            },
+            configTypes: [
+                { id: 'rpvst', label: 'Rapid-PVST+', icon: 'fas fa-layer-group', desc: 'VLAN başına ayrı ağaç (OS10 varsayılanı)', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'rstp', label: 'RSTP', icon: 'fas fa-bolt', desc: 'Tüm VLAN\'lar için tek ağaç' },
+                { id: 'mst', label: 'MST', icon: 'fas fa-sitemap', desc: 'VLAN gruplarını instance\'lara eşler' }
+            ],
+            sections: [
+                {
+                    title: 'Köprü Önceliği',
+                    icon: 'fas fa-crown',
+                    showFor: ['rpvst', 'rstp'],
+                    fields: [
+                        { name: 'priority', why: "En düşük öncelikli switch kök (root) olur. Hiçbiri ayarlanmazsa kökü en düşük MAC adresli — çoğu zaman en eski ve en yavaş — switch kazanır ve trafik gereksiz yollardan akar.", label: 'Bridge Priority', type: 'select', options: prio },
+                        { name: 'pvst_vlans', why: "Rapid-PVST+'ta öncelik VLAN başına verilir. Listeye girmeyen VLAN'larda bu switch varsayılan önceliğiyle kalır ve kök başka yerde seçilebilir.", label: 'VLAN Listesi', type: 'text', validate: 'vlan_list', requiredIf: { field: '_cgtype', in: ['rpvst'] }, placeholder: '1-4093', hint: 'Rapid-PVST+ için: öncelik uygulanacak VLAN\'lar' }
+                    ]
+                },
+                {
+                    title: 'MST Bölgesi',
+                    icon: 'fas fa-sitemap',
+                    showFor: ['mst'],
+                    warn: 'Bölge adı, revizyon ve VLAN→instance eşlemesi bölgedeki <b>tüm switch\'lerde birebir aynı</b> olmalıdır; tek fark switch\'i ayrı bölge yapar ve beklenmedik port blokajı oluşur.',
+                    fields: [
+                        { name: 'mst_name', why: "Bölge adı uyuşmazsa komşu switch farklı bölgede sayılır; MST o sınırda tek bir CST gibi davranır ve yük paylaşımı bozulur.", label: 'Bölge Adı', type: 'text', validate: 'objname', requiredIf: { field: '_cgtype', in: ['mst'] }, placeholder: 'REGION1', hint: 'name' },
+                        { name: 'mst_rev', why: "Revizyon numarası da bölge kimliğinin parçasıdır; eşlemeyi değiştirdiğinizde tüm switch'lerde birlikte artırın.", label: 'Revizyon', type: 'text', min: 0, max: 65535, placeholder: '1', hint: 'revision (opsiyonel)' },
+                        { name: 'mst_inst', why: "Instance 0 (CIST) her zaman vardır; burada tanımlanan instance VLAN'ları CIST'ten ayırır.", label: 'Instance No', type: 'text', min: 1, max: 63, requiredIf: { field: '_cgtype', in: ['mst'] }, placeholder: '1', hint: 'instance N' },
+                        { name: 'mst_vlans', why: "Eşlenmeyen VLAN'lar instance 0'da kalır. Aynı VLAN iki instance'a verilemez.", label: 'Instance VLAN\'ları', type: 'text', validate: 'vlan_list', requiredIf: { field: '_cgtype', in: ['mst'] }, placeholder: '10,20,30-40', hint: 'instance N vlan …' },
+                        { name: 'mst_prio', why: "Instance bazında öncelik; farklı instance'larda farklı switch'i kök yaparak iki uplink'i birlikte kullanabilirsiniz.", label: 'Instance Önceliği', type: 'select', options: prio }
+                    ]
+                },
+                {
+                    title: 'Port Korumaları',
+                    icon: 'fas fa-shield-alt',
+                    fields: [
+                        { name: 'edge_ports', why: "Edge port, dinleme/öğrenme beklemeden anında forwarding'e geçer; sunucu ve PC portlarında DHCP zaman aşımlarını önler. Başka bir switch'e bağlı porta verilirse <b>döngü</b> riski doğar.", label: 'Edge (uç cihaz) Portları', type: 'text', validate: 'iface_range', placeholder: 'ethernet1/1/1-1/1/4', hint: 'Virgülle ayrılmış; aralık aynı modülde açılır' },
+                        { name: 'bpduguard', why: "Edge porta BPDU gelirse (biri araya switch taktıysa) port err-disable olur. Korumasız edge port, yanlış kablolamada tüm L2 alanını döngüye sokabilir.", label: 'Edge portlarda BPDU Guard', type: 'checkbox', checked: true },
+                        { name: 'root_guard_ports', why: "Root Guard, aşağı yönlü (erişim switch'lerine giden) portlarda daha iyi öncelikli BPDU gelse bile kök rolünün el değiştirmesini engeller; yeni takılan bir switch'in topolojiyi ele geçirmesini önler.", label: 'Root Guard Portları', type: 'text', validate: 'iface_range', placeholder: 'ethernet1/1/48', hint: 'Opsiyonel — aşağı yönlü downlink\'ler' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'rpvst';
+            const pr = cgEsc(data.priority || ''), vlans = cgEsc(_otherDellVlanList(data.pvst_vlans));
+            const mName = cgEsc(data.mst_name || ''), mRev = cgEsc(data.mst_rev || ''), mInst = cgEsc(data.mst_inst || '');
+            const mVlans = cgEsc(_otherDellVlanList(data.mst_vlans)), mPrio = cgEsc(data.mst_prio || '');
+            const edges = _otherDellIfList(data.edge_ports), roots = _otherDellIfList(data.root_guard_ports);
+            let c = '# ========================================\n# Dell OS10 — Spanning Tree\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            if (t === 'rstp') {
+                c += 'spanning-tree mode rstp\n';
+                if (pr) c += 'spanning-tree rstp priority ' + pr + '\n';
+            } else if (t === 'mst') {
+                c += 'spanning-tree mode mst\n';
+                c += 'spanning-tree mst configuration\n';
+                if (mName) c += ' name ' + mName + '\n';
+                if (mRev) c += ' revision ' + mRev + '\n';
+                if (mInst && mVlans) c += ' instance ' + mInst + ' vlan ' + mVlans + '\n';
+                c += '!\n';
+                if (mInst && mPrio) c += 'spanning-tree mst ' + mInst + ' priority ' + mPrio + '\n';
+            } else {
+                c += 'spanning-tree mode rapid-pvst\n';
+                if (pr && vlans) c += 'spanning-tree vlan ' + vlans + ' priority ' + pr + '\n';
+            }
+            c += '\n';
+            edges.forEach(i => {
+                c += 'interface ' + i + '\n spanning-tree port type edge\n';
+                if (data.bpduguard) c += ' spanning-tree bpduguard enable\n';
+                c += '!\n';
+            });
+            roots.forEach(i => { c += 'interface ' + i + '\n spanning-tree guard root\n!\n'; });
+            c += '\nend\n\n';
+            c += '# Doğrulama:\n# show spanning-tree brief\n';
+            c += '# show running-configuration | grep spanning-tree\n';
+            return c;
+        });
+    }
+};
+
+// ── Dell OS10: VRF ────────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (ip vrf default — 6 cihaz)
+// Sözdizimi: arayüzde ip vrf forwarding NAME —
+//   https://github.com/ansible-collections/dellemc.os10/tree/master/roles/os10_vrf
+//   https://github.com/ipspace/netlab/blob/dev/netsim/ansible/templates/initial/dellos10.j2
+Dell.vrf = {
+    label: 'VRF',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Dell OS10 — VRF (ip vrf)',
+                desc: 'Yeni bir VRF oluşturur ve L3 arayüzü bu VRF\'e bağlar. Rota tabloları birbirinden tamamen ayrılır.'
+            },
+            sections: [
+                {
+                    title: 'VRF ve Arayüz',
+                    icon: 'fas fa-network-wired',
+                    warn: '<code>ip vrf forwarding</code> komutu arayüzdeki mevcut IP adresini <b>siler</b>; adres bu yüzden VRF atamasından sonra yeniden yazılır. Yönetimi bu arayüzden yapıyorsanız bağlantı kopar.',
+                    fields: [
+                        { name: 'vrf_name', why: "VRF adı arayüz, statik rota ve yönlendirme protokolü tanımlarında aynı yazılmalı; tek harf farkı yeni ve boş bir VRF'e işaret eder.", label: 'VRF Adı', type: 'text', validate: 'objname', required: true, placeholder: 'TENANT_A', hint: 'Harfle başlar; boşluk yok' },
+                        { name: 'iface', why: "VRF'e bağlanan arayüzün tüm trafiği artık global tabloyu değil bu VRF'in tablosunu kullanır; bu VRF'te rota yoksa arayüz up olsa bile trafik gitmez.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'vlan100', hint: 'vlanN, ethernet1/1/x, port-channelN, loopbackN' },
+                        { name: 'ip', why: "Adres VRF atamasından sonra verilir. Aynı adres farklı VRF'lerde tekrar kullanılabilir — VRF'lerin amacı da budur.", label: 'IP Adresi', type: 'text', validate: 'cidr', placeholder: '10.128.100.1/24', hint: 'Opsiyonel — CIDR' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const vrf = cgEsc(data.vrf_name || ''), iface = cgEsc(data.iface || ''), ip = cgEsc(data.ip || '');
+            let c = '# ========================================\n# Dell OS10 — VRF\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            c += 'ip vrf ' + vrf + '\n!\n\n';
+            c += 'interface ' + iface + '\n';
+            if (/^(ethernet|port-channel)/i.test(iface)) c += ' no switchport\n';
+            c += ' ip vrf forwarding ' + vrf + '\n';
+            if (ip) c += ' ip address ' + ip + '\n';
+            c += ' no shutdown\n!\n\n';
+            c += 'end\n\n';
+            c += '# Doğrulama:\n# show ip vrf\n# show ip route vrf ' + vrf + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Dell OS10: Statik Rota ────────────────────────────────────────────────────
+// Sözdizimi: canlı config (ip route A.B.C.D/N A.B.C.D — 6 cihaz)
+// Sözdizimi: ip route vrf NAME prefix nexthop —
+//   https://github.com/ipspace/netlab/blob/dev/netsim/ansible/templates/routing/dellos10.j2
+Dell.staticRoute = {
+    label: 'Statik Rota',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-directions',
+                title: 'Dell OS10 — Statik Rota',
+                desc: 'Global tabloya veya bir VRF\'e statik rota ekler. OS10 hedefi <b>önek/uzunluk</b> biçiminde bekler (10.0.0.0/8).'
+            },
+            sections: [
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'prefix', why: "OS10 hedef ağı CIDR biçiminde ister; 0.0.0.0/0 varsayılan rotadır. Host biti dolu bir önek (10.0.0.5/24) girilirse rota beklenenden farklı bir ağa kurulabilir.", label: 'Hedef Ağ', type: 'text', validate: 'cidr', required: true, placeholder: '10.64.0.0/16', hint: 'CIDR biçiminde; varsayılan rota için 0.0.0.0/0' },
+                        { name: 'nexthop', why: "Next-hop doğrudan bağlı bir alt ağda olmalı; değilse rota tabloya girmez ve <code>show ip route</code> çıktısında görünmez.", label: 'Next-Hop IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'Doğrudan bağlı komşu adresi' },
+                        { name: 'vrf', why: "VRF belirtilirse rota yalnız o VRF'in tablosuna girer; global tabloda aranmaz. VRF adı <code>ip vrf</code> tanımıyla aynı olmalı.", label: 'VRF', type: 'text', validate: 'objname', placeholder: 'TENANT_A', hint: 'Opsiyonel — boş = global tablo' }
+                    ]
+                },
+                {
+                    title: 'Ek Rotalar',
+                    icon: 'fas fa-list',
+                    fields: [
+                        { name: 'extra', why: "Her satır aynı VRF'e ayrı bir rota olarak eklenir. Biçime uymayan satırlar yazılmaz, çıktıda UYARI olarak işaretlenir.", label: 'Ek Rotalar (her satıra: önek next-hop)', type: 'textarea', placeholder: '172.16.0.0/12 10.0.0.2\n192.168.0.0/16 10.0.0.3', hint: 'Opsiyonel' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const pfx = cgEsc(data.prefix || ''), nh = cgEsc(data.nexthop || ''), vrf = cgEsc(data.vrf || '');
+            const vp = vrf ? 'vrf ' + vrf + ' ' : '';
+            const ipRe = '((25[0-5]|2[0-4]\\d|[01]?\\d\\d?)\\.){3}(25[0-5]|2[0-4]\\d|[01]?\\d\\d?)';
+            const lineRe = new RegExp('^' + ipRe + '\\/(3[0-2]|[12]?\\d)\\s+' + ipRe + '$');
+            let c = '# ========================================\n# Dell OS10 — Statik Rota\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            c += 'ip route ' + vp + pfx + ' ' + nh + '\n';
+            String(data.extra || '').split('\n').map(s => s.trim()).filter(Boolean).forEach(l => {
+                if (lineRe.test(l)) { const p = l.split(/\s+/); c += 'ip route ' + vp + cgEsc(p[0]) + ' ' + cgEsc(p[1]) + '\n'; }
+                else c += '# UYARI: biçime uymayan satır atlandı: ' + cgEsc(l) + '\n';
+            });
+            c += '\nend\n\n';
+            c += '# Doğrulama:\n# show ip route' + (vrf ? ' vrf ' + vrf : '') + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Dell OS10: LLDP ───────────────────────────────────────────────────────────
+// Sözdizimi: lldp enable, lldp timer, lldp holdtime-multiplier, lldp reinit,
+//   arayüzde lldp transmit / lldp receive —
+//   https://github.com/ansible-collections/dellemc.os10/tree/master/roles/os10_lldp
+//   https://github.com/ipspace/netlab/blob/dev/netsim/ansible/templates/initial/dellos10.j2
+Dell.lldp = {
+    label: 'LLDP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-broadcast-tower',
+                title: 'Dell OS10 — LLDP',
+                desc: 'Komşu keşfi için LLDP zamanlayıcıları ve belirli portlarda LLDP\'nin kapatılması (ör. internet/operatör portları).'
+            },
+            sections: [
+                {
+                    title: 'Global Ayarlar',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'timer', why: "LLDP duyuru aralığı (saniye). Çok uzun tutulursa kablo değişikliği komşu tablosuna geç yansır; varsayılan 30 sn çoğu ortam için uygundur.", label: 'Gönderim Aralığı (sn)', type: 'text', min: 5, max: 254, placeholder: '30', hint: '5-254; boş = varsayılan' },
+                        { name: 'hold', why: "Komşu kaydının ömrü = aralık × çarpan. Düşük çarpan geçici paket kaybında komşunun tablodan düşmesine yol açar.", label: 'Holdtime Çarpanı', type: 'text', min: 2, max: 10, placeholder: '4', hint: '2-10; boş = varsayılan' },
+                        { name: 'reinit', why: "Port LLDP kapatılıp açıldığında yeniden başlatmadan önce beklenecek süre; çok kısa tutmak flap eden portlarda gereksiz LLDP trafiği üretir.", label: 'Reinit Gecikmesi (sn)', type: 'text', min: 1, max: 10, placeholder: '2', hint: '1-10; boş = varsayılan' }
+                    ]
+                },
+                {
+                    title: 'LLDP Kapatılacak Portlar',
+                    icon: 'fas fa-eye-slash',
+                    info: 'LLDP; hostname, model, yazılım sürümü ve yönetim IP\'sini karşı tarafa duyurur. Güvenilmeyen ağlara (internet, operatör, misafir) bakan portlarda kapatın.',
+                    fields: [
+                        { name: 'off_ports', why: "Operatör veya müşteri tarafına LLDP göndermek cihaz modeli ve sürümünü dışarıya açıklar; hedefli saldırı için ilk bilgi bu duyurudan toplanır.", label: 'Portlar', type: 'text', validate: 'iface_range', placeholder: 'ethernet1/1/48', hint: 'Opsiyonel — virgülle ayrılmış' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const timer = cgEsc(data.timer || ''), hold = cgEsc(data.hold || ''), reinit = cgEsc(data.reinit || '');
+            const off = _otherDellIfList(data.off_ports);
+            let c = '# ========================================\n# Dell OS10 — LLDP\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            c += 'lldp enable\n';
+            if (timer) c += 'lldp timer ' + timer + '\n';
+            if (hold) c += 'lldp holdtime-multiplier ' + hold + '\n';
+            if (reinit) c += 'lldp reinit ' + reinit + '\n';
+            c += '\n';
+            off.forEach(i => { c += 'interface ' + i + '\n no lldp transmit\n no lldp receive\n!\n'; });
+            c += '\nend\n\n';
+            c += '# Doğrulama:\n# show lldp neighbors\n';
+            return c;
+        });
+    }
+};
+
+// ── Dell OS10: Port Mirroring ─────────────────────────────────────────────────
+// Sözdizimi: canlı config (monitor session N / description / destination interface /
+//   source interface / no shut — 1 cihaz, 3 oturum)
+// Sözdizimi: https://github.com/ansible-collections/dellemc.os10/tree/master/roles/os10_flow_monitor
+Dell.mirror = {
+    label: 'Port Mirroring',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'Dell OS10 — Port Mirroring (monitor session)',
+                desc: 'Yerel SPAN: kaynak portların trafiğini analiz cihazının bağlı olduğu hedef porta kopyalar.'
+            },
+            sections: [
+                {
+                    title: 'Oturum',
+                    icon: 'fas fa-video',
+                    warn: 'Hedef port normal trafik taşımaz; üzerindeki VLAN/IP ayarları etkisiz kalır. Kaynak toplam trafiği hedef port hızını aşarsa kopyalanan paketler <b>düşer</b>.',
+                    fields: [
+                        { name: 'session', why: "Oturum numarası cihazdaki diğer monitor oturumlarıyla çakışmamalı; mevcut bir numara verilirse o oturumun kaynaklarına ekleme yapılır.", label: 'Oturum No', type: 'text', validate: 'posint', required: true, placeholder: '1', hint: 'monitor session N' },
+                        { name: 'desc', why: "Açıklama, oturumun kim tarafından ve neden açıldığını gösterir; unutulan SPAN oturumları analiz portunu aylarca meşgul eder.", label: 'Açıklama', type: 'text', placeholder: 'IDS_TAP', hint: 'Opsiyonel' },
+                        { name: 'sources', why: "Kaynak portlardan hem giden hem gelen trafik kopyalanır. Uplink'i kaynak yapmak hedef portu kolayca doyurur.", label: 'Kaynak Portlar', type: 'text', validate: 'iface_range', required: true, placeholder: 'ethernet1/1/1,ethernet1/1/2', hint: 'Virgülle ayrılmış' },
+                        { name: 'dest', why: "Hedef port kaynak listesinde olmamalı ve bir port-channel üyesi olmamalıdır; aksi halde oturum etkinleşmez.", label: 'Hedef Port', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/1/36', hint: 'Analiz cihazının bağlı olduğu port' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const sid = cgEsc(data.session || ''), desc = _otherDellDesc(data.desc), dest = cgEsc(data.dest || '');
+            const src = _otherDellIfList(data.sources);
+            let c = '# ========================================\n# Dell OS10 — Port Mirroring\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            c += 'monitor session ' + sid + '\n';
+            if (desc) c += ' description ' + desc + '\n';
+            c += ' destination interface ' + dest + '\n';
+            src.forEach(s => { c += ' source interface ' + s + '\n'; });
+            c += ' no shut\n!\n\n';
+            c += 'end\n\n';
+            c += '# Doğrulama:\n# show monitor session ' + sid + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Dell OS10: VRRP ───────────────────────────────────────────────────────────
+// Sözdizimi: vrrp version 3, vrrp-group N, virtual-address, priority, no preempt,
+//   advertise-interval centisecs —
+//   https://github.com/ansible-collections/dellemc.os10/tree/master/roles/os10_vrrp
+//   https://github.com/ipspace/netlab/blob/dev/netsim/ansible/templates/gateway/dellos10.j2
+Dell.vrrp = {
+    label: 'VRRP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-random',
+                title: 'Dell OS10 — VRRP',
+                desc: 'İki switch arasında sanal gateway adresi. VLT çiftlerinde OS10 VRRP\'yi varsayılan olarak active-active çalıştırır.'
+            },
+            sections: [
+                {
+                    title: 'Arayüz',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'iface', why: "VRRP genellikle SVI (<code>vlanN</code>) üzerinde çalışır. Arayüzün kendi fiziksel IP'si olmadan VRRP grubu başlamaz.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'vlan10', hint: 'vlanN veya L3 port' },
+                        { name: 'real_ip', why: "Her switch'in bu arayüzde kendine ait, sanal adresten farklı bir IP'si olmalı; iki switch'e aynı gerçek IP verilirse ARP çakışması olur.", label: 'Arayüz IP (gerçek)', type: 'text', validate: 'cidr', placeholder: '10.128.10.2/24', hint: 'Opsiyonel — zaten tanımlıysa boş bırakın' },
+                        { name: 'v3', why: "OS10 varsayılan olarak VRRPv2 kullanır. İki uç farklı sürümdeyse birbirinin ilanlarını anlamaz ve ikisi birden master olur.", label: 'VRRPv3 kullan (global)', type: 'checkbox', checked: false }
+                    ]
+                },
+                {
+                    title: 'VRRP Grubu',
+                    icon: 'fas fa-users',
+                    fields: [
+                        { name: 'group', why: "Grup numarası (VRID) iki switch'te aynı olmalı ve aynı VLAN'daki başka bir VRRP/HSRP grubuyla çakışmamalı; çakışma sanal MAC'in iki cihazdan duyurulmasına neden olur.", label: 'Grup No (VRID)', type: 'text', min: 1, max: 255, required: true, placeholder: '10', hint: '1-255' },
+                        { name: 'vip', why: "Sanal IP host'ların varsayılan gateway'idir ve arayüz alt ağında olmalıdır. Grup, sanal adres girilene kadar ilan göndermez.", label: 'Sanal IP', type: 'text', validate: 'ip', required: true, placeholder: '10.128.10.1', hint: 'virtual-address' },
+                        { name: 'priority', why: "Yüksek öncelikli switch master olur (varsayılan 100). Master olması istenen tarafta 100'ün üstünde bir değer verin.", label: 'Öncelik', type: 'text', min: 1, max: 254, placeholder: '110', hint: 'Opsiyonel; boş = 100' },
+                        { name: 'preempt', why: "Preempt açıkken öncelikli switch geri geldiğinde master rolünü geri alır. Kapatırsanız trafik, arıza sonrası yedek switch'te kalır — bazen istenen budur (gereksiz ikinci kesintiyi önler).", label: 'Preempt (öncelikli cihaz rolü geri alsın)', type: 'checkbox', checked: true },
+                        { name: 'adv', why: "İlan aralığı iki uçta aynı olmalı. Kısaltmak arıza algılamayı hızlandırır ama CPU yükü altında gereksiz master değişimlerine yol açabilir.", label: 'İlan Aralığı (centisaniye)', type: 'text', min: 25, max: 4075, placeholder: '100', hint: 'Opsiyonel — 25\'in katları; 100 = 1 sn' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const iface = cgEsc(data.iface || ''), rip = cgEsc(data.real_ip || '');
+            const grp = cgEsc(data.group || ''), vip = cgEsc(data.vip || ''), prio = cgEsc(data.priority || ''), adv = cgEsc(data.adv || '');
+            let c = '# ========================================\n# Dell OS10 — VRRP\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            if (data.v3) c += 'vrrp version 3\n\n';
+            c += 'interface ' + iface + '\n';
+            if (rip) c += ' ip address ' + rip + '\n';
+            c += ' vrrp-group ' + grp + '\n';
+            c += '  virtual-address ' + vip + '\n';
+            if (prio) c += '  priority ' + prio + '\n';
+            if (!data.preempt) c += '  no preempt\n';
+            if (adv) c += '  advertise-interval centisecs ' + adv + '\n';
+            c += ' no shutdown\n!\n\n';
+            c += 'end\n\n';
+            c += '# Doğrulama:\n# show vrrp brief\n# show vrrp ' + grp + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Dell OS10: Arayüz ─────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (description 6 cihaz; mtu 3 cihaz; flowcontrol receive/transmit
+//   on|off 5 cihaz; switchport mode trunk / switchport access vlan /
+//   switchport trunk allowed vlan 6 cihaz; no switchport 5 cihaz; speed 1 cihaz;
+//   spanning-tree port type edge; no shutdown)
+// Sözdizimi: switchport mode access, shutdown —
+//   https://github.com/ansible-collections/dellemc.os10/tree/master/roles/os10_interface
+Dell.iface = {
+    label: 'Arayüz',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-ethernet',
+                title: 'Dell OS10 — Fiziksel Arayüz',
+                desc: 'Port açıklaması, MTU, hız, flow control, access/trunk/routed mod ve yönetimsel durum.'
+            },
+            sections: [
+                {
+                    title: 'Portlar ve Temel Ayarlar',
+                    icon: 'fas fa-plug',
+                    fields: [
+                        { name: 'ports', why: "Aynı ayar listedeki tüm portlara ayrı ayrı yazılır. Uplink veya yönetim portunu yanlışlıkla listeye katmak bağlantıyı anında koparabilir.", label: 'Port(lar)', type: 'text', validate: 'iface_range', required: true, placeholder: 'ethernet1/1/1-1/1/4', hint: 'Virgülle ayrılmış; aralık aynı modülde açılır' },
+                        { name: 'desc', why: "Açıklama, <code>show interface status</code> çıktısında portun neye bağlı olduğunu söyleyen tek bilgidir; açıklamasız portlar arıza anında yanlış kabloya müdahale edilmesine yol açar.", label: 'Açıklama', type: 'text', placeholder: 'ESX01_vmnic0', hint: 'Opsiyonel' },
+                        { name: 'mtu', why: "OS10'da MTU L2 başlığını da içerir (jumbo için 9216). Uç ile switch MTU'su uyuşmazsa küçük paketler geçer, büyükler sessizce düşer — iSCSI/vMotion gibi trafik rastgele yavaşlar.", label: 'MTU', type: 'text', min: 1312, max: 9216, placeholder: '9216', hint: 'Opsiyonel; 1312-9216' },
+                        { name: 'speed', why: "Hız sabitlenirse karşı uçta da aynı sabit hız olmalıdır; bir uç auto diğeri sabitse link kalkmaz veya half-duplex'e düşer.", label: 'Hız', type: 'select', options: [
+                            { value: '', label: '(dokunma — varsayılan)', selected: true },
+                            { value: 'auto', label: 'auto' },
+                            { value: '1000', label: '1000 (1G)' },
+                            { value: '10000', label: '10000 (10G)' },
+                            { value: '25000', label: '25000 (25G)' },
+                            { value: '40000', label: '40000 (40G)' },
+                            { value: '100000', label: '100000 (100G)' }
+                        ]},
+                        { name: 'fc_rx', why: "Receive flow control açıkken switch karşıdan gelen PAUSE çerçevelerine uyar. Depolama (iSCSI) portlarında önerilir; genel veri portlarında bir yavaş cihaz tüm portu duraklatabilir.", label: 'Flow Control Receive', type: 'select', options: [
+                            { value: '', label: '(dokunma)', selected: true },
+                            { value: 'on', label: 'on' },
+                            { value: 'off', label: 'off' }
+                        ]},
+                        { name: 'fc_tx', why: "Transmit flow control switch'in kendisinin PAUSE göndermesidir; yanlış kullanımda tıkanıklık ağ boyunca yayılır (head-of-line blocking).", label: 'Flow Control Transmit', type: 'select', options: [
+                            { value: '', label: '(dokunma)', selected: true },
+                            { value: 'on', label: 'on' },
+                            { value: 'off', label: 'off' }
+                        ]}
+                    ]
+                },
+                {
+                    title: 'Port Modu',
+                    icon: 'fas fa-exchange-alt',
+                    fields: [
+                        { name: 'mode', why: "Access tek VLAN taşır, trunk birden çok etiketli VLAN. Routed (<code>no switchport</code>) portu L3 yapar ve üzerindeki tüm VLAN üyeliklerini siler — geri dönüşte bu üyelikler elle yeniden girilmelidir.", label: 'Mod', type: 'select', options: [
+                            { value: '', label: '(dokunma)', selected: true },
+                            { value: 'access', label: 'Access' },
+                            { value: 'trunk', label: 'Trunk' },
+                            { value: 'routed', label: 'Routed (no switchport)' }
+                        ]},
+                        { name: 'access_vlan', why: "Access VLAN switch'te tanımlı değilse port trafik taşımaz. VLAN 1'i kullanıcı trafiği için kullanmaktan kaçının.", label: 'Access VLAN', type: 'text', validate: 'vlan', requiredIf: { field: 'mode', in: ['access'] }, placeholder: '10', hint: 'switchport access vlan' },
+                        { name: 'trunk_vlans', why: "İzinli listeyi daraltmak broadcast alanını küçültür. Karşı uçta izinli olmayan VLAN'lar bu port üzerinden geçemez.", label: 'Trunk İzinli VLAN\'lar', type: 'text', validate: 'vlan_list', requiredIf: { field: 'mode', in: ['trunk'] }, placeholder: '10,20,30-40', hint: 'switchport trunk allowed vlan' },
+                        { name: 'routed_ip', why: "Routed port kendi alt ağına sahip olmalı; aynı alt ağı bir SVI'da da kullanmak OS10'da reddedilir.", label: 'IP Adresi', type: 'text', validate: 'cidr', requiredIf: { field: 'mode', in: ['routed'] }, placeholder: '10.0.12.1/30', hint: 'Routed mod için' },
+                        { name: 'edge', why: "Sunucu/PC portunu STP edge yapmak linkin anında forwarding'e geçmesini sağlar. Switch'e bağlı portta açmayın.", label: 'STP edge port', type: 'checkbox', checked: false },
+                        { name: 'admin', why: "Kullanılmayan portları kapalı tutmak yetkisiz cihaz takılmasını engeller.", label: 'Yönetimsel Durum', type: 'select', options: [
+                            { value: 'up', label: 'no shutdown — açık', selected: true },
+                            { value: 'down', label: 'shutdown — kapalı' }
+                        ]}
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const ports = _otherDellIfList(data.ports);
+            const desc = _otherDellDesc(data.desc), mtu = cgEsc(data.mtu || ''), speed = cgEsc(data.speed || '');
+            const fcRx = cgEsc(data.fc_rx || ''), fcTx = cgEsc(data.fc_tx || ''), mode = data.mode || '';
+            const av = cgEsc(data.access_vlan || ''), tv = cgEsc(_otherDellVlanList(data.trunk_vlans)), rip = cgEsc(data.routed_ip || '');
+            let c = '# ========================================\n# Dell OS10 — Arayüz\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            ports.forEach(p => {
+                c += 'interface ' + p + '\n';
+                if (desc) c += ' description ' + desc + '\n';
+                if (mode === 'access') {
+                    c += ' switchport mode access\n';
+                    if (av) c += ' switchport access vlan ' + av + '\n';
+                } else if (mode === 'trunk') {
+                    c += ' switchport mode trunk\n';
+                    if (tv) c += ' switchport trunk allowed vlan ' + tv + '\n';
+                } else if (mode === 'routed') {
+                    c += ' no switchport\n';
+                    if (rip) c += ' ip address ' + rip + '\n';
+                }
+                if (mtu) c += ' mtu ' + mtu + '\n';
+                if (speed) c += ' speed ' + speed + '\n';
+                if (fcRx) c += ' flowcontrol receive ' + fcRx + '\n';
+                if (fcTx) c += ' flowcontrol transmit ' + fcTx + '\n';
+                if (data.edge && mode !== 'routed') c += ' spanning-tree port type edge\n';
+                c += (data.admin === 'down' ? ' shutdown' : ' no shutdown') + '\n!\n';
+            });
+            c += '\nend\n\n';
+            c += '# Doğrulama:\n# show interface status\n';
+            return c;
+        });
+    }
+};
+
+// ── Dell OS10: Breakout / Port-Group ──────────────────────────────────────────
+// Sözdizimi: canlı config (interface breakout 1/1/N map 100g-1x — 2 cihaz;
+//   port-group 1/1/N / mode Eth 25g-4x — 3 cihaz)
+// Sözdizimi: map / mode değerleri (10g-4x, 25g-4x, 40g-1x, 50g-2x, 100g-1x) —
+//   https://github.com/ansible-collections/dellemc.os10/tree/master/roles/os10_interface (fanout)
+//   https://www.dell.com/support/manuals/en-us/dell-emc-smartfabric-os10/smartfabric-os-user-guide-10-5-2-6/unified-port-groups
+Dell.breakout = {
+    label: 'Breakout / Port-Group',
+    init(container) {
+        const maps = [
+            { value: '10g-4x', label: '10g-4x — 4 × 10G' },
+            { value: '25g-4x', label: '25g-4x — 4 × 25G', selected: true },
+            { value: '40g-1x', label: '40g-1x — 1 × 40G' },
+            { value: '50g-2x', label: '50g-2x — 2 × 50G' },
+            { value: '100g-1x', label: '100g-1x — 1 × 100G (bölünmemiş)' }
+        ];
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-code-branch',
+                title: 'Dell OS10 — Breakout / Port-Group Modu',
+                desc: 'QSFP portunu alt portlara böler (ör. 100G → 4×25G). Model tipine göre <code>interface breakout</code> veya <code>port-group</code> kullanılır.'
+            },
+            configTypes: [
+                { id: 'breakout', label: 'interface breakout', icon: 'fas fa-cut', desc: 'Port başına breakout (S4100/S5200 uplink, Z9 serisi)', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'portgroup', label: 'port-group', icon: 'fas fa-th', desc: 'Port grubu profili (S5200 unified port-group)' }
+            ],
+            sections: [
+                {
+                    title: 'Breakout',
+                    icon: 'fas fa-cut',
+                    showFor: ['breakout'],
+                    warn: 'Breakout değişikliği porttaki <b>tüm arayüz ayarlarını siler</b>; yeni alt portlar (ör. ethernet1/1/25:1) sıfır config ile gelir. Canlı trafik taşıyan portta bakım penceresinde yapın.',
+                    fields: [
+                        { name: 'bo_port', why: "Port numarası slot/modül/port biçimindedir (1/1/25); başına 'ethernet' yazılmaz. Yanlış porta uygulanan breakout o portun bağlantısını keser.", label: 'Port (1/1/N)', type: 'text', requiredIf: { field: '_cgtype', in: ['breakout'] }, placeholder: '1/1/25', hint: 'interface breakout <port>' },
+                        { name: 'bo_map', why: "Seçilen mod takılı optik/DAC kablo ile uyumlu olmalı; 4×25G modu 4×10G breakout kablosuyla link kaldırmaz.", label: 'Breakout Modu', type: 'select', options: maps }
+                    ]
+                },
+                {
+                    title: 'Port-Group',
+                    icon: 'fas fa-th',
+                    showFor: ['portgroup'],
+                    warn: 'Port-group modu gruptaki <b>bütün portları birlikte</b> değiştirir ve üzerlerindeki ayarları siler.',
+                    fields: [
+                        { name: 'pg_id', why: "Port-group numarası modele göre sabittir; hangi fiziksel portların bu gruba ait olduğunu <code>show port-group</code> ile önceden kontrol edin.", label: 'Port-Group (1/1/N)', type: 'text', requiredIf: { field: '_cgtype', in: ['portgroup'] }, placeholder: '1/1/1', hint: 'port-group <id>' },
+                        { name: 'pg_mode', why: "Grup modu tüm üye portların hızını belirler; tek bir 10G cihaz için grubu 10G'ye almak gruptaki 25G sunucu bağlantılarını da düşürür.", label: 'Mod (Eth)', type: 'select', options: maps }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'breakout';
+            let c = '# ========================================\n# Dell OS10 — Breakout / Port-Group\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            if (t === 'portgroup') {
+                const id = cgEsc(data.pg_id || ''), mode = cgEsc(data.pg_mode || '');
+                if (id) c += 'port-group ' + id + '\n mode Eth ' + mode + '\n!\n\n';
+                c += 'end\n\n# Doğrulama:\n# show port-group\n# show interface status\n';
+            } else {
+                const port = cgEsc(data.bo_port || ''), map = cgEsc(data.bo_map || '');
+                if (port) {
+                    c += 'interface breakout ' + port + ' map ' + map + '\n\n';
+                    if (/-[24]x$/.test(map)) c += '# Yeni alt portlar: ethernet' + port + ':1 … :' + map.slice(-2, -1) + '\n\n';
+                }
+                c += 'end\n\n# Doğrulama:\n# show interface status\n';
+            }
+            return c;
+        });
+    }
+};
+
+// ── Dell OS10: iSCSI Optimizasyonu ────────────────────────────────────────────
+// Sözdizimi: canlı config (iscsi enable 3 cihaz; iscsi target port 860/3260 6 cihaz;
+//   default mtu 9216 4 cihaz; flowcontrol receive on, mtu 9216, spanning-tree port type edge)
+// Sözdizimi: iscsi session-monitoring enable —
+//   https://www.dell.com/support/manuals/en-us/dell-emc-smartfabric-os10/smartfabric-os-user-guide-10-5-3/configure-iscsi-optimization
+Dell.iscsi = {
+    label: 'iSCSI',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-hdd',
+                title: 'Dell OS10 — iSCSI Optimizasyonu',
+                desc: 'iSCSI oturum algılama ve depolama portları için jumbo MTU, flow control ve edge port ayarı. 860 ve 3260 hedef portları OS10\'da varsayılan olarak tanımlıdır.'
+            },
+            sections: [
+                {
+                    title: 'Global iSCSI',
+                    icon: 'fas fa-database',
+                    fields: [
+                        { name: 'enable', why: "iSCSI optimizasyonu OS10'da elle açılmalıdır; kapalıyken switch iSCSI oturumlarını tanımaz ve depolama trafiğine öncelik uygulanmaz.", label: 'iSCSI optimizasyonunu aç (iscsi enable)', type: 'checkbox', checked: true },
+                        { name: 'target_port', why: "Depolama dizisi standart dışı bir TCP portu kullanıyorsa bu port eklenmezse oturumlar algılanmaz. 860 ve 3260 zaten varsayılandır, tekrar yazmaya gerek yok.", label: 'Ek Hedef TCP Portu', type: 'text', validate: 'port', placeholder: '3261', hint: 'Opsiyonel — 860/3260 dışında bir port' },
+                        { name: 'monitor', why: "Oturum izleme, hangi initiator'ın hangi hedefe bağlı olduğunu <code>show iscsi session</code> ile görmenizi sağlar; bağlantı sorunlarında ilk bakılacak yerdir.", label: 'Oturum izlemeyi aç (session-monitoring)', type: 'checkbox', checked: true },
+                        { name: 'def_mtu', why: "Tüm portlar için varsayılan MTU'yu 9216 yapar. Depolama ağında tek bir 1500 MTU'lu port jumbo çerçeveleri düşürür ve iSCSI oturumu kurulur ama veri aktarımı takılır.", label: 'Global varsayılan MTU 9216 (default mtu)', type: 'checkbox', checked: false }
+                    ]
+                },
+                {
+                    title: 'Depolama Portları',
+                    icon: 'fas fa-ethernet',
+                    info: 'Sunucu ve depolama dizisine bakan portlara jumbo MTU, <code>flowcontrol receive on</code> ve STP edge uygulanır.',
+                    fields: [
+                        { name: 'ports', why: "iSCSI kayıpsız ağ ister; flow control ve jumbo MTU uygulanmayan tek bir port, tüm yolda yeniden iletime ve gecikmeye yol açar.", label: 'Portlar', type: 'text', validate: 'iface_range', placeholder: 'ethernet1/1/1-1/1/8', hint: 'Opsiyonel — virgülle ayrılmış' },
+                        { name: 'jumbo', why: "Jumbo çerçeve CPU yükünü ve başlık oranını düşürür; ancak uçtaki NIC ve depolama dizisi de jumbo olmalı.", label: 'Portlara MTU 9216', type: 'checkbox', checked: true }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const tp = cgEsc(data.target_port || ''), ports = _otherDellIfList(data.ports);
+            let c = '# ========================================\n# Dell OS10 — iSCSI Optimizasyonu\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            if (data.def_mtu) c += 'default mtu 9216\n';
+            if (data.enable) c += 'iscsi enable\n';
+            if (tp) c += 'iscsi target port ' + tp + '\n';
+            if (data.monitor) c += 'iscsi session-monitoring enable\n';
+            c += '\n';
+            ports.forEach(p => {
+                c += 'interface ' + p + '\n';
+                if (data.jumbo) c += ' mtu 9216\n';
+                c += ' flowcontrol receive on\n spanning-tree port type edge\n!\n';
+            });
+            c += '\nend\n\n';
+            c += '# Doğrulama:\n# show iscsi\n# show iscsi session\n';
+            return c;
+        });
+    }
+};
+
+// ── Dell OS10: Banner / Hostname / Sertleştirme ───────────────────────────────
+// Sözdizimi: canlı config (hostname 6 cihaz; banner motd ^C … ^C 1 cihaz;
+//   banner login/motd disable 2 cihaz; ip ssh server cipher/mac 1 cihaz)
+// Sözdizimi: exec-timeout (0-3600 sn) —
+//   https://www.dell.com/support/manuals/en-us/smartfabric-os10-emp-partner/smartfabric-os-user-guide-10-5-2/exec-timeout
+// Sözdizimi: banner login (^C ayraçlı) —
+//   https://www.dell.com/support/manuals/en-us/dell-emc-smartfabric-os10/smartfabric-os-user-guide-10-5-2-6/banner-login
+// Sözdizimi: system-user linuxadmin disable —
+//   https://www.dell.com/support/manuals/en-us/smartfabric-os10-emp-partner/os10-scg-10-5-6-x/user-and-credential-management
+Dell.hardening = {
+    label: 'Banner / Sertleştirme',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-lock',
+                title: 'Dell OS10 — Hostname, Banner ve Yönetim Sertleştirme',
+                desc: 'Cihaz adı, yasal uyarı banner\'ı, oturum zaman aşımı, SSH şifreleme kısıtı ve linuxadmin hesabının kapatılması.',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            sections: [
+                {
+                    title: 'Kimlik ve Banner',
+                    icon: 'fas fa-id-card',
+                    fields: [
+                        { name: 'hostname', why: "Hostname prompt'ta ve syslog'da görünür; aynı adlı iki cihaz log korelasyonunu ve yanlış cihaza komut girilmesini kolaylaştırır.", label: 'Hostname', type: 'text', validate: 'hostname', placeholder: 'DELL-LEAF1', hint: 'Opsiyonel' },
+                        { name: 'banner_login', why: "Girişten önce gösterilen yasal uyarı, yetkisiz erişimde hukuki süreç için gereklidir. Uyarı yoksa 'bilmiyordum' savunması geçerli sayılabilir.", label: 'Login Banner Metni', type: 'textarea', placeholder: 'Yetkisiz erisim yasaktir.\nTum islemler kayit altindadir.', hint: 'Opsiyonel; ^C ayracı otomatik eklenir' },
+                        { name: 'banner_motd', why: "MOTD girişten sonra gösterilir; bakım duyurusu veya cihaz rolü için kullanılır. Hassas bilgi (IP planı, parola ipucu) yazmayın.", label: 'MOTD Banner Metni', type: 'textarea', placeholder: 'Bakim penceresi: Pazar 02:00-04:00', hint: 'Opsiyonel' }
+                    ]
+                },
+                {
+                    title: 'Oturum ve SSH',
+                    icon: 'fas fa-terminal',
+                    fields: [
+                        { name: 'exec_timeout', why: "Açık bırakılan bir oturum, masadan kalkan yöneticinin yetkileriyle herkesin kullanımına açıktır. Zaman aşımı tanımlı değilse OS10 oturumu hiç kapatmaz.", label: 'Oturum Zaman Aşımı (sn)', type: 'text', min: 0, max: 3600, placeholder: '600', hint: 'exec-timeout; 0 = kapalı' },
+                        { name: 'ssh_strong', why: "Yalnız AES-CTR/GCM şifreleri ve SHA-2 MAC'lerine izin vermek, eski ve zayıf algoritmalarla (CBC, SHA-1) bağlantı kurulmasını engeller. Çok eski SSH istemcileri bağlanamayabilir.", label: 'SSH\'ı güçlü şifre/MAC ile sınırla', type: 'checkbox', checked: true },
+                        { name: 'linuxadmin_off', why: "<code>linuxadmin</code>, OS10'un altındaki Linux kabuğuna doğrudan erişen fabrika hesabıdır. Kullanılmıyorsa kapatmak, CLI denetiminin tamamen dışında kalan bir giriş yolunu kapatır.", label: 'linuxadmin hesabını kapat', type: 'checkbox', checked: false }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const hn = cgEsc(data.hostname || ''), to = cgEsc(data.exec_timeout || '');
+            const bl = String(data.banner_login || '').replace(/\^C/g, '').replace(/\r/g, '').split('\n').map(l => cgEsc(l.replace(/\s+$/, ''))).filter(l => l.trim());
+            const bm = String(data.banner_motd || '').replace(/\^C/g, '').replace(/\r/g, '').split('\n').map(l => cgEsc(l.replace(/\s+$/, ''))).filter(l => l.trim());
+            let c = '# ========================================\n# Dell OS10 — Banner / Sertleştirme\n# ========================================\n\n';
+            c += 'configure terminal\n\n';
+            if (hn) c += 'hostname ' + hn + '\n\n';
+            if (bl.length) c += 'banner login ^C\n' + bl.join('\n') + '\n^C\n\n';
+            if (bm.length) c += 'banner motd ^C\n' + bm.join('\n') + '\n^C\n\n';
+            if (to) c += 'exec-timeout ' + to + '\n\n';
+            if (data.ssh_strong) {
+                c += '# SSH şifre ve MAC kısıtı\n';
+                c += 'ip ssh server cipher aes256-ctr aes256-gcm@openssh.com aes128-ctr aes128-gcm@openssh.com\n';
+                c += 'ip ssh server mac hmac-sha2-256 hmac-sha2-512\n\n';
+            }
+            if (data.linuxadmin_off) c += '# Linux kabuk hesabını kapat\nsystem-user linuxadmin disable\n\n';
+            c += 'end\n\n';
+            c += '# Doğrulama:\n# show running-configuration | grep banner\n# show running-configuration | grep ssh\n';
+            return c;
+        });
+    }
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Extreme Networks ExtremeXOS (EXOS) — ek araçlar
+// Canlı EXOS config'i yok; sözdizimi Extreme resmi Command Reference'tan
+// (EXOS 16.2, komut başına sayfa) ve ipspace/netlab EXOS şablonlarından
+// (MIT, yalnız sözdizimi referansı) doğrulandı.
+//   EXOS CR: https://documentation.extremenetworks.com/exos_commands_16/EXOS_16_2/EXOS_Commands_All/
+//   netlab : https://github.com/ipspace/netlab/tree/dev/netsim/ansible/templates
+// ══════════════════════════════════════════════════════════════════════════════
+
+const _EXOS_CR = 'https://documentation.extremenetworks.com/exos_commands_16/EXOS_16_2/EXOS_Commands_All/';
+
+// EXOS port listesi: '1-4, 7' → '1-4,7' ; '1:1-1:4' (stack) aynen korunur
+function _otherExosPorts(s) {
+    return String(s || '').trim().split(/[,\s]+/).filter(Boolean).map(p => cgEsc(p)).join(',');
+}
+
+// Sanal yönlendirici seçenekleri (EXOS'ta yönetim portu VR-Mgmt'tedir)
+const _EXOS_VR_OPTS = () => ([
+    { value: 'VR-Mgmt', label: 'VR-Mgmt — yönetim portu (Mgmt) üzerinden', selected: true },
+    { value: 'VR-Default', label: 'VR-Default — ön panel portları / VLAN\'lar' }
+]);
+
+// ── Extreme EXOS: VLAN ────────────────────────────────────────────────────────
+// Sözdizimi: create vlan … tag … description, configure vlan … add ports … tagged|untagged,
+//   configure vlan … delete ports, configure ports … display-string —
+//   _EXOS_CR + r_create-vlan.shtml, r_configure-vlan-add-ports.shtml,
+//   r_configure-vlan-delete-ports.shtml, r_configure-ports-displaystring.shtml
+//   netlab: vlan/exos.j2, initial/exos.vlan.j2
+ExtremeNet.vlan = {
+    label: 'VLAN',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-layer-group',
+                title: 'Extreme EXOS — VLAN',
+                desc: 'EXOS VLAN\'ı adla yönetir: önce VLAN oluşturulur, sonra portlar VLAN\'a <b>tagged</b> veya <b>untagged</b> eklenir.'
+            },
+            sections: [
+                {
+                    title: 'VLAN Tanımı',
+                    icon: 'fas fa-tag',
+                    fields: [
+                        { name: 'vlan_name', why: "Bütün port ve IP komutları VLAN'ı bu adla çağırır. Ad sonraki komutlarda farklı yazılırsa EXOS hata verir ya da yanlış VLAN'a işlem yapılır.", label: 'VLAN Adı', type: 'text', validate: 'objname', required: true, placeholder: 'SERVERS', hint: 'Harfle başlar, en fazla 32 karakter' },
+                        { name: 'vlan_tag', why: "Tag, VLAN'ın kablo üzerindeki 802.1Q kimliğidir ve karşı switch ile aynı olmalı. Tag verilmeyen VLAN'a tagged port eklenemez. Tag 1 fabrika Default VLAN'ına aittir.", label: 'VLAN ID (tag)', type: 'text', min: 2, max: 4094, required: true, placeholder: '100', hint: '2-4094' },
+                        { name: 'vlan_desc', why: "Açıklama <code>show vlan</code> çıktısında görünür; VLAN'ın hangi servise ait olduğunu belgeleyen tek yerdir.", label: 'Açıklama', type: 'text', placeholder: 'Sunucu_ag', hint: 'Opsiyonel — en fazla 64 karakter' }
+                    ]
+                },
+                {
+                    title: 'Port Üyelikleri',
+                    icon: 'fas fa-ethernet',
+                    warn: 'Bir port aynı anda yalnızca <b>bir</b> VLAN\'da untagged olabilir. Port fabrika çıkışında <code>Default</code> VLAN\'da untagged\'dır; önce oradan çıkarılmazsa ekleme reddedilir.',
+                    fields: [
+                        { name: 'untagged', why: "Untagged portlar tek VLAN taşıyan uç cihaz portlarıdır. Port başka bir VLAN'da untagged ise EXOS bu komutu reddeder.", label: 'Untagged Portlar', type: 'text', placeholder: '1-4', hint: 'Opsiyonel — ör. 1-4,7 veya stack\'te 1:1-1:4' },
+                        { name: 'tagged', why: "Tagged portlar trunk/uplink'tir ve aynı anda birden çok VLAN taşır; karşı uç da bu VLAN'ı etiketli beklemelidir.", label: 'Tagged Portlar', type: 'text', placeholder: '49,50', hint: 'Opsiyonel — uplink/trunk' },
+                        { name: 'del_default', why: "Untagged portu Default VLAN'dan çıkarmadan yeni VLAN'a untagged ekleyemezsiniz. Bu seçenek yalnız yukarıdaki untagged portları Default'tan siler.", label: 'Untagged portları önce Default VLAN\'dan çıkar', type: 'checkbox', checked: true },
+                        { name: 'port_label', why: "Display-string, <code>show ports</code> çıktısında portun neye bağlı olduğunu gösterir (en fazla 15 karakter).", label: 'Port Etiketi (display-string)', type: 'text', placeholder: 'ESX01', hint: 'Opsiyonel — untagged portlara uygulanır' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const vn = cgEsc(data.vlan_name || ''), tag = cgEsc(data.vlan_tag || '');
+            const desc = String(data.vlan_desc || '').replace(/"/g, '').trim();
+            const ut = _otherExosPorts(data.untagged), tg = _otherExosPorts(data.tagged);
+            const lbl = cgEsc(String(data.port_label || '').replace(/\s+/g, '_').slice(0, 15));
+            let c = '# ========================================\n# Extreme EXOS — VLAN\n# ========================================\n\n';
+            c += 'create vlan "' + vn + '" tag ' + tag + (desc ? ' description "' + cgEsc(desc) + '"' : '') + '\n\n';
+            if (ut) {
+                if (data.del_default) c += '# Portları Default VLAN\'dan çıkar\nconfigure vlan Default delete ports ' + ut + '\n';
+                c += 'configure vlan ' + vn + ' add ports ' + ut + ' untagged\n';
+                if (lbl) c += 'configure ports ' + ut + ' display-string ' + lbl + '\n';
+                c += '\n';
+            }
+            if (tg) c += 'configure vlan ' + vn + ' add ports ' + tg + ' tagged\n\n';
+            c += 'save configuration\n\n';
+            c += '# Doğrulama:\n# show vlan ' + vn + '\n# show ports information\n';
+            return c;
+        });
+    }
+};
+
+// ── Extreme EXOS: IP Arayüzü (L3 VLAN) ────────────────────────────────────────
+// Sözdizimi: configure vlan … ipaddress, enable ipforwarding vlan …, configure ip-mtu … vlan,
+//   enable loopback-mode vlan — _EXOS_CR + r_configure-vlan-ipaddress.shtml,
+//   r_configure-ipmtu-vlan.shtml, r_enable-loopbackmode-vlan.shtml
+//   netlab: initial/exos.j2
+ExtremeNet.ipIface = {
+    label: 'IP Arayüzü',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-network-wired',
+                title: 'Extreme EXOS — IP Arayüzü (L3 VLAN)',
+                desc: 'EXOS\'ta IP adresi porta değil VLAN\'a verilir. VLAN\'lar arası yönlendirme için VLAN\'da <code>ipforwarding</code> açılmalıdır.'
+            },
+            sections: [
+                {
+                    title: 'VLAN Arayüzü',
+                    icon: 'fas fa-sitemap',
+                    fields: [
+                        { name: 'vlan_name', why: "VLAN önceden oluşturulmuş olmalı; olmayan bir VLAN adına IP verilemez.", label: 'VLAN Adı', type: 'text', validate: 'objname', required: true, placeholder: 'SERVERS', hint: 'Mevcut VLAN' },
+                        { name: 'ip', why: "Bu adres VLAN'daki hostların gateway'idir. Aynı alt ağ başka bir VLAN'da tanımlıysa EXOS ikinci atamayı reddeder.", label: 'IP / Önek', type: 'text', validate: 'cidr', required: true, placeholder: '10.128.100.1/24', hint: 'CIDR biçiminde' },
+                        { name: 'fwd', why: "<code>ipforwarding</code> kapalıyken VLAN'a IP verilse bile cihaz bu VLAN'dan gelen trafiği başka VLAN'a yönlendirmez; yalnızca yönetim adresi gibi davranır.", label: 'IP yönlendirmeyi aç (ipforwarding)', type: 'checkbox', checked: true },
+                        { name: 'ip_mtu', why: "IP MTU, VLAN'daki L3 paket boyutunu belirler. Jumbo açılmamış portlarda 1500'den büyük değer paketlerin parçalanmasına veya düşmesine yol açar.", label: 'IP MTU', type: 'text', min: 1500, max: 9194, placeholder: '9000', hint: 'Opsiyonel — portlarda jumbo-frame açık olmalı' },
+                        { name: 'loopback', why: "Loopback modu, VLAN'da aktif port olmasa bile arayüzü ayakta tutar; router-id ve yönetim adresi için kullanılır.", label: 'Loopback modu (port olmadan da up)', type: 'checkbox', checked: false }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const vn = cgEsc(data.vlan_name || ''), ip = cgEsc(data.ip || ''), mtu = cgEsc(data.ip_mtu || '');
+            let c = '# ========================================\n# Extreme EXOS — IP Arayüzü\n# ========================================\n\n';
+            if (data.loopback) c += 'enable loopback-mode vlan ' + vn + '\n';
+            c += 'configure vlan ' + vn + ' ipaddress ' + ip + '\n';
+            if (data.fwd) c += 'enable ipforwarding vlan ' + vn + '\n';
+            if (mtu) c += 'configure ip-mtu ' + mtu + ' vlan ' + vn + '\n';
+            c += '\nsave configuration\n\n';
+            c += '# Doğrulama:\n# show ipconfig vlan ' + vn + '\n# show vlan ' + vn + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Extreme EXOS: Statik Rota ─────────────────────────────────────────────────
+// Sözdizimi: configure iproute add [ipNetmask] gateway {vr vrname} —
+//   _EXOS_CR + r_configure-iproute-add-ipv4.shtml, r_configure-iproute-add-default.shtml
+ExtremeNet.staticRoute = {
+    label: 'Statik Rota',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-directions',
+                title: 'Extreme EXOS — Statik Rota',
+                desc: '<code>configure iproute add</code> ile statik rota. Gateway doğrudan bağlı bir VLAN alt ağında olmalıdır.'
+            },
+            sections: [
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'prefix', why: "Hedef ağ; 0.0.0.0/0 verilirse varsayılan rota yazılır. Maske yanlışsa rota beklenenden dar veya geniş bir ağı kapsar.", label: 'Hedef Ağ', type: 'text', validate: 'cidr', required: true, placeholder: '10.64.0.0/16', hint: 'CIDR; varsayılan rota için 0.0.0.0/0' },
+                        { name: 'gw', why: "EXOS gateway doğrudan bağlı bir alt ağda değilse 'Gateway is not on directly attached subnet' hatası verir ve rota eklenmez.", label: 'Gateway', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'Doğrudan bağlı next-hop' },
+                        { name: 'vr', why: "Rota yalnız seçilen sanal yönlendiricinin tablosuna girer. Yönetim ağına giden rotalar VR-Mgmt'e, veri trafiği VR-Default'a yazılmalıdır; yanlış VR'a yazılan rota hiç kullanılmaz.", label: 'Sanal Yönlendirici (VR)', type: 'select', options: [
+                            { value: '', label: '(geçerli VR — belirtme)', selected: true },
+                            { value: 'VR-Default', label: 'VR-Default' },
+                            { value: 'VR-Mgmt', label: 'VR-Mgmt' }
+                        ]}
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const pfx = cgEsc(data.prefix || ''), gw = cgEsc(data.gw || ''), vr = cgEsc(data.vr || '');
+            const vrs = vr ? ' vr ' + vr : '';
+            let c = '# ========================================\n# Extreme EXOS — Statik Rota\n# ========================================\n\n';
+            if (pfx === '0.0.0.0/0') c += 'configure iproute add default ' + gw + vrs + '\n';
+            else c += 'configure iproute add ' + pfx + ' ' + gw + vrs + '\n';
+            c += '\nsave configuration\n\n';
+            c += '# Doğrulama:\n# show iproute' + vrs + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Extreme EXOS: OSPF ────────────────────────────────────────────────────────
+// Sözdizimi: configure ospf routerid, create ospf area, configure ospf add vlan … area …
+//   {link-type …} {passive}, configure ospf vlan … cost, enable ospf —
+//   _EXOS_CR + r_configure-ospf-routerid.shtml, r_create-ospf-area.shtml,
+//   r_configure-ospf-add-vlan-area.shtml, r_configure-ospf-add-vlan-area-linktype.shtml, r_enable-ospf.shtml
+//   netlab: ospf/exos.ospfv2.j2
+ExtremeNet.ospf = {
+    label: 'OSPF',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'Extreme EXOS — OSPFv2',
+                desc: 'OSPF, IP adresli VLAN\'lar üzerinde çalışır. Alan 0.0.0.0 varsayılan olarak vardır; diğer alanlar önce oluşturulmalıdır.'
+            },
+            sections: [
+                {
+                    title: 'Süreç',
+                    icon: 'fas fa-cog',
+                    warn: 'Router-ID değişikliği OSPF etkinken yapılırsa komşuluklar yeniden kurulur; ID\'yi <code>enable ospf</code> öncesinde verin.',
+                    fields: [
+                        { name: 'rid', why: "Router-ID alanda benzersiz olmalı. Otomatik bırakılırsa en yüksek arayüz IP'si seçilir ve o IP değiştiğinde komşuluklar kopar.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Genellikle loopback adresi' }
+                    ]
+                },
+                {
+                    title: 'Arayüz (VLAN)',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'vlan_name', why: "OSPF yalnız IP adresli ve ipforwarding açık VLAN'da komşuluk kurar.", label: 'VLAN Adı', type: 'text', validate: 'objname', required: true, placeholder: 'UPLINK1', hint: 'IP adresli VLAN' },
+                        { name: 'area', why: "Alan numarası komşuyla aynı olmalı; farklı alandaki komşular hello paketlerini reddeder ve komşuluk hiç kurulmaz.", label: 'Alan (area)', type: 'text', validate: 'ip', required: true, placeholder: '0.0.0.0', hint: 'Noktalı biçim (0.0.0.0, 0.0.0.1)' },
+                        { name: 'link_type', why: "İki router'ın doğrudan bağlandığı linklerde point-to-point DR/BDR seçimini kaldırır ve yakınsamayı hızlandırır. İki uç aynı tipte olmalı.", label: 'Link Tipi', type: 'select', options: [
+                            { value: '', label: '(varsayılan — auto)', selected: true },
+                            { value: 'point-to-point', label: 'point-to-point' },
+                            { value: 'broadcast', label: 'broadcast' }
+                        ]},
+                        { name: 'passive', why: "Passive VLAN ağını OSPF'e duyurur ama hello göndermez; kullanıcı VLAN'larında yetkisiz bir cihazın OSPF komşusu olmasını engeller.", label: 'Passive (komşuluk kurma, yalnız duyur)', type: 'checkbox', checked: false },
+                        { name: 'cost', why: "Cost, yol seçimini belirler; düşük cost tercih edilir. Tek yönlü değiştirmek asimetrik yönlendirmeye yol açar.", label: 'Cost', type: 'text', min: 1, max: 65535, placeholder: '10', hint: 'Opsiyonel' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const rid = cgEsc(data.rid || ''), vn = cgEsc(data.vlan_name || ''), area = cgEsc(data.area || '');
+            const lt = cgEsc(data.link_type || ''), cost = cgEsc(data.cost || '');
+            let c = '# ========================================\n# Extreme EXOS — OSPFv2\n# ========================================\n\n';
+            c += 'configure ospf routerid ' + rid + '\n';
+            if (area && area !== '0.0.0.0') c += 'create ospf area ' + area + '\n';
+            c += 'configure ospf add vlan ' + vn + ' area ' + area + (lt ? ' link-type ' + lt : '') + (data.passive ? ' passive' : '') + '\n';
+            if (cost) c += 'configure ospf vlan ' + vn + ' cost ' + cost + '\n';
+            c += 'enable ospf\n\n';
+            c += 'save configuration\n\n';
+            c += '# Doğrulama:\n# show ospf\n# show ospf neighbor\n# show ospf interfaces\n# show iproute\n';
+            return c;
+        });
+    }
+};
+
+// ── Extreme EXOS: VRRP ────────────────────────────────────────────────────────
+// Sözdizimi: create vrrp vlan … vrid, configure vrrp vlan … vrid … add|priority|preempt|
+//   dont-preempt|advertisement-interval|version, enable vrrp vlan … vrid —
+//   _EXOS_CR + r_create-vrrp-vlan-vrid.shtml, r_configure-vrrp-vlan-vrid-add-ipaddress.shtml,
+//   r_configure-vrrp-vlan-vrid-priority.shtml, r_configure-vrrp-vlan-vrid-preempt.shtml,
+//   r_configure-vrrp-vlan-vrid-advertisementinterval.shtml, r_enable-vrrp-vrid.shtml
+//   netlab: gateway/exos.j2
+ExtremeNet.vrrp = {
+    label: 'VRRP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-random',
+                title: 'Extreme EXOS — VRRP',
+                desc: 'VLAN üzerinde sanal gateway. VLAN\'ın kendi IP adresi önceden tanımlı olmalıdır.'
+            },
+            sections: [
+                {
+                    title: 'VRRP Örneği',
+                    icon: 'fas fa-users',
+                    fields: [
+                        { name: 'vlan_name', why: "VRRP örneği VLAN'a bağlanır; VLAN'da gerçek IP yoksa örnek başlamaz.", label: 'VLAN Adı', type: 'text', validate: 'objname', required: true, placeholder: 'SERVERS', hint: 'IP adresli VLAN' },
+                        { name: 'vrid', why: "VRID iki switch'te aynı olmalı; aynı VLAN'daki başka bir VRRP grubuyla çakışırsa sanal MAC iki kaynaktan duyurulur.", label: 'VRID', type: 'text', min: 1, max: 255, required: true, placeholder: '10', hint: '1-255' },
+                        { name: 'vip', why: "Sanal IP, host'ların gateway'idir ve VLAN alt ağında olmalı.", label: 'Sanal IP', type: 'text', validate: 'ip', required: true, placeholder: '10.128.100.1', hint: 'Host\'ların gateway adresi' },
+                        { name: 'priority', why: "Yüksek öncelikli switch master olur (varsayılan 100). Sanal IP switch'in kendi IP'si ise öncelik otomatik 255 olur.", label: 'Öncelik', type: 'text', min: 1, max: 254, placeholder: '110', hint: 'Opsiyonel; boş = 100' },
+                        { name: 'preempt', why: "Preempt açıkken öncelikli switch geri geldiğinde master'ı geri alır; kapalıyken trafik yedekte kalır ve ikinci bir kısa kesinti yaşanmaz.", label: 'Preempt', type: 'checkbox', checked: true },
+                        { name: 'adv', why: "İlan aralığı iki uçta aynı olmalı; farklıysa yedek switch master'ı kayıp sanıp ikisi birden master olabilir.", label: 'İlan Aralığı (sn)', type: 'text', min: 1, max: 40, placeholder: '1', hint: 'Opsiyonel' },
+                        { name: 'v3', why: "VRRPv3 hem IPv4 hem IPv6 destekler ve saniye altı ilan aralığına izin verir. İki uç aynı sürümde olmalı.", label: 'VRRPv3 kullan', type: 'checkbox', checked: false }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const vn = cgEsc(data.vlan_name || ''), id = cgEsc(data.vrid || ''), vip = cgEsc(data.vip || '');
+            const pr = cgEsc(data.priority || ''), adv = cgEsc(data.adv || '');
+            const b = 'configure vrrp vlan ' + vn + ' vrid ' + id;
+            let c = '# ========================================\n# Extreme EXOS — VRRP\n# ========================================\n\n';
+            c += 'create vrrp vlan ' + vn + ' vrid ' + id + '\n';
+            if (data.v3) c += b + ' version v3\n';
+            c += b + ' add ' + vip + '\n';
+            if (pr) c += b + ' priority ' + pr + '\n';
+            c += b + (data.preempt ? ' preempt' : ' dont-preempt') + '\n';
+            if (adv) c += b + ' advertisement-interval ' + adv + '\n';
+            c += 'enable vrrp vlan ' + vn + ' vrid ' + id + '\n\n';
+            c += 'save configuration\n\n';
+            c += '# Doğrulama:\n# show vrrp\n# show vrrp vlan ' + vn + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Extreme EXOS: Link Aggregation (LAG) ──────────────────────────────────────
+// Sözdizimi: enable sharing <port> grouping <port_list> {algorithm address-based …} {lacp},
+//   configure sharing <port> lacp activity-mode, configure sharing <port> lacp timeout —
+//   _EXOS_CR + r_enable-sharing-grouping.shtml, r_configure-sharing-lacp-activitymode.shtml,
+//   r_configure-sharing-lacp-timeout.shtml
+//   https://documentation.extremenetworks.com/exos_32.6.3/GUID-F5744EA0-C4D9-4DE8-ACCE-96D3D1EB33A6.shtml
+ExtremeNet.lag = {
+    label: 'Link Aggregation',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-link',
+                title: 'Extreme EXOS — Link Aggregation (sharing)',
+                desc: 'Birden çok portu tek mantıksal port yapar. <b>Master port</b> (listedeki ilk port) LAG\'in kimliğidir; VLAN ve diğer ayarlar bu porta yapılır.'
+            },
+            sections: [
+                {
+                    title: 'LAG Üyeleri',
+                    icon: 'fas fa-ethernet',
+                    warn: 'LAG kurulduktan sonra VLAN üyeliği yalnız <b>master port</b> üzerinden yapılır; üye portları VLAN\'a ayrıca eklemeyin.',
+                    fields: [
+                        { name: 'master', why: "Master port LAG'in kimliğidir ve üye listesinde de yer almalıdır. VLAN, STP ve diğer tüm port komutları bu numarayla yazılır.", label: 'Master Port', type: 'text', required: true, placeholder: '49', hint: 'ör. 49 veya stack\'te 1:49' },
+                        { name: 'members', why: "Üye portlar aynı hızda olmalı. Karşı uçla aynı fiziksel bağlantılar seçilmezse LACP bazı üyeleri gruba almaz ve kapasite fark edilmeden düşer.", label: 'Üye Portlar (master dahil)', type: 'text', required: true, placeholder: '49-50', hint: 'ör. 49-50 veya 1:49,2:49' },
+                        { name: 'mode', why: "LACP karşı uçla müzakere eder ve kablolama hatasında üyeyi gruptan çıkarır. Statik LAG'da bu koruma yoktur; yanlış kablolama döngü veya kara delik yaratır.", label: 'Mod', type: 'select', options: [
+                            { value: 'lacp', label: 'LACP (önerilir)', selected: true },
+                            { value: 'static', label: 'Statik (müzakeresiz)' }
+                        ]},
+                        { name: 'algo', why: "L3_L4, akışları IP ve port bilgisine göre dağıtır; tek bir sunucu-sunucu trafiğinde bile üyeler arasında daha dengeli yük sağlar. L2 yalnız MAC'e bakar.", label: 'Yük Dağıtım Algoritması', type: 'select', options: [
+                            { value: '', label: '(varsayılan — L2)' },
+                            { value: 'L2', label: 'address-based L2' },
+                            { value: 'L3', label: 'address-based L3' },
+                            { value: 'L3_L4', label: 'address-based L3_L4', selected: true }
+                        ]},
+                        { name: 'passive', why: "Passive modda switch LACP başlatmaz, yalnız cevap verir. İki uç da passive ise LAG hiç kurulmaz.", label: 'LACP passive', type: 'checkbox', checked: false },
+                        { name: 'fast', why: "Short timeout ile arızalı üye 3 sn içinde gruptan çıkarılır (varsayılan long: 90 sn). Karşı uç da short beklemelidir.", label: 'LACP timeout short', type: 'checkbox', checked: false }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const m = cgEsc(String(data.master || '').trim()), mem = _otherExosPorts(data.members);
+            const algo = cgEsc(data.algo || ''), lacp = data.mode !== 'static';
+            let c = '# ========================================\n# Extreme EXOS — Link Aggregation\n# ========================================\n\n';
+            c += 'enable sharing ' + m + ' grouping ' + mem + (algo ? ' algorithm address-based ' + algo : '') + (lacp ? ' lacp' : '') + '\n';
+            if (lacp && data.passive) c += 'configure sharing ' + m + ' lacp activity-mode passive\n';
+            if (lacp && data.fast) c += 'configure sharing ' + m + ' lacp timeout short\n';
+            c += '\nsave configuration\n\n';
+            c += '# Doğrulama:\n# show ports sharing\n';
+            if (lacp) c += '# show lacp lag ' + m + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Extreme EXOS: Spanning Tree ───────────────────────────────────────────────
+// Sözdizimi: create stpd, configure stpd … tag, configure stpd … mode dot1d|dot1w,
+//   configure stpd … add vlan … ports all, configure stpd … priority,
+//   configure stpd … ports link-type edge … edge-safeguard enable {bpdu-restrict}, enable stpd —
+//   _EXOS_CR + r_create-stpd.shtml, r_configure-stpd-tag.shtml, r_configure-stpd-mode.shtml,
+//   r_configure-stpd-add-vlan.shtml, r_configure-stpd-priority.shtml,
+//   r_configure-stpd-ports-linktype.shtml, r_enable-stpd.shtml
+ExtremeNet.stp = {
+    label: 'Spanning Tree',
+    init(container) {
+        const prio = [0, 4096, 8192, 12288, 16384, 20480, 24576, 28672, 32768, 36864, 40960, 45056, 49152, 53248, 57344, 61440]
+            .map(p => ({ value: String(p), label: String(p) + (p === 4096 ? ' — kök (root) adayı' : p === 32768 ? ' — varsayılan' : ''), selected: p === 32768 }));
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'Extreme EXOS — Spanning Tree (STPD)',
+                desc: 'EXOS STP\'yi <b>STP domain</b> (STPD) olarak yönetir. Fabrika çıkışında <code>s0</code> domain\'i vardır ama <b>kapalıdır</b>.'
+            },
+            sections: [
+                {
+                    title: 'STP Domain',
+                    icon: 'fas fa-sitemap',
+                    fields: [
+                        { name: 'stpd', why: "Varsayılan s0 domain'i genellikle yeterlidir. Yeni domain açılırsa carrier VLAN tag'i verilmelidir; aksi halde domain etkinleşmez.", label: 'STPD Adı', type: 'text', validate: 'objname', required: true, placeholder: 's0', hint: 'Varsayılan: s0' },
+                        { name: 'new_stpd', why: "Yalnız s0 dışında yeni bir domain kullanacaksanız işaretleyin; mevcut s0 için create komutu hata verir.", label: 'Yeni domain oluştur (create stpd)', type: 'checkbox', checked: false },
+                        { name: 'stpd_tag', why: "Yeni domain'in (s0 dışında bir ad) StpdID'si, domain'e ait carrier VLAN'ın tag'idir; BPDU'lar bu VLAN'da taşınır.", label: 'Carrier VLAN Tag', type: 'text', validate: 'vlan', requiredIf: { field: 'new_stpd', checked: true }, placeholder: '100', hint: 'Yeni domain için zorunlu' },
+                        { name: 'mode', why: "dot1w (RSTP) saniyeler içinde yakınsar; dot1d (klasik STP) 30-50 sn kesintiye yol açar. Komşu switch'ler de uyumlu modda olmalı.", label: 'Mod', type: 'select', options: [
+                            { value: 'dot1w', label: 'dot1w — RSTP (önerilir)', selected: true },
+                            { value: 'dot1d', label: 'dot1d — klasik STP' }
+                        ]},
+                        { name: 'priority', why: "En düşük öncelik kök olur. Çekirdek switch'e düşük öncelik verilmezse kök en düşük MAC'li rastgele bir erişim switch'i olabilir.", label: 'Bridge Priority', type: 'select', options: prio },
+                        { name: 'vlans', why: "STP yalnız domain'e eklenen VLAN'larda çalışır; eklenmeyen VLAN'lardaki döngüler engellenmez.", label: 'Korunacak VLAN Adları', type: 'text', required: true, placeholder: 'SERVERS,USERS', hint: 'Virgülle ayrılmış VLAN adları (tüm portlarıyla eklenir)' }
+                    ]
+                },
+                {
+                    title: 'Edge Portlar',
+                    icon: 'fas fa-shield-alt',
+                    fields: [
+                        { name: 'edge_ports', why: "Edge portlar anında forwarding'e geçer. Edge-safeguard, portta BPDU görülürse onu normal STP portuna çevirerek döngüyü engeller.", label: 'Edge Portlar', type: 'text', placeholder: '1-24', hint: 'Opsiyonel — uç cihaz portları' },
+                        { name: 'bpdu_restrict', why: "BPDU restrict, edge porta BPDU gelince portu tamamen kapatır (BPDU Guard eşdeğeri). Yanlışlıkla takılan switch'ler ağı etkilemez ama port elle açılana kadar kapalı kalır.", label: 'BPDU gelirse portu kapat (bpdu-restrict)', type: 'checkbox', checked: true }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const sd = cgEsc(data.stpd || ''), tag = cgEsc(data.stpd_tag || ''), mode = cgEsc(data.mode || '');
+            const pr = cgEsc(data.priority || ''), edges = _otherExosPorts(data.edge_ports);
+            const vlans = String(data.vlans || '').split(/[,\s]+/).map(v => cgEsc(v.trim())).filter(Boolean);
+            let c = '# ========================================\n# Extreme EXOS — Spanning Tree\n# ========================================\n\n';
+            if (data.new_stpd && sd.toLowerCase() === 's0') {
+                c += '# UYARI: s0 fabrika domain\'idir, yeniden oluşturulmaz — create/tag satırları atlandı\n';
+            } else if (data.new_stpd) {
+                c += 'create stpd ' + sd + '\n';
+                if (tag) c += 'configure stpd ' + sd + ' tag ' + tag + '\n';
+            }
+            c += 'configure stpd ' + sd + ' mode ' + mode + '\n';
+            vlans.forEach(v => { c += 'configure stpd ' + sd + ' add vlan ' + v + ' ports all\n'; });
+            if (pr) c += 'configure stpd ' + sd + ' priority ' + pr + '\n';
+            if (edges) c += 'configure stpd ' + sd + ' ports link-type edge ' + edges + ' edge-safeguard enable' + (data.bpdu_restrict ? ' bpdu-restrict' : '') + '\n';
+            c += 'enable stpd ' + sd + '\n\n';
+            c += 'save configuration\n\n';
+            c += '# Doğrulama:\n# show stpd ' + sd + '\n# show stpd ' + sd + ' ports\n';
+            return c;
+        });
+    }
+};
+
+// ── Extreme EXOS: SNMPv3 ──────────────────────────────────────────────────────
+// Sözdizimi: configure snmp syslocation|syscontact, configure snmpv3 add user … authentication …
+//   privacy …, configure snmpv3 add group … user …, configure snmpv3 add access … sec-level priv
+//   read-view … notify-view …, configure snmpv3 add target-params / target-addr / notify,
+//   disable snmp access snmp-v1v2c —
+//   _EXOS_CR + r_configure-snmp-syslocation.shtml, r_configure-snmp-syscontact.shtml,
+//   r_configure-snmpv3-add-user.shtml, r_configure-snmpv3-add-group-user.shtml,
+//   r_configure-snmpv3-add-access.shtml, r_configure-snmpv3-add-targetparams.shtml,
+//   r_configure-snmpv3-add-targetaddr.shtml, r_configure-snmpv3-add-notify.shtml, r_disable-snmp-access.shtml
+ExtremeNet.snmp = {
+    label: 'SNMPv3',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-eye',
+                title: 'Extreme EXOS — SNMPv3',
+                desc: 'SNMPv3 kullanıcı, grup ve erişim görünümü; opsiyonel trap hedefi ve v1/v2c erişiminin kapatılması.',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            sections: [
+                {
+                    title: 'Sistem Bilgisi',
+                    icon: 'fas fa-info-circle',
+                    fields: [
+                        { name: 'location', why: "sysLocation NMS'te cihazın fiziksel yerini gösterir; arıza anında sahaya doğru kişinin gönderilmesini sağlar.", label: 'Konum (sysLocation)', type: 'text', placeholder: 'DC1-Kabin05', hint: 'Opsiyonel' },
+                        { name: 'contact', why: "sysContact, cihazdan sorumlu ekibi belirtir.", label: 'İletişim (sysContact)', type: 'text', placeholder: 'noc-ekibi', hint: 'Opsiyonel' }
+                    ]
+                },
+                {
+                    title: 'SNMPv3 Kullanıcı',
+                    icon: 'fas fa-user-shield',
+                    fields: [
+                        { name: 'user', why: "Kullanıcı adı NMS tanımıyla birebir aynı olmalı; uyuşmazlıkta sorgular sessizce yanıtsız kalır.", label: 'Kullanıcı Adı', type: 'text', validate: 'objname', required: true, placeholder: 'nmsuser', hint: 'USM kullanıcısı' },
+                        { name: 'group', why: "Grup, kullanıcının hangi MIB görünümünü okuyabileceğini belirler.", label: 'Grup Adı', type: 'text', validate: 'objname', required: true, placeholder: 'NMS_RO', hint: 'Salt okunur izleme grubu' },
+                        { name: 'auth', why: "MD5 artık zayıf kabul edilir; SHA seçin. Protokol NMS ile aynı olmalı.", label: 'Auth Protokolü', type: 'select', options: [
+                            { value: 'sha', label: 'SHA', selected: true },
+                            { value: 'md5', label: 'MD5' }
+                        ]},
+                        { name: 'auth_pass', why: "Auth parolası en az 8 karakter olmalı ve NMS ile eşleşmelidir.", label: 'Auth Parolası', type: 'text', required: true, placeholder: 'AuthPass123', hint: 'En az 8 karakter' },
+                        { name: 'priv', why: "Privacy, SNMP verisini şifreler. DES kırılabilir kabul edilir; AES seçin.", label: 'Privacy Protokolü', type: 'select', options: [
+                            { value: 'aes', label: 'AES-128', selected: true },
+                            { value: 'aes 256', label: 'AES-256' },
+                            { value: 'des', label: 'DES (eski)' }
+                        ]},
+                        { name: 'priv_pass', why: "Privacy parolası tanımlanmazsa trafik şifresiz gider; bu yüzden zorunludur.", label: 'Privacy Parolası', type: 'text', required: true, placeholder: 'PrivPass456', hint: 'En az 8 karakter' }
+                    ]
+                },
+                {
+                    title: 'Trap Hedefi ve Sertleştirme',
+                    icon: 'fas fa-bell',
+                    fields: [
+                        { name: 'trap_host', why: "Trap'ler link düşmesi gibi olayları anında NMS'e bildirir; tanımlanmazsa sorun bir sonraki sorgu döngüsüne kadar fark edilmez.", label: 'Trap Hedefi IP', type: 'text', validate: 'ip', placeholder: '10.0.0.60', hint: 'Opsiyonel — SNMPv3 trap alıcısı' },
+                        { name: 'trap_vr', why: "Trap, NMS'e erişilen sanal yönlendirici üzerinden gönderilmelidir; yönetim portu kullanılıyorsa VR-Mgmt.", label: 'Trap VR', type: 'select', options: _EXOS_VR_OPTS() },
+                        { name: 'no_v12', why: "SNMP v1/v2c community düz metin taşır. v3'e geçtikten sonra kapatılmazsa varsayılan community'ler cihaz bilgisine erişimi açık bırakır.", label: 'SNMP v1/v2c erişimini kapat', type: 'checkbox', checked: true }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const loc = cgEsc(String(data.location || '').replace(/\s+/g, '_')), con = cgEsc(String(data.contact || '').replace(/\s+/g, '_'));
+            const u = cgEsc(data.user || ''), g = cgEsc(data.group || ''), auth = cgEsc(data.auth || '');
+            const ap = cgEsc(data.auth_pass || ''), priv = cgEsc(data.priv || ''), pp = cgEsc(data.priv_pass || '');
+            const th = cgEsc(data.trap_host || ''), tvr = cgEsc(data.trap_vr || '');
+            let c = '# ========================================\n# Extreme EXOS — SNMPv3\n# ========================================\n\n';
+            if (loc) c += 'configure snmp syslocation ' + loc + '\n';
+            if (con) c += 'configure snmp syscontact ' + con + '\n';
+            if (loc || con) c += '\n';
+            c += '# Kullanıcı, grup ve erişim (salt okunur)\n';
+            c += 'configure snmpv3 add user ' + u + ' authentication ' + auth + ' ' + ap + ' privacy ' + priv + ' ' + pp + '\n';
+            c += 'configure snmpv3 add group ' + g + ' user ' + u + ' sec-model usm\n';
+            c += 'configure snmpv3 add access ' + g + ' sec-model usm sec-level priv read-view defaultUserView notify-view defaultNotifyView\n\n';
+            if (th) {
+                c += '# SNMPv3 trap hedefi\n';
+                c += 'configure snmpv3 add target-params NMS_PARAMS user ' + u + ' mp-model snmpv3 sec-model usm sec-level priv\n';
+                c += 'configure snmpv3 add target-addr NMS_TARGET param NMS_PARAMS ipaddress ' + th + (tvr ? ' vr ' + tvr : '') + ' tag-list NMS_TAG\n';
+                c += 'configure snmpv3 add notify NMS_NOTIFY tag NMS_TAG\n\n';
+            }
+            if (data.no_v12) c += '# v1/v2c erişimini kapat\ndisable snmp access snmp-v1v2c\n\n';
+            c += 'save configuration\n\n';
+            c += '# Doğrulama:\n# show snmpv3 user\n# show snmpv3 access\n';
+            if (th) c += '# show snmpv3 target-addr\n';
+            return c;
+        });
+    }
+};
+
+// ── Extreme EXOS: Syslog ──────────────────────────────────────────────────────
+// Sözdizimi: configure syslog add <ip> {vr} <facility>, configure log target syslog … severity …,
+//   configure log target syslog … from <src>, enable log target syslog …, enable syslog —
+//   _EXOS_CR + r_configure-syslog-add.shtml, r_configure-log-target-severity.shtml,
+//   r_configure-log-target-syslog.shtml, r_enable-log-target.shtml, r_enable-syslog.shtml
+//   Önem seviyeleri: https://documentation.extremenetworks.com/exos_31.5/GUID-D3F3B734-61C5-4F78-A6C6-198B56174DE2.shtml
+ExtremeNet.syslog = {
+    label: 'Syslog',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-file-alt',
+                title: 'Extreme EXOS — Syslog',
+                desc: 'Uzak syslog hedefi, önem seviyesi ve kaynak IP. EXOS\'ta her syslog hedefi <b>IP + VR + facility</b> üçlüsüyle tanımlanır.'
+            },
+            sections: [
+                {
+                    title: 'Syslog Hedefi',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'server', why: "Yerel log tamponu sınırlıdır ve yeniden başlatmada kaybolur; uzak syslog olmadan arıza sonrası inceleme yapılamaz.", label: 'Syslog Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.50', hint: 'UDP 514' },
+                        { name: 'vr', why: "Sunucuya erişilen sanal yönlendirici. Yanlış VR seçilirse paketler hiç çıkmaz; hata mesajı da üretilmez.", label: 'VR', type: 'select', options: _EXOS_VR_OPTS() },
+                        { name: 'facility', why: "Facility, syslog sunucusunda log'ların hangi dosyaya/kurala düşeceğini belirler. Sonraki tüm komutlarda aynı facility kullanılmalıdır; hedef IP+VR+facility ile tanımlanır.", label: 'Facility', type: 'select', options: ['local0', 'local1', 'local2', 'local3', 'local4', 'local5', 'local6', 'local7'].map(f => ({ value: f, label: f, selected: f === 'local7' })) },
+                        { name: 'severity', why: "Seçilen seviye ve daha önemlileri gönderilir. EXOS varsayılanı syslog için debug-data'dır; bu, sunucuyu gereksiz log ile doldurur.", label: 'Minimum Önem', type: 'select', options: [
+                            { value: 'critical', label: 'critical' },
+                            { value: 'error', label: 'error' },
+                            { value: 'warning', label: 'warning', selected: true },
+                            { value: 'notice', label: 'notice' },
+                            { value: 'info', label: 'info' }
+                        ]},
+                        { name: 'src', why: "Kaynak IP sabitlenmezse log'lar çıkış arayüzüne göre farklı adreslerden gelir ve sunucudaki filtreler cihazı tanımaz.", label: 'Kaynak IP', type: 'text', validate: 'ip', placeholder: '10.0.0.10', hint: 'Opsiyonel — cihazda tanımlı bir adres' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const ip = cgEsc(data.server || ''), vr = cgEsc(data.vr || ''), fac = cgEsc(data.facility || '');
+            const sev = cgEsc(data.severity || ''), src = cgEsc(data.src || '');
+            const tgt = ip + (vr ? ' vr ' + vr : '') + ' ' + fac;
+            let c = '# ========================================\n# Extreme EXOS — Syslog\n# ========================================\n\n';
+            c += 'configure syslog add ' + tgt + '\n';
+            if (sev) c += 'configure log target syslog ' + tgt + ' severity ' + sev + '\n';
+            if (src) c += 'configure log target syslog ' + tgt + ' from ' + src + '\n';
+            c += 'enable log target syslog ' + tgt + '\n';
+            c += 'enable syslog\n\n';
+            c += 'save configuration\n\n';
+            c += '# Doğrulama:\n# show log configuration target\n';
+            return c;
+        });
+    }
+};
+
+// ── Extreme EXOS: NTP / SNTP ──────────────────────────────────────────────────
+// Sözdizimi: configure sntp-client primary|secondary <ip> {vr}, enable sntp-client,
+//   configure ntp server add <ip>, configure ntp vr, enable ntp,
+//   configure timezone {name} <GMT_offset> noautodst —
+//   _EXOS_CR + r_configure-sntpclient.shtml, r_enable-sntpclient.shtml,
+//   r_configure-ntp-serverpeer-add.shtml, r_configure-ntp-vr.shtml, r_enable-ntp.shtml, r_configure-timezone.shtml
+ExtremeNet.ntp = {
+    label: 'NTP / SNTP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clock',
+                title: 'Extreme EXOS — Zaman Senkronizasyonu',
+                desc: 'EXOS iki istemci sunar: basit <b>SNTP istemcisi</b> (birincil/ikincil sunucu) veya tam <b>NTP</b>. İkisini birlikte kullanmayın.'
+            },
+            configTypes: [
+                { id: 'sntp', label: 'SNTP İstemcisi', icon: 'fas fa-clock', desc: 'Birincil + ikincil sunucu; çoğu erişim switch\'i için yeterli', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'ntp', label: 'NTP', icon: 'fas fa-server', desc: 'Tam NTP istemcisi (çoklu sunucu, kimlik doğrulama desteği)' }
+            ],
+            sections: [
+                {
+                    title: 'Sunucular',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'srv1', why: "Saat kayması log korelasyonunu ve sertifika doğrulamasını bozar; arıza analizinde olay sırası yanlış görünür.", label: 'Birincil Sunucu', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'NTP sunucu IP' },
+                        { name: 'srv2', why: "Tek sunucu tek hata noktasıdır; ikinci kaynak olmadan sunucu bozulduğunda cihaz yanlış saate kaymaya başlar.", label: 'İkincil Sunucu', type: 'text', validate: 'ip', placeholder: '10.0.0.2', hint: 'Opsiyonel' },
+                        { name: 'vr', why: "NTP paketleri sunucuya erişilen VR üzerinden gitmeli. NTP modunda VR değiştirmek için NTP'nin önce kapalı olması gerekir; bu yüzden VR, enable'dan önce yazılır.", label: 'VR', type: 'select', options: _EXOS_VR_OPTS() }
+                    ]
+                },
+                {
+                    title: 'Saat Dilimi',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'tz_offset', why: "EXOS saat dilimini GMT'den <b>dakika</b> farkı olarak alır (Türkiye: +180). Yanlış fark, log'ların saatlerce kaymış görünmesine yol açar.", label: 'GMT Farkı (dakika)', type: 'text', min: -720, max: 780, placeholder: '180', hint: 'Opsiyonel — ör. 180 = UTC+3' },
+                        { name: 'tz_name', why: "Ad yalnız görüntü içindir (show switch çıktısında görünür).", label: 'Saat Dilimi Adı', type: 'text', validate: 'objname', placeholder: 'TRT', hint: 'Opsiyonel' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'sntp';
+            const s1 = cgEsc(data.srv1 || ''), s2 = cgEsc(data.srv2 || ''), vr = cgEsc(data.vr || '');
+            const off = cgEsc(data.tz_offset || ''), tzn = cgEsc(data.tz_name || '');
+            const vrs = vr ? ' vr ' + vr : '';
+            let c = '# ========================================\n# Extreme EXOS — ' + (t === 'ntp' ? 'NTP' : 'SNTP') + '\n# ========================================\n\n';
+            if (off) c += 'configure timezone ' + (tzn ? 'name ' + tzn + ' ' : '') + off + ' noautodst\n\n';
+            if (t === 'ntp') {
+                if (vr) c += 'configure ntp vr ' + vr + '\n';
+                c += 'configure ntp server add ' + s1 + '\n';
+                if (s2) c += 'configure ntp server add ' + s2 + '\n';
+                c += 'enable ntp\n\n';
+                c += 'save configuration\n\n# Doğrulama:\n# show ntp\n# show ntp association\n';
+            } else {
+                c += 'configure sntp-client primary ' + s1 + vrs + '\n';
+                if (s2) c += 'configure sntp-client secondary ' + s2 + vrs + '\n';
+                c += 'enable sntp-client\n\n';
+                c += 'save configuration\n\n# Doğrulama:\n# show sntp-client\n# show switch\n';
+            }
+            return c;
+        });
+    }
+};
+
+// ── Extreme EXOS: Kullanıcı Hesapları / Yönetim Sertleştirme ──────────────────
+// Sözdizimi: create account admin|user <name> <password>,
+//   configure account all password-policy min-length | char-validation all-char-groups |
+//   lockout-on-login-failures on | lockout-time-period, configure idletimeout, enable idletimeout,
+//   disable telnet —
+//   _EXOS_CR + r_create-account.shtml, r_configure-account-passwordpolicy-minlength.shtml,
+//   r_configure-account-passwordpolicy-charvalidation.shtml,
+//   r_configure-account-passwordpolicy-lockoutonloginfailures.shtml,
+//   r_configure-account-password-policy-lockout-time-period.shtml,
+//   r_configure-idletimeout.shtml, r_enable-idletimeout.shtml, r_disable-telnet.shtml
+ExtremeNet.accounts = {
+    label: 'Kullanıcı Hesapları',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-shield',
+                title: 'Extreme EXOS — Kullanıcı Hesapları ve Parola Politikası',
+                desc: 'Yönetici/izleme hesabı, parola politikası, hatalı girişte kilitleme, oturum zaman aşımı ve Telnet\'in kapatılması.',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            sections: [
+                {
+                    title: 'Hesap',
+                    icon: 'fas fa-user',
+                    fields: [
+                        { name: 'level', why: "admin hesabı yazma yetkisine sahiptir; izleme personeline 'user' (salt okunur) verin. Fabrika 'admin' hesabının parolası da mutlaka değiştirilmelidir.", label: 'Seviye', type: 'select', options: [
+                            { value: 'admin', label: 'admin — okuma/yazma', selected: true },
+                            { value: 'user', label: 'user — salt okunur' }
+                        ]},
+                        { name: 'name', why: "Kişiye özel hesap, kimin hangi değişikliği yaptığının log'da görünmesini sağlar; ortak hesap kullanımı denetimi anlamsızlaştırır.", label: 'Hesap Adı', type: 'text', validate: 'objname', required: true, placeholder: 'netadmin01', hint: 'Harfle başlar' },
+                        { name: 'pass', why: "Parola aşağıdaki politikaya uymalı; politika sonradan sıkılaştırılırsa mevcut parolalar bir sonraki değişiklikte kontrol edilir.", label: 'Parola', type: 'text', required: true, placeholder: 'Str0ng!Passw0rd', hint: 'Düz metin; cihaz hash\'leyerek saklar' }
+                    ]
+                },
+                {
+                    title: 'Parola Politikası (tüm hesaplar)',
+                    icon: 'fas fa-key',
+                    fields: [
+                        { name: 'min_len', why: "Kısa parolalar kaba kuvvet saldırısına dayanmaz; en az 12 karakter önerilir.", label: 'Minimum Uzunluk', type: 'text', min: 1, max: 32, placeholder: '12', hint: 'Opsiyonel — 1-32' },
+                        { name: 'complex', why: "Büyük/küçük harf, rakam ve sembol zorunluluğu sözlük saldırılarını etkisizleştirir.", label: 'Tüm karakter gruplarını zorunlu kıl', type: 'checkbox', checked: true },
+                        { name: 'lockout', why: "Ardışık 3 hatalı girişte hesap kilitlenir. Konsol erişimi olmayan uzak sahalarda kilitlenme süresi de tanımlayın, yoksa hesap elle açılana kadar kilitli kalır.", label: 'Hatalı girişte kilitle', type: 'checkbox', checked: true },
+                        { name: 'lock_min', why: "Kilit süresi (dakika). Tanımlanmazsa kilit yalnız yönetici tarafından kaldırılabilir.", label: 'Kilit Süresi (dakika)', type: 'text', min: 1, max: 60, placeholder: '15', hint: 'Opsiyonel — 1-60' }
+                    ]
+                },
+                {
+                    title: 'Oturum Güvenliği',
+                    icon: 'fas fa-terminal',
+                    fields: [
+                        { name: 'idle', why: "Boşta kalan oturum, masadan kalkan yöneticinin yetkileriyle açık kalır. EXOS varsayılanı 20 dakikadır.", label: 'Boşta Zaman Aşımı (dakika)', type: 'text', min: 1, max: 240, placeholder: '10', hint: 'Opsiyonel — 1-240' },
+                        { name: 'no_telnet', why: "Telnet parolaları düz metin taşır ve EXOS'ta varsayılan olarak açıktır. SSH2 çalıştığından emin olmadan kapatırsanız uzaktan erişim kesilir.", label: 'Telnet\'i kapat', type: 'checkbox', checked: true }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const lvl = cgEsc(data.level || ''), nm = cgEsc(data.name || ''), pw = cgEsc(data.pass || '');
+            const ml = cgEsc(data.min_len || ''), lm = cgEsc(data.lock_min || ''), idle = cgEsc(data.idle || '');
+            let c = '# ========================================\n# Extreme EXOS — Kullanıcı Hesapları\n# ========================================\n\n';
+            if (ml || data.complex || data.lockout || lm) {
+                c += '# Parola politikası (tüm hesaplar)\n';
+                if (ml) c += 'configure account all password-policy min-length ' + ml + '\n';
+                if (data.complex) c += 'configure account all password-policy char-validation all-char-groups\n';
+                if (data.lockout) c += 'configure account all password-policy lockout-on-login-failures on\n';
+                if (lm) c += 'configure account all password-policy lockout-time-period ' + lm + '\n';
+                c += '\n';
+            }
+            c += '# Hesap\ncreate account ' + lvl + ' ' + nm + ' ' + pw + '\n\n';
+            if (idle) c += 'configure idletimeout ' + idle + '\nenable idletimeout\n\n';
+            if (data.no_telnet) c += '# UYARI: SSH2 erişimini test etmeden Telnet\'i kapatmayın\ndisable telnet\n\n';
+            c += 'save configuration\n\n';
+            c += '# Doğrulama:\n# show accounts\n# show accounts password-policy\n# show management\n';
             return c;
         });
     }

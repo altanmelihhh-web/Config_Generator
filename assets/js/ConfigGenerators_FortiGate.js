@@ -1527,7 +1527,7 @@ FortiGate.static = {
             topic: {
                 icon: 'fas fa-route',
                 title: 'Static Route (FortiGate)',
-                desc: 'IPv4 statik rota: gateway üzerinden veya blackhole (trafiği düşüren) rota.<br><code>config router static\n  edit 10\n    set dst 10.100.0.0 255.255.0.0\n    set gateway 192.0.2.1\n    set device "port1"\n  next\nend</code>'
+                desc: 'IPv4 statik rota: gateway üzerinden veya blackhole (trafiği düşüren) rota.<br><code>config router static\n  edit 10\n    set dst 10.64.0.0 255.255.0.0\n    set gateway 192.0.2.1\n    set device "port1"\n  next\nend</code>'
             },
             configTypes: [
                 { id: 'gw',        label: 'Gateway Rotası',  icon: 'fas fa-arrow-right', desc: 'Next-hop IP + çıkış arayüzü', badge: { text: 'En Yaygın', cls: 'recommended' } },
@@ -1540,7 +1540,7 @@ FortiGate.static = {
                     icon: 'fas fa-route',
                     fields: [
                         { name: 'seq', why: 'FortiOS statik rotaları sıra numarasıyla (<code>edit N</code>) tutar. Var olan bir numarayı yazarsan o rotanın üzerine yazılır — önce <code>show router static</code> ile boş numara seç.', label: 'Sıra No (seq-num)', type: 'text', required: true, validate: 'posint', placeholder: '10', hint: 'edit numarası' },
-                        { name: 'dst', why: 'Hedef ağ ve maskesi. Varsayılan rota için <code>0.0.0.0 0.0.0.0</code>. Yanlış maske (ör. /16 yerine /24) trafiğin bir kısmını başka rotaya kaçırır.', label: 'Hedef (IP MASK)', type: 'text', required: true, validate: 'ip_mask', placeholder: '10.100.0.0 255.255.0.0', hint: 'Nokta-ondalık: IP MASK' }
+                        { name: 'dst', why: 'Hedef ağ ve maskesi. Varsayılan rota için <code>0.0.0.0 0.0.0.0</code>. Yanlış maske (ör. /16 yerine /24) trafiğin bir kısmını başka rotaya kaçırır.', label: 'Hedef (IP MASK)', type: 'text', required: true, validate: 'ip_mask', placeholder: '10.64.0.0 255.255.0.0', hint: 'Nokta-ondalık: IP MASK' }
                     ]
                 },
                 {

@@ -215,7 +215,7 @@ Juniper.dhcp = {
                     showFor: ['relay'],
                     fields: [
                         { name: 'relay_iface', why: 'Relay, istemci tarafındaki arayüzde çalışır; yanlış arayüzde broadcast DISCOVER paketleri hiç yakalanmaz. Aynı arayüzde relay ile local-server birlikte kullanılamaz.', label: 'Relay Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'ge-0/0/1', hint: 'İstemci tarafındaki arayüz' },
-                        { name: 'relay_server', why: "Harici DHCP sunucusunun adresi. Sunucu tarafında bu cihazın relay (giaddr) adresine dönüş route'u yoksa DISCOVER gider ama OFFER geri dönmez.", label: 'Relay Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.10.10.1', hint: 'Harici DHCP sunucu IP adresi' },
+                        { name: 'relay_server', why: "Harici DHCP sunucusunun adresi. Sunucu tarafında bu cihazın relay (giaddr) adresine dönüş route'u yoksa DISCOVER gider ama OFFER geri dönmez.", label: 'Relay Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.128.10.1', hint: 'Harici DHCP sunucu IP adresi' },
                         { name: 'relay_vrf', why: "Sunucu farklı bir routing-instance içindeyse relay'i o VRF'te tanımlamalısınız; VRF izolasyonu nedeniyle global tabloda tanımlı relay o sunucuya asla ulaşamaz.", label: 'VRF', type: 'text', optional: true, placeholder: 'blue', hint: 'VRF adı (opsiyonel)' }
                     ]
                 }
@@ -1601,7 +1601,7 @@ Juniper.staticroute = {
             topic: {
                 icon: 'fas fa-route',
                 title: 'Juniper JunOS — Static Route',
-                desc: 'Tek next-hop, yedekli (floating — qualified-next-hop) veya discard (blackhole) statik rota.<br><small>Örn: <code>set routing-options static route 10.100.0.0/16 next-hop 10.0.0.2</code> &nbsp;|&nbsp; <code>… qualified-next-hop 10.0.1.2 preference 10</code></small>'
+                desc: 'Tek next-hop, yedekli (floating — qualified-next-hop) veya discard (blackhole) statik rota.<br><small>Örn: <code>set routing-options static route 10.64.0.0/16 next-hop 10.0.0.2</code> &nbsp;|&nbsp; <code>… qualified-next-hop 10.0.1.2 preference 10</code></small>'
             },
             configTypes: [
                 { id: 'nh', label: 'Next-Hop', icon: 'fas fa-arrow-right', desc: 'Tek sonraki atlama', badge: { text: 'En Yaygın', cls: 'recommended' } },
@@ -1613,7 +1613,7 @@ Juniper.staticroute = {
                     title: 'Rota',
                     icon: 'fas fa-route',
                     fields: [
-                        { name: 'prefix', label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.100.0.0/16', hint: 'Default için 0.0.0.0/0', why: 'Ağ adresini yazın (host bitleri sıfır). En uzun eşleşme kazandığı için dar bir prefix (ör. /24) aynı aralığı kapsayan geniş rotayı (ör. /16) o aralık için ezer.' },
+                        { name: 'prefix', label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.64.0.0/16', hint: 'Default için 0.0.0.0/0', why: 'Ağ adresini yazın (host bitleri sıfır). En uzun eşleşme kazandığı için dar bir prefix (ör. /24) aynı aralığı kapsayan geniş rotayı (ör. /16) o aralık için ezer.' },
                         { name: 'nh', label: 'Next-Hop', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['nh', 'float'] }, placeholder: '10.0.0.2', hint: 'Doğrudan bağlı bir subnet içinde olmalı', why: 'Next-hop doğrudan bağlı değilse rota <b>hidden</b> kalır ve trafik akmaz; <code>show route hidden</code> ile görülür.' },
                         { name: 'pref', label: 'Preference', type: 'text', min: 0, max: 4294967295, placeholder: '5', hint: 'Junos statik varsayılanı 5; düşük olan kazanır', why: 'Aynı prefix OSPF/BGP\'den de öğreniliyorsa hangi kaynağın kazanacağını preference belirler. Statik 5, OSPF iç 10, BGP 170 varsayılandır.' },
                         { name: 'no_readv', label: 'Diğer protokollere dağıtma (no-readvertise)', type: 'checkbox', why: 'Yönetim ağına giden statik rotanın export policy ile yanlışlıkla OSPF/BGP\'ye sızmasını engeller.' }
@@ -1892,7 +1892,7 @@ Juniper.policy = {
             topic: {
                 icon: 'fas fa-filter',
                 title: 'Juniper JunOS — Prefix-List & Policy-Statement',
-                desc: 'Prefix-list tanımı ve onu kullanan tek term\'li policy-statement (OSPF/BGP export/import için).<br><small>Örn: <code>set policy-options prefix-list CUSTOMER 10.200.0.0/16</code> &nbsp;|&nbsp; <code>set policy-options policy-statement BGP-OUT term T1 from prefix-list CUSTOMER</code></small>'
+                desc: 'Prefix-list tanımı ve onu kullanan tek term\'li policy-statement (OSPF/BGP export/import için).<br><small>Örn: <code>set policy-options prefix-list CUSTOMER 10.128.0.0/16</code> &nbsp;|&nbsp; <code>set policy-options policy-statement BGP-OUT term T1 from prefix-list CUSTOMER</code></small>'
             },
             sections: [
                 {
@@ -1900,7 +1900,7 @@ Juniper.policy = {
                     icon: 'fas fa-list',
                     fields: [
                         { name: 'pl', label: 'Prefix-List Adı', type: 'text', required: true, placeholder: 'CUSTOMER-NETS', hint: 'Policy içinde bu adla anılır', why: 'Prefix-list hem routing policy\'de hem firewall filter\'da yeniden kullanılabilir; aynı listeyi iki yerde ayrı ayrı yazıp zamanla farklılaşmasını önler.' },
-                        { name: 'pfx', label: 'Prefix\'ler', type: 'text', required: true, placeholder: '10.200.0.0/16, 172.16.0.0/12', hint: 'Virgülle ayrılmış CIDR listesi', why: 'Geçersiz biçimdeki satırlar çıktıda UYARI olarak işaretlenir ve yazılmaz. Boş kalan bir prefix-list\'e başvuran term hiçbir şeyle eşleşmez.' }
+                        { name: 'pfx', label: 'Prefix\'ler', type: 'text', required: true, placeholder: '10.128.0.0/16, 172.16.0.0/12', hint: 'Virgülle ayrılmış CIDR listesi', why: 'Geçersiz biçimdeki satırlar çıktıda UYARI olarak işaretlenir ve yazılmaz. Boş kalan bir prefix-list\'e başvuran term hiçbir şeyle eşleşmez.' }
                     ]
                 },
                 {

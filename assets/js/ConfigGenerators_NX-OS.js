@@ -1501,8 +1501,8 @@ CiscoNXOS.vrf = {
                     fields: [
                         { name: 'tv_name', why: 'VRF adı büyük/küçük harf duyarlıdır; arayüzdeki vrf member adıyla birebir aynı olmalıdır.', label: 'VRF Adı', type: 'text', required: true, placeholder: 'TENANT-A' },
                         { name: 'tv_ifaces', why: 'vrf member komutu arayüzdeki mevcut IP’yi <b>siler</b>. IP’yi VRF atamasından sonra yeniden girin (araç tek arayüzde bunu yapar).', label: 'Üye Arayüzler', type: 'text', validate: 'iface_range', required: true, placeholder: 'Vlan100', hint: 'Virgülle liste' },
-                        { name: 'tv_ip', label: 'Arayüz IP / Prefix', type: 'text', validate: 'cidr', placeholder: '10.100.0.1/24', hint: 'Yalnız tek arayüz girildiğinde uygulanır' },
-                        { name: 'tv_gw', label: 'VRF Varsayılan Rota Next-hop', type: 'text', validate: 'ip', placeholder: '10.100.0.254' }
+                        { name: 'tv_ip', label: 'Arayüz IP / Prefix', type: 'text', validate: 'cidr', placeholder: '10.64.0.1/24', hint: 'Yalnız tek arayüz girildiğinde uygulanır' },
+                        { name: 'tv_gw', label: 'VRF Varsayılan Rota Next-hop', type: 'text', validate: 'ip', placeholder: '10.64.0.254' }
                     ]
                 }
             ],

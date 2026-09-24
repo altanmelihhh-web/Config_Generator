@@ -437,7 +437,7 @@ CiscoFTD.siteToSiteVpn = {
                         { name: 'local_ep', why: "Yerel endpoint, FTD’nin dış arayüz IP’si olmalıdır. FTD NAT arkasındaysa karşı taraf gerçek dış IP’yi görecektir; bu durumda NAT-T ve UDP/4500 açık olmalıdır.", label: 'Local Endpoint (FTD Outside IP)', type: 'text', required: true, validate: 'ip', placeholder: '203.0.113.1', hint: 'Bu FTD cihazının dış IP adresi' },
                         { name: 'remote_ep', why: "Peer IP yanlışsa IKE hiç başlamaz ve FMC olay günlüğünde yalnızca timeout görünür. Dinamik IP’li uçlar için peer IP yerine dinamik topoloji tipi seçilmelidir.", label: 'Remote Endpoint (Peer IP)', type: 'text', required: true, validate: 'ip', placeholder: '198.51.100.1', hint: 'Uzak VPN peer IP adresi' },
                         { name: 'local_net', why: "Yerel ve uzak ağlar iki tarafta <b>ayna</b> tanımlanmalıdır; uyuşmazlık Phase-2’yi düşürür. Ayrıca bu trafiğin NAT’lanmaması için NAT exemption kuralı gerekir.", label: 'Local Network', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.0/24', hint: 'Yerel korunan ağ (CIDR)' },
-                        { name: 'remote_net', why: "Uzak ağ karşı tarafın yerel ağıyla birebir aynı maskede olmalıdır. Örtüşen (overlapping) ağlarda ayrıca çift NAT gerekir, aksi halde trafik yanlış yöne gider.", label: 'Remote Network', type: 'text', validate: 'cidr', required: true, placeholder: '10.10.0.0/24', hint: 'Uzak korunan ağ (CIDR)' }
+                        { name: 'remote_net', why: "Uzak ağ karşı tarafın yerel ağıyla birebir aynı maskede olmalıdır. Örtüşen (overlapping) ağlarda ayrıca çift NAT gerekir, aksi halde trafik yanlış yöne gider.", label: 'Remote Network', type: 'text', validate: 'cidr', required: true, placeholder: '10.128.0.0/24', hint: 'Uzak korunan ağ (CIDR)' }
                     ]
                 },
                 {
@@ -563,5 +563,508 @@ function cgFtdRaVpnGen(data) {
     c += '# 4. AnyConnect Profile bağla (Objects > VPN > AnyConnect File)\n';
     c += '# 5. Interface: outside interface seç\n\n';
     c += '# Doğrulama:\n# > show vpn-sessiondb anyconnect\n# > show vpn-sessiondb summary\n# FMC: Analysis > Users > Active Sessions\n';
+    return c;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Agent Y eklemeleri (2026-09-24). FTD, FMC ile yönetilir: araçlar FMC GUI
+// adımları üretir; FTD CLI (clish) yalnızca doğrulama için kullanılır.
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Cisco FTD: Platform Settings — Syslog ─────────────────────────────────────
+// Sözdizimi: https://www.cisco.com/c/en/us/td/docs/security/secure-firewall/management-center/device-config/740/management-center-device-config-74/interfaces-settings-platform.html
+//            FTD CLI: https://www.cisco.com/c/en/us/td/docs/security/firepower/command_ref/b_Command_Reference_for_Firepower_Threat_Defense.html
+CiscoFTD.platformSyslog = {
+    label: 'Platform Settings: Syslog',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-file-alt',
+                title: 'FTD Platform Settings — Syslog',
+                desc: 'FMC <b>Devices &gt; Platform Settings</b> politikasında syslog: Logging Setup, Syslog Settings, Syslog Servers ve Logging Destinations.'
+            },
+            sections: [
+                {
+                    title: 'Platform Settings Politikası',
+                    icon: 'fas fa-folder',
+                    fields: [
+                        { name: 'ps_policy', label: 'Politika Adı', type: 'text', required: true, placeholder: 'FTD-PLATFORM-DC', hint: 'Threat Defense Settings tipi politika', why: "Bir cihaza aynı anda tek platform settings politikası atanır; mevcut politikayı düzenlemek o politikayı kullanan <b>tüm</b> cihazları etkiler." },
+                        { name: 'ps_device', label: 'Atanacak Cihaz', type: 'text', placeholder: 'FTD-01', hint: 'FMC\'deki cihaz adı', why: "Politika bir cihaza atanmaz ve deploy edilmezse hiçbir ayar cihaza ulaşmaz." }
+                    ]
+                },
+                {
+                    title: 'Logging Setup / Syslog Settings',
+                    icon: 'fas fa-sliders-h',
+                    fields: [
+                        { name: 'sl_buffer', label: 'İç Tampon Boyutu (bayt)', type: 'text', min: 4096, max: 52428800, placeholder: '65536', hint: 'Boşsa varsayılan 4096', why: "Varsayılan tampon çok küçüktür; <code>show logging</code> ile son olaylara bakarken kayıtlar çoktan ezilmiş olur." },
+                        { name: 'sl_timestamp', label: 'Enable Timestamp on Syslog Messages', type: 'checkbox', checked: true, hint: 'Mesajlara zaman damgası', why: "Zaman damgası olmadan olay korelasyonu yapılamaz; saat de NTP ile senkron olmalıdır." },
+                        { name: 'sl_facility', label: 'Facility', type: 'select', options: [
+                            { value: 'LOCAL4(20)', label: 'LOCAL4 (20)', selected: true },
+                            { value: 'LOCAL0(16)', label: 'LOCAL0 (16)' },
+                            { value: 'LOCAL5(21)', label: 'LOCAL5 (21)' },
+                            { value: 'LOCAL6(22)', label: 'LOCAL6 (22)' },
+                            { value: 'LOCAL7(23)', label: 'LOCAL7 (23)' }
+                        ], hint: 'SIEM ayrıştırma kuralıyla aynı', why: "SIEM belirli bir facility bekliyorsa uyuşmazlık logların yanlış kaynağa düşmesine yol açar." },
+                        { name: 'sl_level', label: 'Sunucuya Gönderilecek Seviye', type: 'select', options: [
+                            { value: 'errors', label: 'errors' },
+                            { value: 'warnings', label: 'warnings' },
+                            { value: 'notifications', label: 'notifications' },
+                            { value: 'informational', label: 'informational', selected: true },
+                            { value: 'debugging', label: 'debugging' }
+                        ], hint: 'Logging Destinations > Syslog Servers', why: "Bağlantı olayları FMC'ye ayrıca gider; ancak LINA seviyesindeki bağlantı/NAT kayıtları (302013 vb.) SIEM'e ancak informational ile ulaşır." }
+                    ]
+                },
+                {
+                    title: 'Syslog Sunucusu',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'sl_ip', label: 'Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.50', hint: 'FMC\'de Host nesnesi olarak seçilir', why: "FMC sunucuyu nesne olarak ister; yoksa önce Objects &gt; Object Management &gt; Network altında Host nesnesi oluşturun." },
+                        { name: 'sl_proto', label: 'Protocol', type: 'select', options: [
+                            { value: 'UDP', label: 'UDP', selected: true },
+                            { value: 'TCP', label: 'TCP' }
+                        ], hint: 'Taşıma protokolü', why: "TCP seçildiğinde sunucu erişilemezse, 'Allow user traffic to pass when TCP syslog server is down' kapalıysa yeni bağlantılar engellenir." },
+                        { name: 'sl_port', label: 'Port', type: 'text', validate: 'port', placeholder: '514', hint: 'Boşsa FMC varsayılanı', why: "Sunucu standart dışı portta dinliyorsa burada belirtilmelidir." },
+                        { name: 'sl_allow_down', label: 'Allow user traffic to pass when TCP syslog server is down', type: 'checkbox', checked: true, hint: 'Yalnız TCP için anlamlı', why: "Kapalıysa TCP syslog sunucusunun arızası tüm yeni kullanıcı trafiğini durdurur." },
+                        { name: 'sl_reach', label: 'Reachable By', type: 'select', options: [
+                            { value: 'mgmt', label: 'Device Management Interface', selected: true },
+                            { value: 'zone', label: 'Security Zones or Named Interface' }
+                        ], hint: 'Syslog trafiğinin çıkacağı arayüz', why: "Yüksek syslog hacminde (Cisco kılavuzu: 50.000 mesaj/sn üzeri) management yerine veri arayüzü kullanılmalıdır." },
+                        { name: 'sl_zone', label: 'Zone / Arayüz Adı', type: 'text', requiredIf: { field: 'sl_reach', in: ['zone'] }, placeholder: 'INSIDE_ZONE', hint: 'Veri arayüzü seçildiyse', why: "Seçilen zone'daki arayüzden sunucuya route olmalıdır; aksi halde loglar gönderilmez." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFtdPsSyslogGen(data));
+    }
+};
+function cgFtdPsSyslogGen(data) {
+    const pol = cgEsc(data.ps_policy || ''), dev = cgEsc(data.ps_device || '');
+    const buf = cgEsc(data.sl_buffer || ''), fac = cgEsc(data.sl_facility || ''), lvl = cgEsc(data.sl_level || '');
+    const ip = cgEsc(data.sl_ip || ''), proto = cgEsc(data.sl_proto || 'UDP'), port = cgEsc(data.sl_port || '');
+    const reach = cgEsc(data.sl_reach || 'mgmt'), zone = cgEsc(data.sl_zone || '');
+    let c = '# ========================================\n# Cisco FTD — Platform Settings: Syslog\n# ========================================\n';
+    c += '# FMC: Devices > Platform Settings\n\n';
+    c += '# 1. New Policy > Threat Defense Settings\n#    Name: ' + pol + '\n';
+    if (dev) c += '#    Available Devices > ' + dev + ' > Add\n';
+    c += '#    Save\n\n';
+    c += '# 2. Syslog > Logging Setup\n#    [x] Enable Logging\n';
+    if (buf) c += '#    Internal Buffer Memory Size: ' + buf + '\n';
+    c += '\n# 3. Syslog > Syslog Settings\n#    Facility: ' + fac + '\n';
+    if (data.sl_timestamp) c += '#    [x] Enable Timestamp on Syslog Messages\n';
+    c += '\n# 4. Syslog > Syslog Servers\n';
+    if (proto === 'TCP') c += '#    ' + (data.sl_allow_down ? '[x]' : '[ ]') + ' Allow user traffic to pass when TCP syslog server is down\n';
+    c += '#    Add > IP Address: ' + ip + ' (Host nesnesi)\n#          Protocol: ' + proto + '\n';
+    if (port) c += '#          Port: ' + port + '\n';
+    if (reach === 'zone') c += '#          Reachable By: Security Zones or Named Interface > ' + zone + '\n';
+    else c += '#          Reachable By: Device Management Interface\n';
+    c += '\n# 5. Syslog > Logging Destinations > Add\n#    Logging Destination: Syslog Servers\n#    Seviye (severity): ' + lvl + '\n\n';
+    if (proto === 'TCP' && !data.sl_allow_down) c += '# UYARI: TCP syslog sunucusu düşerse yeni kullanıcı trafiği engellenir.\n\n';
+    c += '# 6. Save > Deploy > Deploy Policies\n\n';
+    c += '# Doğrulama:\n# > show logging\n# > show running-config logging\n';
+    return c;
+}
+
+// ── Cisco FTD: Platform Settings — Time Synchronization (NTP) ─────────────────
+// Sözdizimi: https://www.cisco.com/c/en/us/td/docs/security/secure-firewall/management-center/device-config/740/management-center-device-config-74/interfaces-settings-platform.html
+CiscoFTD.platformTime = {
+    label: 'Platform Settings: NTP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clock',
+                title: 'FTD Platform Settings — Time Synchronization',
+                desc: 'FTD saatini FMC üzerinden veya doğrudan NTP sunucusundan senkronize etme (<b>Devices &gt; Platform Settings &gt; Time Synchronization</b>).'
+            },
+            configTypes: [
+                { id: 'fmc', label: 'Via NTP from Management Center', icon: 'fas fa-server', desc: 'FTD saati FMC\'den alır (varsayılan)', badge: { text: 'Varsayılan', cls: 'recommended' } },
+                { id: 'ntp', label: 'Via NTP from', icon: 'fas fa-globe', desc: 'FTD doğrudan NTP sunucusunu kullanır', badge: { text: 'Bağımsız', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Politika',
+                    icon: 'fas fa-folder',
+                    fields: [
+                        { name: 'pt_policy', label: 'Platform Settings Politikası', type: 'text', required: true, placeholder: 'FTD-PLATFORM-DC', hint: 'Düzenlenecek politika', why: "Ayar, politikanın atandığı tüm cihazlara uygulanır." }
+                    ]
+                },
+                {
+                    title: 'FMC Üzerinden',
+                    icon: 'fas fa-server',
+                    showFor: ['fmc'],
+                    info: 'FMC\'nin kendi saati System &gt; Configuration &gt; Time Synchronization altında güvenilir bir NTP kaynağına bağlı olmalıdır.',
+                    fields: [
+                        { name: 'pt_fmc_note', label: 'FMC NTP\'si doğrulandı', type: 'checkbox', checked: true, hint: 'FMC saatinin senkron olduğunu kontrol ettim', why: "FTD saati FMC'den alır; FMC'nin saati kaymışsa tüm yönetilen cihazlar ve olay zaman damgaları birlikte kayar." }
+                    ]
+                },
+                {
+                    title: 'NTP Sunucuları',
+                    icon: 'fas fa-globe',
+                    showFor: ['ntp'],
+                    fields: [
+                        { name: 'pt_ntp1', label: 'NTP Sunucusu 1', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.123', hint: 'FMC\'de Host nesnesi', why: "FTD'nin bu sunucuya management veya veri arayüzünden erişimi olmalıdır; erişim yoksa saat serbest kalır." },
+                        { name: 'pt_ntp2', label: 'NTP Sunucusu 2', type: 'text', validate: 'ip', placeholder: '10.0.0.124', hint: 'Yedek', why: "Tek kaynak arızasında saat senkronu kaybolur; ikinci kaynak bunu önler." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFtdPsTimeGen(data));
+    }
+};
+function cgFtdPsTimeGen(data) {
+    const type = cgEsc(data._cgtype || 'fmc'), pol = cgEsc(data.pt_policy || '');
+    const n1 = cgEsc(data.pt_ntp1 || ''), n2 = cgEsc(data.pt_ntp2 || '');
+    let c = '# ========================================\n# Cisco FTD — Platform Settings: Time Synchronization\n# ========================================\n';
+    c += '# FMC: Devices > Platform Settings > ' + pol + ' (Edit) > Time Synchronization\n\n';
+    if (type === 'ntp') {
+        c += '# 1. (x) Via NTP from\n';
+        c += '#    NTP sunucusu: ' + n1 + ' (Host nesnesi)\n';
+        if (n2) c += '#    NTP sunucusu: ' + n2 + ' (Host nesnesi)\n';
+    } else {
+        c += '# 1. (x) Via NTP from Management Center\n';
+        if (!data.pt_fmc_note) c += '# UYARI: FMC saatinin senkron olduğunu doğrulayın (System > Configuration > Time Synchronization).\n';
+    }
+    c += '\n# 2. Save > Deploy > Deploy Policies\n\n';
+    c += '# Doğrulama:\n# > show ntp\n# > show time\n';
+    return c;
+}
+
+// ── Cisco FTD: Platform Settings — SNMP ───────────────────────────────────────
+// Sözdizimi: https://www.cisco.com/c/en/us/td/docs/security/secure-firewall/management-center/device-config/740/management-center-device-config-74/interfaces-settings-platform.html
+//            show snmp-server: https://www.cisco.com/c/en/us/td/docs/security/firepower/command_ref/b_Command_Reference_for_Firepower_Threat_Defense/s_8.html
+CiscoFTD.platformSnmp = {
+    label: 'Platform Settings: SNMP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-chart-line',
+                title: 'FTD Platform Settings — SNMP',
+                desc: 'FMC <b>Devices &gt; Platform Settings &gt; SNMP</b>: SNMPv3 kullanıcı (Users) ve izleme sunucusu (Hosts).'
+            },
+            sections: [
+                {
+                    title: 'Genel',
+                    icon: 'fas fa-folder',
+                    fields: [
+                        { name: 'sn_policy', label: 'Platform Settings Politikası', type: 'text', required: true, placeholder: 'FTD-PLATFORM-DC', hint: 'Düzenlenecek politika', why: "Ayar, politikanın atandığı tüm cihazlara uygulanır." },
+                        { name: 'sn_location', label: 'Location', type: 'text', placeholder: 'DC1-Rack4', hint: 'sysLocation', why: "Envanterde cihazın yerini belgeler." },
+                        { name: 'sn_admin', label: 'System Administrator Name', type: 'text', placeholder: 'noc@example.com', hint: 'sysContact', why: "Cihazdan sorumlu ekibi belgeler." }
+                    ]
+                },
+                {
+                    title: 'Users (SNMPv3)',
+                    icon: 'fas fa-user-lock',
+                    fields: [
+                        { name: 'sn_user', label: 'Username', type: 'text', required: true, placeholder: 'snmpmon', hint: 'NMS ile aynı', why: "Kullanıcı adı, algoritma ve parolalar NMS ile birebir aynı olmalıdır." },
+                        { name: 'sn_auth', label: 'Auth Algorithm Type', type: 'select', options: [
+                            { value: 'SHA256', label: 'SHA256', selected: true },
+                            { value: 'SHA384', label: 'SHA384' },
+                            { value: 'SHA224', label: 'SHA224' },
+                            { value: 'SHA', label: 'SHA' }
+                        ], hint: 'Security Level: Priv', why: "SHA-1 zayıftır; NMS destekliyorsa SHA-2 ailesini seçin." },
+                        { name: 'sn_auth_pw', label: 'Authentication Password', type: 'text', required: true, placeholder: 'AuthPass2026', hint: 'Encryption Password Type: Clear', why: "Parola NMS ile aynı olmalıdır; uyuşmazlık sorguların sessizce reddedilmesine yol açar." },
+                        { name: 'sn_enc', label: 'Encryption Type', type: 'select', options: [
+                            { value: 'AES256', label: 'AES256', selected: true },
+                            { value: 'AES192', label: 'AES192' },
+                            { value: 'AES128', label: 'AES128' },
+                            { value: '3DES', label: '3DES' }
+                        ], hint: 'Şifreleme algoritması', why: "Bazı eski NMS'ler AES256 desteklemez; bağlantı kurulamazsa AES128 deneyin." },
+                        { name: 'sn_enc_pw', label: 'Encryption Password', type: 'text', required: true, placeholder: 'PrivPass2026', hint: 'Auth parolasından farklı', why: "Aynı parolayı iki amaçla kullanmak, birinin sızmasıyla her iki korumayı da kaybettirir." }
+                    ]
+                },
+                {
+                    title: 'Hosts',
+                    icon: 'fas fa-desktop',
+                    fields: [
+                        { name: 'sn_host', label: 'IP Address', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.60', hint: 'NMS (Host nesnesi)', why: "FTD yalnızca Hosts listesindeki adreslerden sorgu kabul eder." },
+                        { name: 'sn_poll', label: 'Poll', type: 'checkbox', checked: true, hint: 'NMS cihazı sorgulayabilir', why: "Poll kapalıysa NMS yalnızca trap alır, arayüz sayaçlarını çekemez." },
+                        { name: 'sn_trap', label: 'Trap', type: 'checkbox', checked: true, hint: 'Olay bildirimleri (Trap Port 162)', why: "Trap kapalıysa link düşmesi gibi olaylar bir sonraki poll'a kadar görünmez." },
+                        { name: 'sn_reach', label: 'Reachable By', type: 'select', options: [
+                            { value: 'mgmt', label: 'Device Management Interface', selected: true },
+                            { value: 'zone', label: 'Security Zones or Named Interface' }
+                        ], hint: 'SNMP trafiğinin arayüzü', why: "NMS'e hangi arayüzden ulaşıldığı; yanlış seçimde sorgular yanıtsız kalır." },
+                        { name: 'sn_zone', label: 'Zone / Arayüz Adı', type: 'text', requiredIf: { field: 'sn_reach', in: ['zone'] }, placeholder: 'INSIDE_ZONE', hint: 'Veri arayüzü seçildiyse', why: "Seçilen zone'daki arayüzden NMS'e route olmalıdır." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFtdPsSnmpGen(data));
+    }
+};
+function cgFtdPsSnmpGen(data) {
+    const pol = cgEsc(data.sn_policy || ''), loc = cgEsc(data.sn_location || ''), adm = cgEsc(data.sn_admin || '');
+    const user = cgEsc(data.sn_user || ''), auth = cgEsc(data.sn_auth || ''), authPw = cgEsc(data.sn_auth_pw || '');
+    const enc = cgEsc(data.sn_enc || ''), encPw = cgEsc(data.sn_enc_pw || '');
+    const host = cgEsc(data.sn_host || ''), reach = cgEsc(data.sn_reach || 'mgmt'), zone = cgEsc(data.sn_zone || '');
+    let c = '# ========================================\n# Cisco FTD — Platform Settings: SNMP\n# ========================================\n';
+    c += '# FMC: Devices > Platform Settings > ' + pol + ' (Edit) > SNMP\n\n';
+    c += '# 1. [x] Enable SNMP Servers\n';
+    if (adm) c += '#    System Administrator Name: ' + adm + '\n';
+    if (loc) c += '#    Location: ' + loc + '\n';
+    c += '\n# 2. Users > Add\n';
+    c += '#    Security Level: Priv\n#    Username: ' + user + '\n#    Encryption Password Type: Clear\n';
+    c += '#    Auth Algorithm Type: ' + auth + '\n#    Authentication Password: ' + authPw + '\n';
+    c += '#    Encryption Type: ' + enc + '\n#    Encryption Password: ' + encPw + '\n';
+    c += '\n# 3. Hosts > Add\n#    IP Address: ' + host + ' (Host nesnesi)\n#    SNMP Version: 3\n#    Username: ' + user + '\n';
+    c += '#    ' + (data.sn_poll ? '[x]' : '[ ]') + ' Poll\n#    ' + (data.sn_trap ? '[x]' : '[ ]') + ' Trap\n';
+    if (reach === 'zone') c += '#    Reachable By: Security Zones or Named Interface > ' + zone + '\n';
+    else c += '#    Reachable By: Device Management Interface\n';
+    if (!data.sn_poll && !data.sn_trap) c += '# UYARI: Poll ve Trap kapalı — host hiçbir SNMP işlevi görmez.\n';
+    c += '\n# 4. Save > Deploy > Deploy Policies\n\n';
+    c += '# Doğrulama:\n# > show snmp-server statistics\n# > show snmp-server user\n# > show snmp-server host\n';
+    return c;
+}
+
+// ── Cisco FTD: Static Route + SLA Monitor ─────────────────────────────────────
+// Sözdizimi: https://www.cisco.com/c/en/us/td/docs/security/secure-firewall/management-center/device-config/740/management-center-device-config-74/routing-static.html
+//            https://www.cisco.com/c/en/us/support/docs/security/secure-firewall-threat-defense/220636-configure-dual-isp-failover-for-ftd-mana.html
+//            REST alanları: https://github.com/CiscoDevNet/terraform-provider-fmc (gen/definitions/device_ipv4_static_route.yaml, sla_monitor.yaml)
+CiscoFTD.staticRoute = {
+    label: 'Static Route + SLA',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'FTD Static Route ve Route Tracking',
+                desc: 'FMC\'de statik rota ve isteğe bağlı SLA Monitor ile rota izleme (dual ISP). GUI adımları + FMC REST API gövdesi.'
+            },
+            sections: [
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-road',
+                    fields: [
+                        { name: 'sr_device', label: 'Cihaz', type: 'text', required: true, placeholder: 'FTD-01', hint: 'Devices > Device Management\'teki ad', why: "Statik rotalar politika değil cihaz ayarıdır; her cihazda ayrı tanımlanır." },
+                        { name: 'sr_if', label: 'Interface (Logical Name)', type: 'text', validate: 'nameif', required: true, placeholder: 'outside', hint: 'Çıkış arayüzünün mantıksal adı', why: "Gateway bu arayüzün subnetinde olmalıdır; aksi halde rota kurulmaz." },
+                        { name: 'sr_net', label: 'Selected Network', type: 'text', required: true, placeholder: 'any-ipv4', hint: 'Network nesnesi adı (varsayılan rota için any-ipv4)', why: "FMC rotada adres yerine nesne kullanır; aralık (range) içeren nesneler statik rotada kullanılamaz." },
+                        { name: 'sr_gw', label: 'Gateway', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Next-hop IP', why: "Gateway erişilemezse rota tabloda kalır ama trafik kaybolur; izleme bu durumu yakalamak içindir." },
+                        { name: 'sr_metric', label: 'Metric', type: 'text', min: 1, max: 255, placeholder: '1', hint: 'Boşsa 1', why: "Yedek rotanın metriği birincilden büyük olmalıdır; eşitse trafik iki hatta bölünür." }
+                    ]
+                },
+                {
+                    title: 'Route Tracking (SLA Monitor)',
+                    icon: 'fas fa-heartbeat',
+                    info: 'Route tracking yalnızca IPv4 statik rotalarda desteklenir.',
+                    fields: [
+                        { name: 'sla_on', label: 'SLA Monitor ile izle', type: 'checkbox', checked: false, hint: 'Objects > Object Management > SLA Monitor', why: "İzleme olmadan ISP arızasında rota tabloda kalır ve yedek hatta geçilmez." },
+                        { name: 'sla_name', label: 'SLA Monitor Adı', type: 'text', requiredIf: { field: 'sla_on', checked: true }, placeholder: 'SLA-ISP1', hint: 'Nesne adı', why: "Nesne adı rotada seçilir; birden çok rota aynı nesneyi paylaşabilir." },
+                        { name: 'sla_id', label: 'SLA Monitor ID', type: 'text', validate: 'posint', requiredIf: { field: 'sla_on', checked: true }, placeholder: '10', hint: 'Cihaz üzerinde benzersiz', why: "Aynı ID'yi iki nesnede kullanmak deploy hatasına yol açar." },
+                        { name: 'sla_mon', label: 'Monitor Address', type: 'text', validate: 'ip', requiredIf: { field: 'sla_on', checked: true }, placeholder: '192.0.2.10', hint: 'ICMP\'ye yanıt veren hedef', why: "Hedef ICMP yanıtlamıyorsa rota sürekli düşük görünür. ISP omurgasını ölçmek için hat üzerinden erişilen uzak bir adres seçin." },
+                        { name: 'sla_zone', label: 'Zone / Interface Group', type: 'text', requiredIf: { field: 'sla_on', checked: true }, placeholder: 'OUTSIDE_ZONE', hint: 'Hedefe ulaşılan arayüzü içeren zone', why: "Zone birden çok arayüz içeriyorsa izleme yanlış hattan yapılabilir; tek arayüzlü zone kullanın." },
+                        { name: 'sla_freq', label: 'Frequency (sn)', type: 'text', min: 1, max: 604800, placeholder: '10', hint: 'Boşsa 60', why: "Varsayılan 60 sn'de arıza en geç bir dakikada fark edilir." },
+                        { name: 'sla_tmo', label: 'Timeout (ms)', type: 'text', min: 0, max: 604800000, placeholder: '3000', hint: 'Boşsa 5000', why: "Yanıt bu sürede gelmezse hedef düşük sayılır." },
+                        { name: 'sla_thr', label: 'Threshold (ms)', type: 'text', min: 0, max: 2147483647, placeholder: '2000', hint: 'Boşsa 5000; timeout\'tan büyük olmamalı', why: "Threshold erişilebilirliği etkilemez, yalnız eşik aşımı olayı üretir." },
+                        { name: 'sla_pkts', label: 'Number of Packets', type: 'text', min: 1, max: 100, placeholder: '3', hint: 'Boşsa 1', why: "Tek paket kaybında rotanın gereksiz düşmesini önler." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFtdStaticRouteGen(data));
+    }
+};
+function cgFtdStaticRouteGen(data) {
+    const dev = cgEsc(data.sr_device || ''), ifc = cgEsc(data.sr_if || ''), net = cgEsc(data.sr_net || '');
+    const gw = cgEsc(data.sr_gw || ''), metric = cgEsc(data.sr_metric || '');
+    const on = data.sla_on;
+    const sName = cgEsc(data.sla_name || ''), sId = cgEsc(data.sla_id || ''), mon = cgEsc(data.sla_mon || '');
+    const zone = cgEsc(data.sla_zone || ''), freq = cgEsc(data.sla_freq || ''), tmo = cgEsc(data.sla_tmo || '');
+    const thr = cgEsc(data.sla_thr || ''), pkts = cgEsc(data.sla_pkts || '');
+    let c = '# ========================================\n# Cisco FTD — Static Route' + (on ? ' + SLA Monitor' : '') + '\n# ========================================\n\n';
+    let step = 1;
+    if (on) {
+        c += '# ' + step++ + '. Objects > Object Management > SLA Monitor > Add SLA Monitor\n';
+        c += '#    Name: ' + sName + '\n#    SLA Monitor ID: ' + sId + '\n#    Monitor Address: ' + mon + '\n';
+        c += '#    Available Zones/Interfaces: ' + zone + ' > Add\n';
+        if (freq) c += '#    Frequency: ' + freq + '\n';
+        if (tmo) c += '#    Timeout: ' + tmo + '\n';
+        if (thr) c += '#    Threshold: ' + thr + '\n';
+        if (pkts) c += '#    Number of Packets: ' + pkts + '\n';
+        if (thr && +thr > +(tmo || 5000)) c += '# UYARI: Threshold, Timeout değerinden büyük olmamalı.\n';
+        c += '\n';
+    }
+    c += '# ' + step++ + '. Devices > Device Management > ' + dev + ' (Edit) > Routing > Static Route > Add Route\n';
+    c += '#    Type: IPv4\n#    Interface: ' + ifc + '\n#    Selected Network: ' + net + '\n#    Gateway: ' + gw + '\n';
+    if (metric) c += '#    Metric: ' + metric + '\n';
+    if (on) c += '#    Route Tracking: ' + sName + '\n';
+    c += '\n# ' + step++ + '. Save > Deploy > Deploy Policies\n\n';
+    c += '# FMC REST API (alternatif):\n';
+    if (on) {
+        c += '# POST /api/fmc_config/v1/domain/{domainUUID}/object/slamonitors\n';
+        c += '#   {"type": "SLAMonitor", "name": "' + sName + '", "slaId": ' + sId + ', "monitorAddress": "' + mon + '",\n';
+        c += '#    "interfaceObjects": [{"id": "{zoneUUID}"}]';
+        if (freq) c += ', "frequency": ' + freq;
+        if (tmo) c += ', "timeout": ' + tmo;
+        if (thr) c += ', "threshold": ' + thr;
+        if (pkts) c += ', "noOfPackets": ' + pkts;
+        c += '}\n';
+    }
+    c += '# POST /api/fmc_config/v1/domain/{domainUUID}/devices/devicerecords/{deviceUUID}/routing/ipv4staticroutes\n';
+    c += '#   {"type": "IPv4StaticRoute", "interfaceName": "' + ifc + '", "selectedNetworks": [{"id": "{networkUUID}"}],\n';
+    c += '#    "gateway": {"literal": {"value": "' + gw + '"}}';
+    if (metric) c += ', "metricValue": ' + metric;
+    if (on) c += ', "routeTracking": {"id": "{slaMonitorUUID}"}';
+    c += '}\n\n';
+    c += '# Doğrulama:\n# > show route\n# > show running-config route\n';
+    if (on) c += '# > show sla monitor configuration ' + sId + '\n# > show sla monitor operational-state ' + sId + '\n# > show track\n';
+    return c;
+}
+
+// ── Cisco FTD: Prefilter Policy ───────────────────────────────────────────────
+// Sözdizimi: https://www.cisco.com/c/en/us/td/docs/security/secure-firewall/management-center/device-config/740/management-center-device-config-74/advanced-access-prefilter.html
+CiscoFTD.prefilter = {
+    label: 'Prefilter Policy',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-fast-forward',
+                title: 'FTD Prefilter Policy',
+                desc: 'Snort\'a gitmeden önce L3/L4 başlıklarla karar: <b>Fastpath</b> (denetimsiz geçir), <b>Block</b> veya <b>Analyze</b> (ACP\'ye devret). Tünel (GRE/IP-in-IP/Teredo) trafiği için tunnel rule.'
+            },
+            configTypes: [
+                { id: 'prefilter', label: 'Prefilter Rule', icon: 'fas fa-filter', desc: 'Dış başlığa göre ağ/port eşleşmesi', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'tunnel', label: 'Tunnel Rule', icon: 'fas fa-archway', desc: 'Kapsüllenmiş (GRE, IP-in-IP, Teredo) tüneller', badge: { text: 'Tünel', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Politika',
+                    icon: 'fas fa-folder',
+                    fields: [
+                        { name: 'pf_policy', label: 'Prefilter Policy Adı', type: 'text', required: true, placeholder: 'PREFILTER-DC', hint: 'Policies > Access Control > Prefilter', why: "Prefilter politikası tek başına deploy edilmez; bir Access Control Policy'ye bağlanmalıdır." },
+                        { name: 'pf_default', label: 'Default Action (tüneller)', type: 'select', options: [
+                            { value: 'Analyze all tunnel traffic', label: 'Analyze all tunnel traffic', selected: true },
+                            { value: 'Block all tunnel traffic', label: 'Block all tunnel traffic' }
+                        ], hint: 'Eşleşmeyen tüneller için', why: "Varsayılan eylem yalnızca kapsüllenmiş tünellere uygulanır; diğer trafik her durumda ACP'ye gider." },
+                        { name: 'pf_acp', label: 'Bağlanacak ACP', type: 'text', required: true, placeholder: 'CORP_ACP', hint: 'Access Control Policy adı', why: "ACP'de Prefilter Policy seçilmezse varsayılan prefilter politikası kullanılır ve kurallarınız hiç çalışmaz." }
+                    ]
+                },
+                {
+                    title: 'Kural',
+                    icon: 'fas fa-list-alt',
+                    warn: 'Fastpath trafik hiçbir denetimden (IPS, dosya, URL, kimlik) geçmez ve bağlantı olayları sınırlı bilgi içerir.',
+                    fields: [
+                        { name: 'pf_rule', label: 'Kural Adı', type: 'text', required: true, placeholder: 'DC-BACKUP-TRAFFIC', hint: 'Olaylarda görünen ad', why: "Anlamlı kural adı, fastpath edilen trafiğin nedenini belgeler." },
+                        { name: 'pf_action', label: 'Action', type: 'select', options: [
+                            { value: 'Analyze', label: 'Analyze (ACP\'ye devret)', selected: true },
+                            { value: 'Fastpath', label: 'Fastpath (denetimsiz)' },
+                            { value: 'Block', label: 'Block' }
+                        ], hint: 'Eşleşen trafiğe', why: "Fastpath, yedekleme/replikasyon gibi güvenilir ve yüksek hacimli akışlar için kullanılır; yanlış kapsam tüm denetimi devre dışı bırakır." },
+                        { name: 'pf_src_zone', label: 'Source Interface Object', type: 'text', required: true, placeholder: 'INSIDE_ZONE', hint: 'Kaynak zone', why: "Zone belirtilmezse kural tüm arayüzlerde eşleşir." },
+                        { name: 'pf_dst_zone', label: 'Destination Interface Object', type: 'text', required: true, placeholder: 'DC_ZONE', hint: 'Hedef zone', why: "Hedef zone boşsa kural beklenenden geniş olur." },
+                        { name: 'pf_src_net', label: 'Source Network', type: 'text', validate: 'ip_cidr', requiredIf: { field: '_cgtype', in: ['prefilter'] }, placeholder: '10.128.0.0/24', hint: 'Prefilter rule: kaynak ağ; tunnel rule: tünel uç noktası', why: "Kapsamı dar tutun; geniş ağlar fastpath ile tüm denetimi atlar." },
+                        { name: 'pf_dst_net', label: 'Destination Network', type: 'text', validate: 'ip_cidr', requiredIf: { field: '_cgtype', in: ['prefilter'] }, placeholder: '10.64.0.0/24', hint: 'Hedef ağ / tünel uç noktası', why: "Hedef ağ tanımsız bırakılırsa kural her hedefe uygulanır." },
+                        { name: 'pf_ports', label: 'Destination Port', type: 'text', placeholder: 'TCP/445', hint: 'Yalnız prefilter rule; boşsa tüm portlar', why: "Port sınırlaması, fastpath'in yalnızca hedeflenen servise uygulanmasını sağlar." },
+                        { name: 'pf_encap', label: 'Encapsulation', type: 'select', options: [
+                            { value: 'GRE', label: 'GRE (47)', selected: true },
+                            { value: 'IP-in-IP', label: 'IP-in-IP (4)' },
+                            { value: 'IPv6-in-IP', label: 'IPv6-in-IP (41)' },
+                            { value: 'Teredo', label: 'Teredo' }
+                        ], hint: 'Yalnız tunnel rule', why: "Tunnel rule yalnızca seçilen kapsülleme türüyle eşleşir." },
+                        { name: 'pf_log', label: 'Log at End of Connection', type: 'checkbox', checked: true, hint: 'Fastpath/Block için', why: "Loglama kapalıysa fastpath edilen trafik FMC'de neredeyse görünmez olur." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFtdPrefilterGen(data));
+    }
+};
+function cgFtdPrefilterGen(data) {
+    const type = cgEsc(data._cgtype || 'prefilter');
+    const pol = cgEsc(data.pf_policy || ''), def = cgEsc(data.pf_default || ''), acp = cgEsc(data.pf_acp || '');
+    const rule = cgEsc(data.pf_rule || ''), act = cgEsc(data.pf_action || 'Analyze');
+    const sz = cgEsc(data.pf_src_zone || ''), dz = cgEsc(data.pf_dst_zone || '');
+    const sn = cgEsc(data.pf_src_net || ''), dn = cgEsc(data.pf_dst_net || ''), ports = cgEsc(data.pf_ports || '');
+    const encap = cgEsc(data.pf_encap || '');
+    let c = '# ========================================\n# Cisco FTD — Prefilter Policy\n# ========================================\n';
+    c += '# FMC: Policies > Access Control > Prefilter\n\n';
+    c += '# 1. New Policy\n#    Name: ' + pol + '\n#    Save\n\n';
+    c += '# 2. Default Action: ' + def + '\n\n';
+    c += '# 3. ' + (type === 'tunnel' ? 'Add Tunnel Rule' : 'Add Prefilter Rule') + '\n';
+    c += '#    Name: ' + rule + '\n#    Action: ' + act + '\n';
+    c += '#    Interface Objects > Source: ' + sz + ' / Destination: ' + dz + '\n';
+    if (type === 'tunnel') {
+        if (sn) c += '#    Tunnel Endpoints > Source: ' + sn + '\n';
+        if (dn) c += '#    Tunnel Endpoints > Destination: ' + dn + '\n';
+        c += '#    Encapsulation & Ports: ' + encap + '\n';
+    } else {
+        c += '#    Networks > Source: ' + sn + ' / Destination: ' + dn + '\n';
+        if (ports) c += '#    Ports > Destination: ' + ports + '\n';
+    }
+    if (data.pf_log && act !== 'Analyze') c += '#    Logging: [x] Log at End of Connection\n';
+    if (act === 'Fastpath') c += '# UYARI: Fastpath trafik IPS/dosya/URL/kimlik denetimine girmez.\n';
+    c += '#    Save\n\n';
+    c += '# 4. Policies > Access Control > ' + acp + ' (Edit) > Prefilter Policy: ' + pol + '\n\n';
+    c += '# 5. Save > Deploy > Deploy Policies\n\n';
+    c += '# Doğrulama:\n# > show access-list\n# > show access-control-config\n# Analysis > Connections > Events\n';
+    return c;
+}
+
+// ── Cisco FTD: Identity Policy ────────────────────────────────────────────────
+// Sözdizimi: https://www.cisco.com/c/en/us/td/docs/security/secure-firewall/management-center/device-config/740/management-center-device-config-74/identity-policies.html
+CiscoFTD.identityPolicy = {
+    label: 'Identity Policy',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-id-badge',
+                title: 'FTD Identity Policy',
+                desc: 'Kullanıcı/grup tabanlı erişim için kimlik politikası: realm, Passive / Active / No Authentication kuralı ve ACP ilişkilendirmesi.'
+            },
+            sections: [
+                {
+                    title: 'Politika',
+                    icon: 'fas fa-folder',
+                    info: 'Ön koşul: Integration altında tanımlı bir realm (AD/LDAP) ve bir kimlik kaynağı (ISE/ISE-PIC, Passive Identity Agent, TS Agent, captive portal veya RA VPN).',
+                    fields: [
+                        { name: 'id_policy', label: 'Identity Policy Adı', type: 'text', required: true, placeholder: 'IDENTITY-CORP', hint: 'Policies > Access Control > Identity', why: "Identity politikası tek başına etkisizdir; bir ACP'ye bağlanmalıdır." },
+                        { name: 'id_acp', label: 'Bağlanacak ACP', type: 'text', required: true, placeholder: 'CORP_ACP', hint: 'Access Control Policy adı', why: "ACP'ye bağlanmazsa ACP kurallarındaki kullanıcı/grup koşulları hiçbir kullanıcıyla eşleşmez." }
+                    ]
+                },
+                {
+                    title: 'Kural',
+                    icon: 'fas fa-list-alt',
+                    fields: [
+                        { name: 'id_rule', label: 'Kural Adı', type: 'text', required: true, placeholder: 'AD-PASSIVE', hint: 'Kural adı', why: "Kurallar yukarıdan aşağı değerlendirilir; ilk eşleşen kural kimlik yöntemini belirler." },
+                        { name: 'id_action', label: 'Action', type: 'select', options: [
+                            { value: 'Passive Authentication', label: 'Passive Authentication', selected: true },
+                            { value: 'Active Authentication', label: 'Active Authentication (captive portal)' },
+                            { value: 'No Authentication', label: 'No Authentication' }
+                        ], hint: 'Kimlik belirleme yöntemi', why: "Passive, kullanıcıya görünmez (ISE/AD oturum eşlemesi). Active, tarayıcıda kimlik ister ve yalnız HTTP/HTTPS trafiğinde çalışır." },
+                        { name: 'id_src_zone', label: 'Source Zone', type: 'text', required: true, placeholder: 'INSIDE_ZONE', hint: 'Kullanıcıların bulunduğu zone', why: "Sunucu ağlarını kimlik kuralı kapsamına almak gereksiz captive portal yönlendirmelerine yol açabilir." },
+                        { name: 'id_src_net', label: 'Source Network', type: 'text', validate: 'ip_cidr', placeholder: '10.128.0.0/16', hint: 'Boşsa tüm kaynaklar (FQDN nesnesi kullanılamaz)', why: "Kapsamı kullanıcı ağlarıyla sınırlamak kimlik kaynağının yükünü azaltır." },
+                        { name: 'id_realm', label: 'Realm', type: 'text', required: true, placeholder: 'CORP-AD', hint: 'Realm & Settings sekmesi', why: "Realm, kullanıcı/grup bilgisinin çekildiği dizindir; yanlış realm kullanıcıları 'Unknown' bırakır." },
+                        { name: 'id_fallback', label: 'Use active authentication if passive or VPN identity cannot be established', type: 'checkbox', checked: false, hint: 'Yalnız Passive kuralda', why: "Açılırsa pasif eşleme bulunamayan kullanıcılara captive portal gösterilir; aktif kimlik doğrulama için sertifika ve port 885 hazırlanmalıdır." },
+                        { name: 'id_proto', label: 'Authentication Protocol', type: 'select', options: [
+                            { value: 'HTTP Negotiate', label: 'HTTP Negotiate (yalnız AD)', selected: true },
+                            { value: 'Kerberos', label: 'Kerberos (AD + LDAPS)' },
+                            { value: 'NTLM', label: 'NTLM (yalnız AD)' },
+                            { value: 'HTTP Basic', label: 'HTTP Basic' },
+                            { value: 'HTTP Response Page', label: 'HTTP Response Page' }
+                        ], hint: 'Active veya fallback için', why: "HTTP Basic parolayı yalnızca Base64 ile taşır; realm sequence kullanılıyorsa yalnız HTTP Basic veya HTTP Response Page seçilebilir." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFtdIdentityGen(data));
+    }
+};
+function cgFtdIdentityGen(data) {
+    const pol = cgEsc(data.id_policy || ''), acp = cgEsc(data.id_acp || ''), rule = cgEsc(data.id_rule || '');
+    const act = cgEsc(data.id_action || 'Passive Authentication'), sz = cgEsc(data.id_src_zone || '');
+    const sn = cgEsc(data.id_src_net || ''), realm = cgEsc(data.id_realm || ''), proto = cgEsc(data.id_proto || '');
+    const usesActive = act === 'Active Authentication' || (act === 'Passive Authentication' && data.id_fallback);
+    let c = '# ========================================\n# Cisco FTD — Identity Policy\n# ========================================\n';
+    c += '# FMC: Policies > Access Control > Identity\n\n';
+    c += '# 1. New Policy\n#    Name: ' + pol + '\n#    Save\n\n';
+    c += '# 2. Add Rule\n#    Name: ' + rule + '\n#    [x] Enabled\n#    Action: ' + act + '\n';
+    c += '#    Zones > Source Zones: ' + sz + '\n';
+    if (sn) c += '#    Networks > Source Networks: ' + sn + '\n';
+    if (act !== 'No Authentication') {
+        c += '#    Realm & Settings > Realm: ' + realm + '\n';
+        if (act === 'Passive Authentication' && data.id_fallback) c += '#    [x] Use active authentication if passive or VPN identity cannot be established\n';
+        if (usesActive) c += '#    Authentication Protocol: ' + proto + '\n';
+    }
+    c += '#    Add\n\n';
+    if (usesActive) c += '# 3. Active Authentication sekmesi: Server Certificate seçin, Port: 885 (varsayılan)\n\n';
+    c += '# ' + (usesActive ? '4' : '3') + '. Policies > Access Control > ' + acp + ' (Edit) > Identity Policy: ' + pol + '\n\n';
+    c += '# ' + (usesActive ? '5' : '4') + '. Save > Deploy > Deploy Policies\n\n';
+    c += '# Doğrulama:\n# Analysis > Users > Active Sessions\n# > show access-control-config\n';
     return c;
 }

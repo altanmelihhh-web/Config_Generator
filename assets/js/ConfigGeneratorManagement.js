@@ -47,6 +47,8 @@ const CG_VALIDATORS = {
     // ASA nameif: arayuzun mantiksal adi (outside, inside, dmz, partner). Fiziksel
     // arayuz adi degildir; 'iface' dogrulayicisi rakamsiz adlari reddediyordu.
     nameif:   { re: /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/, msg: 'Nameif girin (örn: outside, inside, dmz)' },
+    // Genel nesne adi (VRF, VLAN adi, grup, profil): harfle baslar, bosluk yok.
+    objname:  { re: /^[A-Za-z][A-Za-z0-9_.:-]{0,62}$/, msg: 'Geçerli bir ad girin (harfle başlar, boşluk içermez)' },
     // Bitisik ag maskesi (255.255.255.0 gibi). 'subnet' her noktali dortluyu kabul eder;
     // prefix'e cevrilecek alanlarda bu kullanilir — 255.0.255.0 cevrilemez.
     netmask:  { fn: v => cgMaskLen(String(v).trim()) !== '', msg: 'Geçerli ağ maskesi girin (örn: 255.255.255.0)' },
@@ -384,6 +386,7 @@ const CG_WHY = {
     subnet:      _cgIpWhy,
     nameif:      t => (!t || /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/.test(t) ? '' : /\s/.test(t) ? 'boşluk olamaz' : !/^[A-Za-z]/.test(t) ? 'harfle başlamalı'
                       : t.length > 48 ? t.length + ' karakter girdiniz, en fazla 48' : 'yalnızca harf, rakam, _ . - kullanılır'),
+    objname:     t => (!t || /^[A-Za-z][A-Za-z0-9_.:-]{0,62}$/.test(t) ? '' : /\s/.test(t) ? 'ad boşluk içeremez' : !/^[A-Za-z]/.test(t) ? 'ad harfle başlamalı' : t.length > 63 ? t.length + ' karakter girdiniz, en fazla 63' : 'yalnızca harf, rakam, _ . : - kullanılır'),
     netmask:     t => _cgIpWhy(t) || (cgMaskLen(t) === '' ? 'maske bitişik değil — 1 bitleri soldan kesintisiz olmalı (örn: 255.255.240.0)' : ''),
     posint:      t => _cgNumWhy(t, 1, 2147483647),
     nexthop:     t => (/^[\d.]+$/.test(t) ? _cgIpWhy(t) : _cgIfaceWhy(t)),
@@ -449,6 +452,7 @@ function _cgLabelOf(el) {
 const CG_RULES = {
     ip:          'Dört oktet (a.b.c.d), her biri 0–255. Önek (/24) yazılmaz.',
     cidr:        'Adres/önek: a.b.c.d/0–32 — önek zorunlu. Örn: 10.0.0.0/24',
+    objname:     'Harfle başlar; harf, rakam, _ . : - içerir; boşluk olmaz; en fazla 63 karakter.',
     nameif:      'ASA arayüzünün mantıksal adı: harfle başlar, harf/rakam/_ . -, en fazla 48 karakter. Fiziksel ad (GigabitEthernet0/0) değildir.',
     subnet:      'Noktalı dörtlü, her oktet 0–255. Örn: 255.255.255.0',
     netmask:     'Bitişik ağ maskesi: 255.255.240.0 olur, 255.0.255.0 olmaz. Önek sayısı (24) değil noktalı biçim yazılır.',
@@ -1148,6 +1152,12 @@ const CG_REGISTRY = {
             { id: 'sslPolicy',       cat: 'utm', label: 'SSL Policy',            gen: () => typeof CiscoFTD !== 'undefined' && CiscoFTD.sslPolicy },
             { id: 'siteToSiteVpn',   cat: 'vpn', label: 'Site-to-Site VPN',      gen: () => typeof CiscoFTD !== 'undefined' && CiscoFTD.siteToSiteVpn },
             { id: 'raVpn',           cat: 'vpn', label: 'Remote Access VPN',     gen: () => typeof CiscoFTD !== 'undefined' && CiscoFTD.raVpn },
+            { id: 'platformSyslog', cat: 'mgmt', label: 'Platform Settings: Syslog', gen: () => typeof CiscoFTD !== 'undefined' && CiscoFTD.platformSyslog },
+            { id: 'platformTime', cat: 'mgmt', label: 'Platform Settings: NTP', gen: () => typeof CiscoFTD !== 'undefined' && CiscoFTD.platformTime },
+            { id: 'platformSnmp', cat: 'mgmt', label: 'Platform Settings: SNMP', gen: () => typeof CiscoFTD !== 'undefined' && CiscoFTD.platformSnmp },
+            { id: 'staticRoute', cat: 'routing', label: 'Static Route + SLA', gen: () => typeof CiscoFTD !== 'undefined' && CiscoFTD.staticRoute },
+            { id: 'prefilter', cat: 'secpol', label: 'Prefilter Policy', gen: () => typeof CiscoFTD !== 'undefined' && CiscoFTD.prefilter },
+            { id: 'identityPolicy', cat: 'secpol', label: 'Identity Policy', gen: () => typeof CiscoFTD !== 'undefined' && CiscoFTD.identityPolicy },
         ]
     },
     'cisco-nxos': {
@@ -1308,6 +1318,17 @@ const CG_REGISTRY = {
             { id: 'syslog',       cat: 'mgmt', label: 'Syslog',            gen: () => typeof Dell !== 'undefined' && Dell.syslog },
             { id: 'snmpv3',       cat: 'mgmt', label: 'SNMP v3',           gen: () => typeof Dell !== 'undefined' && Dell.snmpv3 },
             { id: 'stormControl', cat: 'qos', label: 'Storm Control',     gen: () => typeof Dell !== 'undefined' && Dell.stormControl },
+            { id: 'aaa', cat: 'aaa', label: 'AAA / Kullanıcı', gen: () => typeof Dell !== 'undefined' && Dell.aaa },
+            { id: 'stp', cat: 'l2', label: 'Spanning Tree', gen: () => typeof Dell !== 'undefined' && Dell.stp },
+            { id: 'vrf', cat: 'routing', label: 'VRF', gen: () => typeof Dell !== 'undefined' && Dell.vrf },
+            { id: 'staticRoute', cat: 'routing', label: 'Statik Rota', gen: () => typeof Dell !== 'undefined' && Dell.staticRoute },
+            { id: 'lldp', cat: 'l2', label: 'LLDP', gen: () => typeof Dell !== 'undefined' && Dell.lldp },
+            { id: 'mirror', cat: 'mgmt', label: 'Port Mirroring', gen: () => typeof Dell !== 'undefined' && Dell.mirror },
+            { id: 'vrrp', cat: 'ha', label: 'VRRP', gen: () => typeof Dell !== 'undefined' && Dell.vrrp },
+            { id: 'iface', cat: 'iface', label: 'Arayüz', gen: () => typeof Dell !== 'undefined' && Dell.iface },
+            { id: 'breakout', cat: 'iface', label: 'Breakout / Port-Group', gen: () => typeof Dell !== 'undefined' && Dell.breakout },
+            { id: 'iscsi', cat: 'qos', label: 'iSCSI', gen: () => typeof Dell !== 'undefined' && Dell.iscsi },
+            { id: 'hardening', cat: 'base', label: 'Banner / Sertleştirme', gen: () => typeof Dell !== 'undefined' && Dell.hardening },
         ]
     },
     'arista': {
@@ -1364,24 +1385,47 @@ const CG_REGISTRY = {
             { id: 'logging',    cat: 'mgmt', label: 'Logging / Syslog',   gen: () => typeof MikroTik !== 'undefined' && MikroTik.logging },
         ]
     },
-    'extreme':  { label: 'Extreme Networks', icon: 'fas fa-project-diagram', color: '#582C83', types: [{ id: 'general', cat: 'base', label: 'Genel', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.general }] },
+    'extreme': {
+        label: 'Extreme Networks', icon: 'fas fa-project-diagram', color: '#582C83',
+        types: [
+            { id: 'general', cat: 'base', label: 'Genel', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.general },
+            { id: 'vlan', cat: 'l2', label: 'VLAN', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.vlan },
+            { id: 'ipIface', cat: 'iface', label: 'IP Arayüzü', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.ipIface },
+            { id: 'staticRoute', cat: 'routing', label: 'Statik Rota', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.staticRoute },
+            { id: 'ospf', cat: 'routing', label: 'OSPF', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.ospf },
+            { id: 'vrrp', cat: 'ha', label: 'VRRP', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.vrrp },
+            { id: 'lag', cat: 'l2', label: 'Link Aggregation', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.lag },
+            { id: 'stp', cat: 'l2', label: 'Spanning Tree', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.stp },
+            { id: 'snmp', cat: 'mgmt', label: 'SNMPv3', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.snmp },
+            { id: 'syslog', cat: 'mgmt', label: 'Syslog', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.syslog },
+            { id: 'ntp', cat: 'mgmt', label: 'NTP / SNTP', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.ntp },
+            { id: 'accounts', cat: 'aaa', label: 'Kullanıcı Hesapları', gen: () => typeof ExtremeNet !== 'undefined' && ExtremeNet.accounts },
+        ]
+    },
     'cisco-asa': {
         label: 'Cisco ASA', icon: 'fas fa-fire-alt', color: '#CC0000',
         types: [
             { id: 'interface', cat: 'iface', label: 'Interface',  gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.interface },
-            { id: 'route',     cat: 'routing', label: 'Route',      gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.route },
             { id: 'acl',       cat: 'secpol', label: 'ACL',        gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.acl },
             { id: 'nat',       cat: 'secpol', label: 'NAT',        gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.nat },
             { id: 'ospf',      cat: 'routing', label: 'OSPF',       gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.ospf },
-            { id: 'ipsec',       cat: 'vpn', label: 'IPSec VPN',    gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.ipsec },
             { id: 'anyconnect',  cat: 'vpn', label: 'AnyConnect VPN', gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.anyconnect },
             { id: 'objectgroup',      cat: 'secpol', label: 'Object Groups',      gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.objectgroup },
             { id: 'vpn',              cat: 'vpn', label: 'Site-to-Site VPN',    gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.vpn },
             { id: 'aaa',              cat: 'aaa', label: 'AAA',                  gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.aaa },
-            { id: 'routeMap',         cat: 'routing', label: 'Route Map',            gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.routeMap },
+            { id: 'routeMap',         cat: 'routing', label: 'Static Route / PBR',            gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.routeMap },
             { id: 'mpfServicePolicy', cat: 'secpol', label: 'MPF Service Policy',   gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.mpfServicePolicy },
             { id: 'failoverHA',       cat: 'ha', label: 'Failover HA',          gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.failoverHA },
             { id: 'aaaRadius',        cat: 'aaa', label: 'AAA RADIUS Server',    gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.aaaRadius },
+            { id: 'logging', cat: 'mgmt', label: 'Syslog / Logging', gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.logging },
+            { id: 'ntpClock', cat: 'mgmt', label: 'NTP / Saat', gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.ntpClock },
+            { id: 'snmp', cat: 'mgmt', label: 'SNMP', gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.snmp },
+            { id: 'mgmtAccess', cat: 'mgmt', label: 'Yönetim Erişimi (SSH/ASDM)', gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.mgmtAccess },
+            { id: 'localUsers', cat: 'aaa', label: 'Yerel Kullanıcılar / Privilege', gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.localUsers },
+            { id: 'routeTrack', cat: 'routing', label: 'Statik Rota + SLA Tracking', gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.routeTrack },
+            { id: 'twiceNat', cat: 'secpol', label: 'Twice NAT / Identity NAT', gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.twiceNat },
+            { id: 'threatDetection', cat: 'secpol', label: 'Threat Detection', gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.threatDetection },
+            { id: 'dhcpServer', cat: 'base', label: 'DHCP Sunucu / Relay', gen: () => typeof CiscoASA !== 'undefined' && CiscoASA.dhcpServer },
         ]
     },
     'fortigate': {
@@ -1451,6 +1495,15 @@ const CG_REGISTRY = {
             { id: 'snmp',           cat: 'mgmt', label: 'SNMP v3',                  gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.snmp },
             { id: 'panorama',       cat: 'mgmt', label: 'Panorama Device Group',    gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.panorama },
             { id: 'sdwan',          cat: 'routing', label: 'SD-WAN Path Selection',    gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.sdwan },
+            { id: 'addrgroup', cat: 'secpol', label: 'Address Group', gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.addrgroup },
+            { id: 'svcgroup', cat: 'secpol', label: 'Service Group', gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.svcgroup },
+            { id: 'logfwd', cat: 'mgmt', label: 'Log Forwarding + Syslog', gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.logfwd },
+            { id: 'devsetup', cat: 'base', label: 'Device Setup (DNS/NTP/Banner)', gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.devsetup },
+            { id: 'authprof', cat: 'aaa', label: 'LDAP/RADIUS + Auth Profile', gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.authprof },
+            { id: 'admin', cat: 'aaa', label: 'Administrator + Parola Politikası', gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.admin },
+            { id: 'tunnelmon', cat: 'vpn', label: 'Tunnel Monitor', gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.tunnelmon },
+            { id: 'zoneprot', cat: 'secpol', label: 'Zone Protection Profile', gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.zoneprot },
+            { id: 'appoverride', cat: 'secpol', label: 'Application Override', gen: () => typeof PaloAlto !== 'undefined' && PaloAlto.appoverride },
         ]
     },
     'checkpoint': {
@@ -1471,11 +1524,17 @@ const CG_REGISTRY = {
             { id: 'vsx',          cat: 'ha', label: 'VSX Virtual System',       gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.vsx },
             { id: 's2svpn',       cat: 'vpn', label: 'Site-to-Site VPN',         gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.s2svpn },
             { id: 'ravpn',        cat: 'vpn', label: 'Remote Access VPN',        gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.ravpn },
-            { id: 'ips',          cat: 'utm', label: 'IPS Profile',              gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.ips },
-            { id: 'antibot',      cat: 'utm', label: 'Anti-Bot + Anti-Virus',    gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.antibot },
             { id: 'httpsinspect', cat: 'utm', label: 'HTTPS Inspection',         gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.httpsinspect },
-            { id: 'logging',      cat: 'mgmt', label: 'Logging / SmartEvent',     gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.logging },
+            { id: 'logging',      cat: 'mgmt', label: 'Log Exporter (SIEM)',     gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.logging },
             { id: 'snmp',         cat: 'mgmt', label: 'SNMP v3',                  gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.snmp },
+            { id: 'addrrange', cat: 'secpol', label: 'Address Range', gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.addrrange },
+            { id: 'netgroup', cat: 'secpol', label: 'Network Group', gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.netgroup },
+            { id: 'svcgroup', cat: 'secpol', label: 'Service Group', gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.svcgroup },
+            { id: 'timeobj', cat: 'secpol', label: 'Time Object', gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.timeobj },
+            { id: 'tpprofile', cat: 'utm', label: 'Threat Prevention (IPS / Anti-Bot / AV)', gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.tpprofile },
+            { id: 'gaiasys', cat: 'base', label: 'Gaia DNS / NTP / Banner', gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.gaiasys },
+            { id: 'gaiasyslog', cat: 'mgmt', label: 'Gaia Remote Syslog', gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.gaiasyslog },
+            { id: 'gaiauser', cat: 'aaa', label: 'Gaia Kullanıcı / Rol', gen: () => typeof CheckPoint !== 'undefined' && CheckPoint.gaiauser },
         ]
     },
     'f5-ltm': {

@@ -1317,3 +1317,614 @@ function cgPaSdwanGen(data) {
     c += '# Doğrulama:\n# show sdwan interface\n# show sdwan path\n';
     return c;
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Yeni araçlar (2026-09) — canlı envanterde PAN-OS yok; tüm sözdizimi resmi
+// kaynaklardan: iron-skillet (PAN-OS 10.1 set şablonu), pan-os-python / pango
+// XML yolları (set CLI = xpath), docs.paloaltonetworks.com, knowledgebase.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Virgül/boşluk ile girilen listeyi PAN-OS üye listesine çevirir: 'a, b c' → 'a b c'
+function cgPaList(s) {
+    return String(s || '').split(/[\s,]+/).map(x => x.trim()).filter(Boolean).join(' ');
+}
+
+// ── Palo Alto: Address Group ─────────────────────────────────────────────────
+// Sözdizimi: https://github.com/PaloAltoNetworks/pan-os-python/blob/develop/panos/objects.py (AddressGroup: static / dynamic/filter / description / tag)
+//            https://pan.dev/panos/docs/tutorials/working-with-address-groups/ (DAG filtresi)
+PaloAlto.addrgroup = {
+    label: 'Address Group',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-object-group', title: 'Address Group (PAN-OS)', desc: 'Statik (üye listesi) veya dinamik (etiket filtresi) adres grubu.<br><code>set address-group "WEB-SERVERS" static [ WEB-01 WEB-02 ]</code>' },
+            configTypes: [
+                { id: 'static', label: 'Statik', icon: 'fas fa-list', desc: 'Üyeleri tek tek adres nesnesi olarak ver', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'dynamic', label: 'Dinamik (DAG)', icon: 'fas fa-tags', desc: 'Üyelik etiket filtresiyle, commit gerektirmeden değişir' }
+            ],
+            sections: [
+                {
+                    title: 'Grup', icon: 'fas fa-object-group',
+                    fields: [
+                        { name: 'ag_name', label: 'Grup Adı', type: 'text', required: true, placeholder: 'WEB-SERVERS', hint: 'Kurallarda görünecek grup adı', why: 'Grup adı kurallarda görünür. Grup içeriğini değiştirmek <b>o grubu kullanan tüm kuralları</b> aynı anda etkiler.' },
+                        { name: 'ag_desc', label: 'Açıklama', type: 'text', placeholder: 'Web sunucu havuzu', hint: 'Grup açıklaması' }
+                    ]
+                },
+                {
+                    title: 'Statik Üyeler', icon: 'fas fa-list', showFor: ['static'],
+                    fields: [
+                        { name: 'ag_members', label: 'Üye Adres Nesneleri', type: 'text', requiredIf: { field: '_cgtype', in: ['static'] }, placeholder: 'WEB-01 WEB-02', hint: 'Mevcut address nesne adları; boşluk veya virgülle ayır', why: 'Üyeler önceden tanımlı <code>address</code> nesneleri olmalı; olmayan bir ad commit hatası verir.' }
+                    ]
+                },
+                {
+                    title: 'Dinamik Filtre', icon: 'fas fa-tags', showFor: ['dynamic'],
+                    info: 'Etiketler IP\'lere User-ID/XML API, VM Monitoring veya log forwarding aksiyonuyla atanır.',
+                    fields: [
+                        { name: 'ag_filter', label: 'Etiket Filtresi', type: 'text', requiredIf: { field: '_cgtype', in: ['dynamic'] }, placeholder: 'web and prod', hint: 'Etiket adları and / or ile birleştirilir', why: 'DAG üyeliği bu filtreye uyan kayıtlı IP\'lerden oluşur. Filtre fazla genişse (tek etiket) beklenmeyen IP\'ler kurala girer.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgPaAddrGroupGen(data));
+    }
+};
+function cgPaAddrGroupGen(data) {
+    const name = cgEsc(data.ag_name || ''), desc = cgEsc(data.ag_desc || '');
+    const dyn = data._cgtype === 'dynamic';
+    const base = 'set address-group "' + name + '"';
+    let c = '# ========================================\n# Palo Alto — Address Group\n# ========================================\n\n';
+    if (dyn) {
+        c += base + ' dynamic filter "' + cgEsc(data.ag_filter || '') + '"\n';
+    } else {
+        c += base + ' static [ ' + cgEsc(cgPaList(data.ag_members)) + ' ]\n';
+    }
+    if (desc) c += base + ' description "' + desc + '"\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show address-group "' + name + '"   (configure modu)\n';
+    if (dyn) c += '# show object registered-ip all\n';
+    return c;
+}
+
+// ── Palo Alto: Service Group ─────────────────────────────────────────────────
+// Sözdizimi: https://github.com/PaloAltoNetworks/pan-os-python/blob/develop/panos/objects.py (ServiceGroup: members)
+PaloAlto.svcgroup = {
+    label: 'Service Group',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-layer-group', title: 'Service Group (PAN-OS)', desc: 'Birden çok servis nesnesini tek grupta toplar.<br><code>set service-group "SG-WEB" members [ SVC-TCP-8080 SVC-TCP-8443 ]</code>' },
+            sections: [
+                {
+                    title: 'Servis Grubu', icon: 'fas fa-layer-group',
+                    fields: [
+                        { name: 'sg_name', label: 'Grup Adı', type: 'text', required: true, placeholder: 'SG-WEB', hint: 'Servis grubu adı', why: 'Kuralda <code>service</code> alanına yazılır. App-ID kullanıyorsan çoğu durumda <code>application-default</code> servis grubundan daha güvenlidir.' },
+                        { name: 'sg_members', label: 'Üye Servisler', type: 'text', required: true, placeholder: 'SVC-TCP-8080 SVC-TCP-8443', hint: 'Mevcut service nesneleri (veya service-http / service-https); boşluk veya virgülle ayır', why: 'Üyeler önceden tanımlı servis nesneleri olmalı. Grupta geniş aralık (1-65535) varsa kural tüm portları açar.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgPaSvcGroupGen(data));
+    }
+};
+function cgPaSvcGroupGen(data) {
+    const name = cgEsc(data.sg_name || '');
+    let c = '# ========================================\n# Palo Alto — Service Group\n# ========================================\n\n';
+    c += 'set service-group "' + name + '" members [ ' + cgEsc(cgPaList(data.sg_members)) + ' ]\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show service-group "' + name + '"   (configure modu)\n';
+    return c;
+}
+
+// ── Palo Alto: Syslog Server Profile + Log Forwarding Profile ────────────────
+// Sözdizimi: https://github.com/PaloAltoNetworks/iron-skillet/blob/panos_v10.1/templates/panos/set_commands/iron_skillet_panos_full.conf
+//            (shared log-settings syslog / profiles / system / config, rulebase ... log-setting)
+//            değer listeleri: https://github.com/PaloAltoNetworks/pan-os-python/blob/develop/panos/device.py (SyslogServer: UDP/TCP/SSL, BSD/IETF, LOG_USER/LOG_LOCAL0-7)
+PaloAlto.logfwd = {
+    label: 'Log Forwarding + Syslog',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-share-square', title: 'Log Forwarding + Syslog Profili (PAN-OS)', desc: 'SIEM/syslog sunucu profili ve bu sunucuya log gönderen Log Forwarding profili — iron-skillet best-practice yapısı.<br><code>set shared log-settings profiles LF-SIEM match-list Traffic_Log_Forwarding send-syslog SYSLOG-SIEM</code>' },
+            sections: [
+                {
+                    title: 'Syslog Sunucu Profili', icon: 'fas fa-server',
+                    fields: [
+                        { name: 'lf_sl_profile', label: 'Syslog Profil Adı', type: 'text', required: true, placeholder: 'SYSLOG-SIEM', hint: 'Device > Server Profiles > Syslog', why: 'Log forwarding profili sunucuya doğrudan değil, bu profil adıyla bağlanır.' },
+                        { name: 'lf_sl_server', label: 'Sunucu Kayıt Adı', type: 'text', required: true, placeholder: 'SIEM-01', hint: 'Profil içindeki sunucu girdisinin adı' },
+                        { name: 'lf_sl_ip', label: 'Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.50', hint: 'Syslog / SIEM sunucusu', why: 'Loglar yönetim arayüzünden (MGT) çıkar; servis rotası tanımlı değilse sunucuya MGT ağından erişim olmalı.' },
+                        { name: 'lf_sl_transport', label: 'Taşıma', type: 'select', options: [
+                            { value: 'UDP', label: 'UDP', selected: true },
+                            { value: 'TCP', label: 'TCP' },
+                            { value: 'SSL', label: 'SSL (TLS)' }
+                        ], hint: 'SSL için sunucu sertifikası güvenilir CA ile imzalı olmalı', why: 'UDP kayıp paketi fark etmez ve düz metindir. Uyum gereksinimi varsa <b>SSL</b> (genelde 6514) kullan.' },
+                        { name: 'lf_sl_port', label: 'Port', type: 'text', validate: 'port', required: true, placeholder: '514', hint: 'UDP/TCP 514, SSL 6514 yaygın' },
+                        { name: 'lf_sl_format', label: 'Format', type: 'select', options: [
+                            { value: 'BSD', label: 'BSD', selected: true },
+                            { value: 'IETF', label: 'IETF (RFC 5424)' }
+                        ], why: 'SIEM\'in beklediği formatla eşleşmezse loglar parse edilmez ve korelasyon kuralları sessizce çalışmaz.' },
+                        { name: 'lf_sl_facility', label: 'Facility', type: 'select', options: [
+                            { value: 'LOG_USER', label: 'LOG_USER', selected: true },
+                            { value: 'LOG_LOCAL0', label: 'LOG_LOCAL0' },
+                            { value: 'LOG_LOCAL1', label: 'LOG_LOCAL1' },
+                            { value: 'LOG_LOCAL4', label: 'LOG_LOCAL4' },
+                            { value: 'LOG_LOCAL7', label: 'LOG_LOCAL7' }
+                        ] }
+                    ]
+                },
+                {
+                    title: 'Log Forwarding Profili', icon: 'fas fa-share-square',
+                    info: 'Profil adı <code>default</code> verilirse PAN-OS yeni kurallara bu profili otomatik atar (iron-skillet böyle kullanır).',
+                    fields: [
+                        { name: 'lf_name', label: 'Profil Adı', type: 'text', required: true, placeholder: 'default', hint: 'Objects > Log Forwarding', why: 'Log forwarding profili kurala atanmadıkça hiçbir trafik/tehdit logu SIEM\'e gitmez; sadece yerel diskte kalır.' },
+                        { name: 'lf_traffic', label: 'Traffic logları', type: 'checkbox', checked: true },
+                        { name: 'lf_threat', label: 'Threat logları', type: 'checkbox', checked: true, why: 'Tehdit logu SIEM\'e gitmezse IPS/AV tespitleri merkezi olarak görülmez — olay müdahalesinin ana girdisi budur.' },
+                        { name: 'lf_url', label: 'URL logları', type: 'checkbox', checked: true },
+                        { name: 'lf_wildfire', label: 'WildFire logları', type: 'checkbox', checked: true },
+                        { name: 'lf_data', label: 'Data filtering logları', type: 'checkbox', checked: false },
+                        { name: 'lf_tunnel', label: 'Tunnel logları', type: 'checkbox', checked: false },
+                        { name: 'lf_auth', label: 'Authentication logları', type: 'checkbox', checked: false }
+                    ]
+                },
+                {
+                    title: 'Sistem / Konfig Logları ve Kural Ataması', icon: 'fas fa-cogs',
+                    fields: [
+                        { name: 'lf_sysconf', label: 'System + Config loglarını da gönder', type: 'checkbox', checked: true, hint: 'Device > Log Settings', why: 'Config logu kimin ne değiştirdiğini gösterir; denetimde ilk istenen kayıttır ve yalnız cihazda tutulursa silinebilir.' },
+                        { name: 'lf_rule', label: 'Profili Atanacak Güvenlik Kuralı', type: 'text', placeholder: 'Allow_LAN_to_WAN', hint: 'Boş bırakılırsa kural ataması yazılmaz', why: 'Profil kurala atanmadıkça trafik/tehdit logları iletilmez.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgPaLogFwdGen(data));
+    }
+};
+function cgPaLogFwdGen(data) {
+    const sp = cgEsc(data.lf_sl_profile || ''), ss = cgEsc(data.lf_sl_server || ''), ip = cgEsc(data.lf_sl_ip || '');
+    const tr = cgEsc(data.lf_sl_transport || 'UDP'), port = cgEsc(data.lf_sl_port || '');
+    const fmt = cgEsc(data.lf_sl_format || 'BSD'), fac = cgEsc(data.lf_sl_facility || 'LOG_USER');
+    const lf = cgEsc(data.lf_name || ''), rule = cgEsc(data.lf_rule || '');
+    const sb = 'set shared log-settings syslog ' + sp + ' server ' + ss;
+    let c = '# ========================================\n# Palo Alto — Syslog Server Profile + Log Forwarding\n# ========================================\n\n';
+    c += '# Syslog sunucu profili\n';
+    c += sb + ' server ' + ip + '\n';
+    c += sb + ' transport ' + tr + '\n';
+    c += sb + ' port ' + port + '\n';
+    c += sb + ' format ' + fmt + '\n';
+    c += sb + ' facility ' + fac + '\n\n';
+    const types = [['lf_traffic', 'traffic', 'Traffic'], ['lf_threat', 'threat', 'Threat'], ['lf_url', 'url', 'URL'], ['lf_wildfire', 'wildfire', 'Wildfire'],
+                   ['lf_data', 'data', 'Data'], ['lf_tunnel', 'tunnel', 'Tunnel'], ['lf_auth', 'auth', 'Auth']].filter(t => data[t[0]]);
+    c += '# Log Forwarding profili\n';
+    if (!types.length) c += '# UYARI: hiçbir log tipi seçilmedi — profil hiçbir logu iletmez.\n';
+    types.forEach(t => {
+        const mb = 'set shared log-settings profiles ' + lf + ' match-list ' + t[2] + '_Log_Forwarding';
+        c += mb + ' log-type ' + t[1] + '\n';
+        c += mb + ' filter "All Logs"\n';
+        c += mb + ' send-syslog ' + sp + '\n';
+    });
+    c += '\n';
+    if (data.lf_sysconf) {
+        c += '# System ve Config logları (Device > Log Settings)\n';
+        c += 'set shared log-settings system match-list System_Log_Forwarding filter "All Logs"\n';
+        c += 'set shared log-settings system match-list System_Log_Forwarding send-syslog ' + sp + '\n';
+        c += 'set shared log-settings config match-list Configuration_Log_Forwarding filter "All Logs"\n';
+        c += 'set shared log-settings config match-list Configuration_Log_Forwarding send-syslog ' + sp + '\n\n';
+    }
+    if (rule) c += '# Kurala ata\nset rulebase security rules "' + rule + '" log-setting ' + lf + '\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show shared log-settings syslog ' + sp + '   (configure modu)\n# show shared log-settings profiles ' + lf + '   (configure modu)\n';
+    return c;
+}
+
+// ── Palo Alto: Device Setup (DNS / NTP / Banner / Management) ───────────────
+// Sözdizimi: https://github.com/PaloAltoNetworks/iron-skillet/blob/panos_v10.1/templates/panos/set_commands/iron_skillet_panos_full.conf
+//            (deviceconfig system hostname / dns-setting / ntp-servers / login-banner / timezone,
+//             deviceconfig setting management idle-timeout / admin-lockout)
+PaloAlto.devsetup = {
+    label: 'Device Setup (DNS/NTP/Banner)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-sliders-h', title: 'Device Setup (PAN-OS)', desc: 'Hostname, DNS, NTP, saat dilimi, giriş banner\'ı ve yönetim oturum sertleştirmesi — iron-skillet best-practice değerleri.<br><code>set deviceconfig system ntp-servers primary-ntp-server ntp-server-address 0.pool.ntp.org</code>' },
+            sections: [
+                {
+                    title: 'Kimlik ve DNS', icon: 'fas fa-id-card',
+                    fields: [
+                        { name: 'ds_hostname', label: 'Hostname', type: 'text', validate: 'hostname', required: true, placeholder: 'PA-FW-01', hint: 'Cihaz adı' },
+                        { name: 'ds_dns1', label: 'Birincil DNS', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.53', why: 'DNS yoksa dinamik güncellemeler (Threat/AV/WildFire), lisans ve FQDN nesneleri çalışmaz; cihaz imzasız kalır.' },
+                        { name: 'ds_dns2', label: 'İkincil DNS', type: 'text', validate: 'ip', placeholder: '192.0.2.54' }
+                    ]
+                },
+                {
+                    title: 'Zaman', icon: 'fas fa-clock',
+                    fields: [
+                        { name: 'ds_ntp1', label: 'Birincil NTP', type: 'text', validate: 'hostname', required: true, placeholder: '0.pool.ntp.org', hint: 'IP veya FQDN', why: 'Log zaman damgası, sertifika doğrulaması ve HA senkronu doğru saate bağlıdır.' },
+                        { name: 'ds_ntp2', label: 'İkincil NTP', type: 'text', validate: 'hostname', placeholder: '1.pool.ntp.org' },
+                        { name: 'ds_tz', label: 'Saat Dilimi', type: 'text', required: true, placeholder: 'UTC', hint: 'Ör: UTC, Europe/Istanbul (iron-skillet UTC önerir)', why: 'Birden çok cihazda aynı dilim (tercihen UTC) log korelasyonunu kolaylaştırır.' }
+                    ]
+                },
+                {
+                    title: 'Yönetim Erişimi', icon: 'fas fa-user-lock',
+                    fields: [
+                        { name: 'ds_banner', label: 'Login Banner', type: 'text', placeholder: 'Yetkisiz erisim yasaktir.', hint: 'Girişte gösterilecek uyarı metni', why: 'Yasal uyarı bannerı, yetkisiz erişimde hukuki süreç için çoğu mevzuatta beklenir.' },
+                        { name: 'ds_idle', label: 'Idle Timeout (dk)', type: 'text', min: 1, max: 1440, placeholder: '10', hint: 'iron-skillet: 10', why: 'Açık bırakılan yönetim oturumu, masasından kalkan yöneticinin yetkisini başkasına verir.' },
+                        { name: 'ds_lock_att', label: 'Kilitleme — Başarısız Deneme', type: 'text', min: 1, max: 10, placeholder: '5', hint: 'iron-skillet: 5' },
+                        { name: 'ds_lock_time', label: 'Kilitleme Süresi (dk)', type: 'text', min: 1, max: 60, placeholder: '30', hint: 'iron-skillet: 30', why: 'Kaba kuvvet denemelerini yavaşlatır. Çok uzun süre, meşru yöneticiyi de dışarıda bırakabilir.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgPaDevSetupGen(data));
+    }
+};
+function cgPaDevSetupGen(data) {
+    const hn = cgEsc(data.ds_hostname || ''), d1 = cgEsc(data.ds_dns1 || ''), d2 = cgEsc(data.ds_dns2 || '');
+    const n1 = cgEsc(data.ds_ntp1 || ''), n2 = cgEsc(data.ds_ntp2 || ''), tz = cgEsc(data.ds_tz || '');
+    const banner = cgEsc(data.ds_banner || ''), idle = cgEsc(data.ds_idle || '');
+    const la = cgEsc(data.ds_lock_att || ''), lt = cgEsc(data.ds_lock_time || '');
+    const s = 'set deviceconfig system ';
+    let c = '# ========================================\n# Palo Alto — Device Setup\n# ========================================\n\n';
+    c += s + 'hostname ' + hn + '\n';
+    c += s + 'dns-setting servers primary ' + d1 + '\n';
+    if (d2) c += s + 'dns-setting servers secondary ' + d2 + '\n';
+    c += s + 'ntp-servers primary-ntp-server ntp-server-address ' + n1 + '\n';
+    if (n2) c += s + 'ntp-servers secondary-ntp-server ntp-server-address ' + n2 + '\n';
+    c += s + 'timezone ' + tz + '\n';
+    if (banner) c += s + 'login-banner "' + banner + '"\n';
+    if (idle || la || lt) c += '\n# Yönetim oturumu sertleştirme\n';
+    if (idle) c += 'set deviceconfig setting management idle-timeout ' + idle + '\n';
+    if (la) c += 'set deviceconfig setting management admin-lockout failed-attempts ' + la + '\n';
+    if (lt) c += 'set deviceconfig setting management admin-lockout lockout-time ' + lt + '\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show system info\n# show ntp\n# show clock\n';
+    return c;
+}
+
+// ── Palo Alto: LDAP / RADIUS Server Profile + Authentication Profile ─────────
+// Sözdizimi: https://github.com/PaloAltoNetworks/pan-os-python/blob/develop/panos/device.py
+//            (LdapServerProfile/LdapServer, AuthenticationProfile: method/{ldap,radius}/server-profile, login-attribute, allow-list, lockout)
+//            https://github.com/PaloAltoNetworks/pango/tree/main/device/profiles/radius (server ip-address/port, timeout, retries; 'shared' konumu)
+//            https://knowledgebase.paloaltonetworks.com/KCSArticleDetail?id=kA10g000000ClqECAS (server-profile radius set örnekleri)
+// Gizli alanlar (bind-password / secret) YAZILMAZ: set CLI'da düz metin kabulü resmi örnekle doğrulanamadı.
+PaloAlto.authprof = {
+    label: 'LDAP/RADIUS + Auth Profile',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-user-shield', title: 'Authentication Profile (PAN-OS)', desc: 'LDAP veya RADIUS sunucu profili ve onu kullanan authentication profile. Yönetici girişi, GlobalProtect ve captive portal bu profili kullanır.<br><code>set shared authentication-profile AUTH-LDAP method ldap server-profile LDAP-AD</code>' },
+            configTypes: [
+                { id: 'ldap', label: 'LDAP / Active Directory', icon: 'fas fa-sitemap', desc: 'AD kullanıcı ve grupları', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'radius', label: 'RADIUS', icon: 'fas fa-broadcast-tower', desc: 'NPS / ISE / MFA sunucusu' }
+            ],
+            sections: [
+                {
+                    title: 'LDAP Sunucu Profili', icon: 'fas fa-sitemap', showFor: ['ldap'],
+                    warn: 'Bind parolası bu çıktıda YOKTUR — GUI\'den girin: Device > Server Profiles > LDAP > Bind Password.',
+                    fields: [
+                        { name: 'ap_ld_profile', label: 'LDAP Profil Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: 'LDAP-AD' },
+                        { name: 'ap_ld_srvname', label: 'Sunucu Kayıt Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: 'DC-01' },
+                        { name: 'ap_ld_ip', label: 'Sunucu IP', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: '10.0.0.10' },
+                        { name: 'ap_ld_port', label: 'Port', type: 'text', validate: 'port', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: '636', hint: 'LDAPS 636, düz LDAP 389', why: '389 üzerinde SSL kapalıyken bind parolası ağda <b>açık metin</b> gider.' },
+                        { name: 'ap_ld_type', label: 'LDAP Tipi', type: 'select', options: [
+                            { value: 'active-directory', label: 'Active Directory', selected: true },
+                            { value: 'e-directory', label: 'eDirectory' },
+                            { value: 'sun', label: 'Sun' },
+                            { value: 'other', label: 'Other' }
+                        ] },
+                        { name: 'ap_ld_base', label: 'Base DN', type: 'text', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: 'DC=example,DC=com' },
+                        { name: 'ap_ld_binddn', label: 'Bind DN', type: 'text', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: 'svc-paloalto@example.com', hint: 'Salt-okur servis hesabı', why: 'Bind hesabı yalnız okuma yetkili olmalı; domain admin kullanmak, cihaz ele geçirilirse tüm AD\'yi açar.' },
+                        { name: 'ap_ld_ssl', label: 'SSL/TLS', type: 'checkbox', checked: true },
+                        { name: 'ap_ld_verify', label: 'Sunucu Sertifikasını Doğrula', type: 'checkbox', checked: true, why: 'Doğrulama kapalıysa araya giren sahte bir LDAP sunucusu kimlik bilgilerini toplayabilir.' },
+                        { name: 'ap_ld_attr', label: 'Login Attribute', type: 'text', placeholder: 'sAMAccountName', hint: 'AD için genelde sAMAccountName veya userPrincipalName' }
+                    ]
+                },
+                {
+                    title: 'RADIUS Sunucu Profili', icon: 'fas fa-broadcast-tower', showFor: ['radius'],
+                    warn: 'Paylaşılan anahtar (secret) bu çıktıda YOKTUR — GUI\'den girin: Device > Server Profiles > RADIUS > Secret.',
+                    fields: [
+                        { name: 'ap_rd_profile', label: 'RADIUS Profil Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['radius'] }, placeholder: 'RADIUS-NPS' },
+                        { name: 'ap_rd_srvname', label: 'Sunucu Kayıt Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['radius'] }, placeholder: 'NPS-01' },
+                        { name: 'ap_rd_ip', label: 'Sunucu IP', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['radius'] }, placeholder: '10.0.0.20' },
+                        { name: 'ap_rd_port', label: 'Port', type: 'text', validate: 'port', requiredIf: { field: '_cgtype', in: ['radius'] }, placeholder: '1812' },
+                        { name: 'ap_rd_timeout', label: 'Timeout (sn)', type: 'text', min: 1, max: 120, placeholder: '3', hint: 'MFA push kullanılıyorsa artırın', why: 'MFA onayı beklenirken timeout dolarsa kullanıcı onay verse bile giriş reddedilir.' },
+                        { name: 'ap_rd_retries', label: 'Deneme Sayısı', type: 'text', min: 1, max: 5, placeholder: '3' }
+                    ]
+                },
+                {
+                    title: 'Authentication Profile', icon: 'fas fa-user-shield',
+                    fields: [
+                        { name: 'ap_name', label: 'Profil Adı', type: 'text', required: true, placeholder: 'AUTH-DIRECTORY' },
+                        { name: 'ap_allow', label: 'Allow List', type: 'text', required: true, placeholder: 'all', hint: 'all veya kullanıcı/grup adları (boşlukla)', why: '<code>all</code> dizindeki herkesin kimlik doğrulamasına izin verir. Yönetici girişi için yalnız yetkili grubu yaz.' },
+                        { name: 'ap_lock_att', label: 'Kilitleme — Başarısız Deneme', type: 'text', min: 1, max: 10, placeholder: '5' },
+                        { name: 'ap_lock_time', label: 'Kilitleme Süresi (dk)', type: 'text', min: 1, max: 60, placeholder: '30' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgPaAuthProfGen(data));
+    }
+};
+function cgPaAuthProfGen(data) {
+    const isRad = data._cgtype === 'radius';
+    const ap = cgEsc(data.ap_name || ''), allow = cgEsc(cgPaList(data.ap_allow));
+    const la = cgEsc(data.ap_lock_att || ''), lt = cgEsc(data.ap_lock_time || '');
+    let c = '# ========================================\n# Palo Alto — ' + (isRad ? 'RADIUS' : 'LDAP') + ' Server Profile + Authentication Profile\n# ========================================\n\n';
+    let prof;
+    if (isRad) {
+        prof = cgEsc(data.ap_rd_profile || '');
+        const sn = cgEsc(data.ap_rd_srvname || ''), to = cgEsc(data.ap_rd_timeout || ''), rt = cgEsc(data.ap_rd_retries || '');
+        const b = 'set shared server-profile radius ' + prof;
+        c += b + ' server ' + sn + ' ip-address ' + cgEsc(data.ap_rd_ip || '') + '\n';
+        c += b + ' server ' + sn + ' port ' + cgEsc(data.ap_rd_port || '') + '\n';
+        if (to) c += b + ' timeout ' + to + '\n';
+        if (rt) c += b + ' retries ' + rt + '\n';
+        c += '# Secret: GUI > Device > Server Profiles > RADIUS > ' + prof + ' > ' + sn + ' (CLI ile yazılmadı)\n\n';
+    } else {
+        prof = cgEsc(data.ap_ld_profile || '');
+        const sn = cgEsc(data.ap_ld_srvname || '');
+        const b = 'set shared server-profile ldap ' + prof;
+        c += b + ' server ' + sn + ' address ' + cgEsc(data.ap_ld_ip || '') + '\n';
+        c += b + ' server ' + sn + ' port ' + cgEsc(data.ap_ld_port || '') + '\n';
+        c += b + ' ldap-type ' + cgEsc(data.ap_ld_type || 'active-directory') + '\n';
+        c += b + ' base "' + cgEsc(data.ap_ld_base || '') + '"\n';
+        c += b + ' bind-dn "' + cgEsc(data.ap_ld_binddn || '') + '"\n';
+        c += b + ' ssl ' + (data.ap_ld_ssl ? 'yes' : 'no') + '\n';
+        c += b + ' verify-server-certificate ' + (data.ap_ld_verify ? 'yes' : 'no') + '\n';
+        if (!data.ap_ld_ssl) c += '# UYARI: SSL kapalı — bind parolası ve kullanıcı parolaları ağda açık metin gider.\n';
+        c += '# Bind Password: GUI > Device > Server Profiles > LDAP > ' + prof + ' (CLI ile yazılmadı)\n\n';
+    }
+    const m = isRad ? 'radius' : 'ldap';
+    const ab = 'set shared authentication-profile ' + ap;
+    c += ab + ' method ' + m + ' server-profile ' + prof + '\n';
+    if (!isRad && data.ap_ld_attr) c += ab + ' method ldap login-attribute ' + cgEsc(data.ap_ld_attr) + '\n';
+    c += ab + ' allow-list [ ' + allow + ' ]\n';
+    if (la) c += ab + ' lockout failed-attempts ' + la + '\n';
+    if (lt) c += ab + ' lockout lockout-time ' + lt + '\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show authentication allowlist\n# test authentication authentication-profile ' + ap + ' username <kullanici> password\n';
+    return c;
+}
+
+// ── Palo Alto: Administrator + Password Complexity ───────────────────────────
+// Sözdizimi: https://github.com/PaloAltoNetworks/iron-skillet/blob/panos_v10.1/templates/panos/set_commands/iron_skillet_panos_full.conf
+//            (mgt-config users ... password / permissions role-based superuser yes / password-complexity / delete mgt-config users admin)
+//            https://github.com/PaloAltoNetworks/pan-os-python/blob/develop/panos/device.py (Administrator: superreader, authentication-profile)
+PaloAlto.admin = {
+    label: 'Administrator + Parola Politikası',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-user-cog', title: 'Administrator (PAN-OS)', desc: 'Yönetici hesabı, dinamik rol ve iron-skillet parola karmaşıklığı politikası.<br><code>set mgt-config users netadmin permissions role-based superuser yes</code>' },
+            sections: [
+                {
+                    title: 'Yönetici Hesabı', icon: 'fas fa-user-cog',
+                    fields: [
+                        { name: 'adm_user', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netadmin' },
+                        { name: 'adm_role', label: 'Rol', type: 'select', options: [
+                            { value: 'superreader', label: 'Superuser (read-only)', selected: true },
+                            { value: 'superuser', label: 'Superuser (tam yetki)' }
+                        ], why: 'En az yetki ilkesi: izleme/denetim hesapları salt-okur olmalı. Tam yetkili hesap sayısı az tutulmalı.' },
+                        { name: 'adm_authprof', label: 'Authentication Profile', type: 'text', placeholder: 'AUTH-DIRECTORY', hint: 'Boşsa yerel parola (etkileşimli) sorulur', why: 'Merkezi kimlik doğrulama, personel ayrıldığında hesabın tek yerden kapatılmasını sağlar.' }
+                    ]
+                },
+                {
+                    title: 'Sertleştirme', icon: 'fas fa-lock',
+                    fields: [
+                        { name: 'adm_pwc', label: 'Parola karmaşıklığı (iron-skillet)', type: 'checkbox', checked: true, hint: 'min 12 karakter, büyük/küçük/rakam/özel, 24 geçmiş', why: 'Yerel hesap parolaları için tek savunma budur; kapalıysa kısa parola kabul edilir.' },
+                        { name: 'adm_deldef', label: 'Varsayılan "admin" hesabını sil', type: 'checkbox', checked: false, why: 'Varsayılan kullanıcı adı kaba kuvvet saldırılarının ilk hedefidir. <b>Yeni hesapla giriş yapıp commit ettikten sonra</b> uygulayın, yoksa cihazdan kilitlenirsiniz.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgPaAdminGen(data));
+    }
+};
+function cgPaAdminGen(data) {
+    const u = cgEsc(data.adm_user || ''), role = data.adm_role === 'superuser' ? 'superuser' : 'superreader';
+    const ap = cgEsc(data.adm_authprof || '');
+    const b = 'set mgt-config users ' + u;
+    let c = '# ========================================\n# Palo Alto — Administrator\n# ========================================\n\n';
+    c += b + ' permissions role-based ' + role + ' yes\n';
+    if (ap) c += b + ' authentication-profile ' + ap + '\n';
+    else c += b + ' password\n# (yukarıdaki komut parolayı etkileşimli olarak iki kez sorar)\n';
+    c += '\n';
+    if (data.adm_pwc) {
+        const p = 'set mgt-config password-complexity ';
+        c += '# Parola karmaşıklığı (iron-skillet)\n';
+        c += p + 'enabled yes\n' + p + 'minimum-length 12\n' + p + 'minimum-uppercase-letters 1\n' + p + 'minimum-lowercase-letters 1\n';
+        c += p + 'minimum-numeric-letters 1\n' + p + 'minimum-special-characters 1\n' + p + 'block-username-inclusion yes\n';
+        c += p + 'password-history-count 24\n' + p + 'new-password-differs-by-characters 3\n\n';
+    }
+    if (data.adm_deldef) {
+        c += '# UYARI: önce yeni hesapla giriş yapıp commit edin; aksi halde cihazdan kilitlenirsiniz.\n';
+        c += 'delete mgt-config users admin\n\n';
+    }
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show admins\n# show mgt-config users ' + u + '   (configure modu)\n';
+    return c;
+}
+
+// ── Palo Alto: Tunnel Monitor ────────────────────────────────────────────────
+// Sözdizimi: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-web-interface-help/network/network-network-profiles/network-network-profiles-monitor
+//            (action wait-recover|fail-over, interval 2-10 vars.3, threshold 2-10 vars.5)
+//            https://github.com/PaloAltoNetworks/pango/tree/main/network/profiles/monitor (network profiles monitor-profile)
+//            https://github.com/PaloAltoNetworks/pango/tree/main/network/tunnel/ipsec (tunnel-monitor enable / destination-ip / tunnel-monitor-profile / proxy-id)
+PaloAlto.tunnelmon = {
+    label: 'Tunnel Monitor',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-heartbeat', title: 'IPSec Tunnel Monitor (PAN-OS)', desc: 'Monitor profili ve mevcut bir IPSec tüneline izleme hedefi. Tünel içinden ping ile canlılık kontrol eder; fail-over ile yedek yola geçiş sağlar.<br><code>set network tunnel ipsec IPSEC-BRANCH tunnel-monitor enable yes</code>' },
+            sections: [
+                {
+                    title: 'Monitor Profili', icon: 'fas fa-heartbeat',
+                    fields: [
+                        { name: 'tm_profile', label: 'Profil Adı', type: 'text', required: true, placeholder: 'TM-FAILOVER' },
+                        { name: 'tm_action', label: 'Aksiyon', type: 'select', options: [
+                            { value: 'wait-recover', label: 'wait-recover (bekle)', selected: true },
+                            { value: 'fail-over', label: 'fail-over (yedek yola geç)' }
+                        ], why: '<code>fail-over</code> tünel düşünce tünel rotasını tablodan çeker; yedek rota (ör. ikinci tünel, daha yüksek metrik) yoksa trafik tamamen kesilir.' },
+                        { name: 'tm_interval', label: 'Interval (sn)', type: 'text', required: true, min: 2, max: 10, placeholder: '3', hint: 'PAN-OS varsayılanı 3' },
+                        { name: 'tm_threshold', label: 'Threshold', type: 'text', required: true, min: 2, max: 10, placeholder: '5', hint: 'Kaç kayıp pingten sonra tünel düşmüş sayılır (varsayılan 5)', why: 'Düşük eşik kısa kayıplarda gereksiz failover/flap üretir; yüksek eşik kesintiyi geç fark eder.' }
+                    ]
+                },
+                {
+                    title: 'Tünel', icon: 'fas fa-project-diagram',
+                    info: 'Tünel arayüzünün (tunnel.X) bir IP adresi olmalı; ping bu adresten kaynaklanır.',
+                    fields: [
+                        { name: 'tm_tunnel', label: 'IPSec Tünel Adı', type: 'text', required: true, placeholder: 'IPSEC-BRANCH', hint: 'Network > IPSec Tunnels altındaki ad' },
+                        { name: 'tm_dest', label: 'İzlenecek Hedef IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.0.1', hint: 'Karşı uçta tünel üzerinden erişilen, ping\'e yanıt veren adres', why: 'Hedef karşı tarafta ping\'e kapalıysa tünel sürekli "down" görünür ve fail-over boşuna tetiklenir.' },
+                        { name: 'tm_proxy', label: 'Proxy-ID', type: 'text', placeholder: 'PID-LAN', hint: 'Tünelde birden çok proxy-id varsa izlemenin hangisinden yapılacağı' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgPaTunnelMonGen(data));
+    }
+};
+function cgPaTunnelMonGen(data) {
+    const p = cgEsc(data.tm_profile || ''), act = data.tm_action === 'fail-over' ? 'fail-over' : 'wait-recover';
+    const iv = cgEsc(data.tm_interval || ''), th = cgEsc(data.tm_threshold || '');
+    const t = cgEsc(data.tm_tunnel || ''), dst = cgEsc(data.tm_dest || ''), pid = cgEsc(data.tm_proxy || '');
+    const mp = 'set network profiles monitor-profile ' + p;
+    const tb = 'set network tunnel ipsec ' + t + ' tunnel-monitor';
+    let c = '# ========================================\n# Palo Alto — IPSec Tunnel Monitor\n# ========================================\n\n';
+    c += mp + ' action ' + act + '\n' + mp + ' interval ' + iv + '\n' + mp + ' threshold ' + th + '\n\n';
+    c += tb + ' enable yes\n' + tb + ' destination-ip ' + dst + '\n' + tb + ' tunnel-monitor-profile ' + p + '\n';
+    if (pid) c += tb + ' proxy-id ' + pid + '\n';
+    if (act === 'fail-over') c += '# NOT: fail-over yalnız yedek rota (ikinci tünel / daha yüksek metrikli statik rota) varsa işe yarar.\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show vpn ipsec-sa tunnel ' + t + '\n# show running tunnel flow info\n';
+    return c;
+}
+
+// ── Palo Alto: Zone Protection Profile ───────────────────────────────────────
+// Sözdizimi: https://github.com/PaloAltoNetworks/iron-skillet/blob/panos_v10.1/templates/panos/set_commands/iron_skillet_panos_full.conf
+//            (zone-protection-profile scan 8001/8002/8003, discard-ip-spoof, discard-malformed-option, remove-tcp-timestamp)
+//            https://github.com/PaloAltoNetworks/pango/tree/main/network/profiles/zoneprotection (flood tcp-syn syn-cookies / udp red / icmp red: alarm-rate, activate-rate, maximal-rate)
+//            https://github.com/PaloAltoNetworks/pango/tree/main/network/zone (zone ... network zone-protection-profile)
+PaloAlto.zoneprot = {
+    label: 'Zone Protection Profile',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-shield-virus', title: 'Zone Protection Profile (PAN-OS)', desc: 'Flood (SYN/UDP/ICMP), keşif taraması ve paket tabanlı saldırı koruması; iron-skillet önerisi her zone\'a atanmasıdır.<br><code>set zone outside network zone-protection-profile ZP-INTERNET</code>' },
+            sections: [
+                {
+                    title: 'Profil', icon: 'fas fa-shield-virus',
+                    fields: [
+                        { name: 'zp_name', label: 'Profil Adı', type: 'text', required: true, placeholder: 'ZP-INTERNET' },
+                        { name: 'zp_zone', label: 'Atanacak Zone', type: 'text', placeholder: 'outside', hint: 'Boşsa atama satırı yazılmaz', why: 'Profil bir zone\'a atanmadıkça hiçbir etkisi olmaz. Önce internet yönlü zone\'a uygula.' }
+                    ]
+                },
+                {
+                    title: 'SYN Flood (SYN Cookies)', icon: 'fas fa-water',
+                    info: 'Eşikler zone\'a gelen toplam bağlantı/sn değeridir. Önce normal trafiği ölçün; iron-skillet eşik vermez, aşağıdaki örnekler PAN-OS varsayılanlarıdır.',
+                    fields: [
+                        { name: 'zp_syn', label: 'SYN flood koruması', type: 'checkbox', checked: true, why: 'SYN cookies, oturum tablosunu doldurmadan sahte SYN\'leri eler; RED\'e göre meşru trafiği daha az düşürür.' },
+                        { name: 'zp_syn_alarm', label: 'Alarm (cps)', type: 'text', min: 1, max: 2000000, requiredIf: { field: 'zp_syn', checked: true }, placeholder: '10000' },
+                        { name: 'zp_syn_act', label: 'Activate (cps)', type: 'text', min: 1, max: 2000000, requiredIf: { field: 'zp_syn', checked: true }, placeholder: '10000' },
+                        { name: 'zp_syn_max', label: 'Maximum (cps)', type: 'text', min: 1, max: 2000000, requiredIf: { field: 'zp_syn', checked: true }, placeholder: '40000', why: 'Maximum aşılınca fazlası düşürülür. Değer normal tepe trafiğinin altındaysa meşru bağlantılar kesilir.' }
+                    ]
+                },
+                {
+                    title: 'UDP / ICMP Flood (RED)', icon: 'fas fa-water',
+                    fields: [
+                        { name: 'zp_udp', label: 'UDP flood koruması', type: 'checkbox', checked: true },
+                        { name: 'zp_udp_alarm', label: 'UDP Alarm (pps)', type: 'text', min: 1, max: 2000000, requiredIf: { field: 'zp_udp', checked: true }, placeholder: '10000' },
+                        { name: 'zp_udp_act', label: 'UDP Activate (pps)', type: 'text', min: 1, max: 2000000, requiredIf: { field: 'zp_udp', checked: true }, placeholder: '10000' },
+                        { name: 'zp_udp_max', label: 'UDP Maximum (pps)', type: 'text', min: 1, max: 2000000, requiredIf: { field: 'zp_udp', checked: true }, placeholder: '40000' },
+                        { name: 'zp_icmp', label: 'ICMP flood koruması', type: 'checkbox', checked: true },
+                        { name: 'zp_icmp_alarm', label: 'ICMP Alarm (pps)', type: 'text', min: 1, max: 2000000, requiredIf: { field: 'zp_icmp', checked: true }, placeholder: '10000' },
+                        { name: 'zp_icmp_act', label: 'ICMP Activate (pps)', type: 'text', min: 1, max: 2000000, requiredIf: { field: 'zp_icmp', checked: true }, placeholder: '10000' },
+                        { name: 'zp_icmp_max', label: 'ICMP Maximum (pps)', type: 'text', min: 1, max: 2000000, requiredIf: { field: 'zp_icmp', checked: true }, placeholder: '40000' }
+                    ]
+                },
+                {
+                    title: 'Keşif ve Paket Koruması (iron-skillet)', icon: 'fas fa-search',
+                    fields: [
+                        { name: 'zp_recon', label: 'Port/host taraması algılama (alert)', type: 'checkbox', checked: true, hint: 'TCP/UDP port scan ve host sweep — iron-skillet eşikleri', why: 'Keşif taraması saldırının ilk adımıdır; alert modu engellemeden görünürlük verir.' },
+                        { name: 'zp_pkt', label: 'IP spoof / bozuk opsiyon düşür, TCP timestamp kaldır', type: 'checkbox', checked: true, why: 'Sahte kaynak adresli ve bozuk IP opsiyonlu paketler meşru trafikte görülmez; düşürmek güvenlidir.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgPaZoneProtGen(data));
+    }
+};
+function cgPaZoneProtGen(data) {
+    const n = cgEsc(data.zp_name || ''), z = cgEsc(data.zp_zone || '');
+    const b = 'set network profiles zone-protection-profile ' + n;
+    let c = '# ========================================\n# Palo Alto — Zone Protection Profile\n# ========================================\n\n';
+    const flood = (key, path, label) => {
+        const a = cgEsc(data['zp_' + key + '_alarm'] || ''), ac = cgEsc(data['zp_' + key + '_act'] || ''), mx = cgEsc(data['zp_' + key + '_max'] || '');
+        let s = '# ' + label + '\n' + b + ' flood ' + path.split(' ')[0] + ' enable yes\n';
+        if (a) s += b + ' flood ' + path + ' alarm-rate ' + a + '\n';
+        if (ac) s += b + ' flood ' + path + ' activate-rate ' + ac + '\n';
+        if (mx) s += b + ' flood ' + path + ' maximal-rate ' + mx + '\n';
+        if (ac && mx && +ac > +mx) s += '# UYARI: activate-rate, maximal-rate\'ten büyük olamaz.\n';
+        return s + '\n';
+    };
+    if (data.zp_syn) c += flood('syn', 'tcp-syn syn-cookies', 'SYN flood — SYN cookies');
+    if (data.zp_udp) c += flood('udp', 'udp red', 'UDP flood — RED');
+    if (data.zp_icmp) c += flood('icmp', 'icmp red', 'ICMP flood — RED');
+    if (data.zp_recon) {
+        c += '# Keşif koruması (iron-skillet)\n';
+        [['8001', '2'], ['8002', '10'], ['8003', '2']].forEach(([id, iv]) => {
+            c += b + ' scan ' + id + ' action alert\n' + b + ' scan ' + id + ' interval ' + iv + '\n' + b + ' scan ' + id + ' threshold 100\n';
+        });
+        c += '\n';
+    }
+    if (data.zp_pkt) {
+        c += '# Paket tabanlı koruma (iron-skillet)\n';
+        c += b + ' discard-ip-spoof yes\n' + b + ' discard-malformed-option yes\n' + b + ' remove-tcp-timestamp yes\n\n';
+    }
+    if (!data.zp_syn && !data.zp_udp && !data.zp_icmp && !data.zp_recon && !data.zp_pkt)
+        c += '# UYARI: hiçbir koruma seçilmedi — profil boş.\n\n';
+    if (z) c += '# Zone\'a ata\nset zone ' + z + ' network zone-protection-profile ' + n + '\n\n';
+    else c += '# NOT: profil bir zone\'a atanmadıkça etkisizdir (set zone <zone> network zone-protection-profile ' + n + ').\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show zone-protection zone ' + (z || '<zone>') + '\n';
+    return c;
+}
+
+// ── Palo Alto: Application Override ──────────────────────────────────────────
+// Sözdizimi: https://github.com/PaloAltoNetworks/pan-os-python/blob/develop/panos/policies.py
+//            (ApplicationOverride: rulebase application-override rules — from / to / source / destination / protocol / port / application / description)
+PaloAlto.appoverride = {
+    label: 'Application Override',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-random', title: 'Application Override (PAN-OS)', desc: 'Belirli port/protokoldeki trafiği App-ID yerine sabit (özel) uygulama olarak işaretler. Önce <b>Custom Application</b> aracıyla uygulamayı tanımlayın.<br><code>set rulebase application-override rules "AO-LEGACY" application custom-legacy-app</code>' },
+            sections: [
+                {
+                    title: 'Kural', icon: 'fas fa-random',
+                    warn: 'Application override edilen oturumlar Layer-7 (App-ID, tehdit) denetiminden geçmez. Yalnız güvenilir iç uygulamalar için ve dar kaynak/hedefle kullanın.',
+                    fields: [
+                        { name: 'ao_name', label: 'Kural Adı', type: 'text', required: true, placeholder: 'AO-LEGACY-APP' },
+                        { name: 'ao_from', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'inside' },
+                        { name: 'ao_to', label: 'Hedef Zone', type: 'text', required: true, placeholder: 'dmz' },
+                        { name: 'ao_src', label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'APP-CLIENTS', hint: 'Adres nesnesi/grubu; boşlukla birden çok', why: '<code>any</code> kaynak, tehdit denetimini atlayan bir yolu herkese açar.' },
+                        { name: 'ao_dst', label: 'Hedef Adres', type: 'text', required: true, placeholder: 'APP-SERVER', hint: 'Adres nesnesi/grubu', why: 'Hedef ne kadar dar olursa denetimsiz trafik o kadar sınırlı kalır.' },
+                        { name: 'ao_proto', label: 'Protokol', type: 'select', options: [
+                            { value: 'tcp', label: 'TCP', selected: true },
+                            { value: 'udp', label: 'UDP' }
+                        ] },
+                        { name: 'ao_port', label: 'Port', type: 'text', required: true, placeholder: '8443', hint: 'Tek port, aralık (8000-8010) veya virgüllü liste' },
+                        { name: 'ao_app', label: 'Uygulama', type: 'text', required: true, placeholder: 'custom-legacy-app', hint: 'Custom Application adı', why: 'Güvenlik kuralında bu uygulama adına izin verilmelidir; override sadece tanımayı değiştirir, izin vermez.' },
+                        { name: 'ao_desc', label: 'Açıklama', type: 'text', placeholder: 'Legacy uygulama - CHG-1234' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgPaAppOverrideGen(data));
+    }
+};
+function cgPaAppOverrideGen(data) {
+    const n = cgEsc(data.ao_name || ''), app = cgEsc(data.ao_app || ''), desc = cgEsc(data.ao_desc || '');
+    const src = cgEsc(cgPaList(data.ao_src)), dst = cgEsc(cgPaList(data.ao_dst));
+    const b = 'set rulebase application-override rules "' + n + '"';
+    let c = '# ========================================\n# Palo Alto — Application Override\n# ========================================\n\n';
+    if (/^any$/i.test(src) || /^any$/i.test(dst)) c += '# UYARI: kaynak veya hedef "any" — bu trafik tehdit denetimi olmadan geçer.\n';
+    c += b + ' from ' + cgEsc(data.ao_from || '') + '\n';
+    c += b + ' to ' + cgEsc(data.ao_to || '') + '\n';
+    c += b + ' source [ ' + src + ' ]\n';
+    c += b + ' destination [ ' + dst + ' ]\n';
+    c += b + ' protocol ' + (data.ao_proto === 'udp' ? 'udp' : 'tcp') + '\n';
+    c += b + ' port ' + cgEsc(data.ao_port || '') + '\n';
+    c += b + ' application ' + app + '\n';
+    if (desc) c += b + ' description "' + desc + '"\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show rulebase application-override rules "' + n + '"   (configure modu)\n# show session all filter application ' + app + '\n';
+    return c;
+}

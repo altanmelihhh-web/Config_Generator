@@ -355,7 +355,7 @@ function ccReadJuniper(text) {
             ifc.no_switchport = true;
 
         // ── Interface: Router L3 subinterface IP (unit N, N>0) ──────────────
-        // "set interfaces ge-0/0/0 unit 100 family inet address 10.10.10.1/24"
+        // "set interfaces ge-0/0/0 unit 100 family inet address 10.128.10.1/24"
         // → subif olarak `<parent>.<unit>` iface'i oluştur
         } else if ((m = line.match(/^set interfaces (\S+) unit ([1-9]\d*) family inet address ([\d.]+)\/(\d+)/))) {
             const parent = m[1];

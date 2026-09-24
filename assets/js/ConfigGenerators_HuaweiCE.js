@@ -704,7 +704,7 @@ HuaweiCE.staticroute = {
                     title: 'Rota',
                     icon: 'fas fa-map-signs',
                     fields: [
-                        { name: 'dest', label: 'Hedef Ağ', type: 'text', validate: 'ip', required: true, placeholder: '10.100.0.0', hint: 'Default route için 0.0.0.0', why: "Hedef adresin host bitleri sıfır olmalıdır; aksi halde cihaz maskeyle keserek kaydeder ve tabloda beklediğinizden farklı bir önek görünür." },
+                        { name: 'dest', label: 'Hedef Ağ', type: 'text', validate: 'ip', required: true, placeholder: '10.64.0.0', hint: 'Default route için 0.0.0.0', why: "Hedef adresin host bitleri sıfır olmalıdır; aksi halde cihaz maskeyle keserek kaydeder ve tabloda beklediğinizden farklı bir önek görünür." },
                         { name: 'mask', label: 'Maske', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.0.0', hint: 'Noktalı maske', why: "Maske hatası longest-match nedeniyle yalnızca bazı hedeflerde arıza yaratır ve teşhisi zorlaşır." },
                         { name: 'nexthop', label: 'Next-hop IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', hint: 'Bağlı bir subnetteki komşu adresi', why: "Next-hop çözülemezse rota tabloya girer ama inactive kalır. Leaf/spine fabric'te statik rota yerine dinamik protokol tercih edin; statik rota yalnız sınır (border) cihazlarında anlamlıdır." },
                         { name: 'vpn', label: 'VPN Instance', type: 'text', placeholder: 'VRF-A', hint: 'Rota bir VPN instance tablosuna eklenecekse', why: "VPN instance verilmezse rota global tabloya girer; VRF içindeki kiracı trafiği bu rotayı hiç görmez." }

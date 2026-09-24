@@ -506,7 +506,7 @@ function cgCpHostObjGen(data) {
     if (comment) c += ' comments "' + comment + '"';
     c += '\n';
     groups.forEach(grp => {
-        c += 'mgmt_cli add group member name "' + cgEsc(grp) + '" member.add.name "' + name + '"\n';
+        c += 'mgmt_cli set group name "' + cgEsc(grp) + '" members.add "' + name + '"\n';   // API: set-group members.add
     });
     c += 'mgmt_cli publish\n\n';
     c += '# Doğrulama:\n# mgmt_cli show host name "' + name + '"\n';
@@ -559,7 +559,7 @@ function cgCpNetObjGen(data) {
     if (comment) c += ' comments "' + comment + '"';
     c += '\n';
     groups.forEach(grp => {
-        c += 'mgmt_cli add group member name "' + cgEsc(grp) + '" member.add.name "' + name + '"\n';
+        c += 'mgmt_cli set group name "' + cgEsc(grp) + '" members.add "' + name + '"\n';   // API: set-group members.add
     });
     c += 'mgmt_cli publish\n\n';
     c += '# Doğrulama:\n# mgmt_cli show network name "' + name + '"\n';
@@ -608,7 +608,7 @@ function cgCpServiceObjGen(data) {
     if (comment) c += ' comments "' + comment + '"';
     c += '\n';
     groups.forEach(grp => {
-        c += 'mgmt_cli add group member name "' + cgEsc(grp) + '" member.add.name "' + name + '"\n';
+        c += 'mgmt_cli set service-group name "' + cgEsc(grp) + '" members.add "' + name + '"\n';   // API: set-service-group members.add
     });
     c += 'mgmt_cli publish\n\n';
     c += '# Doğrulama:\n# mgmt_cli show ' + svcType + ' name "' + name + '"\n';
@@ -1019,13 +1019,14 @@ CheckPoint.logging = {
             topic: {
                 icon: 'fas fa-clipboard-list',
                 title: 'Logging / SmartEvent (Gaia clish)',
-                desc: 'Gaia syslog-ng yapılandırması — dış SIEM/syslog sunucusuna log iletimi ve format seçimi.<br><code>set syslog-ng server 10.0.0.50 port 514 protocol udp format CEF</code>'
+                desc: 'Check Point güvenlik log\'larını (trafik, tehdit) Log Exporter ile SIEM\'e CEF/LEEF/syslog biçiminde iletir. Gaia işletim sistemi syslog\'u için "Gaia Remote Syslog" aracını kullanın.<br><code>cp_log_export add name SIEM target-server 192.0.2.50 target-port 514 protocol udp format cef</code>'
             },
             sections: [
                 {
                     title: 'Log Sunucu Ayarları',
                     icon: 'fas fa-clipboard-list',
                     fields: [
+                        { name: 'exp_name', label: 'Exporter Adı', type: 'text', validate: 'objname', required: true, placeholder: 'SIEM-EXPORT', hint: 'Log Exporter hedef tanımının adı' },
                         { name: 'server_ip', why: 'Syslog/SmartEvent hedefi. Log gönderimi kesilirse gateway diski dolabilir ve trafik işleme etkilenir — disk kullanımını izle.', label: 'Syslog Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.50', hint: 'Logların iletileceği SIEM veya syslog sunucusu' },
                         { name: 'protocol', why: "Servis nesnesinin protokolü. TCP/UDP ayrımını yanlış yapmak en sık görülen 'kural çalışmıyor' sebebidir.", label: 'Protokol', type: 'select', options: [
                             { value: 'udp', label: 'syslog-udp', selected: true },
@@ -1047,15 +1048,16 @@ CheckPoint.logging = {
     }
 };
 function cgCpLoggingGen(data) {
-    const serverIp = cgEsc(data.server_ip || ''), protocol = cgEsc(data.protocol || 'udp');
-    const port = cgEsc(data.port || '514'), format = cgEsc(data.format || 'CEF');
-    let c = '# ========================================\n# Check Point Gaia — Logging / SmartEvent (clish)\n# ========================================\n\n';
-    c += 'set syslog-ng on\n';
-    c += 'set syslog-ng server ' + serverIp + ' port ' + port + ' protocol ' + protocol + ' format ' + format + '\n\n';
-    c += '# SmartEvent / Log Export (Management üzerinde):\n';
-    c += '# set log-export syslog on\n';
-    c += '# set log-export syslog target ' + serverIp + '\n\n';
-    c += '# Doğrulama:\n# show syslog-ng\n# tail -f /var/log/messages\n';
+    // 'set syslog-ng' Gaia'da yok. CEF/LEEF bicimi Check Point Log Exporter'a aittir (Management/Log Server'da, expert modda).
+    // Gaia isletim sistemi syslog'u icin ayri 'Gaia Remote Syslog' araci var.
+    const serverIp = cgEsc(data.server_ip || ''), protocol = cgEsc(data.protocol || ''), port = cgEsc(data.port || '');
+    const fmt = { CEF: 'cef', LEEF: 'leef', Standard: 'syslog' }[data.format] || 'syslog';
+    const name = cgEsc(data.exp_name || '');
+    let c = '# ========================================\n# Check Point — Log Exporter (SIEM)\n# ========================================\n\n';
+    c += '# Management / Log Server üzerinde, expert modda:\n';
+    c += 'cp_log_export add name ' + name + ' target-server ' + serverIp + ' target-port ' + port + ' protocol ' + protocol + ' format ' + fmt + '\n';
+    c += 'cp_log_export restart name ' + name + '\n\n';
+    c += '# Doğrulama:\n# cp_log_export show name ' + name + '\n# cp_log_export status name ' + name + '\n';
     return c;
 }
 
@@ -1110,5 +1112,494 @@ function cgCpSnmpGen(data) {
     c += 'set snmp notif target ' + trapTarget + ' port 162 community "' + username + '"\n';
     c += 'save config\n\n';
     c += '# Doğrulama:\n# show snmp agent\n# show snmp user ' + username + '\n';
+    return c;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Yeni araçlar (2026-09) — canlı envanterde Check Point yok; sözdizimi:
+//  * mgmt_cli: Management API Reference v2.0.1 resmi örnekleri
+//    https://sc1.checkpoint.com/documents/latest/APIs/ (veri: .../APIs/data/v2.0.1/dynamic/examples.json)
+//    Oturum akışı: https://sc1.checkpoint.com/documents/latest/APIs/data/v1.5/introduction.html
+//  * Gaia clish: R81.20 Gaia Administration Guide
+//    https://sc1.checkpoint.com/documents/R81.20/WebAdminGuides/EN/CP_R81.20_Gaia_AdminGuide/CP_R81.20_Gaia_AdminGuide.pdf
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Virgülle ayrılmış listeyi mgmt_cli indeksli parametreye çevirir: 'A, B' → ' key.1 "A" key.2 "B"'
+function cgCpIdx(key, s) {
+    return String(s || '').split(',').map(x => x.trim()).filter(Boolean)
+        .map((x, i) => ' ' + key + '.' + (i + 1) + ' "' + cgEsc(x) + '"').join('');
+}
+// mgmt_cli oturum sarmalı: tek oturumda değişiklik → publish → logout.
+// (Oturumsuz her mgmt_cli çağrısı kendi oturumunda otomatik publish edilir.)
+function cgCpSession(title, body, verify) {
+    let c = '# ========================================\n# Check Point — ' + title + ' (mgmt_cli)\n# ========================================\n\n';
+    c += '# Management Server üzerinde, expert modda:\n';
+    c += 'mgmt_cli login -r true > id.txt\n';
+    c += body;
+    c += 'mgmt_cli publish -s id.txt\n';
+    c += 'mgmt_cli logout -s id.txt\n\n';
+    c += '# Doğrulama:\n' + verify;
+    return c;
+}
+
+// ── Check Point: Address Range ───────────────────────────────────────────────
+// Sözdizimi: API örneği "add-address-range" / "add-address-range with group" (sc1 Management API v2.0.1)
+CheckPoint.addrrange = {
+    label: 'Address Range',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-arrows-alt-h', title: 'Address Range (mgmt_cli)', desc: 'Ardışık IP aralığı nesnesi.<br><code>mgmt_cli add address-range name "RNG-DHCP" ip-address-first "192.0.2.1" ip-address-last "192.0.2.10"</code>' },
+            sections: [
+                {
+                    title: 'Aralık', icon: 'fas fa-arrows-alt-h',
+                    fields: [
+                        { name: 'ar_name', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'RNG-DHCP-POOL' },
+                        { name: 'ar_first', label: 'İlk IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1' },
+                        { name: 'ar_last', label: 'Son IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.10', why: 'Aralık, aradaki kullanılmayan adresler dahil <b>her</b> IP\'yi kapsar; ileride bu bloğa eklenen cihaz da aynı yetkiyi alır.' },
+                        { name: 'ar_color', label: 'Renk', type: 'select', options: [
+                            { value: 'black', label: 'black', selected: true },
+                            { value: 'green', label: 'green' },
+                            { value: 'blue', label: 'blue' },
+                            { value: 'red', label: 'red' }
+                        ] },
+                        { name: 'ar_groups', label: 'Eklenecek Gruplar', type: 'text', placeholder: 'GRP-INTERNAL', hint: 'Mevcut grup adları, virgülle' },
+                        { name: 'ar_comment', label: 'Açıklama', type: 'text', placeholder: 'DHCP havuzu' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgCpAddrRangeGen(data));
+    }
+};
+function cgCpAddrRangeGen(data) {
+    const n = cgEsc(data.ar_name || ''), a = cgEsc(data.ar_first || ''), b = cgEsc(data.ar_last || '');
+    const com = cgEsc(data.ar_comment || '');
+    const num = ip => String(ip).split('.').reduce((x, o) => x * 256 + (+o || 0), 0);
+    let body = '';
+    if (num(data.ar_first || '') > num(data.ar_last || '')) body += '# UYARI: ilk IP son IP\'den büyük — API isteği reddeder.\n';
+    body += 'mgmt_cli add address-range name "' + n + '" ip-address-first "' + a + '" ip-address-last "' + b + '" color "' + cgEsc(data.ar_color || 'black') + '"';
+    if (com) body += ' comments "' + com + '"';
+    body += cgCpIdx('groups', data.ar_groups) + ' -s id.txt\n';
+    return cgCpSession('Address Range', body, '# mgmt_cli show address-range name "' + n + '"\n');
+}
+
+// ── Check Point: Network Group ───────────────────────────────────────────────
+// Sözdizimi: API örnekleri "add-group with multiple members" / "add-group with group" (sc1 Management API v2.0.1)
+CheckPoint.netgroup = {
+    label: 'Network Group',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-object-group', title: 'Network Group (mgmt_cli)', desc: 'Host, network ve address-range nesnelerini tek grupta toplar.<br><code>mgmt_cli add group name "GRP-WEB" members.1 "WEB-01" members.2 "WEB-02"</code>' },
+            sections: [
+                {
+                    title: 'Grup', icon: 'fas fa-object-group',
+                    fields: [
+                        { name: 'ng_name', label: 'Grup Adı', type: 'text', required: true, placeholder: 'GRP-WEB-SERVERS' },
+                        { name: 'ng_members', label: 'Üyeler', type: 'text', required: true, placeholder: 'WEB-01, WEB-02', hint: 'Mevcut nesne adları, virgülle', why: 'Grup içeriğini değiştirmek <b>o grubu kullanan tüm kuralları</b> etkiler; üye eklemeden önce grubun nerede kullanıldığına bakın (where-used).' },
+                        { name: 'ng_parent', label: 'Üst Gruplar', type: 'text', placeholder: 'GRP-DMZ', hint: 'Bu grubun ekleneceği grup(lar), virgülle' },
+                        { name: 'ng_comment', label: 'Açıklama', type: 'text', placeholder: 'Web sunuculari' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgCpNetGroupGen(data));
+    }
+};
+function cgCpNetGroupGen(data) {
+    const n = cgEsc(data.ng_name || ''), com = cgEsc(data.ng_comment || '');
+    let body = 'mgmt_cli add group name "' + n + '"' + cgCpIdx('members', data.ng_members) + cgCpIdx('groups', data.ng_parent);
+    if (com) body += ' comments "' + com + '"';
+    body += ' -s id.txt\n';
+    return cgCpSession('Network Group', body, '# mgmt_cli show group name "' + n + '"\n');
+}
+
+// ── Check Point: Service Group ───────────────────────────────────────────────
+// Sözdizimi: API örnekleri "add-service-group" / "add-service-group with group" (sc1 Management API v2.0.1)
+CheckPoint.svcgroup = {
+    label: 'Service Group',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-layer-group', title: 'Service Group (mgmt_cli)', desc: 'Servis nesnelerini tek grupta toplar.<br><code>mgmt_cli add service-group name "SG-WEB" members.1 "https" members.2 "http"</code>' },
+            sections: [
+                {
+                    title: 'Servis Grubu', icon: 'fas fa-layer-group',
+                    fields: [
+                        { name: 'sg_name', label: 'Grup Adı', type: 'text', required: true, placeholder: 'SG-WEB' },
+                        { name: 'sg_members', label: 'Üye Servisler', type: 'text', required: true, placeholder: 'https, SVC-APP-8443', hint: 'Mevcut servis nesneleri, virgülle', why: 'Grupta geniş port aralıklı bir servis varsa kural beklenenden fazlasını açar.' },
+                        { name: 'sg_parent', label: 'Üst Servis Grupları', type: 'text', placeholder: 'SG-ALL-WEB', hint: 'Virgülle' },
+                        { name: 'sg_comment', label: 'Açıklama', type: 'text', placeholder: 'Web servisleri' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgCpSvcGroupGen(data));
+    }
+};
+function cgCpSvcGroupGen(data) {
+    const n = cgEsc(data.sg_name || ''), com = cgEsc(data.sg_comment || '');
+    let body = 'mgmt_cli add service-group name "' + n + '"' + cgCpIdx('members', data.sg_members) + cgCpIdx('groups', data.sg_parent);
+    if (com) body += ' comments "' + com + '"';
+    body += ' -s id.txt\n';
+    return cgCpSession('Service Group', body, '# mgmt_cli show service-group name "' + n + '"\n');
+}
+
+// ── Check Point: Time Object ─────────────────────────────────────────────────
+// Sözdizimi: API örneği "add-time" + alan tanımları (start/end: date dd-MMM-yyyy, time HH:mm;
+//            start-now, end-never, hours-ranges.N.from/to/enabled/index, recurrence.pattern Daily|Weekly|Monthly,
+//            recurrence.weekdays.N "Sun".."Sat", recurrence.days.N, recurrence.month) — sc1 Management API v2.0.1
+CheckPoint.timeobj = {
+    label: 'Time Object',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-calendar-alt', title: 'Time Object (mgmt_cli)', desc: 'Kuralları belirli gün/saatlerde geçerli kılan zaman nesnesi (kuralın <i>Time</i> sütunu).<br><code>mgmt_cli add time name "TM-MESAI" start-now "true" end-never "true" recurrence.pattern "Weekly"</code>' },
+            sections: [
+                {
+                    title: 'Geçerlilik', icon: 'fas fa-calendar-alt',
+                    info: 'Gateway bu saatleri <b>kendi saat dilimine</b> göre yorumlar; Gaia NTP/timezone doğru olmalı.',
+                    fields: [
+                        { name: 'to_name', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'TM-WORKHRS' },
+                        { name: 'to_start', label: 'Başlangıç', type: 'select', options: [
+                            { value: 'now', label: 'Hemen', selected: true },
+                            { value: 'date', label: 'Tarihte' }
+                        ] },
+                        { name: 'to_start_date', label: 'Başlangıç Tarihi', type: 'text', requiredIf: { field: 'to_start', in: ['date'] }, placeholder: '01-Oct-2026', hint: 'dd-MMM-yyyy' },
+                        { name: 'to_start_time', label: 'Başlangıç Saati', type: 'text', requiredIf: { field: 'to_start', in: ['date'] }, placeholder: '00:00', hint: 'HH:mm' },
+                        { name: 'to_end', label: 'Bitiş', type: 'select', options: [
+                            { value: 'date', label: 'Tarihte', selected: true },
+                            { value: 'never', label: 'Hiçbir zaman' }
+                        ], why: 'Geçici erişim (proje, tedarikçi) için bitiş tarihi koyun; süresiz bırakılan istisna kuralları yıllarca açık kalır.' },
+                        { name: 'to_end_date', label: 'Bitiş Tarihi', type: 'text', requiredIf: { field: 'to_end', in: ['date'] }, placeholder: '31-Dec-2026', hint: 'dd-MMM-yyyy' },
+                        { name: 'to_end_time', label: 'Bitiş Saati', type: 'text', requiredIf: { field: 'to_end', in: ['date'] }, placeholder: '23:59', hint: 'HH:mm' }
+                    ]
+                },
+                {
+                    title: 'Tekrar', icon: 'fas fa-redo',
+                    fields: [
+                        { name: 'to_hr_from', label: 'Saat Aralığı — Başlangıç', type: 'text', placeholder: '08:00', hint: 'HH:mm (boşsa tüm gün)' },
+                        { name: 'to_hr_to', label: 'Saat Aralığı — Bitiş', type: 'text', placeholder: '18:00', hint: 'HH:mm (başlangıçla birlikte doldurun)' },
+                        { name: 'to_pattern', label: 'Tekrar Deseni', type: 'select', options: [
+                            { value: 'Weekly', label: 'Haftalık (günler)', selected: true },
+                            { value: 'Daily', label: 'Her gün' },
+                            { value: 'Monthly', label: 'Aylık (ayın günleri)' }
+                        ] },
+                        { name: 'to_weekdays', label: 'Haftanın Günleri', type: 'text', requiredIf: { field: 'to_pattern', in: ['Weekly'] }, placeholder: 'Mon, Tue, Wed, Thu, Fri', hint: 'Sun Mon Tue Wed Thu Fri Sat, virgülle' },
+                        { name: 'to_days', label: 'Ayın Günleri', type: 'text', requiredIf: { field: 'to_pattern', in: ['Monthly'] }, placeholder: '1, 15', hint: 'Ör: 1, 15 veya 9-20' },
+                        { name: 'to_month', label: 'Ay', type: 'text', requiredIf: { field: 'to_pattern', in: ['Monthly'] }, placeholder: 'Any', hint: '1-12 veya Any' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgCpTimeObjGen(data));
+    }
+};
+function cgCpTimeObjGen(data) {
+    const n = cgEsc(data.to_name || ''), pat = ['Daily', 'Weekly', 'Monthly'].includes(data.to_pattern) ? data.to_pattern : 'Weekly';
+    const hf = cgEsc(data.to_hr_from || ''), ht = cgEsc(data.to_hr_to || '');
+    let body = 'mgmt_cli add time name "' + n + '"';
+    if (data.to_start === 'date') body += ' start.date "' + cgEsc(data.to_start_date || '') + '" start.time "' + cgEsc(data.to_start_time || '') + '"';
+    else body += ' start-now "true"';
+    if (data.to_end === 'never') body += ' end-never "true"';
+    else body += ' end-never "false" end.date "' + cgEsc(data.to_end_date || '') + '" end.time "' + cgEsc(data.to_end_time || '') + '"';
+    if (hf && ht) body += ' hours-ranges.1.from "' + hf + '" hours-ranges.1.to "' + ht + '" hours-ranges.1.enabled true hours-ranges.1.index 1';
+    body += ' recurrence.pattern "' + pat + '"';
+    if (pat === 'Weekly') body += cgCpIdx('recurrence.weekdays', data.to_weekdays);
+    if (pat === 'Monthly') body += cgCpIdx('recurrence.days', data.to_days) + ' recurrence.month "' + cgEsc(data.to_month || '') + '"';
+    body += ' -s id.txt\n';
+    let pre = '';
+    if ((hf && !ht) || (!hf && ht)) pre = '# UYARI: saat aralığı için başlangıç ve bitişin ikisi de gerekli — aralık yazılmadı.\n';
+    return cgCpSession('Time Object', pre + body, '# mgmt_cli show time name "' + n + '"\n');
+}
+
+// ── Check Point: Threat Prevention Profile ───────────────────────────────────
+// Sözdizimi: API örneği "add-threat-profile" + enum listeleri (sc1 Management API v2.0.1):
+//   active-protections-performance-impact: high|medium|low|very_low
+//   active-protections-severity: Critical|High|Medium or above|Low or above
+//   confidence-level-{low,medium,high}: Inactive|Ask|Prevent|Detect
+//   ips-settings.newly-updated-protections: active|inactive|staging
+CheckPoint.tpprofile = {
+    label: 'Threat Prevention Profile',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-shield-virus', title: 'Threat Prevention Profile (mgmt_cli)', desc: 'IPS, Anti-Bot, Anti-Virus ve Threat Emulation için yeni profil — güven seviyesine göre aksiyon ve performans etkisi eşiği.<br><code>mgmt_cli add threat-profile name "TP-STRICT" confidence-level-high "Prevent" ips true</code>' },
+            sections: [
+                {
+                    title: 'Profil', icon: 'fas fa-shield-virus',
+                    fields: [
+                        { name: 'tp_name', label: 'Profil Adı', type: 'text', required: true, placeholder: 'TP-PERIMETER' },
+                        { name: 'tp_perf', label: 'Performans Etkisi (en fazla)', type: 'select', options: [
+                            { value: 'medium', label: 'medium', selected: true },
+                            { value: 'low', label: 'low' },
+                            { value: 'very_low', label: 'very_low' },
+                            { value: 'high', label: 'high' }
+                        ], why: 'Yalnız bu performans etkisine sahip korumalar etkinleşir. <code>high</code> tüm korumaları açar ama gateway CPU\'sunu ciddi yükler.' },
+                        { name: 'tp_sev', label: 'Önem Derecesi (en az)', type: 'select', options: [
+                            { value: 'Medium or above', label: 'Medium or above', selected: true },
+                            { value: 'Low or above', label: 'Low or above' },
+                            { value: 'High', label: 'High' },
+                            { value: 'Critical', label: 'Critical' }
+                        ] },
+                        { name: 'tp_comment', label: 'Açıklama', type: 'text', placeholder: 'Internet yonlu gateway profili' }
+                    ]
+                },
+                {
+                    title: 'Güven Seviyesine Göre Aksiyon', icon: 'fas fa-gavel',
+                    fields: [
+                        { name: 'tp_cl_high', label: 'High confidence', type: 'select', options: [
+                            { value: 'Prevent', label: 'Prevent', selected: true },
+                            { value: 'Detect', label: 'Detect' },
+                            { value: 'Ask', label: 'Ask' },
+                            { value: 'Inactive', label: 'Inactive' }
+                        ], why: 'Yüksek güvenli imzalar nadiren yanlış pozitif verir; <b>Prevent</b> dışında bırakmak bilinen saldırıyı sadece loglar.' },
+                        { name: 'tp_cl_med', label: 'Medium confidence', type: 'select', options: [
+                            { value: 'Prevent', label: 'Prevent', selected: true },
+                            { value: 'Detect', label: 'Detect' },
+                            { value: 'Ask', label: 'Ask' },
+                            { value: 'Inactive', label: 'Inactive' }
+                        ] },
+                        { name: 'tp_cl_low', label: 'Low confidence', type: 'select', options: [
+                            { value: 'Detect', label: 'Detect', selected: true },
+                            { value: 'Prevent', label: 'Prevent' },
+                            { value: 'Ask', label: 'Ask' },
+                            { value: 'Inactive', label: 'Inactive' }
+                        ], why: 'Düşük güvenli imzalar yanlış pozitif üretebilir; önce Detect ile loglardan etkisini ölçün.' }
+                    ]
+                },
+                {
+                    title: 'Blade\'ler', icon: 'fas fa-puzzle-piece',
+                    info: 'Blade\'ler gateway nesnesinde de etkin ve lisanslı olmalı.',
+                    fields: [
+                        { name: 'tp_ips', label: 'IPS', type: 'checkbox', checked: true },
+                        { name: 'tp_ab', label: 'Anti-Bot', type: 'checkbox', checked: true },
+                        { name: 'tp_av', label: 'Anti-Virus', type: 'checkbox', checked: true },
+                        { name: 'tp_te', label: 'Threat Emulation (SandBlast)', type: 'checkbox', checked: false, hint: 'Ayrı lisans gerektirir' },
+                        { name: 'tp_newprot', label: 'Yeni gelen IPS korumaları', type: 'select', options: [
+                            { value: 'staging', label: 'staging (önce Detect)', selected: true },
+                            { value: 'active', label: 'active' },
+                            { value: 'inactive', label: 'inactive' }
+                        ], why: '<b>staging</b>: güncellemeyle gelen yeni imzalar önce Detect modunda çalışır; üretimi kesen yanlış pozitif riskini azaltır.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgCpTpProfileGen(data));
+    }
+};
+function cgCpTpProfileGen(data) {
+    const n = cgEsc(data.tp_name || ''), com = cgEsc(data.tp_comment || '');
+    const tf = v => (v ? 'true' : 'false');
+    let body = '';
+    if (!data.tp_ips && !data.tp_ab && !data.tp_av && !data.tp_te) body += '# UYARI: hiçbir blade seçilmedi — profil hiçbir tehdidi engellemez.\n';
+    if (data.tp_cl_high && data.tp_cl_high !== 'Prevent') body += '# UYARI: yüksek güvenli korumalar Prevent değil — bilinen saldırılar engellenmez.\n';
+    body += 'mgmt_cli add threat-profile name "' + n + '"';
+    body += ' active-protections-performance-impact "' + cgEsc(data.tp_perf || '') + '"';
+    body += ' active-protections-severity "' + cgEsc(data.tp_sev || '') + '"';
+    body += ' confidence-level-high "' + cgEsc(data.tp_cl_high || '') + '"';
+    body += ' confidence-level-medium "' + cgEsc(data.tp_cl_med || '') + '"';
+    body += ' confidence-level-low "' + cgEsc(data.tp_cl_low || '') + '"';
+    body += ' ips ' + tf(data.tp_ips) + ' anti-bot ' + tf(data.tp_ab) + ' anti-virus ' + tf(data.tp_av) + ' threat-emulation ' + tf(data.tp_te);
+    if (data.tp_ips) body += ' ips-settings.newly-updated-protections "' + cgEsc(data.tp_newprot || '') + '"';
+    if (com) body += ' comments "' + com + '"';
+    body += ' -s id.txt\n';
+    body += '# NOT: profil, Threat Prevention politikasındaki bir kuralın Action sütununda seçilmeli ve politika install edilmeli.\n';
+    return cgCpSession('Threat Prevention Profile', body, '# mgmt_cli show threat-profile name "' + n + '"\n');
+}
+
+// ── Check Point: Gaia System (DNS / NTP / Timezone / Banner / Session) ───────
+// Sözdizimi: R81.20 Gaia Administration Guide — "DNS" (set dns primary|secondary|tertiary|suffix),
+//            "System Name" (set domainname), "Configuring the Time and Date in Gaia Clish"
+//            (set ntp server primary|secondary X version N, set ntp active on, set timezone Area / Region),
+//            "Messages" (set message banner on msgvalue), "Session" (set inactivity-timeout 1-720)
+//            https://sc1.checkpoint.com/documents/R81.20/WebAdminGuides/EN/CP_R81.20_Gaia_AdminGuide/CP_R81.20_Gaia_AdminGuide.pdf
+CheckPoint.gaiasys = {
+    label: 'Gaia DNS / NTP / Banner',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-clock', title: 'Gaia Sistem Servisleri (clish)', desc: 'DNS (3 sunucu + suffix), NTP (birincil/ikincil), saat dilimi, giriş banner\'ı ve clish oturum zaman aşımı.<br><code>set ntp server primary 0.pool.ntp.org version 3</code>' },
+            sections: [
+                {
+                    title: 'DNS', icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'gs_dns1', label: 'Birincil DNS', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.53', why: 'DNS olmadan lisans, imza güncellemeleri ve URL Filtering/ThreatCloud sorguları çalışmaz.' },
+                        { name: 'gs_dns2', label: 'İkincil DNS', type: 'text', validate: 'ip', placeholder: '192.0.2.54' },
+                        { name: 'gs_dns3', label: 'Üçüncül DNS', type: 'text', validate: 'ip', placeholder: '192.0.2.55' },
+                        { name: 'gs_suffix', label: 'DNS Suffix', type: 'text', placeholder: 'example.com' },
+                        { name: 'gs_domain', label: 'Domain Adı', type: 'text', placeholder: 'example.com', hint: 'set domainname' }
+                    ]
+                },
+                {
+                    title: 'Zaman', icon: 'fas fa-clock',
+                    fields: [
+                        { name: 'gs_ntp1', label: 'Birincil NTP', type: 'text', validate: 'hostname', required: true, placeholder: '0.pool.ntp.org', hint: 'IP veya FQDN', why: 'Saat kayması SIC sertifika doğrulamasını, VPN IKE\'yi ve log korelasyonunu bozar.' },
+                        { name: 'gs_ntp2', label: 'İkincil NTP', type: 'text', validate: 'hostname', placeholder: '1.pool.ntp.org', why: 'Gaia kılavuzu yedeklilik için birden çok NTP sunucusu önerir.' },
+                        { name: 'gs_ntpver', label: 'NTP Sürümü', type: 'select', options: [
+                            { value: '3', label: 'v3 (kılavuz önerisi)', selected: true },
+                            { value: '4', label: 'v4' }
+                        ] },
+                        { name: 'gs_tz', label: 'Saat Dilimi', type: 'text', placeholder: 'Europe/Istanbul', hint: 'Area/Region — büyük/küçük harf duyarlı; çıktıda "Area / Region" biçimine çevrilir' }
+                    ]
+                },
+                {
+                    title: 'Oturum ve Banner', icon: 'fas fa-comment-alt',
+                    fields: [
+                        { name: 'gs_banner', label: 'Login Banner', type: 'text', placeholder: 'Yetkisiz erisim yasaktir.', hint: 'Tek satır', why: 'Yasal uyarı bannerı, yetkisiz erişimde hukuki süreç için çoğu mevzuatta beklenir.' },
+                        { name: 'gs_timeout', label: 'Clish Inactivity Timeout (dk)', type: 'text', min: 1, max: 720, placeholder: '10', hint: '1-720, varsayılan 10' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgCpGaiaSysGen(data));
+    }
+};
+function cgCpGaiaSysGen(data) {
+    const v = k => cgEsc(data[k] || '');
+    const ver = data.gs_ntpver === '4' ? '4' : '3';
+    let c = '# ========================================\n# Check Point Gaia — DNS / NTP / Banner (clish)\n# ========================================\n\n';
+    c += 'set dns primary ' + v('gs_dns1') + '\n';
+    if (v('gs_dns2')) c += 'set dns secondary ' + v('gs_dns2') + '\n';
+    if (v('gs_dns3')) c += 'set dns tertiary ' + v('gs_dns3') + '\n';
+    if (v('gs_suffix')) c += 'set dns suffix ' + v('gs_suffix') + '\n';
+    if (v('gs_domain')) c += 'set domainname ' + v('gs_domain') + '\n';
+    c += '\nset ntp server primary ' + v('gs_ntp1') + ' version ' + ver + '\n';
+    if (v('gs_ntp2')) c += 'set ntp server secondary ' + v('gs_ntp2') + ' version ' + ver + '\n';
+    c += 'set ntp active on\n';
+    const tz = String(data.gs_tz || '').split('/').map(s => s.trim()).filter(Boolean);
+    if (tz.length === 2) c += 'set timezone ' + cgEsc(tz[0]) + ' / ' + cgEsc(tz[1]) + '\n';
+    else if (tz.length) c += '# UYARI: saat dilimi "Area/Region" biçiminde olmalı — yazılmadı.\n';
+    if (v('gs_banner') || v('gs_timeout')) c += '\n';
+    if (v('gs_banner')) c += 'set message banner on msgvalue "' + v('gs_banner') + '"\n';
+    if (v('gs_timeout')) c += 'set inactivity-timeout ' + v('gs_timeout') + '\n';
+    c += 'save config\n\n';
+    c += '# Doğrulama:\n# show dns primary\n# show ntp servers\n# show ntp current\n# show timezone\n# show message banner\n# show inactivity-timeout\n';
+    return c;
+}
+
+// ── Check Point: Gaia Remote Syslog ──────────────────────────────────────────
+// Sözdizimi: R81.20 Gaia Administration Guide — "Configuring System Logging in Gaia Clish"
+//            (add syslog log-remote-address <IPv4> level <Severity> [port <1-65535>] [protocol {tcp|udp}], set syslog cplogs {on|off})
+//            https://sc1.checkpoint.com/documents/R81.20/WebAdminGuides/EN/CP_R81.20_Gaia_AdminGuide/CP_R81.20_Gaia_AdminGuide.pdf
+CheckPoint.gaiasyslog = {
+    label: 'Gaia Remote Syslog',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-file-export', title: 'Gaia Remote Syslog (clish)', desc: 'Gaia işletim sistemi loglarını (giriş, config değişikliği, sistem olayları) uzak syslog sunucusuna gönderir. Güvenlik (firewall) logları için Log Exporter kullanılır.<br><code>add syslog log-remote-address 192.0.2.50 level info</code>' },
+            sections: [
+                {
+                    title: 'Uzak Sunucu', icon: 'fas fa-server',
+                    info: '<code>port</code> ve <code>protocol</code> seçenekleri R81.20 kılavuzundadır; daha eski Gaia sürümlerinde bulunmayabilir.',
+                    fields: [
+                        { name: 'gl_ip', label: 'Syslog Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.50' },
+                        { name: 'gl_level', label: 'Seviye (en az)', type: 'select', options: [
+                            { value: 'info', label: 'info', selected: true },
+                            { value: 'notice', label: 'notice' },
+                            { value: 'warning', label: 'warning' },
+                            { value: 'err', label: 'err' },
+                            { value: 'crit', label: 'crit' },
+                            { value: 'alert', label: 'alert' },
+                            { value: 'emerg', label: 'emerg' },
+                            { value: 'debug', label: 'debug' },
+                            { value: 'all', label: 'all' }
+                        ], why: '<code>info</code> giriş/çıkış ve config değişikliklerini kapsar. <code>warning</code> ve üstü denetim için gereken oturum kayıtlarını kaçırır.' },
+                        { name: 'gl_port', label: 'Port', type: 'text', validate: 'port', placeholder: '514', hint: 'Boşsa varsayılan' },
+                        { name: 'gl_proto', label: 'Protokol', type: 'select', options: [
+                            { value: 'udp', label: 'UDP', selected: true },
+                            { value: 'tcp', label: 'TCP' }
+                        ], why: 'UDP ile gönderilen log, ağ tıkanıklığında sessizce kaybolur; denetim kaydı gerekiyorsa TCP seçin.' }
+                    ]
+                },
+                {
+                    title: 'Management Server', icon: 'fas fa-desktop',
+                    fields: [
+                        { name: 'gl_cplogs', label: 'Gaia sistem loglarını Management Server\'a da gönder', type: 'checkbox', checked: false, hint: 'set syslog cplogs on (varsayılan off)' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgCpGaiaSyslogGen(data));
+    }
+};
+function cgCpGaiaSyslogGen(data) {
+    const ip = cgEsc(data.gl_ip || ''), lvl = cgEsc(data.gl_level || ''), port = cgEsc(data.gl_port || '');
+    const proto = data.gl_proto === 'tcp' ? 'tcp' : 'udp';
+    let c = '# ========================================\n# Check Point Gaia — Remote Syslog (clish)\n# ========================================\n\n';
+    c += 'add syslog log-remote-address ' + ip + ' level ' + lvl + (port ? ' port ' + port : '') + ' protocol ' + proto + '\n';
+    if (data.gl_cplogs) c += 'set syslog cplogs on\n';
+    c += 'save config\n\n';
+    c += '# Doğrulama:\n# show syslog log-remote-addresses\n# show syslog all\n';
+    return c;
+}
+
+// ── Check Point: Gaia Local User + RBA Role + Password Policy ────────────────
+// Sözdizimi: R81.20 Gaia Administration Guide — "Managing User Accounts in Gaia Clish"
+//            (add user NAME [uid N] homedir /home/NAME, set user NAME realname/shell/password),
+//            "Configuring Roles in Gaia Clish" (add rba user NAME roles R, add rba user NAME access-mechanisms ...; adminRole/monitorRole),
+//            "Configuring Password Policy in Gaia Clish" (set password-controls complexity/min-password-length/history-checking/history-length)
+//            https://sc1.checkpoint.com/documents/R81.20/WebAdminGuides/EN/CP_R81.20_Gaia_AdminGuide/CP_R81.20_Gaia_AdminGuide.pdf
+CheckPoint.gaiauser = {
+    label: 'Gaia Kullanıcı / Rol',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-user-plus', title: 'Gaia Yerel Kullanıcı (clish)', desc: 'Gaia OS yerel kullanıcısı, RBA rolü, erişim yolu (Web-UI/CLI) ve parola politikası. SmartConsole yöneticileri <b>değil</b>, Gaia işletim sistemi hesaplarıdır.<br><code>add rba user netops roles monitorRole</code>' },
+            sections: [
+                {
+                    title: 'Kullanıcı', icon: 'fas fa-user',
+                    fields: [
+                        { name: 'gu_name', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netops', hint: '1-32 karakter: harf, rakam, - ve _' },
+                        { name: 'gu_uid', label: 'UID', type: 'text', min: 0, max: 65533, placeholder: '1001', hint: 'Boşsa Gaia sıradaki boş UID\'i verir; 0 = yönetici, 103-65533 = yönetici olmayan', why: 'Kılavuz: yönetici kullanıcılar UID 0; yönetici olmayanlar 103-65533. monitorRole bir hesaba UID 0 vermek rolü anlamsızlaştırır.' },
+                        { name: 'gu_realname', label: 'Gerçek Ad', type: 'text', placeholder: 'Network Operations' }
+                    ]
+                },
+                {
+                    title: 'Yetki', icon: 'fas fa-user-tag',
+                    fields: [
+                        { name: 'gu_role', label: 'RBA Rolü', type: 'select', options: [
+                            { value: 'monitorRole', label: 'monitorRole (salt-okur)', selected: true },
+                            { value: 'adminRole', label: 'adminRole (tam yetki)' }
+                        ], why: 'En az yetki ilkesi: izleme hesapları <code>monitorRole</code> ile açılmalı. adminRole tüm Gaia ayarlarını değiştirebilir.' },
+                        { name: 'gu_access', label: 'Erişim Yolu', type: 'select', options: [
+                            { value: 'Web-UI,CLI', label: 'Web-UI + CLI', selected: true },
+                            { value: 'CLI', label: 'Yalnız CLI' },
+                            { value: 'Web-UI', label: 'Yalnız Web-UI' }
+                        ] },
+                        { name: 'gu_shell', label: 'Login Shell', type: 'select', options: [
+                            { value: '/etc/cli.sh', label: '/etc/cli.sh (Gaia Clish — varsayılan)', selected: true },
+                            { value: '/bin/bash', label: '/bin/bash (Expert mod)' }
+                        ], why: '<code>/bin/bash</code> doğrudan Expert (root benzeri) kabuğa düşürür; yalnız gerekli yöneticilere verin.' }
+                    ]
+                },
+                {
+                    title: 'Parola Politikası', icon: 'fas fa-key',
+                    info: 'Parola, <code>set user &lt;ad&gt; password</code> ile etkileşimli girilir (iki kez sorulur, ekranda görünmez).',
+                    fields: [
+                        { name: 'gu_pwpol', label: 'Parola politikasını sıkılaştır', type: 'checkbox', checked: true, hint: 'complexity 3, min 12, geçmiş kontrolü 10', why: 'Varsayılan karmaşıklık 2 karakter tipidir; tüm yerel Gaia hesaplarını ve SNMPv3 kullanıcı parolalarını etkiler. Mevcut parolalar etkilenmez.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgCpGaiaUserGen(data));
+    }
+};
+function cgCpGaiaUserGen(data) {
+    const u = cgEsc(data.gu_name || ''), uid = cgEsc(data.gu_uid || ''), rn = cgEsc(data.gu_realname || '');
+    const role = data.gu_role === 'adminRole' ? 'adminRole' : 'monitorRole';
+    const acc = ['Web-UI,CLI', 'CLI', 'Web-UI'].includes(data.gu_access) ? data.gu_access : 'Web-UI,CLI';
+    const shell = data.gu_shell === '/bin/bash' ? '/bin/bash' : '/etc/cli.sh';
+    let c = '# ========================================\n# Check Point Gaia — Local User + RBA (clish)\n# ========================================\n\n';
+    if (uid === '0' && role === 'monitorRole') c += '# UYARI: UID 0 yönetici kimliğidir — salt-okur (monitorRole) hesap için 103-65533 arası verin.\n';
+    c += 'add user ' + u + (uid ? ' uid ' + uid : '') + ' homedir /home/' + u + '\n';
+    if (rn) c += 'set user ' + u + ' realname "' + rn + '"\n';
+    c += 'add rba user ' + u + ' roles ' + role + '\n';
+    c += 'add rba user ' + u + ' access-mechanisms ' + acc + '\n';
+    c += 'set user ' + u + ' shell ' + shell + '\n';
+    if (shell === '/bin/bash') c += '# UYARI: /bin/bash kullanıcıyı doğrudan Expert moda düşürür.\n';
+    c += 'set user ' + u + ' password\n# (yukarıdaki komut parolayı etkileşimli olarak iki kez sorar)\n\n';
+    if (data.gu_pwpol) {
+        c += '# Parola politikası (tüm yerel hesaplar)\n';
+        c += 'set password-controls complexity 3\n';
+        c += 'set password-controls min-password-length 12\n';
+        c += 'set password-controls history-checking on\n';
+        c += 'set password-controls history-length 10\n\n';
+    }
+    c += 'save config\n\n';
+    c += '# Doğrulama:\n# show user ' + u + '\n# show rba user ' + u + '\n# show password-controls all\n';
     return c;
 }

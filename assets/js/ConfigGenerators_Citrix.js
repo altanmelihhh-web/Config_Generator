@@ -1034,7 +1034,7 @@ CitrixADC.acl = {
                     title: 'Kaynak',
                     icon: 'fas fa-arrow-right',
                     fields: [
-                        { name: 'src_ip', why: "Kaynak IP <code>0.0.0.0</code> verilirse kural tüm kaynakları kapsar; bu bir DENY kuralında cihazı erişilemez hale getirebilir. Kural yazmadan önce mevcut yönetim oturumunun hangi kaynaktan geldiği mutlaka kontrol edilmelidir.", label: 'Kaynak IP', type: 'text', validate: 'ip', required: true, placeholder: '10.10.10.0', hint: 'Eşleşecek kaynak ağ (0.0.0.0 tümü demektir — dikkat)' },
+                        { name: 'src_ip', why: "Kaynak IP <code>0.0.0.0</code> verilirse kural tüm kaynakları kapsar; bu bir DENY kuralında cihazı erişilemez hale getirebilir. Kural yazmadan önce mevcut yönetim oturumunun hangi kaynaktan geldiği mutlaka kontrol edilmelidir.", label: 'Kaynak IP', type: 'text', validate: 'ip', required: true, placeholder: '10.128.10.0', hint: 'Eşleşecek kaynak ağ (0.0.0.0 tümü demektir — dikkat)' },
                         { name: 'src_mask', why: "Maske kuralın kaç adresi kapsadığını belirler; yanlış maske beklenenden çok daha geniş bir aralığı kapsar ve istenmeyen trafiği sessizce engeller.", label: 'Kaynak Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Wildcard mask formatı' }
                     ]
                 },

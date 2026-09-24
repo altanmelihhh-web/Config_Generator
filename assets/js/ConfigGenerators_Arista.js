@@ -409,7 +409,7 @@ Arista.evpnvxlan = {
                     fields: [
                         { name: 'local_as', why: "EVPN omurgasında AS planı tutarlı olmalı; iBGP mi eBGP mi seçtiğiniz route-reflector ihtiyacını ve next-hop davranışını değiştirir, yanlış planda VTEP'ler birbirini öğrenemez.", label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'BGP Autonomous System numarası' },
                         { name: 'vtep_loopback', why: "VXLAN kaynak arayüzü bir loopback olmalıdır; fiziksel port verilirse o port düştüğünde tüm overlay çöker. Bu loopback underlay'de <b>her VTEP'ten erişilebilir</b> olmalıdır.", label: 'VTEP Loopback', type: 'text', required: true, placeholder: 'Loopback1', hint: 'VTEP kaynak loopback arayüzü' },
-                        { name: 'vtep_ip', why: "VTEP IP, kapsüllenmiş paketlerin kaynak adresidir ve underlay routing ile tüm diğer VTEP'lere ulaşabilmelidir; underlay'de duyurulmayan bir VTEP IP'si tüneli tek yönlü ve kullanılamaz yapar.", label: 'VTEP IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.1.1', hint: 'Loopback1\'e atanacak /32 IP adresi' },
+                        { name: 'vtep_ip', why: "VTEP IP, kapsüllenmiş paketlerin kaynak adresidir ve underlay routing ile tüm diğer VTEP'lere ulaşabilmelidir; underlay'de duyurulmayan bir VTEP IP'si tüneli tek yönlü ve kullanılamaz yapar.", label: 'VTEP IP', type: 'text', validate: 'ip', required: true, placeholder: '10.240.1.1', hint: 'Loopback1\'e atanacak /32 IP adresi' },
                         { name: 'evpn_neighbor', why: "EVPN komşusu MAC/IP bilgisini dağıtan kontrol düzlemidir. Bu peering kurulmazsa VXLAN <b>flood-and-learn</b>'e düşer; trafik kısmen çalışır ama MAC tabloları şişer ve teşhis çok zorlaşır.", label: 'EVPN Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'BGP EVPN komşusunun IP adresi (genellikle spine)' }
                     ]
                 },
@@ -1048,7 +1048,7 @@ Arista.staticroute = {
                     title: 'Rota',
                     icon: 'fas fa-route',
                     fields: [
-                        { name: 'prefix', why: "Hedef ağ CIDR ile yazılır; host bitleri dolu bir prefix (10.1.1.5/24) girilirse EOS onu ağ adresine yuvarlar ve beklediğinizden farklı bir rota görürsünüz.", label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.100.0.0/16', hint: 'Hedef ağ, CIDR biçiminde' },
+                        { name: 'prefix', why: "Hedef ağ CIDR ile yazılır; host bitleri dolu bir prefix (10.1.1.5/24) girilirse EOS onu ağ adresine yuvarlar ve beklediğinizden farklı bir rota görürsünüz.", label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.64.0.0/16', hint: 'Hedef ağ, CIDR biçiminde' },
                         { name: 'vrf', why: "VRF belirtilmezse rota varsayılan tabloya girer; hedef ağ bir müşteri/servis VRF'indeyse trafik yanlış tabloda aranır ve düşer.", label: 'VRF', type: 'text', placeholder: 'PROD', hint: 'Boş = default VRF' }
                     ]
                 },
@@ -1199,7 +1199,7 @@ Arista.vrrp = {
                     icon: 'fas fa-ethernet',
                     fields: [
                         { name: 'svi', why: "Gateway yedekliliği L3 arayüz (genellikle <code>Vlan</code> SVI) üzerinde kurulur; VLAN L2'de tanımlı değilse SVI up olmaz ve sanal IP hiç yanıt vermez.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Vlan10', hint: 'Genellikle Vlan<N>' },
-                        { name: 'svi_ip', why: "Her switch'in SVI'sinde kendine ait, sanal adresle aynı subnet'te benzersiz bir IP olmalı; iki switch'te aynı gerçek IP verilirse duplicate address oluşur.", label: 'Bu Cihazın Gerçek IP/Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.10.10.2/24', hint: 'Her switch\'te farklı olmalı' }
+                        { name: 'svi_ip', why: "Her switch'in SVI'sinde kendine ait, sanal adresle aynı subnet'te benzersiz bir IP olmalı; iki switch'te aynı gerçek IP verilirse duplicate address oluşur.", label: 'Bu Cihazın Gerçek IP/Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.128.10.2/24', hint: 'Her switch\'te farklı olmalı' }
                     ]
                 },
                 {
@@ -1208,7 +1208,7 @@ Arista.vrrp = {
                     showFor: ['vrrp'],
                     fields: [
                         { name: 'vrid', why: "VRID aynı segmentteki tüm VRRP üyelerinde aynı, farklı gruplarda farklı olmalı; VRID sanal MAC'i (00:00:5e:00:01:VRID) belirler ve çakışma MAC flapping'e yol açar.", label: 'VRID', type: 'text', min: 1, max: 255, required: true, placeholder: '10', hint: '1-255' },
-                        { name: 'vip', why: "Hostların default gateway'i bu adres olur; gerçek SVI IP'leriyle aynı subnet'te olmalı, yoksa VRRP grubu kurulmaz.", label: 'Sanal IP', type: 'text', validate: 'ip', required: true, placeholder: '10.10.10.1', hint: 'Hostların gateway adresi' },
+                        { name: 'vip', why: "Hostların default gateway'i bu adres olur; gerçek SVI IP'leriyle aynı subnet'te olmalı, yoksa VRRP grubu kurulmaz.", label: 'Sanal IP', type: 'text', validate: 'ip', required: true, placeholder: '10.128.10.1', hint: 'Hostların gateway adresi' },
                         { name: 'prio', why: "Yüksek öncelik master olur (varsayılan 100). İki cihazda aynı öncelik varsa yüksek IP kazanır — bu da planlanmamış bir master seçimine yol açabilir.", label: 'Priority', type: 'text', min: 1, max: 254, placeholder: '110', hint: '1-254; master için yüksek değer' },
                         { name: 'adv', why: "Duyuru aralığı tüm grup üyelerinde aynı olmalı; uyumsuzsa yedek cihaz master'ı ölü sanıp devralır ve iki master (split-brain) oluşur.", label: 'Advertisement Interval (sn)', type: 'text', min: 1, max: 255, placeholder: '1', hint: 'Grup üyelerinde aynı olmalı' },
                         { name: 'preempt', why: "Preempt açıkken yüksek öncelikli cihaz geri geldiğinde master rolünü geri alır; açılış sırasında routing henüz yakınsamamışsa kısa bir kara delik oluşabilir, bu yüzden gecikme önerilir.", label: 'Preempt', type: 'select', options: [
@@ -1236,7 +1236,7 @@ Arista.vrrp = {
                     info: 'VARP\'ta sanal MAC global tanımlanır ve MLAG çiftindeki iki switch\'te <b>aynı</b> olmalıdır.',
                     fields: [
                         { name: 'varp_mac', why: "Sanal router MAC'i MLAG çiftinin her iki üyesinde aynı olmalı; farklıysa hostların ARP önbelleği hangi switch'e düştüğüne göre değişir ve trafik aralıklı kesilir.", label: 'Virtual-Router MAC', type: 'text', validate: 'mac', required: true, placeholder: '00:1c:73:00:00:99', hint: 'Unicast, yerel yönetimli bir MAC seçin' },
-                        { name: 'varp_ip', why: "Hostların gateway'i bu adrestir ve iki switch'te aynı yazılır; SVI'nin gerçek IP'siyle aynı subnet'te olmalıdır.", label: 'Virtual-Router Adresi', type: 'text', validate: 'ip', required: true, placeholder: '10.10.10.1', hint: 'ip virtual-router address' }
+                        { name: 'varp_ip', why: "Hostların gateway'i bu adrestir ve iki switch'te aynı yazılır; SVI'nin gerçek IP'siyle aynı subnet'te olmalıdır.", label: 'Virtual-Router Adresi', type: 'text', validate: 'ip', required: true, placeholder: '10.128.10.1', hint: 'ip virtual-router address' }
                     ]
                 }
             ],
@@ -1401,7 +1401,7 @@ Arista.vrf = {
                     info: 'Opsiyonel. Arayüz VRF\'e alındığında <b>mevcut IP adresi silinir</b>; bu yüzden IP adresi <code>vrf</code> satırından sonra yeniden yazılır.',
                     fields: [
                         { name: 'vif', why: "Arayüz VRF'e taşındığında üzerindeki IP ve komşuluklar (OSPF/BGP) düşer; yönetim bağlantınız bu arayüzden geçiyorsa oturum kopar.", label: 'Arayüz', type: 'text', validate: 'iface', placeholder: 'Vlan100', hint: 'Ethernet/Port-Channel ise no switchport eklenir' },
-                        { name: 'vip', why: "VRF'e alındıktan sonra IP yeniden verilmezse arayüz IP'siz kalır; bu alan boşsa yalnızca VRF ataması yapılır.", label: 'IP / Prefix', type: 'text', validate: 'cidr', placeholder: '10.100.0.1/24', hint: 'Arayüz verilmediyse yok sayılır' }
+                        { name: 'vip', why: "VRF'e alındıktan sonra IP yeniden verilmezse arayüz IP'siz kalır; bu alan boşsa yalnızca VRF ataması yapılır.", label: 'IP / Prefix', type: 'text', validate: 'cidr', placeholder: '10.64.0.1/24', hint: 'Arayüz verilmediyse yok sayılır' }
                     ]
                 }
             ],
@@ -1796,7 +1796,7 @@ Arista.igmpsnoop = {
                     fields: [
                         { name: 'ivlan', why: "Snooping bu VLAN'da kapalıysa multicast akışlar broadcast gibi tüm portlara taşar; IPTV/kamera trafiği erişim portlarını doldurur.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1-4094' },
                         { name: 'iquer', why: "Segmentte multicast router yoksa querier olmadan üyelik raporları yenilenmez; snooping tablosu zaman aşımıyla boşalır ve akışlar birkaç dakika sonra kesilir.", label: 'Querier', type: 'checkbox', checked: false, hint: 'Segmentte PIM router yoksa açın' },
-                        { name: 'iqaddr', why: "Querier sorgularının kaynak adresidir; VLAN subnet'inde kullanılmayan bir IP olmalı. Birden fazla querier varsa en düşük IP kazanır.", label: 'Querier Adresi', type: 'text', validate: 'ip', requiredIf: { field: 'iquer', checked: true }, placeholder: '10.100.0.2', hint: 'VLAN subnet\'inden' },
+                        { name: 'iqaddr', why: "Querier sorgularının kaynak adresidir; VLAN subnet'inde kullanılmayan bir IP olmalı. Birden fazla querier varsa en düşük IP kazanır.", label: 'Querier Adresi', type: 'text', validate: 'ip', requiredIf: { field: 'iquer', checked: true }, placeholder: '10.64.0.2', hint: 'VLAN subnet\'inden' },
                         { name: 'iqver', why: "Querier sürümü hostların IGMP sürümüyle uyumlu olmalı; SSM (kaynağa özgü) akışlar IGMPv3 gerektirir.", label: 'Querier Sürümü', type: 'select', options: [
                             { value: '', label: 'Varsayılan — satır yazma', selected: true },
                             { value: '2', label: '2' },
