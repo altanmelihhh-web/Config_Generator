@@ -518,6 +518,50 @@ function ccComment(vendor, text) {
 // parola hash'i, PSK, SNMP community ve anahtar bulundugundan bu satirlar oldugu
 // gibi yazilirsa secret'lar donusturulmus config'e sizar. Cikti tek cikis noktasi
 // oldugu icin maskeleme burada yapilir.
+// Arayuz adi normalizasyonu — ad karsilastirmasi icin kanonik bicim uretir.
+//
+// Ayni portu farkli yazan uc kaynak var:
+//   cihaz ciktisi : 'ethernet1/1/1'   (Dell OS10)
+//   referans veri : 'Ethernet 1/1/1'  (netbox devicetype-library, ayni aile icinde
+//                                      bile tutarsiz — bkz. ConfigConverter_DeviceTypes.js)
+//   kullanici     : 'Gi0/1', 'Te1/1/1', 'Eth1/1'  (kisaltma)
+// Bosluk, buyuk/kucuk harf ve kisaltma farki ad eslestirmesini sessizce bozar —
+// Dell reader'indaki 196 arayuz kaybi tam olarak bu sinifta bir hataydi.
+//
+// NOT: Yalnizca KARSILASTIRMA icindir; IR'de saklanan ad her zaman cihazin
+// yazdigi orijinal bicimdir.
+function ccNormIfName(name) {
+  let n = String(name == null ? '' : name).trim().toLowerCase();
+  n = n.replace(/\s+/g, '');
+  const ABBR = [
+    [/^tengige(?=\d)/,            'tengigabitethernet'],
+    [/^tengig(?=\d)/,             'tengigabitethernet'],
+    [/^te(?=\d)/,                 'tengigabitethernet'],
+    [/^fortygige(?=\d)/,          'fortygigabitethernet'],
+    [/^hundredgige(?=\d)/,        'hundredgigabitethernet'],
+    [/^twentyfivegige(?=\d)/,     'twentyfivegigabitethernet'],
+    [/^gigabitether(?=\d)/,       'gigabitethernet'],
+    [/^gig(?=\d)/,                'gigabitethernet'],
+    [/^gi(?=\d)/,                 'gigabitethernet'],
+    [/^fa(?=\d)/,                 'fastethernet'],
+    [/^eth(?=\d)/,                'ethernet'],
+    [/^et(?=\d)/,                 'ethernet'],
+    [/^po(?=\d)/,                 'port-channel'],
+    [/^portchannel(?=\d)/,        'port-channel'],
+    [/^vl(?=\d)/,                 'vlan'],
+    [/^lo(?=\d)/,                 'loopback']
+  ];
+  for (const [pat, rep] of ABBR) {
+    if (pat.test(n)) { n = n.replace(pat, rep); break; }
+  }
+  return n;
+}
+
+// Iki arayuz adi ayni fiziksel portu mu gosteriyor?
+function ccSameIfName(a, b) {
+  return ccNormIfName(a) === ccNormIfName(b);
+}
+
 function ccMaskSecrets(line) {
   let s = String(line == null ? '' : line);
   // Unix crypt hash'leri: $1$ $5$ $6$ (rounds= varyanti dahil), bcrypt $2a$/$2y$
