@@ -1,0 +1,1310 @@
+'use strict';
+
+const PaloAlto = {};
+
+// ── Palo Alto: Zone ───────────────────────────────────────────────────────────
+PaloAlto.zone = {
+    label: 'Zone',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-shield-alt',
+                title: 'Zone & Interface (PAN-OS)',
+                desc: 'Palo Alto zone ve arayüz yapılandırması — Layer3, TAP veya Virtual Wire modu. Outside/Inside zone çifti ve Virtual Router ataması.'
+            },
+            sections: [
+                {
+                    title: 'Zone Tipi',
+                    icon: 'fas fa-layer-group',
+                    fields: [
+                        { name: 'zone_type', label: 'Zone Tipi', type: 'select', options: [
+                            { value: 'layer3', label: 'Layer 3', selected: true },
+                            { value: 'tap', label: 'TAP' },
+                            { value: 'virtual-wire', label: 'Virtual Wire' }
+                        ], hint: 'Layer3 en yaygın mod; TAP pasif izleme için kullanılır' }
+                    ]
+                },
+                {
+                    title: 'Outside (Untrust) Zone',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'outside_zone', label: 'Outside Zone Adı', type: 'text', required: true, placeholder: 'outside', hint: 'Untrust zone adı (ör: outside, Untrust)' },
+                        { name: 'outside_iface', label: 'Outside Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'WAN bacağı arayüzü — PAN-OS formatı: ethernet1/1' },
+                        { name: 'outside_ip', label: 'Outside IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında WAN IP' }
+                    ]
+                },
+                {
+                    title: 'Inside (Trust) Zone',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'inside_zone', label: 'Inside Zone Adı', type: 'text', required: true, placeholder: 'inside', hint: 'Trust zone adı (ör: inside, Trust)' },
+                        { name: 'inside_iface', label: 'Inside Interface', type: 'text', required: true, placeholder: 'ethernet1/2', hint: 'LAN bacağı arayüzü' },
+                        { name: 'inside_ip', label: 'Inside IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.1/24', hint: 'CIDR formatında LAN gateway IP' }
+                    ]
+                },
+                {
+                    title: 'Virtual Router',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'vr', label: 'Virtual Router Adı', type: 'text', required: true, placeholder: 'default', hint: 'Varsayılan VR adı genellikle "default" bırakılır' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaZoneGen(data);
+        });
+    }
+};
+function cgPaZoneGen(data) {
+    const ztype = cgEsc(data.zone_type || 'layer3');
+    const oz = cgEsc(data.outside_zone || ''), oi = cgEsc(data.outside_iface || ''), oip = cgEsc(data.outside_ip || '');
+    const iz = cgEsc(data.inside_zone || ''), ii = cgEsc(data.inside_iface || ''), iip = cgEsc(data.inside_ip || '');
+    const vr = cgEsc(data.vr || '');
+    let c = '# ========================================\n# Palo Alto — Zone & Interface Configuration\n# ========================================\n\n';
+    c += '# Outside Interface\nset network interface ethernet ' + oi + ' layer3 ip ' + oip + '\nset network interface ethernet ' + oi + ' layer3 mtu 1500\n\n';
+    c += '# Inside Interface\nset network interface ethernet ' + ii + ' layer3 ip ' + iip + '\nset network interface ethernet ' + ii + ' layer3 mtu 1500\n\n';
+    c += '# Zones\nset zone ' + oz + ' network ' + ztype + ' [ ' + oi + ' ]\nset zone ' + iz + ' network ' + ztype + ' [ ' + ii + ' ]\n\n';
+    c += '# Virtual Router\nset network virtual-router ' + vr + ' interface [ ' + oi + ' ' + ii + ' ]\n\n';
+    c += '# Doğrulama:\n# show zone\n# show interface all\n# show routing route\n';
+    return c;
+}
+
+// ── Palo Alto: Address Object ──────────────────────────────────────────────────
+PaloAlto.address = {
+    label: 'Address Object',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-map-marker-alt',
+                title: 'Address Object (PAN-OS)',
+                desc: 'Palo Alto adres nesnesi — IP/Netmask, FQDN veya IP Range tipinde. Security policy ve NAT kurallarında kullanılır.'
+            },
+            sections: [
+                {
+                    title: 'Adres Nesnesi',
+                    icon: 'fas fa-address-card',
+                    fields: [
+                        { name: 'addr_name', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'WEB_SERVER', hint: 'Büyük harf ve alt çizgi önerilir (ör: WEB_SERVER)' },
+                        { name: 'addr_type', label: 'Tip', type: 'select', options: [
+                            { value: 'ip-netmask', label: 'IP/Netmask', selected: true },
+                            { value: 'fqdn', label: 'FQDN' },
+                            { value: 'ip-range', label: 'IP Range' }
+                        ], hint: 'IP/Netmask en yaygın; FQDN DNS tabanlı nesneler için' },
+                        { name: 'netmask', label: 'IP / Prefix (CIDR)', type: 'text', validate: 'subnet', optional: true, placeholder: '192.168.1.10/32', hint: 'IP/Netmask tipi seçildiyse doldurun' },
+                        { name: 'fqdn_val', label: 'FQDN', type: 'text', optional: true, placeholder: 'example.com', hint: 'FQDN tipi seçildiyse doldurun' },
+                        { name: 'ip_range', label: 'IP Range', type: 'text', optional: true, placeholder: '192.168.1.10-192.168.1.20', hint: 'IP Range tipi seçildiyse doldurun' },
+                        { name: 'desc', label: 'Açıklama', type: 'text', optional: true, placeholder: 'Web sunucusu', hint: 'Nesne açıklaması (opsiyonel)' },
+                        { name: 'group_name', label: 'Adres Grubu', type: 'text', optional: true, placeholder: 'WEB_SERVERS', hint: 'Bu nesneyi eklemek istediğiniz adres grubu adı' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaAddrGen(data);
+        });
+    }
+};
+function cgPaAddrGen(data) {
+    const name = cgEsc(data.addr_name || ''), type = cgEsc(data.addr_type || 'ip-netmask');
+    const desc = cgEsc(data.desc || ''), grp = cgEsc(data.group_name || '');
+    let c = '# ========================================\n# Palo Alto — Address Object\n# ========================================\n\n';
+    if (type === 'ip-netmask') {
+        c += 'set address "' + name + '" ' + type + ' ' + cgEsc(data.netmask || '') + '\n';
+    } else if (type === 'fqdn') {
+        c += 'set address "' + name + '" ' + type + ' ' + cgEsc(data.fqdn_val || '') + '\n';
+    } else {
+        c += 'set address "' + name + '" ' + type + ' ' + cgEsc(data.ip_range || '') + '\n';
+    }
+    if (desc) c += 'set address "' + name + '" description "' + desc + '"\n';
+    c += '\n';
+    if (grp) {
+        c += '# Adres Grubuna Ekle\nset address-group "' + grp + '" static [ "' + name + '" ]\n\n';
+    }
+    c += '# Doğrulama:\n# show address "' + name + '"\n# show address-group\n';
+    return c;
+}
+
+// ── Palo Alto: Security Policy ────────────────────────────────────────────────
+PaloAlto.policy = {
+    label: 'Security Policy',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-shield-alt',
+                title: 'Security Policy (PAN-OS)',
+                desc: 'Palo Alto güvenlik politikası — zone, adres, uygulama ve servis bazlı allow/deny kuralları. App-ID ile uygulama tanıma desteği.',
+            },
+            sections: [
+                {
+                    title: 'Kural Tanımı',
+                    icon: 'fas fa-lock',
+                    badge: { text: 'Güvenlik', cls: 'security' },
+                    fields: [
+                        { name: 'rule_name', label: 'Kural Adı', type: 'text', required: true, placeholder: 'Allow_LAN_to_WAN', hint: 'Kural adı boşluk içermemeli (ör: Allow_LAN_to_WAN)' },
+                        { name: 'from_zone', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'inside', hint: 'Trafiğin geldiği zone' },
+                        { name: 'to_zone', label: 'Hedef Zone', type: 'text', required: true, placeholder: 'outside', hint: 'Trafiğin gittiği zone' },
+                        { name: 'src_addr', label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya adres nesnesi adı (ör: LAN_SUBNET)' },
+                        { name: 'dst_addr', label: 'Hedef Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya hedef adres nesnesi' },
+                        { name: 'application', label: 'Uygulama', type: 'text', required: true, placeholder: 'any', hint: '"any" veya App-ID adları boşlukla ayrılmış (ör: web-browsing ssl)' }
+                    ]
+                },
+                {
+                    title: 'Aksiyon ve Log',
+                    icon: 'fas fa-gavel',
+                    fields: [
+                        { name: 'service', label: 'Servis', type: 'select', options: [
+                            { value: 'application-default', label: 'application-default', selected: true },
+                            { value: 'any', label: 'any' }
+                        ], hint: '"application-default" App-ID ile port uyumunu zorunlu kılar' },
+                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                            { value: 'allow', label: 'Allow', selected: true },
+                            { value: 'deny', label: 'Deny' },
+                            { value: 'drop', label: 'Drop' }
+                        ]},
+                        { name: 'log_end', label: 'Log', type: 'select', options: [
+                            { value: 'yes', label: 'Log at Session End', selected: true },
+                            { value: 'no', label: 'No Log' }
+                        ], hint: 'Session end loglaması önerilir; log başlangıç için log-start kullanın' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaPolicyGen(data);
+        });
+    }
+};
+function cgPaPolicyGen(data) {
+    const rname = cgEsc(data.rule_name || '');
+    const base = 'set rulebase security rules "' + rname + '"';
+    let c = '# ========================================\n# Palo Alto — Security Policy\n# ========================================\n\n';
+    c += base + ' from ' + cgEsc(data.from_zone || '') + '\n';
+    c += base + ' to ' + cgEsc(data.to_zone || '') + '\n';
+    c += base + ' source [ ' + cgEsc(data.src_addr || '') + ' ]\n';
+    c += base + ' destination [ ' + cgEsc(data.dst_addr || '') + ' ]\n';
+    c += base + ' application [ ' + cgEsc(data.application || '') + ' ]\n';
+    c += base + ' service ' + cgEsc(data.service || 'application-default') + '\n';
+    c += base + ' action ' + cgEsc(data.action || 'allow') + '\n';
+    c += base + ' log-end ' + cgEsc(data.log_end || 'yes') + '\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show rulebase security rules "' + rname + '"\n# test security-policy-match from ' + cgEsc(data.from_zone || '') + ' to ' + cgEsc(data.to_zone || '') + ' source <ip> destination <ip>\n';
+    return c;
+}
+
+// ── Palo Alto: NAT ────────────────────────────────────────────────────────────
+PaloAlto.nat = {
+    label: 'NAT',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-exchange-alt',
+                title: 'NAT Kuralı (PAN-OS)',
+                desc: 'Palo Alto NAT — Source NAT (internet erişimi) veya Destination NAT (port forwarding/DNAT). Kural tipi seçerek ilgili alanları doldurun.'
+            },
+            configTypes: [
+                { id: 'source', label: 'Source NAT', icon: 'fas fa-arrow-up', desc: 'İç ağdan internete — dynamic/static IP çevirisi', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'destination', label: 'Destination NAT', icon: 'fas fa-arrow-down', desc: 'Port forwarding, DNAT — dışarıdan içeriye', badge: { text: 'Yaygın', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'NAT Kural Tanımı',
+                    icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'rule_name', label: 'Kural Adı', type: 'text', required: true, placeholder: 'Source_NAT', hint: 'NAT kuralı için anlamlı bir ad' },
+                        { name: 'from_zone', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'inside', hint: 'Kaynak zone adı' },
+                        { name: 'to_zone', label: 'Hedef Zone', type: 'text', required: true, placeholder: 'outside', hint: 'Hedef zone adı' },
+                        { name: 'src_addr', label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya adres nesnesi' },
+                        { name: 'dst_addr', label: 'Hedef Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya hedef adres nesnesi' }
+                    ]
+                },
+                {
+                    title: 'Source NAT Ayarları',
+                    icon: 'fas fa-arrow-up',
+                    showFor: ['source'],
+                    fields: [
+                        { name: 'src_trans_type', label: 'Source Translation Tipi', type: 'select', options: [
+                            { value: 'dynamic-ip-and-port interface-address', label: 'Dynamic IP+Port (Interface)', selected: true },
+                            { value: 'dynamic-ip-and-port translated-address', label: 'Dynamic IP+Port (Pool)' },
+                            { value: 'static-ip static-translated-address', label: 'Static IP' }
+                        ], hint: 'Interface-address: WAN IP üzerinden PAT' },
+                        { name: 'to_iface', label: 'To Interface (Interface NAT için)', type: 'text', optional: true, placeholder: 'ethernet1/1', hint: 'Dynamic IP+Port Interface seçildiyse WAN arayüzü' }
+                    ]
+                },
+                {
+                    title: 'Destination NAT Ayarları',
+                    icon: 'fas fa-arrow-down',
+                    showFor: ['destination'],
+                    fields: [
+                        { name: 'trans_dst_ip', label: 'Translated Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.10', hint: 'İç sunucunun IP adresi' },
+                        { name: 'trans_dst_port', label: 'Translated Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '80', hint: 'Hedef porta yönlendirilecek port (opsiyonel)' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaNatGen(data);
+        });
+    }
+};
+function cgPaNatGen(data) {
+    const type = cgEsc(data._cgtype || 'source'), rname = cgEsc(data.rule_name || '');
+    const base = 'set rulebase nat rules "' + rname + '"';
+    let c = '# ========================================\n# Palo Alto — NAT Rule\n# ========================================\n\n';
+    c += base + ' from ' + cgEsc(data.from_zone || '') + '\n';
+    c += base + ' to ' + cgEsc(data.to_zone || '') + '\n';
+    c += base + ' source [ ' + cgEsc(data.src_addr || '') + ' ]\n';
+    c += base + ' destination [ ' + cgEsc(data.dst_addr || '') + ' ]\n';
+    c += base + ' service any\n';
+    if (type === 'source') {
+        const trans = cgEsc(data.src_trans_type || 'dynamic-ip-and-port interface-address');
+        const toIface = cgEsc(data.to_iface || '');
+        c += base + ' source-translation ' + trans + '\n';
+        if (toIface && trans.includes('interface')) {
+            c += base + ' to-interface ' + toIface + '\n';
+        }
+    } else {
+        const tdip = cgEsc(data.trans_dst_ip || ''), tdport = cgEsc(data.trans_dst_port || '');
+        c += base + ' destination-translation translated-address ' + tdip + '\n';
+        if (tdport) c += base + ' destination-translation translated-port ' + tdport + '\n';
+    }
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show rulebase nat rules "' + rname + '"\n# test nat-policy-match from ' + cgEsc(data.from_zone || '') + ' to ' + cgEsc(data.to_zone || '') + ' source <ip> destination <ip>\n';
+    return c;
+}
+
+// ── Palo Alto: IPSec VPN ───────────────────────────────────────────────────────
+PaloAlto.ipsec = {
+    label: 'IPSec VPN',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-lock',
+                title: 'IPSec VPN (PAN-OS)',
+                desc: 'Palo Alto site-to-site IPSec VPN — IKE Crypto profil, IPSec Crypto profil, IKE Gateway ve Tunnel konfigürasyonu. IKEv2 önerilir.'
+            },
+            sections: [
+                {
+                    title: 'Crypto Profilleri',
+                    icon: 'fas fa-key',
+                    fields: [
+                        { name: 'ike_profile', label: 'IKE Crypto Profil', type: 'text', required: true, placeholder: 'IKE_PROFILE', hint: 'IKE Phase-1 şifreleme profili adı' },
+                        { name: 'ipsec_profile', label: 'IPSec Crypto Profil', type: 'text', required: true, placeholder: 'IPSEC_PROFILE', hint: 'IPSec Phase-2 şifreleme profili adı' },
+                        { name: 'ike_ver', label: 'IKE Versiyon', type: 'select', options: [
+                            { value: 'ikev2', label: 'IKEv2', selected: true },
+                            { value: 'ikev1', label: 'IKEv1' }
+                        ], hint: 'IKEv2 tercih edilir; IKEv1 legacy cihazlar için' },
+                        { name: 'ike_enc', label: 'IKE Şifreleme', type: 'select', options: [
+                            { value: 'aes-256-cbc', label: 'AES-256-CBC', selected: true },
+                            { value: 'aes-128-cbc', label: 'AES-128-CBC' }
+                        ]},
+                        { name: 'ike_hash', label: 'IKE Hash', type: 'select', options: [
+                            { value: 'sha256', label: 'SHA-256', selected: true },
+                            { value: 'sha1', label: 'SHA-1' }
+                        ]},
+                        { name: 'dh_grp', label: 'DH Group', type: 'select', options: [
+                            { value: 'group14', label: 'Group 14', selected: true },
+                            { value: 'group19', label: 'Group 19 (ECDH)' },
+                            { value: 'group5', label: 'Group 5 (eski)' }
+                        ], hint: 'Group 14 veya üzeri önerilir' }
+                    ]
+                },
+                {
+                    title: 'IKE Gateway',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'gw_name', label: 'IKE Gateway Adı', type: 'text', required: true, placeholder: 'IKE_GW', hint: 'Gateway nesnesi adı' },
+                        { name: 'gw_iface', label: 'WAN Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'Karşı tarafa bağlı WAN arayüzü' },
+                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.2', hint: 'Uzak IPSec endpoint IP adresi' },
+                        { name: 'psk', label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'MyS3cr3tKey!', hint: 'Her iki tarafta aynı PSK girilmeli' }
+                    ]
+                },
+                {
+                    title: 'IPSec Tunnel',
+                    icon: 'fas fa-tunnel',
+                    fields: [
+                        { name: 'tunnel_name', label: 'Tunnel Adı', type: 'text', required: true, placeholder: 'VPN_TUNNEL', hint: 'IPSec tunnel nesnesi adı' },
+                        { name: 'tunnel_iface', label: 'Tunnel Interface', type: 'text', required: true, placeholder: 'tunnel.1', hint: 'PAN-OS tunnel arayüzü (ör: tunnel.1)' },
+                        { name: 'proxy_local', label: 'Proxy ID — Yerel Subnet', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Bu taraftaki ilgili subnet' },
+                        { name: 'proxy_remote', label: 'Proxy ID — Uzak Subnet', type: 'text', required: true, placeholder: '10.0.0.0/24', hint: 'Karşı taraftaki ilgili subnet' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaIpsecGen(data);
+        });
+    }
+};
+function cgPaIpsecGen(data) {
+    const ikeProf = cgEsc(data.ike_profile || ''), ipsecProf = cgEsc(data.ipsec_profile || '');
+    const gwName = cgEsc(data.gw_name || ''), gwIface = cgEsc(data.gw_iface || '');
+    const peerIp = cgEsc(data.peer_ip || ''), psk = cgEsc(data.psk || ''), ikeVer = cgEsc(data.ike_ver || 'ikev2');
+    const ikeEnc = cgEsc(data.ike_enc || 'aes-256-cbc'), ikeHash = cgEsc(data.ike_hash || 'sha256'), dhGrp = cgEsc(data.dh_grp || 'group14');
+    const tunName = cgEsc(data.tunnel_name || ''), tunIface = cgEsc(data.tunnel_iface || '');
+    const proxyLocal = cgEsc(data.proxy_local || ''), proxyRemote = cgEsc(data.proxy_remote || '');
+    let c = '# ========================================\n# Palo Alto — IPSec VPN Configuration\n# ========================================\n\n';
+    c += '# IKE Crypto Profile\nset network ike crypto-profiles ike-crypto-profiles "' + ikeProf + '" dh-group ' + dhGrp + '\n';
+    c += 'set network ike crypto-profiles ike-crypto-profiles "' + ikeProf + '" hash ' + ikeHash + '\n';
+    c += 'set network ike crypto-profiles ike-crypto-profiles "' + ikeProf + '" encryption ' + ikeEnc + '\n';
+    c += 'set network ike crypto-profiles ike-crypto-profiles "' + ikeProf + '" lifetime hours 24\n\n';
+    c += '# IPSec Crypto Profile\nset network ike crypto-profiles ipsec-crypto-profiles "' + ipsecProf + '" esp authentication ' + ikeHash + '\n';
+    c += 'set network ike crypto-profiles ipsec-crypto-profiles "' + ipsecProf + '" esp encryption ' + ikeEnc + '\n';
+    c += 'set network ike crypto-profiles ipsec-crypto-profiles "' + ipsecProf + '" dh-group ' + dhGrp + '\n';
+    c += 'set network ike crypto-profiles ipsec-crypto-profiles "' + ipsecProf + '" lifetime hours 8\n\n';
+    c += '# IKE Gateway\nset network ike gateway "' + gwName + '" interface ' + gwIface + '\n';
+    c += 'set network ike gateway "' + gwName + '" peer-address ip ' + peerIp + '\n';
+    c += 'set network ike gateway "' + gwName + '" authentication pre-shared-key key ' + psk + '\n';
+    c += 'set network ike gateway "' + gwName + '" protocol ' + ikeVer + '\n';
+    c += 'set network ike gateway "' + gwName + '" protocol-common ike-crypto-profile "' + ikeProf + '"\n\n';
+    c += '# Tunnel Interface\nset network interface tunnel units ' + tunIface + '\n\n';
+    c += '# IPSec Tunnel\nset network tunnel ipsec "' + tunName + '" tunnel-interface ' + tunIface + '\n';
+    c += 'set network tunnel ipsec "' + tunName + '" ike gateway "' + gwName + '"\n';
+    c += 'set network tunnel ipsec "' + tunName + '" ike ipsec-crypto-profile "' + ipsecProf + '"\n';
+    c += 'set network tunnel ipsec "' + tunName + '" tunnel-monitor enable no\n\n';
+    c += '# Proxy ID (Interesting Traffic)\nset network tunnel ipsec "' + tunName + '" tunnel-monitor destination-ip ' + peerIp + '\n';
+    c += 'set network tunnel ipsec "' + tunName + '" auto-key proxy-id "proxy1" local ' + proxyLocal + '\n';
+    c += 'set network tunnel ipsec "' + tunName + '" auto-key proxy-id "proxy1" remote ' + proxyRemote + '\n\n';
+    c += '# Virtual Router — Tunnel Interface Ekle\nset network virtual-router default interface [ ' + tunIface + ' ]\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show vpn ike-sa gateway "' + gwName + '"\n# show vpn ipsec-sa tunnel "' + tunName + '"\n# show vpn flow tunnel-id all\n';
+    return c;
+}
+
+// ── Palo Alto: Threat Prevention Profiles ────────────────────────────────────
+PaloAlto.threatprev = {
+    label: 'Threat Prevention',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-bug',
+                title: 'Threat Prevention Profilleri (PAN-OS)',
+                desc: 'Antivirus, Vulnerability Protection, Anti-Spyware ve WildFire Analysis profilleri oluştur ve security rule\'a bağla. Kurumsal güvenlik temeli.',
+            },
+            sections: [
+                {
+                    title: 'Profil Adları',
+                    icon: 'fas fa-shield-virus',
+                    badge: { text: 'Güvenlik', cls: 'security' },
+                    fields: [
+                        { name: 'av_name', label: 'Antivirus Profil', type: 'text', required: true, placeholder: 'corp-av', hint: 'FTP/HTTP/SMTP trafiğini tarar' },
+                        { name: 'vp_name', label: 'Vulnerability Protection Profil', type: 'text', required: true, placeholder: 'strict-vp', hint: 'CVE tabanlı exploit koruması' },
+                        { name: 'spy_name', label: 'Anti-Spyware Profil', type: 'text', required: true, placeholder: 'corp-spyware', hint: 'C2 trafiği ve spyware tespiti' },
+                        { name: 'wf_name', label: 'WildFire Analysis Profil', type: 'text', required: true, placeholder: 'corp-wildfire', hint: 'Bilinmeyen dosyaları bulut analizine gönderir' }
+                    ]
+                },
+                {
+                    title: 'Security Rule Binding',
+                    icon: 'fas fa-link',
+                    fields: [
+                        { name: 'rule_name', label: 'Kural Adı', type: 'text', required: true, placeholder: 'OUTBOUND-WEB', hint: 'Profillerin bağlanacağı mevcut security rule adı' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaThreatPrevGen(data);
+        });
+    }
+};
+function cgPaThreatPrevGen(data) {
+    const avName = cgEsc(data.av_name || ''), vpName = cgEsc(data.vp_name || '');
+    const spyName = cgEsc(data.spy_name || ''), wfName = cgEsc(data.wf_name || ''), ruleName = cgEsc(data.rule_name || '');
+    let c = '# ========================================\n# Palo Alto — Threat Prevention Profiles\n# ========================================\n\n';
+    c += '# 1. Antivirus Profil\nset profiles virus "' + avName + '" description "Corporate AV"\n';
+    c += 'set profiles virus "' + avName + '" decoder ftp action default\n';
+    c += 'set profiles virus "' + avName + '" decoder http action default\n';
+    c += 'set profiles virus "' + avName + '" decoder smtp action default\n\n';
+    c += '# 2. Vulnerability Protection Profil\nset profiles vulnerability "' + vpName + '" description "Strict VP"\n';
+    c += 'set profiles vulnerability "' + vpName + '" rules "block-critical" severity [ critical high ] action block-ip duration 300\n';
+    c += 'set profiles vulnerability "' + vpName + '" rules "alert-medium" severity [ medium ] action alert\n\n';
+    c += '# 3. Anti-Spyware Profil\nset profiles spyware "' + spyName + '" description "Corporate Anti-Spyware"\n';
+    c += 'set profiles spyware "' + spyName + '" rules "block-critical" severity [ critical high ] action block-ip duration 300\n';
+    c += 'set profiles spyware "' + spyName + '" rules "sinkhole-medium" severity [ medium ] action sinkhole\n\n';
+    c += '# 4. WildFire Analysis Profil\nset profiles wildfire-analysis "' + wfName + '" description "Corporate WildFire"\n';
+    c += 'set profiles wildfire-analysis "' + wfName + '" rules "forward-all" application any file-type any direction both analysis public-cloud\n\n';
+    c += '# 5. Security Rule\'e Profilleri Bağla\nset rulebase security rules "' + ruleName + '" profile-setting profiles virus "' + avName + '"\n';
+    c += 'set rulebase security rules "' + ruleName + '" profile-setting profiles vulnerability "' + vpName + '"\n';
+    c += 'set rulebase security rules "' + ruleName + '" profile-setting profiles spyware "' + spyName + '"\n';
+    c += 'set rulebase security rules "' + ruleName + '" profile-setting profiles wildfire-analysis "' + wfName + '"\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show profiles virus "' + avName + '"\n# show profiles vulnerability "' + vpName + '"\n# show rulebase security rules "' + ruleName + '"\n';
+    return c;
+}
+
+// ── Palo Alto: URL Filtering Profile ─────────────────────────────────────────
+PaloAlto.urlfilter = {
+    label: 'URL Filtering',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-filter',
+                title: 'URL Filtering Profili (PAN-OS)',
+                desc: 'Kategori bazlı URL filtreleme profili — engelleme, uyarı ve safe search konfigürasyonu. Security rule\'a bağlanarak etkinleşir.',
+            },
+            sections: [
+                {
+                    title: 'Profil Ayarları',
+                    icon: 'fas fa-globe-europe',
+                    badge: { text: 'Güvenlik', cls: 'security' },
+                    fields: [
+                        { name: 'profile_name', label: 'Profil Adı', type: 'text', required: true, placeholder: 'corp-urlfilter', hint: 'URL filtering profili adı' },
+                        { name: 'block_cats', label: 'Engellenen Kategoriler', type: 'text', required: true, placeholder: 'adult gambling malware phishing', hint: 'Boşlukla ayrılmış PAN-OS kategori adları' },
+                        { name: 'alert_cats', label: 'Uyarı Kategorileri', type: 'text', optional: true, placeholder: 'social-networking games', hint: 'Engellenmez, sadece loglanır (boşlukla ayrılmış)' },
+                        { name: 'safe_search', label: 'Safe Search', type: 'select', options: [
+                            { value: 'strict', label: 'strict', selected: true },
+                            { value: 'moderate', label: 'moderate' },
+                            { value: 'off', label: 'off' }
+                        ], hint: 'Arama motorlarında safe search zorunluluğu' }
+                    ]
+                },
+                {
+                    title: 'Rule Binding',
+                    icon: 'fas fa-link',
+                    fields: [
+                        { name: 'rule_name', label: 'Security Rule Adı', type: 'text', required: true, placeholder: 'OUTBOUND-WEB', hint: 'Profil bağlanacak security rule' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaUrlFilterGen(data);
+        });
+    }
+};
+function cgPaUrlFilterGen(data) {
+    const pname = cgEsc(data.profile_name || ''), blockCats = cgEsc(data.block_cats || '');
+    const alertCats = cgEsc(data.alert_cats || ''), safeSearch = cgEsc(data.safe_search || 'strict');
+    const ruleName = cgEsc(data.rule_name || '');
+    let c = '# ========================================\n# Palo Alto — URL Filtering Profile\n# ========================================\n\n';
+    c += 'set profiles url-filtering "' + pname + '" description "Corporate URL Filter"\n';
+    blockCats.split(/\s+/).filter(Boolean).forEach(cat => {
+        c += 'set profiles url-filtering "' + pname + '" action block category ' + cat + '\n';
+    });
+    if (alertCats) {
+        alertCats.split(/\s+/).filter(Boolean).forEach(cat => {
+            c += 'set profiles url-filtering "' + pname + '" action alert category ' + cat + '\n';
+        });
+    }
+    c += 'set profiles url-filtering "' + pname + '" safe-search-enforcement yes\n';
+    c += 'set profiles url-filtering "' + pname + '" log-container-page-only yes\n\n';
+    c += '# Security Rule\'e URL Filter Bağla\nset rulebase security rules "' + ruleName + '" profile-setting profiles url-filtering "' + pname + '"\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show profiles url-filtering "' + pname + '"\n# show rulebase security rules "' + ruleName + '"\n';
+    return c;
+}
+
+// ── Palo Alto: GlobalProtect VPN ──────────────────────────────────────────────
+PaloAlto.globalprotect = {
+    label: 'GlobalProtect VPN',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-globe',
+                title: 'GlobalProtect VPN (PAN-OS)',
+                desc: 'Kurumsal SSL-VPN çözümü — Portal, Gateway ve IP Pool konfigürasyonu. Uzak kullanıcıların şirket ağına güvenli bağlantısı için kullanılır.',
+            },
+            sections: [
+                {
+                    title: 'Portal',
+                    icon: 'fas fa-door-open',
+                    badge: { text: 'Enterprise', cls: 'advanced' },
+                    fields: [
+                        { name: 'portal_iface', label: 'Portal Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'Kullanıcıların bağlandığı WAN arayüzü' },
+                        { name: 'portal_ip', label: 'Portal IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Portal erişim IP adresi (public)' }
+                    ]
+                },
+                {
+                    title: 'Gateway',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'gw_name', label: 'Gateway Adı', type: 'text', required: true, placeholder: 'GP-GW-EXT', hint: 'GlobalProtect Gateway nesne adı' },
+                        { name: 'gw_iface', label: 'Gateway Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'Gateway bağlantı arayüzü' },
+                        { name: 'tun_iface', label: 'Tunnel Interface', type: 'text', required: true, placeholder: 'tunnel.10', hint: 'Kullanıcı oturumları için tünel arayüzü (ör: tunnel.10)' }
+                    ]
+                },
+                {
+                    title: 'IP Pool ve DNS',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'pool_start', label: 'Pool Başlangıç', type: 'text', validate: 'ip', required: true, placeholder: '10.210.0.1', hint: 'VPN kullanıcıları için IP aralığı başlangıcı' },
+                        { name: 'pool_end', label: 'Pool Bitiş', type: 'text', validate: 'ip', required: true, placeholder: '10.210.0.254', hint: 'VPN kullanıcıları için IP aralığı bitişi' },
+                        { name: 'dns', label: 'DNS Server', type: 'text', validate: 'ip', optional: true, placeholder: '8.8.8.8', hint: 'VPN istemcilerine atanacak DNS sunucu' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaGlobalProtectGen(data);
+        });
+    }
+};
+function cgPaGlobalProtectGen(data) {
+    const portalIface = cgEsc(data.portal_iface || ''), portalIp = cgEsc(data.portal_ip || '');
+    const gwName = cgEsc(data.gw_name || ''), gwIface = cgEsc(data.gw_iface || ''), tunIface = cgEsc(data.tun_iface || '');
+    const poolStart = cgEsc(data.pool_start || ''), poolEnd = cgEsc(data.pool_end || ''), dns = cgEsc(data.dns || '');
+    let c = '# ========================================\n# Palo Alto — GlobalProtect VPN\n# ========================================\n\n';
+    c += '# 1. Tunnel Interface\nset network interface tunnel units ' + tunIface + '\nset network interface tunnel units ' + tunIface + ' ip 0.0.0.0/0\n\n';
+    c += '# 2. GlobalProtect Portal\nset global-protect global-protect-portal GP-PORTAL interface ' + portalIface + '\n';
+    c += 'set global-protect global-protect-portal GP-PORTAL client-config configs "default" gateways external-list "' + gwName + '" address ' + portalIp + '\n\n';
+    c += '# 3. GlobalProtect Gateway\nset global-protect global-protect-gateway "' + gwName + '" interface ' + gwIface + '\n';
+    c += 'set global-protect global-protect-gateway "' + gwName + '" tunnel-interface ' + tunIface + '\n';
+    c += 'set global-protect global-protect-gateway "' + gwName + '" ip-pool ' + poolStart + '-' + poolEnd + '\n';
+    if (dns) c += 'set global-protect global-protect-gateway "' + gwName + '" dns-server primary ' + dns + '\n';
+    c += '\n# 4. Virtual Router — Tunnel Ekle\nset network virtual-router default interface [ ' + tunIface + ' ]\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show global-protect-gateway current-user\n# show global-protect-portal current-user\n# debug global-protect gateway enable\n';
+    return c;
+}
+
+// ── Palo Alto: HA Active-Passive ──────────────────────────────────────────────
+PaloAlto.ha = {
+    label: 'HA Active-Passive',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'HA Active-Passive (PAN-OS)',
+                desc: 'Palo Alto yüksek erişilebilirlik — HA1 (control) ve HA2 (data sync) link konfigürasyonu. Primary/Secondary rol seçimi yapın.'
+            },
+            sections: [
+                {
+                    title: 'HA Rol ve Grup',
+                    icon: 'fas fa-crown',
+                    fields: [
+                        { name: 'ha_role', label: 'Rol', type: 'select', options: [
+                            { value: 'primary', label: 'Primary (Active)', selected: true },
+                            { value: 'secondary', label: 'Secondary (Passive)' }
+                        ], hint: 'Primary cihaza düşük device-priority atanır (10), secondary\'ye 100' },
+                        { name: 'grp_id', label: 'Group ID (1-63)', type: 'text', required: true, placeholder: '1', hint: 'Her iki cihazda aynı group ID kullanılmalı' },
+                        { name: 'preemptive', label: 'Preemptive?', type: 'select', options: [
+                            { value: 'yes', label: 'Evet', selected: true },
+                            { value: 'no', label: 'Hayır' }
+                        ], hint: 'Preempt açık iken primary düzelince geri devralır' }
+                    ]
+                },
+                {
+                    title: 'HA1 Interface (Control)',
+                    icon: 'fas fa-link',
+                    fields: [
+                        { name: 'ha1_iface', label: 'HA1 Interface', type: 'text', required: true, placeholder: 'ethernet1/3', hint: 'HA control link arayüzü' },
+                        { name: 'ha1_ip', label: 'HA1 IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '169.254.0.1/24', hint: 'Bu cihazın HA1 IP adresi' },
+                        { name: 'ha1_peer', label: 'HA1 Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '169.254.0.2', hint: 'Karşı cihazın HA1 IP adresi' }
+                    ]
+                },
+                {
+                    title: 'HA2 Interface (Data Sync)',
+                    icon: 'fas fa-sync',
+                    fields: [
+                        { name: 'ha2_iface', label: 'HA2 Interface', type: 'text', required: true, placeholder: 'ethernet1/4', hint: 'HA data sync link arayüzü' },
+                        { name: 'ha2_ip', label: 'HA2 IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '169.254.1.1/24', hint: 'Bu cihazın HA2 IP adresi' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaHaGen(data);
+        });
+    }
+};
+function cgPaHaGen(data) {
+    const role = cgEsc(data.ha_role || 'primary');
+    const ha1Iface = cgEsc(data.ha1_iface || ''), ha1Ip = cgEsc(data.ha1_ip || '');
+    const ha1Peer = cgEsc(data.ha1_peer || ''), ha2Iface = cgEsc(data.ha2_iface || ''), ha2Ip = cgEsc(data.ha2_ip || '');
+    const grpId = cgEsc(data.grp_id || ''), preemptive = cgEsc(data.preemptive || 'yes');
+    let c = '# ========================================\n# Palo Alto — HA Active-Passive (' + (role === 'primary' ? 'Primary' : 'Secondary') + ')\n# ========================================\n\n';
+    c += 'set deviceconfig high-availability enabled yes\n';
+    c += 'set deviceconfig high-availability group ' + grpId + ' mode active-passive\n';
+    c += 'set deviceconfig high-availability group ' + grpId + ' election-option device-priority ' + (role === 'primary' ? '10' : '100') + '\n';
+    c += 'set deviceconfig high-availability group ' + grpId + ' election-option preemptive ' + preemptive + '\n';
+    c += 'set deviceconfig high-availability interface ha1 port ' + ha1Iface + '\n';
+    c += 'set deviceconfig high-availability interface ha1 ip-address ' + ha1Ip + '\n';
+    c += 'set deviceconfig high-availability interface ha1 gateway ' + ha1Peer + '\n';
+    c += 'set deviceconfig high-availability interface ha2 port ' + ha2Iface + '\n';
+    c += 'set deviceconfig high-availability interface ha2 ip-address ' + ha2Ip + '\n';
+    c += 'set deviceconfig high-availability group ' + grpId + ' state-synchronization enabled yes\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show high-availability all\n# show high-availability state\n# show high-availability state-synchronization\n';
+    return c;
+}
+
+// ── Palo Alto: Interface (L3/VLAN/Loopback) ───────────────────────────────────
+PaloAlto.interface = {
+    label: 'Interface (L3/VLAN/Loopback)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-ethernet',
+                title: 'Interface Yapılandırması (PAN-OS)',
+                desc: 'Layer3, VLAN sub-interface veya Loopback arayüz konfigürasyonu. Zone ataması ve Virtual Router entegrasyonu dahil.'
+            },
+            sections: [
+                {
+                    title: 'Interface Ayarları',
+                    icon: 'fas fa-plug',
+                    fields: [
+                        { name: 'intf_name', label: 'Interface Adı', type: 'text', required: true, placeholder: 'ethernet1/3', hint: 'PAN-OS formatı: ethernet1/3, loopback.1' },
+                        { name: 'intf_type', label: 'Interface Tipi', type: 'select', options: [
+                            { value: 'layer3', label: 'Layer 3', selected: true },
+                            { value: 'vlan', label: 'VLAN Sub-Interface' },
+                            { value: 'loopback', label: 'Loopback' }
+                        ], hint: 'Layer3 fiziksel port; VLAN sub-interface için vlan_id gerekir' },
+                        { name: 'ip_prefix', label: 'IP / Prefix (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi' },
+                        { name: 'zone', label: 'Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Arayüzün atanacağı zone adı' },
+                        { name: 'description', label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN Link', hint: 'İsteğe bağlı arayüz açıklaması' },
+                        { name: 'mtu', label: 'MTU', type: 'text', optional: true, placeholder: '1500', hint: 'MTU değeri (varsayılan 1500, VLAN için 1400–1500)' },
+                        { name: 'vlan_id', label: 'VLAN ID', type: 'text', validate: 'vlan', optional: true, placeholder: '100', hint: 'Yalnızca VLAN tipi seçildiyse gerekli' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaInterfaceGen(data);
+        });
+    }
+};
+function cgPaInterfaceGen(data) {
+    const intfName = cgEsc(data.intf_name || ''), intfType = cgEsc(data.intf_type || 'layer3');
+    const ipPrefix = cgEsc(data.ip_prefix || ''), zone = cgEsc(data.zone || '');
+    const description = cgEsc(data.description || ''), mtu = cgEsc(data.mtu || ''), vlanId = cgEsc(data.vlan_id || '');
+    let c = '# ========================================\n# Palo Alto — Interface Configuration\n# ========================================\n\n';
+    if (intfType === 'layer3' || intfType === 'vlan') {
+        c += 'set network interface ethernet ' + intfName + ' layer3 ip ' + ipPrefix + '\n';
+        if (mtu) c += 'set network interface ethernet ' + intfName + ' layer3 mtu ' + mtu + '\n';
+        if (description) c += 'set network interface ethernet ' + intfName + ' comment "' + description + '"\n';
+        if (intfType === 'vlan' && vlanId) {
+            c += 'set network interface ethernet ' + intfName + ' layer3 units vlan.' + vlanId + '\n';
+        }
+        c += 'set zone ' + zone + ' network layer3 ' + intfName + '\n';
+    } else {
+        c += 'set network interface loopback units ' + intfName + ' ip ' + ipPrefix + '\n';
+        if (description) c += 'set network interface loopback units ' + intfName + ' comment "' + description + '"\n';
+        c += 'set zone ' + zone + ' network layer3 ' + intfName + '\n';
+    }
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show interface ' + intfName + '\n# show zone ' + zone + '\n';
+    return c;
+}
+
+// ── Palo Alto: Virtual Router + Static Route ───────────────────────────────────
+PaloAlto.staticroute = {
+    label: 'Virtual Router + Route',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Virtual Router + Static Route (PAN-OS)',
+                desc: 'Palo Alto Virtual Router üzerinde statik rota ekleme — hedef ağ, next-hop ve interface seçimi. Default route için 0.0.0.0/0 kullanın.'
+            },
+            sections: [
+                {
+                    title: 'Static Route',
+                    icon: 'fas fa-map-signs',
+                    fields: [
+                        { name: 'vr_name', label: 'Virtual Router Adı', type: 'text', required: true, placeholder: 'default', hint: 'Varsayılan VR genellikle "default" olarak adlandırılır' },
+                        { name: 'dst', label: 'Hedef Ağ (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '0.0.0.0/0', hint: 'Rota hedefi; default route için 0.0.0.0/0' },
+                        { name: 'nexthop', label: 'Next-Hop IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.254', hint: 'Bir sonraki hop IP adresi' },
+                        { name: 'interface', label: 'Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'Çıkış arayüzü' },
+                        { name: 'metric', label: 'Metric', type: 'text', required: true, placeholder: '10', hint: 'Rota metriği; düşük değer öncelikli' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaStaticrouteGen(data);
+        });
+    }
+};
+function cgPaStaticrouteGen(data) {
+    const vrName = cgEsc(data.vr_name || ''), dst = cgEsc(data.dst || '');
+    const nexthop = cgEsc(data.nexthop || ''), iface = cgEsc(data.interface || ''), metric = cgEsc(data.metric || '');
+    const routeName = dst.replace(/[^a-zA-Z0-9]/g, '-');
+    let c = '# ========================================\n# Palo Alto — Virtual Router + Static Route\n# ========================================\n\n';
+    c += 'set network virtual-router ' + vrName + ' routing-table ip static-route ' + routeName + ' destination ' + dst + '\n';
+    c += 'set network virtual-router ' + vrName + ' routing-table ip static-route ' + routeName + ' nexthop ip-address ' + nexthop + '\n';
+    c += 'set network virtual-router ' + vrName + ' routing-table ip static-route ' + routeName + ' interface ' + iface + '\n';
+    c += 'set network virtual-router ' + vrName + ' routing-table ip static-route ' + routeName + ' metric ' + metric + '\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show routing route\n# show routing fib\n';
+    return c;
+}
+
+// ── Palo Alto: OSPF ───────────────────────────────────────────────────────────
+PaloAlto.ospf = {
+    label: 'OSPF',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'OSPF (PAN-OS)',
+                desc: 'Palo Alto Virtual Router üzerinde OSPF konfigürasyonu — Router ID, area ve interface ataması. Passive interface desteği mevcuttur.'
+            },
+            sections: [
+                {
+                    title: 'OSPF Ayarları',
+                    icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'vr_name', label: 'Virtual Router Adı', type: 'text', required: true, placeholder: 'default', hint: 'OSPF çalışacak Virtual Router' },
+                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Genellikle Loopback IP adresi kullanılır' },
+                        { name: 'area', label: 'Area', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone area için 0.0.0.0' }
+                    ]
+                },
+                {
+                    title: 'OSPF Interface\'ler',
+                    icon: 'fas fa-ethernet',
+                    fields: [
+                        { name: 'intfs', label: 'OSPF Interface\'ler', type: 'text', required: true, placeholder: 'ethernet1/2,ethernet1/3', hint: 'Virgülle ayrılmış arayüz listesi' },
+                        { name: 'passive_intfs', label: 'Passive Interface\'ler', type: 'text', optional: true, placeholder: 'ethernet1/3', hint: 'OSPF hello göndermeyecek arayüzler (virgülle ayrılmış)' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaOspfGen(data);
+        });
+    }
+};
+function cgPaOspfGen(data) {
+    const vrName = cgEsc(data.vr_name || ''), routerId = cgEsc(data.router_id || ''), area = cgEsc(data.area || '');
+    const intfs = cgEsc(data.intfs || '').split(',').map(s => s.trim()).filter(Boolean);
+    const passiveRaw = cgEsc(data.passive_intfs || '');
+    const passiveIntfs = passiveRaw ? passiveRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const passiveSet = new Set(passiveIntfs);
+    let c = '# ========================================\n# Palo Alto — OSPF\n# ========================================\n\n';
+    c += 'set network virtual-router ' + vrName + ' protocol ospf router-id ' + routerId + '\n';
+    c += 'set network virtual-router ' + vrName + ' protocol ospf enable yes\n';
+    c += 'set network virtual-router ' + vrName + ' protocol ospf area ' + area + ' type normal\n';
+    intfs.forEach(intf => {
+        c += 'set network virtual-router ' + vrName + ' protocol ospf area ' + area + ' interface ' + intf + ' enable yes\n';
+        if (passiveSet.has(intf)) {
+            c += 'set network virtual-router ' + vrName + ' protocol ospf area ' + area + ' interface ' + intf + ' passive yes\n';
+        }
+    });
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show routing protocol ospf neighbor\n# show routing route type ospf\n';
+    return c;
+}
+
+// ── Palo Alto: BGP ────────────────────────────────────────────────────────────
+PaloAlto.bgp = {
+    label: 'BGP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-globe-americas',
+                title: 'BGP (PAN-OS)',
+                desc: 'Palo Alto Virtual Router üzerinde BGP konfigürasyonu — Local AS, Router ID ve eBGP peer yapılandırması. Peer group desteği mevcuttur.'
+            },
+            sections: [
+                {
+                    title: 'BGP Temel Ayarlar',
+                    icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'vr_name', label: 'Virtual Router Adı', type: 'text', required: true, placeholder: 'default', hint: 'BGP çalışacak Virtual Router' },
+                        { name: 'local_as', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
+                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
+                    ]
+                },
+                {
+                    title: 'Peer Ayarları',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
+                        { name: 'peer_as', label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
+                        { name: 'peer_group', label: 'Peer Group Adı', type: 'text', required: true, placeholder: 'EBGP-PEERS', hint: 'eBGP peer group adı' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaBgpGen(data);
+        });
+    }
+};
+function cgPaBgpGen(data) {
+    const vrName = cgEsc(data.vr_name || ''), localAs = cgEsc(data.local_as || ''), routerId = cgEsc(data.router_id || '');
+    const peerIp = cgEsc(data.peer_ip || ''), peerAs = cgEsc(data.peer_as || ''), peerGroup = cgEsc(data.peer_group || '');
+    let c = '# ========================================\n# Palo Alto — BGP\n# ========================================\n\n';
+    c += 'set network virtual-router ' + vrName + ' protocol bgp enable yes\n';
+    c += 'set network virtual-router ' + vrName + ' protocol bgp local-as ' + localAs + '\n';
+    c += 'set network virtual-router ' + vrName + ' protocol bgp router-id ' + routerId + '\n';
+    c += 'set network virtual-router ' + vrName + ' protocol bgp peer-group ' + peerGroup + ' type ebgp\n';
+    c += 'set network virtual-router ' + vrName + ' protocol bgp peer-group ' + peerGroup + ' peer ' + peerIp + ' peer-as ' + peerAs + '\n';
+    c += 'set network virtual-router ' + vrName + ' protocol bgp peer-group ' + peerGroup + ' peer ' + peerIp + ' enable yes\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show routing protocol bgp summary\n# show routing protocol bgp peer ' + peerIp + '\n';
+    return c;
+}
+
+// ── Palo Alto: VLAN ───────────────────────────────────────────────────────────
+PaloAlto.vlan = {
+    label: 'VLAN',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-layer-group',
+                title: 'VLAN (PAN-OS)',
+                desc: 'Palo Alto VLAN nesnesi oluşturma — VLAN ID, arayüz ataması, IP konfigürasyonu ve zone bağlaması.'
+            },
+            sections: [
+                {
+                    title: 'VLAN Yapılandırması',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'vlan_id', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası' },
+                        { name: 'vlan_name', label: 'VLAN Adı', type: 'text', required: true, placeholder: 'SERVERS', hint: 'VLAN nesne adı (büyük harf önerilir)' },
+                        { name: 'interface', label: 'Interface', type: 'text', required: true, placeholder: 'ethernet1/2', hint: 'VLAN üyesi fiziksel arayüz' },
+                        { name: 'ip', label: 'IP / Prefix', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.100.1/24', hint: 'VLAN SVI IP adresi (opsiyonel)' },
+                        { name: 'zone', label: 'Zone', type: 'text', optional: true, placeholder: 'trust', hint: 'VLAN arayüzünün atanacağı zone (opsiyonel)' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaVlanGen(data);
+        });
+    }
+};
+function cgPaVlanGen(data) {
+    const vlanId = cgEsc(data.vlan_id || ''), vlanName = cgEsc(data.vlan_name || '');
+    const iface = cgEsc(data.interface || ''), ip = cgEsc(data.ip || ''), zone = cgEsc(data.zone || '');
+    let c = '# ========================================\n# Palo Alto — VLAN\n# ========================================\n\n';
+    c += 'set network vlan ' + vlanName + ' vlan-id ' + vlanId + '\n';
+    c += 'set network vlan ' + vlanName + ' interface ' + iface + '\n';
+    if (ip) {
+        c += 'set network interface vlan units vlan.' + vlanId + ' ip ' + ip + '\n';
+    }
+    if (zone) {
+        c += 'set zone ' + zone + ' network layer3 vlan.' + vlanId + '\n';
+    }
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show vlan all\n';
+    return c;
+}
+
+// ── Palo Alto: Service Object ─────────────────────────────────────────────────
+PaloAlto.service = {
+    label: 'Service Object',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-network-wired',
+                title: 'Service Object (PAN-OS)',
+                desc: 'TCP/UDP port bazlı servis nesnesi tanımlama. Security policy\'de application-default yerine özel port kuralları için kullanılır.'
+            },
+            sections: [
+                {
+                    title: 'Service Object',
+                    icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'name', label: 'Servis Adı', type: 'text', required: true, placeholder: 'SVC-HTTPS', hint: 'Servis nesnesi adı (ör: SVC-HTTPS, SVC-CUSTOM-8080)' },
+                        { name: 'protocol', label: 'Protokol', type: 'select', options: [
+                            { value: 'tcp', label: 'TCP', selected: true },
+                            { value: 'udp', label: 'UDP' }
+                        ]},
+                        { name: 'dst_port', label: 'Hedef Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'Hedef port veya aralık (ör: 443, 8080-8090)' },
+                        { name: 'src_port', label: 'Kaynak Port', type: 'text', validate: 'port', optional: true, placeholder: 'any', hint: 'Kaynak port kısıtlaması (genellikle boş bırakılır)' },
+                        { name: 'description', label: 'Açıklama', type: 'text', optional: true, placeholder: 'HTTPS service', hint: 'Servis nesnesi açıklaması' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaServiceGen(data);
+        });
+    }
+};
+function cgPaServiceGen(data) {
+    const name = cgEsc(data.name || ''), protocol = cgEsc(data.protocol || 'tcp');
+    const dstPort = cgEsc(data.dst_port || ''), srcPort = cgEsc(data.src_port || ''), description = cgEsc(data.description || '');
+    let c = '# ========================================\n# Palo Alto — Service Object\n# ========================================\n\n';
+    c += 'set shared service ' + name + ' protocol ' + protocol + ' port ' + dstPort + '\n';
+    if (srcPort && srcPort !== 'any') {
+        c += 'set shared service ' + name + ' protocol ' + protocol + ' source-port ' + srcPort + '\n';
+    }
+    if (description) {
+        c += 'set shared service ' + name + ' description "' + description + '"\n';
+    }
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show service name ' + name + '\n';
+    return c;
+}
+
+// ── Palo Alto: Custom Application ─────────────────────────────────────────────
+PaloAlto.customapp = {
+    label: 'Custom Application',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-puzzle-piece',
+                title: 'Custom Application (PAN-OS)',
+                desc: 'Özel uygulama tanımı — pattern-match signature ile App-ID benzeri uygulama tespiti. Kategori, risk seviyesi ve port ataması.'
+            },
+            sections: [
+                {
+                    title: 'Uygulama Tanımı',
+                    icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'app_name', label: 'Uygulama Adı', type: 'text', required: true, placeholder: 'CUSTOM-APP', hint: 'Büyük harf ve tire önerilir (ör: CUSTOM-APP)' },
+                        { name: 'category', label: 'Kategori', type: 'text', required: true, placeholder: 'networking', hint: 'PAN-OS uygulama kategorisi (ör: networking, business-systems)' },
+                        { name: 'risk', label: 'Risk Seviyesi', type: 'select', options: [
+                            { value: '1', label: '1 — Low', selected: true },
+                            { value: '2', label: '2' },
+                            { value: '3', label: '3 — Medium' },
+                            { value: '4', label: '4' },
+                            { value: '5', label: '5 — High' }
+                        ], hint: 'Yüksek risk; security policy kısıtlamalarını tetikleyebilir' }
+                    ]
+                },
+                {
+                    title: 'Signature ve Port',
+                    icon: 'fas fa-fingerprint',
+                    fields: [
+                        { name: 'sig_pattern', label: 'Signature Pattern', type: 'text', required: true, placeholder: 'GET /api/v1', hint: 'HTTP header üzerinde aranacak string' },
+                        { name: 'protocol', label: 'Protokol', type: 'select', options: [
+                            { value: 'tcp', label: 'TCP', selected: true },
+                            { value: 'udp', label: 'UDP' }
+                        ]},
+                        { name: 'port', label: 'Port', type: 'text', validate: 'port', required: true, placeholder: '8080', hint: 'Uygulamanın kullandığı port numarası' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaCustomappGen(data);
+        });
+    }
+};
+function cgPaCustomappGen(data) {
+    const appName = cgEsc(data.app_name || ''), category = cgEsc(data.category || ''), risk = cgEsc(data.risk || '1');
+    const sigPattern = cgEsc(data.sig_pattern || ''), protocol = cgEsc(data.protocol || 'tcp'), port = cgEsc(data.port || '');
+    const sigName = appName + '-sig';
+    let c = '# ========================================\n# Palo Alto — Custom Application\n# ========================================\n\n';
+    c += 'set application ' + appName + ' category ' + category + '\n';
+    c += 'set application ' + appName + ' risk ' + risk + '\n';
+    c += 'set application ' + appName + ' default port ' + protocol + '/' + port + '\n';
+    c += 'set application ' + appName + ' signature ' + sigName + ' order-free yes\n';
+    c += 'set application ' + appName + ' signature ' + sigName + ' and-condition cond1 or-condition cond1 operator pattern-match context http-req-headers pattern "' + sigPattern + '"\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show application name ' + appName + '\n';
+    return c;
+}
+
+// ── Palo Alto: Security Profile Group ─────────────────────────────────────────
+PaloAlto.secprofilegroup = {
+    label: 'Security Profile Group',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-shield-alt',
+                title: 'Security Profile Group (PAN-OS)',
+                desc: 'AV, Vulnerability Protection, URL Filtering ve Anti-Spyware profillerini tek grup altında birleştir. Security policy\'de grup adıyla uygulanır.',
+            },
+            sections: [
+                {
+                    title: 'Security Profile Group',
+                    icon: 'fas fa-layer-group',
+                    badge: { text: 'Güvenlik', cls: 'security' },
+                    fields: [
+                        { name: 'group_name', label: 'Grup Adı', type: 'text', required: true, placeholder: 'STRICT-PROFILES', hint: 'Profile group adı; security rule\'da bu ad kullanılır' },
+                        { name: 'av_profile', label: 'Antivirus Profil', type: 'text', required: true, placeholder: 'default', hint: 'Mevcut AV profil adı' },
+                        { name: 'vuln_profile', label: 'Vulnerability Protection Profil', type: 'text', required: true, placeholder: 'strict', hint: 'Mevcut VP profil adı' },
+                        { name: 'url_profile', label: 'URL Filtering Profil', type: 'text', required: true, placeholder: 'default', hint: 'Mevcut URL filtering profil adı' },
+                        { name: 'spyware_profile', label: 'Anti-Spyware Profil', type: 'text', required: true, placeholder: 'strict', hint: 'Mevcut anti-spyware profil adı' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaSecprofilegroupGen(data);
+        });
+    }
+};
+function cgPaSecprofilegroupGen(data) {
+    const groupName = cgEsc(data.group_name || ''), avProfile = cgEsc(data.av_profile || '');
+    const vulnProfile = cgEsc(data.vuln_profile || ''), urlProfile = cgEsc(data.url_profile || '');
+    const spywareProfile = cgEsc(data.spyware_profile || '');
+    let c = '# ========================================\n# Palo Alto — Security Profile Group\n# ========================================\n\n';
+    c += 'set profile-group ' + groupName + ' virus ' + avProfile + '\n';
+    c += 'set profile-group ' + groupName + ' vulnerability ' + vulnProfile + '\n';
+    c += 'set profile-group ' + groupName + ' url-filtering ' + urlProfile + '\n';
+    c += 'set profile-group ' + groupName + ' spyware ' + spywareProfile + '\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show profile-group ' + groupName + '\n';
+    return c;
+}
+
+// ── Palo Alto: Decryption Policy ──────────────────────────────────────────────
+PaloAlto.decryption = {
+    label: 'Decryption Policy',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-lock-open',
+                title: 'Decryption Policy (PAN-OS)',
+                desc: 'SSL/TLS trafik şifre çözme politikası — SSL Forward Proxy (giden) veya SSL Inbound Inspection (gelen). NGFW özelliklerine şifreli trafiği açar.',
+            },
+            sections: [
+                {
+                    title: 'Decryption Policy',
+                    icon: 'fas fa-user-secret',
+                    badge: { text: 'Güvenlik', cls: 'security' },
+                    fields: [
+                        { name: 'policy_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'DECRYPT-OUTBOUND', hint: 'Decryption policy adı' },
+                        { name: 'src_zone', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'trust', hint: 'İç ağ zone adı' },
+                        { name: 'dst_zone', label: 'Hedef Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Dış ağ zone adı' },
+                        { name: 'decrypt_type', label: 'Decrypt Tipi', type: 'select', options: [
+                            { value: 'ssl-forward-proxy', label: 'SSL Forward Proxy (giden trafik)', selected: true },
+                            { value: 'ssl-inbound-inspection', label: 'SSL Inbound Inspection (gelen trafik)' }
+                        ], hint: 'Forward Proxy kullanıcı trafiğini; Inbound sunucu trafiğini açar' },
+                        { name: 'profile', label: 'Decryption Profil', type: 'text', required: true, placeholder: 'default-decryption', hint: 'Decryption profil nesnesi adı' },
+                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                            { value: 'decrypt', label: 'Decrypt', selected: true },
+                            { value: 'no-decrypt', label: 'No-Decrypt' }
+                        ], hint: 'No-Decrypt: bankacılık gibi hassas siteleri hariç tutmak için' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaDecryptionGen(data);
+        });
+    }
+};
+function cgPaDecryptionGen(data) {
+    const policyName = cgEsc(data.policy_name || ''), srcZone = cgEsc(data.src_zone || ''), dstZone = cgEsc(data.dst_zone || '');
+    const decryptType = cgEsc(data.decrypt_type || 'ssl-forward-proxy'), profile = cgEsc(data.profile || ''), action = cgEsc(data.action || 'decrypt');
+    const base = 'set rulebase decryption rules "' + policyName + '"';
+    let c = '# ========================================\n# Palo Alto — Decryption Policy\n# ========================================\n\n';
+    c += base + ' from ' + srcZone + '\n';
+    c += base + ' to ' + dstZone + '\n';
+    c += base + ' source any\n';
+    c += base + ' destination any\n';
+    c += base + ' action ' + action + '\n';
+    c += base + ' type ' + decryptType + '\n';
+    c += base + ' profile "' + profile + '"\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show decryption-policy\n# show system state | match ssl\n';
+    return c;
+}
+
+// ── Palo Alto: DoS Protection Policy ─────────────────────────────────────────
+PaloAlto.dos = {
+    label: 'DoS Protection Policy',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-tachometer-alt',
+                title: 'DoS Protection Policy (PAN-OS)',
+                desc: 'SYN/UDP/ICMP flood saldırılarına karşı koruma — alarm ve activate rate eşikleri ile aggregate flood koruması.',
+            },
+            sections: [
+                {
+                    title: 'DoS Koruma Politikası',
+                    icon: 'fas fa-shield-alt',
+                    badge: { text: 'Güvenlik', cls: 'security' },
+                    fields: [
+                        { name: 'policy_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'DOS-PROTECT', hint: 'DoS koruma policy adı' },
+                        { name: 'src_zone', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Saldırının geldiği zone (genellikle untrust)' },
+                        { name: 'dst_zone', label: 'Hedef Zone', type: 'text', required: true, placeholder: 'dmz', hint: 'Korunacak zone (ör: dmz, trust)' },
+                        { name: 'flood_type', label: 'Flood Tipi', type: 'select', options: [
+                            { value: 'syn', label: 'SYN Flood', selected: true },
+                            { value: 'udp', label: 'UDP Flood' },
+                            { value: 'icmp', label: 'ICMP Flood' }
+                        ], hint: 'SYN flood en yaygın DDoS vektörüdür' },
+                        { name: 'alarm_rate', label: 'Alarm Rate (pps)', type: 'text', required: true, placeholder: '10000', hint: 'Bu eşiği aşınca log/alarm üretilir' },
+                        { name: 'activate_rate', label: 'Activate Rate (pps)', type: 'text', required: true, placeholder: '15000', hint: 'Bu eşiği aşınca aktif koruma başlar' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaDosGen(data);
+        });
+    }
+};
+function cgPaDosGen(data) {
+    const policyName = cgEsc(data.policy_name || ''), srcZone = cgEsc(data.src_zone || ''), dstZone = cgEsc(data.dst_zone || '');
+    const floodType = cgEsc(data.flood_type || 'syn'), alarmRate = cgEsc(data.alarm_rate || ''), activateRate = cgEsc(data.activate_rate || '');
+    const base = 'set rulebase dos rules "' + policyName + '"';
+    let c = '# ========================================\n# Palo Alto — DoS Protection Policy\n# ========================================\n\n';
+    c += base + ' from ' + srcZone + '\n';
+    c += base + ' to ' + dstZone + '\n';
+    c += base + ' source any\n';
+    c += base + ' destination any\n';
+    c += base + ' protection aggregate flood ' + floodType + ' enable yes\n';
+    c += base + ' protection aggregate flood ' + floodType + ' alarm-rate ' + alarmRate + '\n';
+    c += base + ' protection aggregate flood ' + floodType + ' activate-rate ' + activateRate + '\n';
+    c += '\n# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show dos-protection policy "' + policyName + '"\n';
+    return c;
+}
+
+// ── Palo Alto: SNMP v3 ────────────────────────────────────────────────────────
+PaloAlto.snmp = {
+    label: 'SNMP v3',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-satellite-dish',
+                title: 'SNMP v3 (PAN-OS)',
+                desc: 'SNMPv3 yapılandırması — şifreli auth/privacy ile güvenli SNMP izleme. Trap server ve kullanıcı kimlik bilgileri tanımlanır.'
+            },
+            sections: [
+                {
+                    title: 'SNMP v3 Profil',
+                    icon: 'fas fa-user-shield',
+                    fields: [
+                        { name: 'profile_name', label: 'Profil Adı', type: 'text', required: true, placeholder: 'SNMP-PROFILE', hint: 'SNMP profil referans adı' },
+                        { name: 'username', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'snmp-user', hint: 'SNMPv3 kullanıcı adı' },
+                        { name: 'auth_proto', label: 'Auth Protokol', type: 'select', options: [
+                            { value: 'SHA', label: 'SHA', selected: true },
+                            { value: 'MD5', label: 'MD5' }
+                        ], hint: 'SHA daha güvenli; MD5 eski sistemlerle uyumluluk için' },
+                        { name: 'auth_pass', label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123!', hint: 'En az 8 karakter, güçlü şifre kullanın' },
+                        { name: 'priv_proto', label: 'Privacy Protokol', type: 'select', options: [
+                            { value: 'AES', label: 'AES', selected: true },
+                            { value: 'DES', label: 'DES' }
+                        ], hint: 'AES şifreleme tercih edilir' },
+                        { name: 'priv_pass', label: 'Privacy Şifresi', type: 'text', required: true, placeholder: 'PrivPass123!', hint: 'Auth şifresinden farklı olması önerilir' }
+                    ]
+                },
+                {
+                    title: 'Trap Server',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'trap_server', label: 'Trap Server IP', type: 'text', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap\'lerin gönderileceği NMS IP adresi' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaSnmpGen(data);
+        });
+    }
+};
+function cgPaSnmpGen(data) {
+    const profileName = cgEsc(data.profile_name || ''), username = cgEsc(data.username || '');
+    const authProto = cgEsc(data.auth_proto || 'SHA'), authPass = cgEsc(data.auth_pass || '');
+    const privProto = cgEsc(data.priv_proto || 'AES'), privPass = cgEsc(data.priv_pass || ''), trapServer = cgEsc(data.trap_server || '');
+    let c = '# ========================================\n# Palo Alto — SNMP v3\n# ========================================\n\n';
+    c += 'set deviceconfig system snmp-setting access-setting version v3 views V1 type include match 1.3.6\n';
+    c += 'set deviceconfig system snmp-setting server version v3 server ' + trapServer + ' user ' + username + '\n';
+    c += 'set deviceconfig system snmp-setting server version v3 server ' + trapServer + ' auth-pwd ' + authPass + '\n';
+    c += 'set deviceconfig system snmp-setting server version v3 server ' + trapServer + ' priv-pwd ' + privPass + '\n';
+    c += '\n# Profil adı: ' + profileName + '\n';
+    c += '# Auth Protocol: ' + authProto + ' | Privacy Protocol: ' + privProto + '\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show deviceconfig system snmp-setting\n';
+    return c;
+}
+
+// ── Palo Alto: Panorama Device Group ──────────────────────────────────────────
+PaloAlto.panorama = {
+    label: 'Panorama Device Group',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-th-large',
+                title: 'Panorama Device Group (PAN-OS)',
+                desc: 'Panorama merkezi yönetim — Device Group ve Template değişkeni konfigürasyonu. Bu komutlar doğrudan cihazda değil, Panorama üzerinde çalıştırılır.',
+            },
+            sections: [
+                {
+                    title: 'Device Group Ayarları',
+                    icon: 'fas fa-server',
+                    badge: { text: 'Enterprise', cls: 'advanced' },
+                    warn: 'Bu komutlar Panorama CLI\'ında çalıştırılır — doğrudan cihaz CLI\'ında kullanmayın.',
+                    fields: [
+                        { name: 'dg_name', label: 'Device Group Adı', type: 'text', required: true, placeholder: 'DG-CUSTOMER1', hint: 'Panorama device group adı' },
+                        { name: 'device_serial', label: 'Cihaz Seri Numarası', type: 'text', required: true, placeholder: '0123456789', hint: '10 haneli PAN-OS seri numarası' },
+                        { name: 'shared_policy', label: 'Shared Policy Adı', type: 'text', required: true, placeholder: 'SHARED-POLICY', hint: 'Device group\'a atanacak paylaşılan policy' }
+                    ]
+                },
+                {
+                    title: 'Template Variable (Opsiyonel)',
+                    icon: 'fas fa-code',
+                    fields: [
+                        { name: 'variable_name', label: 'Variable Adı', type: 'text', optional: true, placeholder: '$trusted-net', hint: 'Template değişkeni adı ($ ile başlar)' },
+                        { name: 'variable_value', label: 'Variable Değeri', type: 'text', optional: true, placeholder: '192.168.1.0/24', hint: 'Değişkene atanacak IP veya subnet değeri' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaPanoramaGen(data);
+        });
+    }
+};
+function cgPaPanoramaGen(data) {
+    const dgName = cgEsc(data.dg_name || ''), deviceSerial = cgEsc(data.device_serial || '');
+    const sharedPolicy = cgEsc(data.shared_policy || ''), variableName = cgEsc(data.variable_name || '');
+    const variableValue = cgEsc(data.variable_value || '');
+    let c = '# ========================================\n# Palo Alto — Panorama Device Group\n# (Panorama\'da çalıştırın)\n# ========================================\n\n';
+    c += 'set device-group ' + dgName + ' devices ' + deviceSerial + '\n';
+    c += 'set device-group ' + dgName + ' reference-templates default\n';
+    if (variableName && variableValue) {
+        c += 'set template-stack default variable ' + variableName + ' type ip-netmask value ' + variableValue + '\n';
+    }
+    c += '\n# Policy push:\n# commit-all device-group ' + dgName + '\n\n';
+    c += '# Paylaşılan policy referansı: ' + sharedPolicy + '\n\n';
+    c += '# Doğrulama:\n# show device-group ' + dgName + '\n# show devices all\n';
+    return c;
+}
+
+// ── Palo Alto: SD-WAN Path Selection ─────────────────────────────────────────
+PaloAlto.sdwan = {
+    label: 'SD-WAN Path Selection',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-random',
+                title: 'SD-WAN Path Selection (PAN-OS)',
+                desc: 'PAN-OS 10.x+ SD-WAN — birden fazla WAN bacağında ağırlıklı yük dağıtımı, health check ve otomatik failover. SD-WAN lisansı gereklidir.',
+            },
+            sections: [
+                {
+                    title: 'SD-WAN Arayüzleri',
+                    icon: 'fas fa-network-wired',
+                    badge: { text: 'Enterprise', cls: 'advanced' },
+                    warn: 'SD-WAN lisansı gereklidir (PAN-OS 10.x ve üzeri).',
+                    fields: [
+                        { name: 'interface_primary', label: 'Birincil Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'Birincil WAN bağlantı arayüzü' },
+                        { name: 'interface_secondary', label: 'İkincil Interface', type: 'text', required: true, placeholder: 'ethernet1/2', hint: 'Yedek WAN bağlantı arayüzü' },
+                        { name: 'weight_primary', label: 'Birincil Ağırlık', type: 'text', required: true, placeholder: '100', hint: 'Yüksek değer = daha fazla trafik yükü' },
+                        { name: 'weight_secondary', label: 'İkincil Ağırlık', type: 'text', required: true, placeholder: '50', hint: 'Birincil ile oransal yük dağıtımı için' }
+                    ]
+                },
+                {
+                    title: 'Health Check ve Failover',
+                    icon: 'fas fa-heartbeat',
+                    fields: [
+                        { name: 'health_check_ip', label: 'Health Check IP', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'Ping ile erişilebilirlik kontrolü yapılacak IP' },
+                        { name: 'failover_threshold', label: 'Failover Threshold', type: 'text', required: true, placeholder: '3', hint: 'Kaç ardışık başarısız ping sonrası failover tetiklenir' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            return cgPaSdwanGen(data);
+        });
+    }
+};
+function cgPaSdwanGen(data) {
+    const ifPrimary = cgEsc(data.interface_primary || ''), ifSecondary = cgEsc(data.interface_secondary || '');
+    const wPrimary = cgEsc(data.weight_primary || ''), wSecondary = cgEsc(data.weight_secondary || '');
+    const hcIp = cgEsc(data.health_check_ip || ''), failThresh = cgEsc(data.failover_threshold || '');
+    let c = '# ========================================\n# Palo Alto — SD-WAN Path Selection\n# (SD-WAN lisansı gereklidir)\n# ========================================\n\n';
+    c += '# Interface management profili\nset network profiles interface-management-profile SDWAN-PING ping yes\n\n';
+    c += '# SD-WAN link tag yapılandırması\nset network sdwan interface ' + ifPrimary + ' link-tag primary\n';
+    c += 'set network sdwan interface ' + ifSecondary + ' link-tag secondary\n\n';
+    c += '# Ağırlık yapılandırması\nset network sdwan virtual-interface ' + ifPrimary + ' weight ' + wPrimary + '\n';
+    c += 'set network sdwan virtual-interface ' + ifSecondary + ' weight ' + wSecondary + '\n\n';
+    c += '# Health check\nset network sdwan interface ' + ifPrimary + ' health-check enable yes\n';
+    c += 'set network sdwan interface ' + ifPrimary + ' health-check server ' + hcIp + '\n';
+    c += 'set network sdwan interface ' + ifPrimary + ' health-check failure-condition threshold ' + failThresh + '\n\n';
+    c += '# Virtual Router entegrasyonu\nset network virtual-router default interface ' + ifPrimary + '\n\n';
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show sdwan interface\n# show sdwan path\n';
+    return c;
+}

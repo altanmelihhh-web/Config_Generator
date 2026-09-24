@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Config Generator — Network Konfigürasyon Üretici ve Dönüştürücü</title>
+  <meta name="description" content="20 vendor, 300+ şablon ile switch, router, firewall ve ADC konfigürasyonu üretin; vendor'lar arası config dönüştürün. Tamamen tarayıcıda çalışır.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233498db'/%3E%3Cpath d='M9 11l5 5-5 5M16 21h7' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <script>
+    // Tema: kayıtlı tercih > sistem tercihi. FOUC olmaması için <head>'de uygulanır.
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('cg-theme'); } catch (e) {}
+      if (!t) t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <link rel="stylesheet" href="assets/fonts/inter/inter.css">
+  <link rel="stylesheet" href="assets/vendor/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/config-generator.css">
+</head>
+<body>
+  <header class="app-topbar">
+    <div class="app-brand">
+      <span class="app-brand-logo"><i class="fas fa-terminal"></i></span>
+      <span>Config Generator<small>Network konfigürasyon üretici &amp; dönüştürücü</small></span>
+    </div>
+    <div class="app-actions">
+      <button type="button" id="themeToggle" class="app-icon-btn" title="Tema değiştir" aria-label="Tema değiştir"><i class="fas fa-moon"></i></button>
+      <a class="app-icon-btn" href="https://github.com/altanmelihhh-web/Config_Generator" target="_blank" rel="noopener" title="GitHub" aria-label="GitHub"><i class="fab fa-github"></i></a>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="cgpage-container">
+      <div class="cgpage-header">
+        <div>
+          <h2><i class="fas fa-tools"></i> Config Generator</h2>
+          <p>Vendor seçin, formu doldurun, hazır CLI konfigürasyonunu indirin — ya da mevcut bir config'i başka bir vendor'a dönüştürün.</p>
+        </div>
+      </div>
+      <div id="config-generator-root"></div>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <i class="fas fa-lock"></i> Tüm işlemler tarayıcınızda yapılır; girdiğiniz config ve parametreler hiçbir sunucuya gönderilmez.
+  </footer>
+
+  <!-- Vendor modülleri controller'dan (ConfigGeneratorManagement.js) ÖNCE yüklenmeli. -->
+  <script src="assets/js/ConfigGenerators_Cisco.js"></script>
+  <script src="assets/js/ConfigGenerators_NX-OS.js"></script>
+  <script src="assets/js/ConfigGenerators_HuaweiVRP.js"></script>
+  <script src="assets/js/ConfigGenerators_HuaweiUSG.js"></script>
+  <script src="assets/js/ConfigGenerators_HuaweiCE.js"></script>
+  <script src="assets/js/ConfigGenerators_Juniper.js"></script>
+  <script src="assets/js/ConfigGenerators_Other.js"></script>
+  <script src="assets/js/ConfigGenerators_ASA.js"></script>
+  <script src="assets/js/ConfigGenerators_FTD.js"></script>
+  <script src="assets/js/ConfigGenerators_FortiGate.js"></script>
+  <script src="assets/js/ConfigGenerators_PaloAlto.js"></script>
+  <script src="assets/js/ConfigGenerators_JuniperSRX.js"></script>
+  <script src="assets/js/ConfigGenerators_Reference.js"></script>
+  <script src="assets/js/ConfigGenerators_Arista.js"></script>
+  <script src="assets/js/ConfigGenerators_MikroTik.js"></script>
+  <script src="assets/js/ConfigGenerators_CheckPoint.js"></script>
+  <script src="assets/js/ConfigGenerators_F5.js"></script>
+  <script src="assets/js/ConfigGenerators_Citrix.js"></script>
+  <script src="assets/js/ConfigConverter_IR.js"></script>
+  <script src="assets/js/ConfigConverter_Writers_Common.js"></script>
+  <script src="assets/js/ConfigConverter_Writers_Cisco.js"></script>
+  <script src="assets/js/ConfigConverter_Writers_Huawei.js"></script>
+  <script src="assets/js/ConfigConverter_Writers_Juniper.js"></script>
+  <script src="assets/js/ConfigConverter_Writers_FortiGate.js"></script>
+  <script src="assets/js/ConfigConverter_Writers_PaloAlto.js"></script>
+  <script src="assets/js/ConfigConverter_Writers_CheckPoint.js"></script>
+  <script src="assets/js/ConfigConverter_Writers_Other.js"></script>
+  <script src="assets/js/ConfigConverter_Readers_Cisco.js"></script>
+  <script src="assets/js/ConfigConverter_Readers_Huawei.js"></script>
+  <script src="assets/js/ConfigConverter_Readers_Juniper.js"></script>
+  <script src="assets/js/ConfigConverter_Readers_FortiGate.js"></script>
+  <script src="assets/js/ConfigConverter_Readers_PaloAlto.js"></script>
+  <script src="assets/js/ConfigConverter_Readers_CheckPoint.js"></script>
+  <script src="assets/js/ConfigConverter_Readers_Other.js"></script>
+  <script src="assets/js/ConfigConverter.js"></script>
+  <script src="assets/js/ConfigGeneratorManagement.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

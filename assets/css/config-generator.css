@@ -1,0 +1,316 @@
+.cgpage-container { padding: 20px; }
+.cgpage-header    { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+.cgpage-header h2 { margin: 0; color: var(--text-primary, #2c3e50); }
+.cgpage-header p  { margin: 4px 0 0; color: var(--text-tertiary, #95a5a6); font-size: .85rem; }
+
+/* Minimal grid/utility yardımcıları — vendor modülleri Bootstrap grid class'larıyla
+   yazılmış; Bootstrap yüklenmediği için burada hafif bir karşılığı var. */
+#config-generator-root .row { display: flex; flex-wrap: wrap; gap: 10px 16px; margin: 0 0 12px; }
+#config-generator-root .row > [class*="col-"] { box-sizing: border-box; flex: 1 1 0; min-width: 0; }
+#config-generator-root .col-sm-3 { flex-basis: 22%; }
+#config-generator-root .col-sm-4, #config-generator-root .col-md-4 { flex-basis: 30%; }
+#config-generator-root .col-sm-8 { flex-basis: 66%; }
+#config-generator-root .col-sm-9 { flex-basis: 74%; }
+#config-generator-root .col-md { flex-basis: 0; }
+#config-generator-root .col-form-label { font-size: .82rem; font-weight: 600; color: var(--text-secondary, #7f8c8d); margin-bottom: 4px; display: block; }
+#config-generator-root .mb-0 { margin-bottom: 0 !important; }
+#config-generator-root .mb-1 { margin-bottom: 4px !important; }
+#config-generator-root .mb-2 { margin-bottom: 8px !important; }
+#config-generator-root .mb-3 { margin-bottom: 12px !important; }
+#config-generator-root .mb-4 { margin-bottom: 18px !important; }
+#config-generator-root .mt-3 { margin-top: 12px !important; }
+#config-generator-root .me-2 { margin-right: 8px !important; }
+#config-generator-root .py-2 { padding-top: 8px !important; padding-bottom: 8px !important; }
+#config-generator-root .d-flex { display: flex !important; }
+#config-generator-root .gap-2 { gap: 8px; }
+#config-generator-root .small { font-size: .8rem; }
+#config-generator-root .btn-outline { background: transparent; border: 1px solid var(--border-color, #dcdcdc); color: var(--text-primary, #2c3e50); }
+#config-generator-root .btn-sm { padding: 4px 10px; font-size: .8rem; }
+#config-generator-root .form-check { display: flex; align-items: center; gap: 6px; }
+#config-generator-root .form-check-input { margin: 0; }
+#config-generator-root .form-check-label { font-size: .85rem; color: var(--text-primary, #2c3e50); }
+
+/* Sayfa başlığı + üst sekmeler (Generator / Dönüştürücü) */
+#config-generator-root .cg-page-hd { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e0e4ea); border-radius: 8px 8px 0 0; padding: 16px 20px 0; }
+#config-generator-root .cg-page-hd h2 { margin: 0 0 12px; font-size: 1.1rem; color: var(--text-primary, #2c3e50); display: flex; align-items: center; gap: 10px; }
+#config-generator-root .cg-subtitle { font-size: .75rem; font-weight: 400; color: var(--text-tertiary, #95a5a6); }
+#config-generator-root .cg-top-tabs { display: flex; gap: 4px; }
+#config-generator-root .cg-top-tab { padding: 9px 16px; background: transparent; border: 0; border-bottom: 2px solid transparent; cursor: pointer; font-size: .85rem; color: var(--text-secondary, #7f8c8d); display: flex; align-items: center; gap: 6px; }
+#config-generator-root .cg-top-tab.active { color: var(--primary-color, #3498db); border-bottom-color: var(--primary-color, #3498db); font-weight: 600; }
+
+/* Vendor / config-tipi kenar çubukları — temel .fa-sidebar (180px, nowrap) burada
+   kullanılan uzun etiketler için (örn. "Zone-Based Firewall", "Route-Map & Redist.") dar
+   kalıyor ve metin/sayı badge'i taşıyordu; bu kapsamda genişletip satır kaydırmayı açıyoruz. */
+#config-generator-root .cg-vendor-sidebar,
+#config-generator-root .cg-type-sidebar { width: 240px; min-width: 240px; }
+#config-generator-root .cg-vendor-sidebar .fa-tab,
+#config-generator-root .cg-type-sidebar .fa-tab { white-space: normal; line-height: 1.25; align-items: flex-start; padding-top: 8px; padding-bottom: 8px; }
+#config-generator-root .cg-vendor-sidebar .fa-tab i,
+#config-generator-root .cg-type-sidebar .fa-tab i { margin-top: 1px; }
+#config-generator-root .cg-vendor-sidebar .fa-tab span { flex: 1; min-width: 0; }
+#config-generator-root .cg-vendor-sidebar .fa-tab .fa-tab-badge { margin-left: 6px; flex-shrink: 0; }
+@media (max-width: 900px) {
+    #config-generator-root .fa-layout { flex-direction: column; }
+    #config-generator-root .cg-vendor-sidebar,
+    #config-generator-root .cg-type-sidebar { width: 100%; min-width: 0; max-height: none; }
+}
+
+/* Vendor / config tipi arama kutusu */
+#config-generator-root .cg-type-search-box { position: relative; margin-bottom: 10px; }
+#config-generator-root .cg-type-search-box i { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary, #95a5a6); font-size: .8rem; }
+#config-generator-root .cg-type-search-box input { width: 100%; box-sizing: border-box; padding: 7px 10px 7px 28px; border: 1px solid var(--border-color, #dcdcdc); border-radius: 4px; font-size: .82rem; background: var(--input-bg, #fff); color: var(--text-primary, #2c3e50); }
+#config-generator-root .fa-tab.cg-stub { opacity: .45; cursor: not-allowed; }
+
+/* Karşılama ekranı (vendor/tip seçilmeden önce) */
+#config-generator-root .cg-welcome { text-align: center; padding: 60px 20px; color: var(--text-tertiary, #95a5a6); }
+#config-generator-root .cg-welcome-ico { font-size: 2.2rem; color: var(--border-color, #dcdcdc); margin-bottom: 14px; }
+#config-generator-root .cg-welcome h5 { margin: 0 0 6px; color: var(--text-primary, #2c3e50); font-size: 1rem; }
+#config-generator-root .cg-welcome p { margin: 0; font-size: .85rem; }
+
+/* Form bölümleri */
+#config-generator-root .cg-section { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #eee); border-radius: 6px; padding: 16px; margin-bottom: 14px; }
+#config-generator-root .cg-section-title { font-size: .82rem; font-weight: 700; color: var(--text-primary, #2c3e50); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: .3px; }
+#config-generator-root .cg-opt { font-size: .68rem; font-weight: 400; color: var(--text-tertiary, #95a5a6); text-transform: none; letter-spacing: 0; }
+#config-generator-root .cg-field-hint { display: block; font-size: .72rem; color: var(--text-tertiary, #95a5a6); margin-top: 3px; }
+#config-generator-root .cg-tip { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; color: var(--info-color, #3498db); cursor: help; position: relative; }
+#config-generator-root .cg-tip .cg-tip-text { display: none; position: absolute; left: 0; top: 100%; z-index: 5; width: 260px; background: var(--secondary-color, #2c3e50); color: #fff; font-size: .72rem; font-weight: 400; padding: 8px 10px; border-radius: 4px; line-height: 1.4; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+#config-generator-root .cg-tip:hover .cg-tip-text { display: block; }
+#config-generator-root .cg-warn-box { display: flex; align-items: flex-start; gap: 8px; background: var(--warning-light, #fdebd0); color: #7a4a00; border: 1px solid var(--warning-color, #e67e22); border-radius: 5px; padding: 10px 12px; font-size: .8rem; }
+#config-generator-root .cg-info-callout { display: flex; align-items: flex-start; gap: 8px; background: var(--info-light, #d6eaf8); color: #1b4f72; border: 1px solid var(--info-color, #3498db); border-radius: 5px; padding: 10px 12px; font-size: .8rem; }
+#config-generator-root .cg-topic-box { display: flex; gap: 12px; background: var(--bg-secondary, #f8f9fa); border-radius: 6px; padding: 14px 16px; margin-bottom: 16px; }
+#config-generator-root .cg-topic-box-icon { font-size: 1.4rem; color: var(--primary-color, #3498db); flex-shrink: 0; }
+#config-generator-root .cg-topic-box-content { font-size: .88rem; color: var(--text-secondary, #555); line-height: 1.55; }
+#config-generator-root .cg-topic-box-content h6 { margin: 0 0 5px; font-size: 1.05rem; font-weight: 700; color: var(--text-primary, #2c3e50); }
+#config-generator-root .cg-topic-box-content p { margin: 0; }
+#config-generator-root .cg-topic-box-content strong { color: var(--text-primary, #2c3e50); }
+#config-generator-root .cg-card-badge { display: inline-block; padding: 2px 9px; border-radius: 9px; font-size: .68rem; font-weight: 700; text-transform: uppercase; background: var(--gray-200, #eaeded); color: var(--text-secondary, #7f8c8d); }
+#config-generator-root .gen-type-card-enhanced .cg-card-badge { position: absolute; top: 10px; right: 10px; }
+#config-generator-root .cg-card-badge.recommended { background: #d5f5e3; color: #1e8449; }
+#config-generator-root .cg-card-badge.common { background: #d6eaf8; color: #21618c; }
+#config-generator-root .cg-card-badge.advanced { background: #fdebd0; color: #b9770e; }
+
+/* Yapılandırma tipi kartları (cgFormBuilder) — sayfanın geri kalanına ve 240px'e
+   çıkardığımız yan sekmelere oranla küçük kalmasın diye büyütüldü, ayrıca satır
+   başına en az 200px pay bırakılarak çok sayıda kart olduğunda küçülmek yerine
+   alt satıra kayıyor. */
+#config-generator-root .row.g-3 { gap: 14px; }
+#config-generator-root .row.g-3 > [class*="col-"] { flex: 1 1 200px; }
+#config-generator-root .gen-type-card-enhanced { position: relative; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e0e4ea); border-radius: 8px; padding: 20px 16px; margin: 0; cursor: pointer; text-align: center; font-size: 1rem; font-weight: 600; color: var(--text-primary, #2c3e50); transition: all .15s; }
+#config-generator-root .gen-type-card-enhanced:hover { border-color: var(--primary-color, #3498db); transform: translateY(-1px); box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,.08)); }
+#config-generator-root .gen-type-card-enhanced.active { border-color: var(--primary-color, #3498db); background: var(--info-light, #eaf4fc); box-shadow: 0 0 0 1px var(--primary-color, #3498db) inset; }
+#config-generator-root .gen-type-card-enhanced .card-icon { display: block; font-size: 1.9rem; color: var(--primary-color, #3498db); margin-bottom: 10px; }
+#config-generator-root .gen-type-card-enhanced .card-desc { display: block; font-size: .8rem; font-weight: 400; color: var(--text-tertiary, #95a5a6); margin-top: 6px; line-height: 1.4; }
+
+/* Doğrulama */
+#config-generator-root .is-invalid { border-color: var(--danger-color, #e74c3c) !important; }
+#config-generator-root .cg-field-error { color: var(--danger-color, #e74c3c); font-size: .74rem; margin-top: 3px; }
+#config-generator-root .cg-validation-banner { background: var(--danger-light, #fadbd8); color: #78281f; border: 1px solid var(--danger-color, #e74c3c); border-radius: 5px; padding: 10px 12px; font-size: .82rem; margin-bottom: 12px; }
+
+/* Çıktı alanı */
+#config-generator-root .btn-outline-secondary { background: transparent; border: 1px solid var(--border-color, #dcdcdc); color: var(--text-primary, #2c3e50); }
+#config-generator-root .config-output { background: var(--bg-tertiary, #1e293b); color: #e2e8f0; border-radius: 6px; padding: 16px; font-family: "SFMono-Regular", Consolas, monospace; font-size: .82rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 480px; overflow: auto; }
+
+/* Referans / Topoloji sayfaları (cgRefCard, cgRefTopo, vb. — CgReference & Other/Reference vendor modülleri) */
+#config-generator-root .cg-ref-page { padding: 4px 2px; }
+#config-generator-root .cg-ref-title { font-size: 1.05rem; font-weight: 700; color: var(--text-primary, #2c3e50); display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+#config-generator-root .cg-ref-title i { color: var(--primary-color, #3498db); }
+#config-generator-root .cg-ref-intro { color: var(--text-secondary, #555); font-size: .88rem; line-height: 1.6; margin: 0 0 16px; }
+#config-generator-root .cg-ref-cols { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
+#config-generator-root .cg-ref-cols > div { flex: 1 1 320px; min-width: 0; }
+#config-generator-root .cg-ref-card { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e0e4ea); border-radius: 8px; overflow: hidden; height: 100%; box-sizing: border-box; }
+#config-generator-root .cg-ref-card-hd { background: var(--bg-secondary, #f4f6f8); border-bottom: 1px solid var(--border-color, #e0e4ea); padding: 10px 14px; font-size: .85rem; font-weight: 700; color: var(--text-primary, #2c3e50); display: flex; align-items: center; gap: 8px; }
+#config-generator-root .cg-ref-card-hd i { color: var(--primary-color, #3498db); }
+#config-generator-root .cg-ref-card-body { padding: 14px; font-size: .85rem; color: var(--text-secondary, #444); line-height: 1.6; }
+#config-generator-root .cg-topo-art { background: var(--bg-tertiary, #1e293b); color: #7ee787; border-radius: 6px; padding: 14px 16px; margin: 0; font-family: "SFMono-Regular", Consolas, "Courier New", monospace; font-size: .78rem; line-height: 1.35; white-space: pre; overflow-x: auto; }
+#config-generator-root .cg-ref-list { margin: 0; padding-left: 20px; font-size: .85rem; line-height: 1.7; color: var(--text-secondary, #444); }
+#config-generator-root .cg-ref-list strong { color: var(--text-primary, #2c3e50); }
+#config-generator-root .cg-ref-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+#config-generator-root .cg-ref-table th { background: var(--bg-secondary, #f4f6f8); color: var(--text-primary, #2c3e50); text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--border-color, #e0e4ea); font-weight: 700; }
+#config-generator-root .cg-ref-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-color, #f0f0f0); color: var(--text-secondary, #444); }
+#config-generator-root .cg-ref-table tbody tr:hover { background: var(--bg-secondary, #f8f9fa); }
+#config-generator-root .cg-ref-badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: .7rem; font-weight: 700; color: #fff; }
+#config-generator-root .cg-ref-verify { background: var(--bg-secondary, #f8f9fa); border: 1px solid var(--border-color, #e0e4ea); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; }
+#config-generator-root .cg-ref-verify-title { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--text-tertiary, #95a5a6); margin-bottom: 10px; }
+#config-generator-root .cg-ref-cmds-grid { display: flex; flex-wrap: wrap; gap: 14px; }
+#config-generator-root .cg-ref-cmds { flex: 1 1 260px; min-width: 0; }
+#config-generator-root .cg-ref-cmds-vendor { font-size: .78rem; font-weight: 700; color: var(--primary-color, #3498db); margin-bottom: 6px; }
+#config-generator-root .cg-ref-cmds ul { margin: 0; padding-left: 18px; }
+#config-generator-root .cg-ref-cmds li { font-size: .8rem; margin-bottom: 3px; }
+#config-generator-root .cg-ref-cmds code { background: var(--bg-tertiary, #1e293b); color: #e2e8f0; padding: 1px 6px; border-radius: 3px; font-size: .76rem; }
+
+/* ============================================================
+   Dönüştürücü (Config Converter) — kurumsal / teknik tasarım sistemi
+   Not: .cc-* sınıfları önceden hiç stillenmemişti (tarayıcı varsayılan
+   buton/select/textarea görünümüyle render oluyordu). Bu blok tüm
+   dönüştürücü bileşen setini tek seferde, uygulamanın tema
+   değişkenleriyle (açık/koyu mod uyumlu) yeniden kurar.
+   ============================================================ */
+#config-generator-root .cc-wrap {
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border-color, #e0e4ea);
+    border-top: none;
+    border-radius: 0 0 var(--radius-lg, 10px) var(--radius-lg, 10px);
+    overflow: hidden;
+}
+
+#config-generator-root .cc-intro {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 20px;
+    background: var(--bg-secondary, #f8f9fa);
+    border-bottom: 1px solid var(--border-color, #e0e4ea);
+    color: var(--text-secondary, #64748b);
+    font-size: .82rem;
+}
+#config-generator-root .cc-intro i { color: var(--primary-color, #4F46E5); font-size: 1rem; flex-shrink: 0; }
+
+/* Kaynak / hedef panel grid + ortadaki akış konnektörü */
+#config-generator-root .cc-layout {
+    display: grid;
+    grid-template-columns: 1fr 56px 1fr;
+    align-items: stretch;
+    gap: 0 4px;
+    padding: 20px;
+}
+#config-generator-root .cc-connector { display: flex; align-items: center; justify-content: center; }
+#config-generator-root .cc-connector-badge {
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-tertiary, #f3f4f6);
+    border: 1px solid var(--border-color, #e0e4ea);
+    color: var(--primary-color, #4F46E5);
+    font-size: .85rem;
+    box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,.08));
+}
+@media (max-width: 900px) {
+    #config-generator-root .cc-layout { grid-template-columns: 1fr; gap: 16px 0; }
+    #config-generator-root .cc-connector-badge { transform: rotate(90deg); }
+}
+
+#config-generator-root .cc-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-secondary, #f9fafb);
+    border: 1px solid var(--border-color, #e0e4ea);
+    border-radius: var(--radius-md, 8px);
+    min-height: 480px;
+    overflow: hidden;
+}
+#config-generator-root .cc-panel-src { border-top: 3px solid var(--info-color, #3B82F6); }
+#config-generator-root .cc-panel-dst { border-top: 3px solid var(--success-color, #10B981); }
+
+#config-generator-root .cc-panel-header {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    padding: 11px 14px;
+    background: var(--card-bg, #fff);
+    border-bottom: 1px solid var(--border-color, #e0e4ea);
+}
+#config-generator-root .cc-panel-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: .74rem; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+    color: var(--text-tertiary, #95a5a6); white-space: nowrap;
+}
+#config-generator-root .cc-panel-src .cc-panel-title i { color: var(--info-color, #3B82F6); }
+#config-generator-root .cc-panel-dst .cc-panel-title i { color: var(--success-color, #10B981); }
+#config-generator-root .cc-select-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+#config-generator-root .cc-select {
+    appearance: none; -webkit-appearance: none; font: inherit;
+    padding: 6px 26px 6px 10px;
+    border: 1px solid var(--border-color, #dcdcdc);
+    border-radius: 6px;
+    background: var(--input-bg, #fff) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2395a5a6'/%3E%3C/svg%3E") no-repeat right 9px center;
+    color: var(--text-primary, #2c3e50);
+    font-size: .78rem;
+    cursor: pointer;
+    max-width: 190px;
+}
+#config-generator-root .cc-select:focus-visible { outline: 2px solid var(--primary-color, #4F46E5); outline-offset: 1px; }
+
+#config-generator-root .cc-textarea,
+#config-generator-root .cc-output {
+    flex: 1;
+    margin: 0;
+    padding: 14px;
+    border: 0;
+    resize: none;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: .8rem;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow: auto;
+}
+#config-generator-root .cc-textarea:focus { outline: none; box-shadow: inset 0 0 0 2px var(--primary-color, #4F46E5); }
+#config-generator-root .cc-textarea::placeholder { color: #64748b; }
+#config-generator-root .cc-textarea::-webkit-scrollbar,
+#config-generator-root .cc-output::-webkit-scrollbar { width: 8px; height: 8px; }
+#config-generator-root .cc-textarea::-webkit-scrollbar-thumb,
+#config-generator-root .cc-output::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+
+#config-generator-root .cc-panel-footer {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding: 10px 14px;
+    background: var(--card-bg, #fff);
+    border-top: 1px solid var(--border-color, #e0e4ea);
+}
+#config-generator-root .cc-footer-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+
+/* Butonlar */
+#config-generator-root .cc-btn {
+    appearance: none; -webkit-appearance: none; font: inherit;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    font-size: .78rem; font-weight: 600;
+    cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s, transform .1s;
+}
+#config-generator-root .cc-btn:active { transform: translateY(1px); }
+#config-generator-root .cc-btn-primary { background: var(--primary-color, #4F46E5); color: #fff; }
+#config-generator-root .cc-btn-primary:hover { background: var(--primary-dark, #3730A3); }
+#config-generator-root .cc-btn-ghost { background: transparent; border-color: var(--border-color, #dcdcdc); color: var(--text-secondary, #64748b); }
+#config-generator-root .cc-btn-ghost:hover { border-color: var(--primary-color, #4F46E5); color: var(--primary-color, #4F46E5); }
+#config-generator-root .cc-btn-icon { padding: 7px 10px; }
+#config-generator-root .cc-file-label { margin: 0; }
+
+/* Rozetler / uyarı kutuları */
+#config-generator-root .cc-badge-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: .7rem; font-weight: 700; }
+#config-generator-root .cc-badge-pill.cc-badge-warn { background: var(--warning-light, #FCD34D); color: #7a4a00; }
+#config-generator-root .cc-badge-pill.cc-badge-info { background: var(--info-light, #93C5FD); color: #1b4f72; }
+
+#config-generator-root .cc-callout { margin: 0 20px 16px; padding: 12px 14px; border-radius: 8px; border-left: 3px solid; font-size: .8rem; line-height: 1.5; }
+#config-generator-root .cc-callout strong { display: block; margin-bottom: 4px; font-size: .72rem; text-transform: uppercase; letter-spacing: .3px; }
+#config-generator-root .cc-callout pre { margin: 4px 0 0; font-family: "SFMono-Regular", Consolas, monospace; font-size: .78rem; white-space: pre-wrap; }
+#config-generator-root .cc-warn-block { background: var(--warning-light, #fdebd0); border-color: var(--warning-color, #F59E0B); color: #7a4a00; }
+#config-generator-root .cc-unknowns { background: var(--bg-secondary, #f8f9fa); border-color: var(--text-tertiary, #95a5a6); color: var(--text-secondary, #555); }
+
+/* Dönüşüm analizi */
+#config-generator-root .cc-lostfields-block { margin: 0 20px 20px; border: 1px solid var(--border-color, #e0e4ea); border-radius: 10px; overflow: hidden; background: var(--card-bg, #fff); }
+#config-generator-root .cc-analysis-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px 16px; background: var(--bg-secondary, #f8f9fa); border-bottom: 1px solid var(--border-color, #e0e4ea); }
+#config-generator-root .cc-analysis-head strong { display: flex; align-items: center; gap: 6px; font-size: .78rem; text-transform: uppercase; letter-spacing: .4px; color: var(--text-tertiary, #95a5a6); }
+#config-generator-root .cc-analysis-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+#config-generator-root .cc-lostfields-table-wrap { max-height: 320px; overflow: auto; }
+#config-generator-root .cc-lostfields-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+#config-generator-root .cc-lostfields-table th { text-align: left; padding: 8px 12px; background: var(--bg-secondary, #f4f6f8); color: var(--text-primary, #2c3e50); border-bottom: 2px solid var(--border-color, #e0e4ea); font-weight: 700; position: sticky; top: 0; }
+#config-generator-root .cc-lostfields-table td { padding: 7px 12px; border-bottom: 1px solid var(--border-color, #f0f0f0); color: var(--text-secondary, #444); }
+#config-generator-root .cc-lostfields-table tbody tr:hover { background: var(--bg-secondary, #f8f9fa); }
+
+/* Vendor destek matrisi modali */
+#config-generator-root .cc-matrix-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, .55); backdrop-filter: blur(2px); padding: 20px; }
+#config-generator-root .cc-matrix-card { background: var(--card-bg, #fff); border-radius: var(--radius-lg, 10px); box-shadow: var(--shadow-xl, 0 20px 40px rgba(0,0,0,.3)); width: min(900px, 100%); max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; animation: cc-modal-in .18s ease-out; }
+@keyframes cc-modal-in { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+#config-generator-root .cc-matrix-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border-color, #e0e4ea); }
+#config-generator-root .cc-matrix-head strong { display: flex; align-items: center; gap: 8px; font-size: .95rem; color: var(--text-primary, #2c3e50); }
+#config-generator-root .cc-matrix-legend { display: flex; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--border-color, #e0e4ea); font-size: .75rem; }
+#config-generator-root .cc-matrix-legend .cc-badge-pill { border-radius: 4px; }
+#config-generator-root .cc-matrix-body { padding: 16px 18px; overflow: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+    #config-generator-root .cc-matrix-card { animation: none; }
+}
