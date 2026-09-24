@@ -946,9 +946,11 @@ function cgSrxJflowGen(data) {
     const intfParts = exportIntf.split('.');
     const intfBase = intfParts[0], intfUnit = intfParts[1] || '0';
     let c = '# ========================================\n# Juniper SRX — J-Flow / NetFlow\n# ========================================\n\n';
+    c += 'set services flow-monitoring version9 template ipv4 ipv4-template\n';
+    if (activeTimeout) c += 'set services flow-monitoring version9 template ipv4 flow-active-timeout ' + activeTimeout + '\n';
     c += 'set forwarding-options sampling instance JFLOW input rate 1\n';
     c += 'set forwarding-options sampling instance JFLOW family inet output flow-server ' + collectorIp + ' port ' + port + ' version9 template ipv4\n';
-    c += 'set forwarding-options sampling instance JFLOW family inet output inline-jflow source-address (local-mgmt-ip)\n';
+    // Eski surum ciktiya duz metin '(local-mgmt-ip)' yaziyordu; inline-jflow MX'e ozgudur. Aktif timeout v9 sablonuna baglandi.
     c += 'set interfaces ' + intfBase + ' unit ' + intfUnit + ' family inet sampling input\n';
     c += 'set interfaces ' + intfBase + ' unit ' + intfUnit + ' family inet sampling output\n';
     c += '\n# Doğrulama:\n# show services flow-monitoring version9 template\n# show interfaces ' + intfBase + ' statistics\n';

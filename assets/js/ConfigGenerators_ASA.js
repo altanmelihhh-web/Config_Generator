@@ -565,8 +565,14 @@ CiscoASA.failoverHA = {
                     icon: 'fas fa-layer-group',
                     showFor: ['active_active'],
                     fields: [
-                        { name: 'aa_grp1_active', why: "Active/Active modda her failover grubu ayrı bir security context’e aittir ve yük iki cihaza bölünür. Her iki grubu da aynı cihazda aktif bırakmak Active/Standby’den farksız hale getirir.", label: 'Grup 1 — Aktif Cihaz', type: 'text', optional: true, placeholder: 'primary', hint: 'primary veya secondary' },
-                        { name: 'aa_grp2_active', why: "İkinci grubu diğer cihazda aktif tutmak yükü dağıtır, ancak bir cihaz düştüğünde tek cihaz <b>iki katı</b> trafiği taşımak zorunda kalır. Kapasiteyi buna göre planlayın.", label: 'Grup 2 — Aktif Cihaz', type: 'text', optional: true, placeholder: 'secondary', hint: 'primary veya secondary' },
+                        { name: 'aa_grp1_active', why: "Active/Active modda her failover grubu ayrı bir security context’e aittir ve yük iki cihaza bölünür. Her iki grubu da aynı cihazda aktif bırakmak Active/Standby’den farksız hale getirir.", label: 'Grup 1 — Aktif Cihaz', type: 'select', options: [
+                            { value: 'primary', label: 'primary', selected: true },
+                            { value: 'secondary', label: 'secondary' }
+                        ], hint: 'Bu grubun normalde aktif olduğu birim' },
+                        { name: 'aa_grp2_active', why: "İkinci grubu diğer cihazda aktif tutmak yükü dağıtır, ancak bir cihaz düştüğünde tek cihaz <b>iki katı</b> trafiği taşımak zorunda kalır. Kapasiteyi buna göre planlayın.", label: 'Grup 2 — Aktif Cihaz', type: 'select', options: [
+                            { value: 'primary', label: 'primary' },
+                            { value: 'secondary', label: 'secondary', selected: true }
+                        ], hint: 'Bu grubun normalde aktif olduğu birim' },
                         { name: 'aa_active_ip', why: "Active/Active kurulumunda failover link IP’si; multiple context modu gerektirir ve tek context ile bu mod kullanılamaz.", label: 'Failover Link Aktif IP', type: 'text', required: true, validate: 'ip', placeholder: '10.0.0.1', hint: 'Failover link IP' },
                         { name: 'aa_standby_ip', why: "Standby tarafın failover link adresi. Aynı subnette olmadığında gruplar hiç eşleşmez ve her iki cihaz kendi kararını verir.", label: 'Failover Link Standby IP', type: 'text', required: true, validate: 'ip', placeholder: '10.0.0.2', hint: 'Failover link standby IP' },
                         { name: 'aa_mask', why: "Failover link maskesi; iki cihazda birebir aynı olmalıdır. Tutarsızlık, rol müzakeresinin hiç başlamamasına neden olur.", label: 'Subnet Mask', type: 'text', required: true, validate: 'subnet', placeholder: '255.255.255.252', hint: 'Failover link maskesi' }
@@ -600,14 +606,14 @@ function cgAsaFailoverGen(data) {
         }
         c += '! Bu konfigürasyonu aktif cihaza uygula\n! Standby cihaz otomatik sync alır\n\n';
     } else {
-        const grp1Active = cgEsc(data.aa_grp1_active || 'primary'), grp2Active = cgEsc(data.aa_grp2_active || 'secondary');
+        const grp1Active = cgEsc(data.aa_grp1_active || ''), grp2Active = cgEsc(data.aa_grp2_active || '');
         const aaActiveIp = cgEsc(data.aa_active_ip || ''), aaStandbyIp = cgEsc(data.aa_standby_ip || '');
         const aaMask = cgEsc(data.aa_mask || '');
         c += '! Active/Active — Multi-Context gereklidir\nmode multiple\n\n';
         c += '! Failover Link\ninterface ' + foIface + '\n no shutdown\n!\n';
         c += 'failover interface ip ' + foIfaceNameif + ' ' + aaActiveIp + ' ' + aaMask + ' standby ' + aaStandbyIp + '\n';
         c += 'failover link ' + foIfaceNameif + ' ' + foIface + '\n\n';
-        c += '! Failover Grupları\nfailover group 1\n primary\n preempt\n!\n';
+        c += '! Failover Grupları\nfailover group 1\n ' + (grp1Active === 'secondary' ? 'secondary' : 'primary') + '\n preempt\n!\n';
         c += 'failover group 2\n ' + (grp2Active === 'secondary' ? 'secondary' : 'primary') + '\n preempt\n!\n\n';
     }
     c += '! Doğrulama:\n! show failover\n! show failover state\n! show failover statistics\n';

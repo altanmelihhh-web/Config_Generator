@@ -786,8 +786,9 @@ Juniper.evpnvxlan = {
                     icon: 'fas fa-route',
                     fields: [
                         { name: 'bgp_as', why: "EVPN kontrol düzlemi BGP üzerinde çalışır. AS tasarımı yanlışsa (iBGP'de route-reflector yoksa) VTEP'ler birbirinin MAC route'larını hiç görmez, tüneller boş kalır.", label: 'BGP AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel AS numarası' },
-                        { name: 'rd', why: "RD, aynı prefix'in farklı müşterilerde çakışmasını önlemek için route'u benzersizleştirir ve her VRF'te farklı olmalıdır. RD tek başına route sızdırmayı kontrol etmez — onu yapan route-target'tır.", label: 'Route Distinguisher', type: 'text', validate: 'rd', required: true, placeholder: '10.0.0.1:100', hint: 'EVPN routing instance RD' },
-                        { name: 'rt', why: "Route-target, VNI'ye hangi route'ların yükleneceğini belirler. Otomatik türetme kullanılmıyorsa tüm leaf'lerde aynı değer yazılmalı; tek cihazda farklı yazmak o cihazı sessizce ağdan izole eder.", label: 'Route Target', type: 'text', validate: 'rt', required: true, placeholder: 'target:65001:100', hint: 'EVPN VNI route target' }
+                        { name: 'rd', why: "RD, aynı prefix'in farklı müşterilerde çakışmasını önlemek için route'u benzersizleştirir ve her VRF'te farklı olmalıdır. RD tek başına route sızdırmayı kontrol etmez — onu yapan route-target'tır.", label: 'Route Distinguisher', type: 'text', validate: 'rd', required: true, placeholder: '10.0.0.1:100', hint: 'switch-options route-distinguisher (cihaza özgü: loopback:1)' },
+                        { name: 'rt', why: "Route-target, VNI'ye hangi route'ların yükleneceğini belirler. Otomatik türetme kullanılmıyorsa tüm leaf'lerde aynı değer yazılmalı; tek cihazda farklı yazmak o cihazı sessizce ağdan izole eder.", label: 'Route Target', type: 'text', validate: 'rt', required: true, placeholder: 'target:65001:100', hint: 'EVPN VNI route target' },
+                        { name: 'peers', why: 'Overlay BGP (iBGP, family evpn) komşuları diğer VTEP\'lerin veya route reflector\'ların loopback adresleridir; komşu olmadan EVPN rotası dağıtılmaz.', label: 'Overlay BGP Komşuları', type: 'text', required: true, placeholder: '10.0.0.2, 10.0.0.3', hint: 'Loopback IP\'leri, virgülle' }
                     ]
                 }
             ],
@@ -796,19 +797,22 @@ Juniper.evpnvxlan = {
             const vni = cgEsc(data.vni || ''), vlanId = cgEsc(data.vlan_id || '');
             const loIface = cgEsc(data.lo_iface || ''), vtepIp = cgEsc(data.vtep_ip || '');
             const bgpAs = cgEsc(data.bgp_as || ''), rd = cgEsc(data.rd || ''), rt = cgEsc(data.rt || '');
-            let c = '# ========================================\n# Juniper JunOS — EVPN-VXLAN\n# ========================================\n\n';
-            c += '# VTEP Loopback\nset interfaces ' + loIface.split('.')[0] + ' unit ' + (loIface.split('.')[1] || '0') + ' family inet address ' + vtepIp + '\n\n';
-            c += '# VXLAN Tunnel\nset vlans VNI_' + vni + ' vxlan vni ' + vni + '\nset vlans VNI_' + vni + ' vlan-id ' + vlanId + '\n\n';
-            c += '# EVPN\nset routing-instances EVPN_' + vni + ' instance-type evpn\n';
-            c += 'set routing-instances EVPN_' + vni + ' vxlan source-interface ' + loIface + '\n';
-            c += 'set routing-instances EVPN_' + vni + ' vxlan vni ' + vni + '\n\n';
-            c += '# BGP EVPN\nset routing-options autonomous-system ' + bgpAs + '\n';
-            c += 'set protocols bgp group EVPN type internal\n';
-            c += 'set protocols bgp group EVPN family evpn signaling\n';
-            c += 'set protocols evpn encapsulation vxlan\n';
-            c += 'set protocols evpn extended-vni-list ' + vni + '\n';
-            c += 'set protocols evpn vni-options vni ' + vni + ' vrf-target ' + rt + '\n\n';
-            c += '# Doğrulama:\n# show evpn database\n# show bgp summary\n# show vxlan interface\n';
+            // EX/QFX default-switch modeli: VTEP kaynagi, RD ve vrf-target 'switch-options' altinda.
+            // Eski surum routing-instance altina gecersiz 'vxlan source-interface' yaziyor, RD'yi hic yazmiyordu.
+            const lo = loIface.split('.'), vip = vtepIp.split('/')[0];
+            const peers = cgJnpList(data.peers).map(cgEsc);
+            let c = '# ========================================\n# Juniper JunOS — EVPN-VXLAN (EX/QFX)\n# ========================================\n\n';
+            c += '# VTEP Loopback\nset interfaces ' + lo[0] + ' unit ' + (lo[1] || '0') + ' family inet address ' + vtepIp + '\n\n';
+            c += '# Switch Options\nset switch-options vtep-source-interface ' + loIface + '\n';
+            c += 'set switch-options route-distinguisher ' + rd + '\n';
+            c += 'set switch-options vrf-target ' + rt + '\n\n';
+            c += '# EVPN\nset protocols evpn encapsulation vxlan\nset protocols evpn extended-vni-list ' + vni + '\n\n';
+            c += '# VLAN ↔ VNI\nset vlans VNI_' + vni + ' vlan-id ' + vlanId + '\nset vlans VNI_' + vni + ' vxlan vni ' + vni + '\n\n';
+            c += '# Overlay iBGP (EVPN)\nset routing-options autonomous-system ' + bgpAs + '\n';
+            c += 'set protocols bgp group OVERLAY type internal\nset protocols bgp group OVERLAY local-address ' + vip + '\n';
+            c += 'set protocols bgp group OVERLAY family evpn signaling\n';
+            peers.forEach(pn => { c += 'set protocols bgp group OVERLAY neighbor ' + pn + '\n'; });
+            c += '\n# Doğrulama:\n# show evpn database\n# show ethernet-switching vxlan-tunnel-end-point remote\n# show bgp summary\n';
             return c;
         });
     }

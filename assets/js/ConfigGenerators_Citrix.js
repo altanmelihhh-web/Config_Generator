@@ -469,9 +469,10 @@ function cgNsSslVsGen(data) {
     const sni = cgEsc(data.sni || 'ENABLED');
     let c = '# ========================================\n# Citrix ADC — SSL Virtual Server\n# ========================================\n\n';
     c += 'add lb vserver ' + vsName + ' SSL ' + ip + ' ' + port + ' -lbMethod ROUNDROBIN\n';
-    c += 'bind lb vserver ' + vsName + ' -policyName NOPOLICY -priority 100\n';
     c += 'bind ssl vserver ' + vsName + ' -certkeyName ' + certName + '\n';
-    c += 'set ssl vserver ' + vsName + ' -sslProfile ' + cipherGroup + ' -SNIEnable ' + sni + '\n\n';
+    // Cipher grubu '-sslProfile' ile degil 'bind ssl vserver -cipherName' ile baglanir (sslProfile bir profil adi ister).
+    if (cipherGroup !== 'DEFAULT') c += 'unbind ssl vserver ' + vsName + ' -cipherName DEFAULT\nbind ssl vserver ' + vsName + ' -cipherName ' + cipherGroup + '\n';
+    c += 'set ssl vserver ' + vsName + ' -SNIEnable ' + sni + '\n\n';
     c += 'save config\n\n';
     c += '# Doğrulama:\n# show lb vserver ' + vsName + '\n# show ssl vserver ' + vsName + '\n';
     return c;
@@ -624,8 +625,8 @@ CitrixADC.aaa = {
                     fields: [
                         { name: 'ldap_server', why: "LDAP sunucusuna SNIP üzerinden erişilemiyorsa kimlik doğrulama zaman aşımına uğrar ve kullanıcı yalnızca genel bir hata görür. LDAPS (636) kullanılacaksa sunucu sertifikasının CA'sı ADC'ye yüklenmelidir.", label: 'LDAP Server IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.10', hint: 'Active Directory / LDAP sunucu adresi' },
                         { name: 'ldap_base', why: "Base DN dar verilirse bazı kullanıcılar bulunamaz ve girişleri reddedilir; çok geniş verilirse arama yavaşlar ve dizin gereksiz yüklenir. Bind DN veya parolası yanlışsa arama hiç yapılamaz ve tüm girişler başarısız olur.", label: 'LDAP Base DN', type: 'text', required: true, placeholder: 'DC=company,DC=com', hint: 'Dizin aramasının başlayacağı DN' },
-                        { name: 'domain', why: "Domain değeri kullanıcı adının nasıl biçimlendirileceğini (UPN veya sAMAccountName) etkiler; yanlış domain ile kullanıcı adları dizinde bulunamaz ve doğru parolayla bile giriş reddedilir.", label: 'Domain', type: 'text', required: true, placeholder: 'company.com', hint: 'Kimlik doğrulaması yapılacak domain' },
-                        { name: 'session_timeout', why: "Oturum süresi çok kısaysa kullanıcılar iş ortasında yeniden giriş yapmak zorunda kalır; çok uzunsa terk edilmiş oturumlar açık kalır ve paylaşılan cihazlarda güvenlik riski oluşur. Idle timeout ile birlikte değerlendirilmelidir.", label: 'Session Timeout (sn)', type: 'text', optional: true, placeholder: '3600', hint: 'Oturum geçerlilik süresi saniye cinsinden' }
+                        { name: 'bind_dn', why: 'ADC dizinde arama yapmak için bu hesapla bağlanır; yalnız okuma yetkili, parolası süresiz ayrı bir servis hesabı kullanın.', label: 'Bind DN', type: 'text', required: true, placeholder: 'CN=svc-netscaler,OU=Service,DC=example,DC=com', hint: 'Servis hesabının tam DN\'i' },
+                        { name: 'bind_pw', label: 'Bind Parolası', type: 'text', required: true, placeholder: 'Ornek-Parola-123', hint: 'Servis hesabı parolası' },
                     ]
                 }
             ],
@@ -641,17 +642,14 @@ function cgNsAaaGen(data) {
     const authType = cgEsc(data.auth_type || 'LDAP');
     const ldapServer = cgEsc(data.ldap_server || '');
     const ldapBase = cgEsc(data.ldap_base || '');
-    const domain = cgEsc(data.domain || '');
-    const sessionTimeout = cgEsc(data.session_timeout || '3600');
     let c = '# ========================================\n# Citrix ADC — AAA-TM\n# ========================================\n\n';
     c += 'add authentication ldapAction LDAP-' + vserverName + ' -serverIP ' + ldapServer + ' -serverPort 636';
     c += ' -ldapBase "' + ldapBase + '"';
-    c += ' -ldapBindDn "CN=svc,' + ldapBase + '"';
-    c += ' -ldapBindDnPassword CHANGEME -secType SSL -authentication ENABLED\n\n';
+    c += ' -ldapBindDn "' + cgEsc(data.bind_dn || '') + '"';
+    c += ' -ldapBindDnPassword "' + cgEsc(data.bind_pw || '') + '" -secType SSL -authentication ENABLED\n\n';
     c += 'add authentication ldapPolicy POL-LDAP-' + vserverName + ' NS_TRUE LDAP-' + vserverName + '\n\n';
     c += 'add authentication vserver ' + vserverName + ' SSL ' + ip + ' 443\n';
     c += 'bind authentication vserver ' + vserverName + ' -policy POL-LDAP-' + vserverName + ' -priority 100\n\n';
-    c += '# Session timeout: ' + sessionTimeout + ' sn, Domain: ' + domain + '\n\n';
     c += 'save config\n\n';
     c += '# Doğrulama:\n# show authentication vserver ' + vserverName + '\n# show authentication ldapAction LDAP-' + vserverName + '\n';
     return c;
@@ -1082,3 +1080,722 @@ function cgNsAclGen(data) {
     c += '# Doğrulama:\n# show ns acl ' + aclName + '\n# show ns acl stats\n';
     return c;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Citrix ADC (NetScaler) — cihaz temeli araçları (2026-09 ekleri)
+// Canlı envanterde Citrix yok; sözdizimi yalnız resmi ADC CLI Command Reference'tan
+// (https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/ — her aracın başında sayfa yolu).
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Citrix ADC: Sistem Temeli (hostname / NTP / DNS / syslog / NSIP erişimi) ─
+// Sözdizimi: https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/ns/ns-hostname
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/ntp/ntp-server
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/ntp/ntp-sync
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/dns/dns-nameserver
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/audit/audit-syslogaction (-serverPort, -logLevel, -transport, -timeZone)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/audit/audit-syslogpolicy
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/audit/audit-syslogglobal (örnek: bind audit syslogGlobal -policyname pol9 -priority 9)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/ns/ns-ip (-gui SECUREONLY, -telnet, -ftp)
+CitrixADC.sysbase = {
+    label: 'Sistem Temeli (NTP/DNS/Syslog)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-cogs',
+                title: 'Sistem Temeli (Citrix ADC)',
+                desc: 'Yeni ADC\'nin ilk yapılandırması: hostname, NTP, DNS, uzak syslog ve NSIP üzerinde güvensiz yönetim servislerinin kapatılması.<br>Örnek: <code>add ntp server 192.0.2.123</code> + <code>enable ntp sync</code>'
+            },
+            sections: [
+                {
+                    title: 'Kimlik & Zaman',
+                    icon: 'fas fa-clock',
+                    fields: [
+                        { name: 'hostname', label: 'Hostname', type: 'text', validate: 'hostname', placeholder: 'adc1', hint: 'Boşsa değiştirilmez' },
+                        { name: 'ntp1', label: 'NTP Sunucu 1', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.123', why: "HA çiftinde saat farkı log korelasyonunu bozar; SAML/OAuth gibi zaman damgalı kimlik doğrulama akışları birkaç dakikalık kaymada reddedilir." },
+                        { name: 'ntp2', label: 'NTP Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.124' }
+                    ]
+                },
+                {
+                    title: 'DNS',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'dns1', label: 'DNS Sunucu 1', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.53', why: "Domain tabanlı sunucular, FQDN'li syslog/LDAP sunucuları ve GSLB DNS çözümlemesi olmadan çalışmaz." },
+                        { name: 'dns2', label: 'DNS Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.54' }
+                    ]
+                },
+                {
+                    title: 'Uzak Syslog',
+                    icon: 'fas fa-file-alt',
+                    fields: [
+                        { name: 'sl_host', label: 'Syslog Sunucusu', type: 'text', validate: 'ip', placeholder: '192.0.2.50', hint: 'Boşsa syslog yazılmaz', why: "ADC yerel logları /var/log altında döner ve silinir; yönetici girişleri ve config değişiklikleri ancak uzak kopyada kalır." },
+                        { name: 'sl_port', label: 'Port', type: 'text', validate: 'port', placeholder: '514', hint: 'Boşsa 514' },
+                        { name: 'sl_level', label: 'Log Seviyesi', type: 'select', options: [
+                            { value: 'ALL', label: 'ALL', selected: true },
+                            { value: 'EMERGENCY ALERT CRITICAL ERROR WARNING NOTICE', label: 'NOTICE ve üstü' },
+                            { value: 'EMERGENCY ALERT CRITICAL ERROR WARNING', label: 'WARNING ve üstü' }
+                        ], why: "ALL, DEBUG dahil her şeyi gönderir; yoğun sistemde SIEM lisansını hızla tüketir. WARNING ve üstü ise oturum açma gibi bilgi olaylarını kaçırır." },
+                        { name: 'sl_proto', label: 'Taşıma', type: 'select', options: [
+                            { value: 'UDP', label: 'UDP', selected: true },
+                            { value: 'TCP', label: 'TCP' }
+                        ] },
+                        { name: 'sl_tz', label: 'Zaman damgasında yerel saat (LOCAL_TIME)', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'NSIP Yönetim Servisleri',
+                    icon: 'fas fa-user-lock',
+                    fields: [
+                        { name: 'nsip', label: 'NSIP', type: 'text', validate: 'ip', placeholder: '192.0.2.5', hint: 'Boşsa yazılmaz', why: "Telnet ve FTP parolaları düz metin taşır; HTTP GUI de öyle. NSIP'te bunları kapatıp GUI'yi yalnız HTTPS'e (SECUREONLY) almak temel sertleştirmedir." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const hostname = cgEsc(data.hostname || '');
+            const ntp = [data.ntp1, data.ntp2].map(v => cgEsc(v || '')).filter(Boolean);
+            const dns = [data.dns1, data.dns2].map(v => cgEsc(v || '')).filter(Boolean);
+            const slHost = cgEsc(data.sl_host || ''), slPort = cgEsc(data.sl_port || '');
+            const slLevel = cgEsc(data.sl_level || 'ALL'), slProto = cgEsc(data.sl_proto || 'UDP');
+            const nsip = cgEsc(data.nsip || '');
+            let c = '# ========================================\n# Citrix ADC — Sistem Temeli\n# ========================================\n\n';
+            if (hostname) c += 'set ns hostName ' + hostname + '\n\n';
+            c += '# NTP\n';
+            ntp.forEach(ip => { c += 'add ntp server ' + ip + '\n'; });
+            c += 'enable ntp sync\n\n';
+            c += '# DNS\n';
+            dns.forEach(ip => { c += 'add dns nameServer ' + ip + '\n'; });
+            if (slHost) {
+                c += '\n# Uzak syslog\n';
+                c += 'add audit syslogAction SYSLOG_ACT ' + slHost;
+                if (slPort) c += ' -serverPort ' + slPort;
+                c += ' -logLevel ' + slLevel + ' -transport ' + slProto;
+                if (data.sl_tz) c += ' -timeZone LOCAL_TIME';
+                c += '\n';
+                c += 'add audit syslogPolicy SYSLOG_POL true SYSLOG_ACT\n';
+                c += 'bind audit syslogGlobal -policyName SYSLOG_POL -priority 100\n';
+            }
+            if (nsip) {
+                c += '\n# NSIP: yalnız HTTPS GUI, telnet/FTP kapalı\n';
+                c += 'set ns ip ' + nsip + ' -gui SECUREONLY -telnet DISABLED -ftp DISABLED\n';
+            }
+            c += '\nsave ns config\n\n';
+            c += '# Doğrulama:\n# show ntp server\n# show ntp sync\n# show dns nameServer\n';
+            if (slHost) c += '# show audit syslogAction SYSLOG_ACT\n# show audit syslogGlobal\n';
+            if (nsip) c += '# show ns ip ' + nsip + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Citrix ADC: SNMP (v3 / v2c) ───────────────────────────────────────────────
+// Sözdizimi: https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/snmp/snmp-view (-type included|excluded)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/snmp/snmp-group (noAuthNoPriv|authNoPriv|authPriv, -readViewName)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/snmp/snmp-user (-authType MD5|SHA|SHA256|SHA512, -privType DES|AES|AES192|AES256)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/snmp/snmp-manager (örnek: add snmp manager 192.168.2.16 -netmask 255.255.255.240)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/snmp/snmp-trap (add/bind snmp trap, -version V2|V3, -communityName, -destPort)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/snmp/snmp-community (GET|GET_NEXT|GET_BULK|SET|ALL)
+CitrixADC.snmp = {
+    label: 'SNMP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-chart-line',
+                title: 'SNMP (Citrix ADC)',
+                desc: 'İzleme için SNMP: izinli yönetici (manager), v3 view/group/user veya v2c community ve trap hedefi.<br>Örnek: <code>add snmp user snmpmon -group GRP_RO -authType SHA -authPasswd ... -privType AES -privPasswd ...</code>'
+            },
+            configTypes: [
+                { id: 'v3', label: 'SNMPv3', icon: 'fas fa-lock', desc: 'authPriv', badge: { text: 'Önerilen', cls: 'recommended' } },
+                { id: 'v2c', label: 'SNMPv2c', icon: 'fas fa-unlock', desc: 'Düz metin community', badge: { text: 'Eski', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'İzinli Yönetici (Manager)',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'mgr', label: 'NMS Adresi / Ağı', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.20', why: "Hiç manager tanımlı değilse ADC her adresten gelen SNMP sorgusuna cevap verir. Manager listesi sorguları yalnız izleme sunucularına daraltır." },
+                        { name: 'mgr_mask', label: 'Ağ Maskesi', type: 'text', validate: 'netmask', placeholder: '255.255.255.240', hint: 'Boşsa tek adres' }
+                    ]
+                },
+                {
+                    title: 'SNMPv3',
+                    icon: 'fas fa-user-shield',
+                    showFor: ['v3'],
+                    fields: [
+                        { name: 'v3_user', label: 'Kullanıcı Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'snmpmon' },
+                        { name: 'v3_auth', label: 'Auth Tipi', type: 'select', options: [
+                            { value: 'SHA', label: 'SHA', selected: true },
+                            { value: 'SHA256', label: 'SHA256 (yeni sürümler)' },
+                            { value: 'SHA512', label: 'SHA512 (yeni sürümler)' },
+                            { value: 'MD5', label: 'MD5 (zayıf)' }
+                        ], why: "SHA256/SHA512 yalnız güncel sürümlerde vardır; NMS de aynı algoritmayı desteklemelidir, aksi halde tüm sorgular zaman aşımına düşer." },
+                        { name: 'v3_auth_pw', label: 'Auth Parolası', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'Ornek-AuthPass-01', hint: '8-64 karakter' },
+                        { name: 'v3_priv', label: 'Şifreleme Tipi', type: 'select', options: [
+                            { value: 'AES', label: 'AES', selected: true },
+                            { value: 'AES256', label: 'AES256 (yeni sürümler)' },
+                            { value: 'DES', label: 'DES (zayıf)' }
+                        ] },
+                        { name: 'v3_priv_pw', label: 'Şifreleme Parolası', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'Ornek-PrivPass-01' }
+                    ]
+                },
+                {
+                    title: 'SNMPv2c',
+                    icon: 'fas fa-users',
+                    showFor: ['v2c'],
+                    warn: 'v2c community düz metin gider; yalnız ayrık yönetim ağında kullanın. <code>SET</code> / <code>ALL</code> yazma yetkisi içerir.',
+                    fields: [
+                        { name: 'v2_comm', label: 'Community', type: 'text', requiredIf: { field: '_cgtype', in: ['v2c'] }, placeholder: 'Ornek-RO-Topluluk', hint: '"public" kullanmayın' },
+                        { name: 'v2_perm', label: 'Yetki', type: 'select', options: [
+                            { value: 'GET_BULK', label: 'GET_BULK', selected: true },
+                            { value: 'GET', label: 'GET' },
+                            { value: 'GET_NEXT', label: 'GET_NEXT' },
+                            { value: 'ALL', label: 'ALL (SET dahil)' }
+                        ] }
+                    ]
+                },
+                {
+                    title: 'Trap',
+                    icon: 'fas fa-bell',
+                    fields: [
+                        { name: 'trap_host', label: 'Trap Alıcısı', type: 'text', validate: 'ip', placeholder: '192.0.2.20', hint: 'Boşsa trap yazılmaz' },
+                        { name: 'trap_port', label: 'Trap Portu', type: 'text', validate: 'port', placeholder: '162', hint: 'Boşsa 162' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const v3 = data._cgtype !== 'v2c';
+            const mgr = cgEsc(data.mgr || ''), mask = cgEsc(data.mgr_mask || '');
+            const user = cgEsc(data.v3_user || ''), auth = cgEsc(data.v3_auth || 'SHA'), authPw = cgEsc(data.v3_auth_pw || '');
+            const priv = cgEsc(data.v3_priv || 'AES'), privPw = cgEsc(data.v3_priv_pw || '');
+            const comm = cgEsc(data.v2_comm || ''), perm = cgEsc(data.v2_perm || 'GET_BULK');
+            const trap = cgEsc(data.trap_host || ''), tport = cgEsc(data.trap_port || '');
+            let c = '# ========================================\n# Citrix ADC — SNMP ' + (v3 ? 'v3' : 'v2c') + '\n# ========================================\n\n';
+            c += 'add snmp manager ' + mgr + (mask ? ' -netmask ' + mask : '') + '\n\n';
+            if (v3) {
+                if (auth === 'MD5' || priv === 'DES') c += '# UYARI: MD5/DES zayıf kabul edilir — SHA/AES tercih edin.\n';
+                c += 'add snmp view VIEW_RO 1.3.6.1 -type included\n';
+                c += 'add snmp group GRP_RO authPriv -readViewName VIEW_RO\n';
+                c += 'add snmp user ' + user + ' -group GRP_RO -authType ' + auth + ' -authPasswd ' + authPw + ' -privType ' + priv + ' -privPasswd ' + privPw + '\n';
+                if (trap) {
+                    c += '\nadd snmp trap specific ' + trap + ' -version V3' + (tport ? ' -destPort ' + tport : '') + '\n';
+                    c += 'bind snmp trap specific ' + trap + ' -version V3 -userName ' + user + ' -securityLevel authPriv\n';
+                }
+            } else {
+                if (perm === 'ALL') c += '# UYARI: ALL yetkisi SET (yazma) içerir.\n';
+                c += 'add snmp community ' + comm + ' ' + perm + '\n';
+                if (trap) c += '\nadd snmp trap specific ' + trap + ' -version V2' + (tport ? ' -destPort ' + tport : '') + ' -communityName ' + comm + '\n';
+            }
+            c += '\nsave ns config\n\n';
+            c += '# Doğrulama:\n# show snmp manager\n# show snmp ' + (v3 ? 'user' : 'community') + '\n';
+            if (trap) c += '# show snmp trap\n';
+            return c;
+        });
+    }
+};
+
+// ── Citrix ADC: Sistem Kullanıcısı & Komut Politikası ─────────────────────────
+// Sözdizimi: https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/system/system-user (add / bind system user <user> <policy> <priority>)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/system/system-cmdpolicy (ALLOW|DENY, cmdSpec regex; yerleşik: operator, read-only, network, superuser)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/system/system-parameter (-strongpassword enableall|enablelocal|disabled, -minpasswordlen, -timeout)
+CitrixADC.sysuser = {
+    label: 'Sistem Kullanıcısı & Komut Politikası',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-cog',
+                title: 'Sistem Kullanıcısı, Komut Politikası, Parola Kuralları',
+                desc: 'nsroot yerine kişiye özel yönetim hesabı, en az yetkili komut politikası (cmdPolicy) ve sistem geneli parola kuralları.<br>Örnek: <code>bind system user netops1 read-only 100</code>'
+            },
+            sections: [
+                {
+                    title: 'Kullanıcı',
+                    icon: 'fas fa-user',
+                    fields: [
+                        { name: 'user', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netops1', why: "Paylaşılan nsroot hesabıyla yapılan değişikliğin sahibi audit log'da görülemez; nsroot yalnız acil durum (break-glass) için saklanmalıdır." },
+                        { name: 'password', label: 'Parola', type: 'text', required: true, placeholder: 'Ornek-Parola-2026', hint: 'strongpassword açıksa büyük/küçük harf, rakam, özel karakter' },
+                        { name: 'ext_auth', label: 'Dış Kimlik Doğrulama', type: 'select', options: [
+                            { value: 'ENABLED', label: 'ENABLED — önce LDAP/RADIUS/TACACS (varsayılan)', selected: true },
+                            { value: 'DISABLED', label: 'DISABLED — yalnız yerel parola (break-glass hesabı)' }
+                        ], why: "Acil durum hesabında DISABLED seçilir: AAA sunucusu çöktüğünde bu hesap dış sunucuya sorulmadan yerel parolayla girer." },
+                        { name: 'timeout', label: 'CLI Boşta Kalma (sn)', type: 'text', min: 300, max: 86400, placeholder: '900', hint: 'Opsiyonel' },
+                        { name: 'maxsess', label: 'En Fazla Oturum', type: 'text', min: 1, max: 40, placeholder: '5', hint: 'Opsiyonel' }
+                    ]
+                },
+                {
+                    title: 'Komut Politikası',
+                    icon: 'fas fa-terminal',
+                    fields: [
+                        { name: 'pol', label: 'Politika', type: 'select', options: [
+                            { value: 'read-only', label: 'read-only (yerleşik)', selected: true },
+                            { value: 'operator', label: 'operator (yerleşik)' },
+                            { value: 'network', label: 'network (yerleşik)' },
+                            { value: 'superuser', label: 'superuser (yerleşik — tam yetki)' },
+                            { value: 'custom', label: 'Özel cmdPolicy oluştur' }
+                        ], why: "Kullanıcıya hiç politika bağlanmazsa hiçbir komut çalıştıramaz; superuser ise nsroot ile eşdeğerdir. En az yetki ilkesiyle read-only veya operator ile başlayın." },
+                        { name: 'cp_name', label: 'Özel Politika Adı', type: 'text', requiredIf: { field: 'pol', in: ['custom'] }, placeholder: 'CMD_LB_OPS' },
+                        { name: 'cp_action', label: 'Aksiyon', type: 'select', options: [
+                            { value: 'ALLOW', label: 'ALLOW', selected: true },
+                            { value: 'DENY', label: 'DENY' }
+                        ] },
+                        { name: 'cp_spec', label: 'Komut Regex (cmdSpec)', type: 'text', requiredIf: { field: 'pol', in: ['custom'] }, placeholder: '(^show\\s+lb\\s+.*)|(^(enable|disable)\\s+server\\s+.*)', hint: 'Eşleşen komutlar' },
+                        { name: 'prio', label: 'Öncelik', type: 'text', min: 0, max: 999999999, placeholder: '100', hint: 'Boşsa 100' }
+                    ]
+                },
+                {
+                    title: 'Sistem Parola Kuralları',
+                    icon: 'fas fa-key',
+                    fields: [
+                        { name: 'strong', label: 'Güçlü Parola', type: 'select', options: [
+                            { value: 'enableall', label: 'enableall — tüm kullanıcılar', selected: true },
+                            { value: 'enablelocal', label: 'enablelocal — yalnız yerel kullanıcılar' },
+                            { value: 'keep', label: 'Değiştirme' }
+                        ], why: "enableall açıldıktan sonra mevcut zayıf parolalar değişmez ama yenileri kurala uymak zorundadır; otomasyon hesaplarının parola güncellemeleri kırılabilir." },
+                        { name: 'minlen', label: 'Minimum Uzunluk', type: 'text', min: 8, max: 127, placeholder: '12', hint: 'strongpassword açıkken en az 8' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const user = cgEsc(data.user || ''), pw = cgEsc(data.password || ''), ext = cgEsc(data.ext_auth || 'ENABLED');
+            const to = cgEsc(data.timeout || ''), ms = cgEsc(data.maxsess || '');
+            const polSel = cgEsc(data.pol || 'read-only'), custom = polSel === 'custom';
+            const pol = custom ? cgEsc(data.cp_name || '') : polSel;
+            const prio = cgEsc(data.prio || '') || '100';
+            const strong = cgEsc(data.strong || 'enableall'), minlen = cgEsc(data.minlen || '');
+            let c = '# ========================================\n# Citrix ADC — Sistem Kullanıcısı & Komut Politikası\n# ========================================\n\n';
+            if (strong !== 'keep' || minlen) {
+                c += 'set system parameter';
+                if (strong !== 'keep') c += ' -strongpassword ' + strong;
+                if (minlen) c += ' -minpasswordlen ' + minlen;
+                c += '\n\n';
+            }
+            if (custom) c += 'add system cmdPolicy ' + pol + ' ' + cgEsc(data.cp_action || 'ALLOW') + ' "' + cgEsc(data.cp_spec || '') + '"\n';
+            c += 'add system user ' + user + ' ' + pw + ' -externalAuth ' + ext;
+            if (to) c += ' -timeout ' + to;
+            if (ms) c += ' -maxsession ' + ms;
+            c += '\n';
+            if (polSel === 'superuser') c += '# UYARI: superuser nsroot ile eşdeğer tam yetkidir.\n';
+            c += 'bind system user ' + user + ' ' + pol + ' ' + prio + '\n';
+            c += '\nsave ns config\n\n';
+            c += '# Doğrulama:\n# show system user ' + user + '\n';
+            if (custom) c += '# show system cmdPolicy ' + pol + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Citrix ADC: Yönetim Kimlik Doğrulama (LDAP / RADIUS / TACACS+) ───────────
+// Sözdizimi: https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/authentication/authentication-ldapaction
+//            (-serverIP, -serverPort, -ldapBase, -ldapBindDn, -ldapBindDnPassword, -ldapLoginName, -groupAttrName, -subAttributeName, -secType, -validateServerCert, -ldapHostname)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/authentication/authentication-radiusaction (örnek: -serverIP .. -radKey ..)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/authentication/authentication-tacacsaction (-tacacsSecret, -authorization, -accounting, -auditFailedCmds)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/authentication/authentication-policy (add authentication Policy <n> -rule <r> -action <a>)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/system/system-global (bind system global <policy> -priority <n>)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/system/system-group (bind system group <g> -policyName <p> <priority>)
+CitrixADC.extauth = {
+    label: 'Yönetim Kimlik Doğrulama (LDAP/RADIUS/TACACS+)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-id-badge',
+                title: 'Yönetim Kimlik Doğrulama (Citrix ADC)',
+                desc: 'ADC yönetim girişlerini (GUI/CLI) merkezi dizine bağlar: action → advanced authentication policy → <code>bind system global</code>. Uygulama kullanıcıları için <b>AAA-TM</b> aracını kullanın.',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            configTypes: [
+                { id: 'ldap', label: 'LDAP / AD', icon: 'fas fa-address-book', desc: 'LDAPS + grup eşleme', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'radius', label: 'RADIUS', icon: 'fas fa-broadcast-tower', desc: 'NPS / ISE' },
+                { id: 'tacacs', label: 'TACACS+', icon: 'fas fa-terminal', desc: 'Komut yetkilendirme + accounting' }
+            ],
+            sections: [
+                {
+                    title: 'Sunucu',
+                    icon: 'fas fa-server',
+                    warn: 'Bağlamadan önce yerel break-glass hesabınızın (externalAuth DISABLED) çalıştığını doğrulayın ve açık bir nsroot oturumu bırakın.',
+                    fields: [
+                        { name: 'act', label: 'Action Adı', type: 'text', required: true, placeholder: 'ACT_MGMT_AUTH' },
+                        { name: 'srv', label: 'Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.30' },
+                        { name: 'port', label: 'Port', type: 'text', validate: 'port', placeholder: '636', hint: 'Boşsa LDAPS 636 / RADIUS 1812 / TACACS+ 49' },
+                        { name: 'secret', label: 'Paylaşılan Anahtar', type: 'text', requiredIf: { field: '_cgtype', in: ['radius', 'tacacs'] }, placeholder: 'Ornek-Paylasimli-Anahtar', hint: 'RADIUS radKey / TACACS+ tacacsSecret' }
+                    ]
+                },
+                {
+                    title: 'LDAP',
+                    icon: 'fas fa-address-book',
+                    showFor: ['ldap'],
+                    fields: [
+                        { name: 'base', label: 'Base DN', type: 'text', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: 'dc=example,dc=com' },
+                        { name: 'bind_dn', label: 'Bind DN', type: 'text', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: 'cn=svc-adc,ou=svc,dc=example,dc=com' },
+                        { name: 'bind_pw', label: 'Bind Parolası', type: 'text', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: 'Ornek-Bind-Parola' },
+                        { name: 'login_attr', label: 'Login Attribute', type: 'select', options: [
+                            { value: 'sAMAccountName', label: 'sAMAccountName (AD)', selected: true },
+                            { value: 'uid', label: 'uid (OpenLDAP)' }
+                        ] },
+                        { name: 'sec', label: 'Güvenlik', type: 'select', options: [
+                            { value: 'SSL', label: 'SSL (LDAPS)', selected: true },
+                            { value: 'TLS', label: 'TLS (StartTLS)' },
+                            { value: 'PLAINTEXT', label: 'PLAINTEXT (şifresiz)' }
+                        ], why: "PLAINTEXT'te yönetici parolaları ağda düz metin geçer." },
+                        { name: 'validate', label: 'Sunucu sertifikasını doğrula (-validateServerCert YES)', type: 'checkbox', checked: true, why: "Doğrulama yoksa ağdaki sahte LDAP sunucusu yönetici parolalarını toplayabilir." },
+                        { name: 'ldap_host', label: 'LDAP Sunucu Adı (sertifikadaki)', type: 'text', validate: 'hostname', requiredIf: { field: 'validate', checked: true }, placeholder: 'dc1.example.com', hint: 'Sertifika CN/SAN ile aynı olmalı' }
+                    ]
+                },
+                {
+                    title: 'Yetki Eşleme',
+                    icon: 'fas fa-user-tag',
+                    fields: [
+                        { name: 'grp', label: 'Dizin/AAA Grup Adı', type: 'text', placeholder: 'ADC-Admins', hint: 'Boşsa grup eşleme yazılmaz; LDAP\'ta memberOf CN değeri' },
+                        { name: 'grp_pol', label: 'Gruba Verilecek Politika', type: 'select', options: [
+                            { value: 'read-only', label: 'read-only', selected: true },
+                            { value: 'operator', label: 'operator' },
+                            { value: 'network', label: 'network' },
+                            { value: 'superuser', label: 'superuser' }
+                        ], why: "Grup eşlemesi yoksa dışarıdan doğrulanan kullanıcı hiçbir komut politikası almaz ve giriş yapsa da komut çalıştıramaz." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'ldap';
+            const act = cgEsc(data.act || ''), srv = cgEsc(data.srv || ''), port = cgEsc(data.port || '');
+            const secret = cgEsc(data.secret || ''), grp = cgEsc(data.grp || ''), grpPol = cgEsc(data.grp_pol || 'read-only');
+            let c = '# ========================================\n# Citrix ADC — Yönetim Kimlik Doğrulama (' + t.toUpperCase() + ')\n# ========================================\n\n';
+            if (t === 'ldap') {
+                const sec = cgEsc(data.sec || 'SSL');
+                const host = cgEsc(data.ldap_host || '');
+                if (sec === 'PLAINTEXT') c += '# UYARI: PLAINTEXT — yönetici parolaları ağda düz metin geçer.\n';
+                c += 'add authentication ldapAction ' + act + ' -serverIP ' + srv + ' -serverPort ' + (port || (sec === 'SSL' ? '636' : '389'));
+                c += ' -ldapBase "' + cgEsc(data.base || '') + '" -ldapBindDn "' + cgEsc(data.bind_dn || '') + '" -ldapBindDnPassword ' + cgEsc(data.bind_pw || '');
+                c += ' -ldapLoginName ' + cgEsc(data.login_attr || 'sAMAccountName') + ' -groupAttrName memberOf -subAttributeName cn -secType ' + sec;
+                if (sec !== 'PLAINTEXT' && data.validate && host) c += ' -validateServerCert YES -ldapHostname ' + host;
+                c += '\n';
+                if (sec !== 'PLAINTEXT' && !data.validate) c += '# UYARI: sunucu sertifikası doğrulanmıyor.\n';
+            } else if (t === 'radius') {
+                c += 'add authentication radiusAction ' + act + ' -serverIP ' + srv + (port ? ' -serverPort ' + port : '') + ' -radKey ' + secret + '\n';
+            } else {
+                c += 'add authentication tacacsAction ' + act + ' -serverIP ' + srv + (port ? ' -serverPort ' + port : '') + ' -tacacsSecret ' + secret + ' -authorization ON -accounting ON -auditFailedCmds ON\n';
+            }
+            c += 'add authentication Policy POL_' + act + ' -rule true -action ' + act + '\n';
+            c += 'bind system global POL_' + act + ' -priority 100\n';
+            if (grp) {
+                c += '\nadd system group ' + grp + '\n';
+                c += 'bind system group ' + grp + ' -policyName ' + grpPol + ' 100\n';
+                if (grpPol === 'superuser') c += '# UYARI: superuser tam yetkidir; grubu yalnız yöneticilerle sınırlayın.\n';
+            }
+            c += '\nsave ns config\n\n';
+            c += '# Doğrulama:\n# show system global\n# show authentication Policy POL_' + act + '\n';
+            if (grp) c += '# show system group ' + grp + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Citrix ADC: Static Route ─────────────────────────────────────────────────
+// Sözdizimi: https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/network/route
+//            (add route <ağ> <maske> <gateway>; -distance, -cost, -advertise, -msr/-monitor, -td)
+CitrixADC.route = {
+    label: 'Static Route',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Static Route (Citrix ADC)',
+                desc: 'ADC yönlendirme tablosuna statik rota ekler; SNIP üzerinden arka uç veya istemci ağlarına ulaşım.<br>Örnek: <code>add route 10.64.0.0 255.255.0.0 192.0.2.1</code>'
+            },
+            sections: [
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-share',
+                    fields: [
+                        { name: 'net', label: 'Hedef Ağ', type: 'text', validate: 'ip', required: true, placeholder: '10.64.0.0', hint: 'Default için 0.0.0.0' },
+                        { name: 'mask', label: 'Maske', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.0.0', hint: 'Default için 0.0.0.0' },
+                        { name: 'gw', label: 'Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', why: "Gateway bir SNIP ile aynı subnet'te olmalı; aksi halde rota eklenir ama ARP çözülemez ve trafik düşer." },
+                        { name: 'distance', label: 'Administrative Distance', type: 'text', min: 1, max: 255, placeholder: '1', hint: 'Opsiyonel' },
+                        { name: 'cost', label: 'Cost', type: 'text', min: 0, max: 65535, placeholder: '0', hint: 'Opsiyonel' },
+                        { name: 'td', label: 'Traffic Domain', type: 'text', min: 0, max: 4094, placeholder: '10', hint: 'Opsiyonel' },
+                        { name: 'mon', label: 'Rota Monitörü (ARP/PING)', type: 'text', placeholder: 'ping', hint: 'Opsiyonel; -msr ENABLED ile', why: "Monitörsüz statik rota, gateway ölse bile tabloda kalır ve trafik kara deliğe gider; MSR gateway düşünce rotayı pasife alır." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const net = cgEsc(data.net || ''), mask = cgEsc(data.mask || ''), gw = cgEsc(data.gw || '');
+            const dist = cgEsc(data.distance || ''), cost = cgEsc(data.cost || ''), td = cgEsc(data.td || ''), mon = cgEsc(data.mon || '');
+            let c = '# ========================================\n# Citrix ADC — Static Route\n# ========================================\n\n';
+            c += 'add route ' + net + ' ' + mask + ' ' + gw;
+            if (td) c += ' -td ' + td;
+            if (dist) c += ' -distance ' + dist;
+            if (cost) c += ' -cost ' + cost;
+            if (mon) c += ' -msr ENABLED -monitor ' + mon;
+            c += '\n\nsave ns config\n\n';
+            c += '# Doğrulama:\n# show route\n';
+            return c;
+        });
+    }
+};
+
+// ── Citrix ADC: SSL Profile (TLS 1.2+ / Cipher Group) ────────────────────────
+// Sözdizimi: https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/ssl/ssl-profile
+//            (-sslProfileType FrontEnd|BackEnd, -ssl3/-tls1/-tls11/-tls12/-tls13, -denySSLReneg, -HSTS, -maxage, -IncludeSubdomains;
+//             bind ssl profile -cipherName / -eccCurveName P_256|P_384|X_25519)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/ssl/ssl-cipher (add ssl cipher, bind ssl cipher <grp> -cipherName <c>)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/ssl/ssl-parameter (-defaultProfile)
+//            https://docs.netscaler.com/en-us/citrix-adc/current-release/ssl/tls13-protocol-support.html (set ssl vserver/service -sslProfile)
+//            Şifre adları: https://www.carlstalhood.com/ssl-virtual-servers-citrix-adc-13/ (TLS1.3-AES256-GCM-SHA384, TLS1.2-ECDHE-RSA-AES128-GCM-SHA256 ...)
+CitrixADC.sslprofile = {
+    label: 'SSL Profile (TLS1.2+)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-shield-alt',
+                title: 'SSL Profile — TLS 1.2+ ve Güçlü Cipher Group',
+                desc: 'SSLv3/TLS 1.0/1.1 kapalı, yalnız ECDHE-GCM (+TLS 1.3) şifreleri içeren bir cipher group ve bunu kullanan SSL profili. Profil vServer\'a (FrontEnd) veya SSL service\'e (BackEnd) bağlanır.',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            sections: [
+                {
+                    title: 'Profil',
+                    icon: 'fas fa-id-card',
+                    warn: 'SSL profilleri <code>set ssl parameter -defaultProfile ENABLED</code> gerektirir. Bu ayar mevcut tüm SSL vServer\'ları varsayılan profillere taşır ve kolayca geri alınamaz — bakım penceresinde uygulayın.',
+                    fields: [
+                        { name: 'prof', label: 'Profil Adı', type: 'text', required: true, placeholder: 'SSLPROF_FE_STRICT' },
+                        { name: 'ptype', label: 'Tip', type: 'select', options: [
+                            { value: 'FrontEnd', label: 'FrontEnd — istemci tarafı', selected: true },
+                            { value: 'BackEnd', label: 'BackEnd — sunucu tarafı' }
+                        ] },
+                        { name: 'tls13', label: 'TLS 1.3\'ü aç', type: 'checkbox', checked: true },
+                        { name: 'reneg', label: 'Renegotiation', type: 'select', options: [
+                            { value: 'ALL', label: 'ALL — tümünü reddet (varsayılan)', selected: true },
+                            { value: 'NONSECURE', label: 'NONSECURE — yalnız RFC 5746 destekleyenlere izin' },
+                            { value: 'FRONTEND_CLIENT', label: 'FRONTEND_CLIENT' }
+                        ], why: "İstemci kaynaklı renegotiation CPU tüketme (DoS) saldırısına imkan verir; istemci sertifikası isteyen politika tabanlı kimlik doğrulama yoksa ALL güvenlidir." },
+                        { name: 'set_default', label: 'set ssl parameter -defaultProfile ENABLED satırını ekle', type: 'checkbox', checked: false }
+                    ]
+                },
+                {
+                    title: 'Cipher Group',
+                    icon: 'fas fa-key',
+                    fields: [
+                        { name: 'cg', label: 'Cipher Group Adı', type: 'text', required: true, placeholder: 'CG_TLS12_13_STRONG', why: "Yerleşik DEFAULT grubu CBC ve RSA anahtar değişimli eski şifreleri de içerir; SSL Labs/PCI taramalarında zayıf şifre bulgusu üretir." },
+                        { name: 'ecdsa', label: 'ECDSA sertifika şifrelerini de ekle', type: 'checkbox', checked: true, hint: 'Sertifika RSA ise zararsız' }
+                    ]
+                },
+                {
+                    title: 'FrontEnd Ek Ayarlar',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'hsts', label: 'HSTS başlığı gönder', type: 'checkbox', checked: true, why: "HSTS tarayıcıya siteye yalnız HTTPS ile gelmesini söyler; SSL stripping saldırısını engeller. Site HTTP'ye geri dönecekse açmayın — tarayıcılar max-age boyunca HTTP'yi reddeder." },
+                        { name: 'maxage', label: 'HSTS max-age (sn)', type: 'text', min: 1, max: 4294967294, placeholder: '31536000', hint: 'Boşsa 31536000 (1 yıl)' },
+                        { name: 'subdom', label: 'includeSubDomains', type: 'checkbox', checked: false },
+                        { name: 'curves', label: 'ECC eğrilerini sınırla (X_25519, P_256, P_384)', type: 'checkbox', checked: true },
+                        { name: 'target', label: 'Bağlanacak SSL vServer / Service', type: 'text', placeholder: 'VS_APP_HTTPS', hint: 'FrontEnd: vServer adı, BackEnd: SSL service adı; boşsa bağlanmaz' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const prof = cgEsc(data.prof || ''), ptype = cgEsc(data.ptype || 'FrontEnd'), fe = ptype === 'FrontEnd';
+            const reneg = cgEsc(data.reneg || 'ALL'), cg = cgEsc(data.cg || '');
+            const maxage = cgEsc(data.maxage || '') || '31536000', target = cgEsc(data.target || '');
+            const ciphers = [];
+            if (data.tls13) ciphers.push('TLS1.3-AES256-GCM-SHA384', 'TLS1.3-AES128-GCM-SHA256', 'TLS1.3-CHACHA20-POLY1305-SHA256');
+            if (data.ecdsa) ciphers.push('TLS1.2-ECDHE-ECDSA-AES256-GCM-SHA384', 'TLS1.2-ECDHE-ECDSA-AES128-GCM-SHA256');
+            ciphers.push('TLS1.2-ECDHE-RSA-AES256-GCM-SHA384', 'TLS1.2-ECDHE-RSA-AES128-GCM-SHA256');
+            let c = '# ========================================\n# Citrix ADC — SSL Profile (' + ptype + ')\n# ========================================\n\n';
+            if (data.set_default) c += '# UYARI: aşağıdaki satır tüm SSL vServer\'ları varsayılan profillere taşır (geri dönüşü zor).\nset ssl parameter -defaultProfile ENABLED\n\n';
+            else c += '# NOT: -defaultProfile kapalıysa profil bağlama başarısız olur; önce "show ssl parameter" ile kontrol edin.\n\n';
+            c += 'add ssl cipher ' + cg + '\n';
+            ciphers.forEach(n => { c += 'bind ssl cipher ' + cg + ' -cipherName ' + n + '\n'; });
+            c += '\nadd ssl profile ' + prof + ' -sslProfileType ' + ptype + ' -ssl3 DISABLED -tls1 DISABLED -tls11 DISABLED -tls12 ENABLED -tls13 ' + (data.tls13 ? 'ENABLED' : 'DISABLED');
+            c += ' -denySSLReneg ' + reneg;
+            if (fe && data.hsts) c += ' -HSTS ENABLED -maxage ' + maxage + (data.subdom ? ' -IncludeSubdomains YES' : '');
+            c += '\n';
+            c += 'bind ssl profile ' + prof + ' -cipherName ' + cg + '\n';
+            c += 'unbind ssl profile ' + prof + ' -cipherName ' + (fe ? 'DEFAULT' : 'DEFAULT_BACKEND') + '\n';
+            if (fe && data.curves) ['X_25519', 'P_256', 'P_384'].forEach(e => { c += 'bind ssl profile ' + prof + ' -eccCurveName ' + e + '\n'; });
+            if (target) c += '\nset ssl ' + (fe ? 'vserver ' : 'service ') + target + ' -sslProfile ' + prof + '\n';
+            c += '\nsave ns config\n\n';
+            c += '# Doğrulama:\n# show ssl profile ' + prof + '\n# show ssl cipher ' + cg + '\n';
+            if (target) c += '# show ssl ' + (fe ? 'vserver ' : 'service ') + target + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Citrix ADC: HTTP Profile ─────────────────────────────────────────────────
+// Sözdizimi: https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/ns/ns-httpprofile
+//            (-dropInvalReqs, -markHttp09Inval, -markConnReqInval, -markTraceReqInval, -markRfc7230NonCompliantInval, -http2, -webSocket, -maxReq, -reqTimeout, -reqTimeoutAction)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/lb/lb-vserver (set lb vserver -httpProfileName)
+CitrixADC.httpprofile = {
+    label: 'HTTP Profile',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-file-code',
+                title: 'HTTP Profile (Citrix ADC)',
+                desc: 'Geçersiz / eski HTTP isteklerini düşüren, HTTP/2 ve istek zaman aşımını yöneten HTTP profili; LB vServer\'a bağlanır.<br>Örnek: <code>add ns httpProfile HTTP_STRICT -dropInvalReqs ENABLED -markHttp09Inval ENABLED</code>'
+            },
+            sections: [
+                {
+                    title: 'Profil',
+                    icon: 'fas fa-id-card',
+                    fields: [
+                        { name: 'name', label: 'Profil Adı', type: 'text', required: true, placeholder: 'HTTP_STRICT' },
+                        { name: 'drop_inval', label: 'Geçersiz istekleri düşür (dropInvalReqs)', type: 'checkbox', checked: true, why: "Varsayılan DISABLED: bozuk başlıklı istekler arka uca iletilir; HTTP request smuggling saldırıları tam bu tutarsızlıktan yararlanır." },
+                        { name: 'm09', label: 'HTTP/0.9 geçersiz say', type: 'checkbox', checked: true },
+                        { name: 'mconn', label: 'CONNECT isteklerini geçersiz say', type: 'checkbox', checked: true, why: "Ters proxy (reverse proxy) rolündeki bir vServer'da CONNECT'e izin vermek ADC'yi açık proxy olarak kullandırabilir." },
+                        { name: 'mtrace', label: 'TRACE isteklerini geçersiz say', type: 'checkbox', checked: true },
+                        { name: 'm7230', label: 'RFC 7230 uyumsuz istekleri geçersiz say', type: 'checkbox', checked: false, why: "Request smuggling'e karşı en sıkı ayardır; ancak standart dışı istemci/uygulamaları kırabilir — önce test ortamında deneyin." }
+                    ]
+                },
+                {
+                    title: 'Protokol & Zaman Aşımı',
+                    icon: 'fas fa-stopwatch',
+                    fields: [
+                        { name: 'h2', label: 'HTTP/2', type: 'checkbox', checked: false },
+                        { name: 'ws', label: 'WebSocket', type: 'checkbox', checked: false },
+                        { name: 'maxreq', label: 'Bağlantı Başına En Fazla İstek', type: 'text', min: 0, max: 65534, placeholder: '1000', hint: 'Opsiyonel; 0 = sınırsız' },
+                        { name: 'reqto', label: 'İstek Tamamlama Süresi (sn)', type: 'text', min: 0, max: 86400, placeholder: '30', hint: 'Opsiyonel; yavaş (slowloris) istekleri keser' },
+                        { name: 'reqto_act', label: 'Süre Aşımında', type: 'select', options: [
+                            { value: 'RESET', label: 'RESET', selected: true },
+                            { value: 'DROP', label: 'DROP' }
+                        ] },
+                        { name: 'vs', label: 'Bağlanacak LB vServer', type: 'text', placeholder: 'VS_APP_HTTPS', hint: 'Boşsa bağlanmaz' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const name = cgEsc(data.name || ''), maxreq = cgEsc(data.maxreq || ''), reqto = cgEsc(data.reqto || '');
+            const act = cgEsc(data.reqto_act || 'RESET'), vs = cgEsc(data.vs || '');
+            const on = (b, p) => (b ? ' ' + p + ' ENABLED' : '');
+            let c = '# ========================================\n# Citrix ADC — HTTP Profile\n# ========================================\n\n';
+            c += 'add ns httpProfile ' + name;
+            c += on(data.drop_inval, '-dropInvalReqs') + on(data.m09, '-markHttp09Inval') + on(data.mconn, '-markConnReqInval');
+            c += on(data.mtrace, '-markTraceReqInval') + on(data.m7230, '-markRfc7230NonCompliantInval');
+            c += on(data.h2, '-http2') + on(data.ws, '-webSocket');
+            if (maxreq) c += ' -maxReq ' + maxreq;
+            if (reqto) c += ' -reqTimeout ' + reqto + ' -reqTimeoutAction ' + act;
+            c += '\n';
+            if (!data.drop_inval && (data.m09 || data.mconn || data.mtrace || data.m7230)) c += '# NOT: dropInvalReqs kapalı — geçersiz işaretlenen istekler düşürülmez, yalnız L7 işlenmez.\n';
+            if (vs) c += 'set lb vserver ' + vs + ' -httpProfileName ' + name + '\n';
+            c += '\nsave ns config\n\n';
+            c += '# Doğrulama:\n# show ns httpProfile ' + name + '\n';
+            if (vs) c += '# show lb vserver ' + vs + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Citrix ADC: Surge Protection / Service Group Limitleri ───────────────────
+// Sözdizimi: https://docs.netscaler.com/en-us/citrix-adc/current-release/security/surge-protection/ns-sp-disble-re-enblesp-prot-tsk.html (enable ns feature SurgeProtection)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/ns/ns-spparams (-baseThreshold, -throttle Aggressive|Normal|Relaxed)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/basic/servicegroup
+//            (set serviceGroup -sp ON|OFF | -maxClient | -maxReq — synopsis'te '|' ile ayrıldığı için her biri ayrı satır)
+CitrixADC.surge = {
+    label: 'Surge Protection / Bağlantı Limiti',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-water',
+                title: 'Surge Protection & Service Group Limitleri',
+                desc: 'Ani trafik artışında arka uç sunuculara açılan bağlantıları kuyruğa alır (Surge Protection) ve service group başına eşzamanlı bağlantı/istek sınırı koyar.<br>Örnek: <code>set serviceGroup SG_APP_HTTP -maxClient 1000</code>'
+            },
+            sections: [
+                {
+                    title: 'Service Group',
+                    icon: 'fas fa-layer-group',
+                    fields: [
+                        { name: 'sg', label: 'Service Group Adı', type: 'text', required: true, placeholder: 'SG_APP_HTTP' },
+                        { name: 'maxclient', label: 'En Fazla Eşzamanlı Bağlantı', type: 'text', validate: 'posint', placeholder: '1000', hint: '-maxClient; boşsa yazılmaz', why: "Sınır aşıldığında yeni istekler kuyruğa girer veya reddedilir; değer tüm üyelerin toplam kapasitesinden düşük seçilmeli, aksi halde sunucular önce çöker." },
+                        { name: 'maxreq', label: 'Kalıcı Bağlantı Başına İstek', type: 'text', min: 1, max: 65535, placeholder: '100', hint: '-maxReq; boşsa yazılmaz' }
+                    ]
+                },
+                {
+                    title: 'Surge Protection',
+                    icon: 'fas fa-water',
+                    fields: [
+                        { name: 'sp', label: 'Surge Protection uygula', type: 'checkbox', checked: true, why: "SP, sunucunun yanıt süresi uzadıkça yeni bağlantı açmayı yavaşlatır ve istekleri ADC'de bekletir; ani yükte arka ucun tamamen çökmesini önler." },
+                        { name: 'base', label: 'Taban Eşik (bağlantı)', type: 'text', min: 1, max: 32767, placeholder: '200', hint: 'Sistem geneli -baseThreshold; boşsa değiştirilmez' },
+                        { name: 'throttle', label: 'Throttle', type: 'select', options: [
+                            { value: 'Normal', label: 'Normal (varsayılan)', selected: true },
+                            { value: 'Aggressive', label: 'Aggressive' },
+                            { value: 'Relaxed', label: 'Relaxed' }
+                        ] }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const sg = cgEsc(data.sg || ''), mc = cgEsc(data.maxclient || ''), mr = cgEsc(data.maxreq || '');
+            const base = cgEsc(data.base || ''), thr = cgEsc(data.throttle || 'Normal');
+            let c = '# ========================================\n# Citrix ADC — Surge Protection / Service Group Limitleri\n# ========================================\n\n';
+            if (data.sp) {
+                c += 'enable ns feature SurgeProtection\n';
+                c += 'set ns spParams' + (base ? ' -baseThreshold ' + base : '') + ' -throttle ' + thr + '\n';
+                c += 'set serviceGroup ' + sg + ' -sp ON\n';
+            }
+            if (mc) c += 'set serviceGroup ' + sg + ' -maxClient ' + mc + '\n';
+            if (mr) c += 'set serviceGroup ' + sg + ' -maxReq ' + mr + '\n';
+            if (!data.sp && !mc && !mr) c += '# UYARI: ne Surge Protection ne limit seçildi — değişiklik yok.\n';
+            c += '\nsave ns config\n\n';
+            c += '# Doğrulama:\n# show serviceGroup ' + sg + '\n';
+            if (data.sp) c += '# show ns spParams\n';
+            return c;
+        });
+    }
+};
+
+// ── Citrix ADC: Pattern Set / String Map ─────────────────────────────────────
+// Sözdizimi: https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/policy/policy-patset (örnek: bind policy patset pat1 bar -index 2)
+//            https://developer-docs.netscaler.com/en-us/adc-command-reference-int/current-release/policy/policy-stringmap (örnek: bind stringmap custom_stringmap "key-string" "value-string")
+CitrixADC.patset = {
+    label: 'Pattern Set / String Map',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-list-ul',
+                title: 'AppExpert Pattern Set / String Map',
+                desc: 'Responder, rewrite ve CS politikalarının ifadelerinde kullanılan metin listeleri (pattern set) ve anahtar→değer tabloları (string map). Uzun <code>||</code> zincirleri yerine tek liste.'
+            },
+            configTypes: [
+                { id: 'patset', label: 'Pattern Set', icon: 'fas fa-list', desc: 'Metin listesi', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'stringmap', label: 'String Map', icon: 'fas fa-exchange-alt', desc: 'Anahtar → değer' }
+            ],
+            sections: [
+                {
+                    title: 'Liste',
+                    icon: 'fas fa-list',
+                    fields: [
+                        { name: 'name', label: 'Ad', type: 'text', required: true, placeholder: 'PS_BLOCKED_PATHS' },
+                        { name: 'entries', label: 'Kayıtlar (satır başına bir)', type: 'textarea', required: true, placeholder: '/admin', hint: 'Pattern set: metin. String map: <code>anahtar = değer</code>', why: "Liste içeriği politika değiştirilmeden güncellenebilir; aynı listeyi birden çok politika paylaşır. Pattern set eşleşmeleri varsayılan olarak büyük/küçük harf duyarlıdır — ifadede IGNORECASE kullanın." },
+                        { name: 'comment', label: 'Açıklama', type: 'text', placeholder: 'Engellenen yonetim yollari' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const sm = data._cgtype === 'stringmap';
+            const name = cgEsc(data.name || ''), comment = cgEsc(data.comment || '');
+            const lines = String(data.entries || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            let c = '# ========================================\n# Citrix ADC — ' + (sm ? 'String Map' : 'Pattern Set') + '\n# ========================================\n\n';
+            c += 'add policy ' + (sm ? 'stringmap ' : 'patset ') + name + (comment ? ' -comment "' + comment + '"' : '') + '\n';
+            let skipped = 0;
+            lines.forEach(l => {
+                if (l.indexOf('"') >= 0) { skipped++; return; }
+                if (sm) {
+                    const i = l.indexOf('=');
+                    const k = i >= 0 ? cgEsc(l.slice(0, i).trim()) : '', v = i >= 0 ? cgEsc(l.slice(i + 1).trim()) : '';
+                    if (!k || !v) { skipped++; return; }
+                    c += 'bind policy stringmap ' + name + ' "' + k + '" "' + v + '"\n';
+                } else {
+                    c += 'bind policy patset ' + name + ' "' + cgEsc(l) + '"\n';
+                }
+            });
+            if (skipped) c += '# UYARI: ' + skipped + ' satır atlandı (' + (sm ? '"anahtar = değer" biçiminde değil veya ' : '') + 'çift tırnak içeriyor).\n';
+            c += '\nsave ns config\n\n';
+            c += '# Doğrulama:\n# show policy ' + (sm ? 'stringmap ' : 'patset ') + name + '\n';
+            return c;
+        });
+    }
+};

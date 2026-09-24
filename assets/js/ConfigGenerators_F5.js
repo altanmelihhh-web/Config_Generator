@@ -216,7 +216,7 @@ F5LTM.ssl = {
             c += '    key ' + key_name + '\n';
             if (chain) c += '    chain ' + chain + '\n';
             if (ciphers) c += '    ciphers "' + ciphers + '"\n';
-            c += '    options { no-sslv2 no-sslv3 no-tlsv1 }\n}\n\n';
+            c += '    options { dont-insert-empty-fragments no-ssl no-tlsv1 no-tlsv1.1 }\n}\n\n';
             c += '# Doğrulama:\n# tmsh show ltm profile client-ssl ' + prof_name + '\n';
             return c;
         });
@@ -1110,6 +1110,951 @@ F5LTM.iapp = {
             }
             c += '}\n\n';
             c += '# Doğrulama:\n# tmsh list sys application service ' + app_name + '\n# tmsh show sys application service ' + app_name + '\n';
+            return c;
+        });
+    }
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// F5 BIG-IP — cihaz temeli araçları (2026-09 ekleri)
+// Canlı envanterde F5 yok; sözdizimi yalnız resmi tmsh referansından (her aracın başında URL).
+// ══════════════════════════════════════════════════════════════════════════════
+
+const CG_F5_IP_RE = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+
+// '192.0.2.0/24' → '192.0.2.0/255.255.255.0' (sshd/httpd/snmp allow örnekleri adres/maske biçiminde).
+// Tek IP olduğu gibi döner; geçersizse ''.
+function cgF5AddrMask(v) {
+    const t = String(v || '').trim();
+    if (CG_F5_IP_RE.test(t)) return t;
+    const m = t.match(/^([\d.]+)\/(\d{1,2})$/);
+    if (!m || !CG_F5_IP_RE.test(m[1]) || +m[2] > 32) return '';
+    const n = +m[2];
+    const bits = n === 0 ? 0 : (0xFFFFFFFF << (32 - n)) >>> 0;
+    return m[1] + '/' + [24, 16, 8, 0].map(s => (bits >>> s) & 255).join('.');
+}
+
+// Virgül/boşluk ayrılmış listeyi böl, boşları at.
+function cgF5List(v) {
+    return String(v || '').split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+}
+
+// ── F5 BIG-IP: Sistem Temeli (NTP / DNS / Syslog / Management Route) ─────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_ntp.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_dns.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_syslog.html (remote-servers: host / remote-port / local-ip)
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_management-route.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_global-settings.html (hostname)
+F5LTM.sysbase = {
+    label: 'Sistem Temeli (NTP/DNS/Syslog)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-cogs',
+                title: 'Sistem Temeli — NTP / DNS / Syslog',
+                desc: 'Yeni kurulan BIG-IP\'nin ilk yapılandırması: hostname, NTP, DNS, uzak syslog ve yönetim (mgmt) default route.<br>Örnek: <code>tmsh modify sys ntp servers replace-all-with { 192.0.2.123 }</code>'
+            },
+            sections: [
+                {
+                    title: 'Kimlik & Zaman',
+                    icon: 'fas fa-clock',
+                    info: '<code>replace-all-with</code> mevcut listeyi tamamen değiştirir; eski NTP/DNS sunucuları silinir.',
+                    fields: [
+                        { name: 'hostname', label: 'Hostname (FQDN)', type: 'text', validate: 'hostname', placeholder: 'bigip1.example.com', hint: 'Boşsa değiştirilmez', why: "DSC (HA) cihaz adı ve sertifikalar hostname'e bağlıdır; trust kurulduktan sonra değiştirmek device trust'ı bozar. Önce hostname, sonra HA kurulmalıdır." },
+                        { name: 'ntp1', label: 'NTP Sunucu 1', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.123', why: "HA çiftinde saat farkı config-sync ve device trust sertifika doğrulamasını bozar; log zaman damgaları da SIEM'de yanlış sıraya girer." },
+                        { name: 'ntp2', label: 'NTP Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.124', hint: 'Yedek NTP (önerilir)' },
+                        { name: 'tz', label: 'Saat Dilimi', type: 'text', placeholder: 'Europe/Istanbul', hint: 'tz veritabanı adı; boşsa değiştirilmez' }
+                    ]
+                },
+                {
+                    title: 'DNS',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'dns1', label: 'DNS Sunucu 1', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.53', why: "FQDN node, FQDN pool üyesi ve bazı monitor'lar DNS çözümlemesi olmadan çalışmaz; lisans aktivasyonu ve güncelleme kontrolleri de DNS ister." },
+                        { name: 'dns2', label: 'DNS Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.54' },
+                        { name: 'dns_search', label: 'Arama Alanı (search)', type: 'text', validate: 'hostname', placeholder: 'example.com', hint: 'Opsiyonel' }
+                    ]
+                },
+                {
+                    title: 'Uzak Syslog',
+                    icon: 'fas fa-file-alt',
+                    warn: 'remote-servers <code>replace-all-with</code> ile yazılır: tanımlı diğer uzak syslog sunucuları silinir.',
+                    fields: [
+                        { name: 'sl_host', label: 'Syslog Sunucusu', type: 'text', validate: 'ip', placeholder: '192.0.2.50', hint: 'Boşsa syslog yazılmaz', why: "Yerel /var/log dönerek silinir; yetkisiz giriş ve config değişikliği izleri ancak uzak kopyada kalır." },
+                        { name: 'sl_port', label: 'Port', type: 'text', validate: 'port', placeholder: '514', hint: 'Boşsa varsayılan 514' },
+                        { name: 'sl_src', label: 'Kaynak IP (local-ip)', type: 'text', validate: 'ip', placeholder: '192.0.2.10', hint: 'Opsiyonel; bir self IP veya mgmt adresi' }
+                    ]
+                },
+                {
+                    title: 'Yönetim Ağı',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'mgmt_gw', label: 'Mgmt Default Gateway', type: 'text', validate: 'ip', placeholder: '192.0.2.1', hint: 'Boşsa yazılmaz', why: "Management-route, TMM (veri düzlemi) rotalarından ayrıdır; tanımlanmazsa NTP/DNS/syslog yönetim arayüzünden çıkamaz ve GUI'ye yalnız aynı subnet'ten erişilir." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const hostname = cgEsc(data.hostname || '');
+            const ntp = [data.ntp1, data.ntp2].map(v => cgEsc(v || '')).filter(Boolean);
+            const tz = cgEsc(data.tz || '');
+            const dns = [data.dns1, data.dns2].map(v => cgEsc(v || '')).filter(Boolean);
+            const search = cgEsc(data.dns_search || '');
+            const slHost = cgEsc(data.sl_host || ''), slPort = cgEsc(data.sl_port || ''), slSrc = cgEsc(data.sl_src || '');
+            const gw = cgEsc(data.mgmt_gw || '');
+            let c = '# ========================================\n# F5 BIG-IP — Sistem Temeli\n# ========================================\n\n';
+            if (hostname) c += 'tmsh modify sys global-settings hostname ' + hostname + '\n\n';
+            c += '# NTP\n';
+            c += 'tmsh modify sys ntp servers replace-all-with { ' + ntp.join(' ') + ' }\n';
+            if (tz) c += 'tmsh modify sys ntp timezone "' + tz + '"\n';
+            c += '\n# DNS\n';
+            c += 'tmsh modify sys dns name-servers replace-all-with { ' + dns.join(' ') + ' }\n';
+            if (search) c += 'tmsh modify sys dns search replace-all-with { ' + search + ' }\n';
+            if (slHost) {
+                c += '\n# Uzak syslog\n';
+                c += 'tmsh modify sys syslog remote-servers replace-all-with { SYSLOG1 { host ' + slHost;
+                if (slPort) c += ' remote-port ' + slPort;
+                if (slSrc) c += ' local-ip ' + slSrc;
+                c += ' } }\n';
+            }
+            if (gw) {
+                c += '\n# Yönetim default route (varsa önce: tmsh delete sys management-route default)\n';
+                c += 'tmsh create sys management-route default gateway ' + gw + '\n';
+            }
+            c += '\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list sys ntp\n# tmsh list sys dns\n';
+            if (slHost) c += '# tmsh list sys syslog remote-servers\n';
+            if (gw) c += '# tmsh list sys management-route\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: Yönetim Erişimi (SSH / GUI allow, banner, timeout) ────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_sshd.html (allow, banner, banner-text, inactivity-timeout)
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_httpd.html (allow, auth-pam-idle-timeout)
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_global-settings.html (gui-security-banner, console-inactivity-timeout)
+F5LTM.mgmtaccess = {
+    label: 'Yönetim Erişimi (SSH/GUI)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-lock',
+                title: 'Yönetim Erişimi — SSH / GUI Kısıtlama',
+                desc: 'SSH ve web arayüzüne (httpd) yalnız yönetim ağlarından erişim, oturum zaman aşımları ve giriş uyarı metni.<br>Örnek: <code>tmsh modify sys sshd allow replace-all-with { 192.0.2.0/255.255.255.0 }</code>',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            sections: [
+                {
+                    title: 'İzinli Yönetim Ağları',
+                    icon: 'fas fa-network-wired',
+                    warn: 'Liste <code>replace-all-with</code> ile yazılır. Şu an bağlı olduğunuz adres listede yoksa SSH/GUI oturumunuz yeniden bağlanamaz — önce konsol erişiminizi doğrulayın.',
+                    fields: [
+                        { name: 'net1', label: 'Yönetim Ağı 1', type: 'text', validate: 'ip_cidr', required: true, placeholder: '192.0.2.0/24', hint: 'IP veya CIDR; adres/maske biçimine çevrilir', why: "Varsayılan <code>allow ALL</code> ile SSH ve GUI her self IP'den ve mgmt'den erişilebilir; internete açık bir yönetim arayüzü BIG-IP'de en sık istismar edilen yüzeydir." },
+                        { name: 'net2', label: 'Yönetim Ağı 2', type: 'text', validate: 'ip_cidr', placeholder: '198.51.100.0/24' },
+                        { name: 'do_ssh', label: 'SSH (sshd) listesine uygula', type: 'checkbox', checked: true },
+                        { name: 'do_gui', label: 'GUI (httpd) listesine uygula', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'Zaman Aşımı & Banner',
+                    icon: 'fas fa-hourglass-half',
+                    fields: [
+                        { name: 'ssh_to', label: 'SSH Boşta Kalma (sn)', type: 'text', min: 60, max: 86400, placeholder: '900', hint: 'sshd inactivity-timeout; boşsa değiştirilmez', why: "Varsayılan 0 (kapalı): unutulan SSH oturumu sonsuza kadar açık kalır." },
+                        { name: 'gui_to', label: 'GUI Boşta Kalma (sn)', type: 'text', min: 60, max: 86400, placeholder: '1200', hint: 'httpd auth-pam-idle-timeout' },
+                        { name: 'con_to', label: 'Konsol Boşta Kalma (sn)', type: 'text', min: 60, max: 86400, placeholder: '900', hint: 'global-settings console-inactivity-timeout' },
+                        { name: 'banner', label: 'Giriş Uyarı Metni', type: 'text', placeholder: 'Yetkisiz erisim yasaktir', hint: 'SSH banner + GUI güvenlik banner\'ı', why: "Yasal uyarı metni birçok denetim (ISO 27001, PCI) tarafından istenir; yetkisiz erişimde hukuki süreç için kanıt niteliği taşır." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const nets = [data.net1, data.net2].map(v => cgF5AddrMask(cgEsc(v || ''))).filter(Boolean);
+            const sshTo = cgEsc(data.ssh_to || ''), guiTo = cgEsc(data.gui_to || ''), conTo = cgEsc(data.con_to || '');
+            const banner = cgEsc(data.banner || '');
+            let c = '# ========================================\n# F5 BIG-IP — Yönetim Erişimi\n# ========================================\n\n';
+            if (!data.do_ssh && !data.do_gui) c += '# UYARI: SSH ve GUI seçilmedi — izinli ağ listesi hiçbir servise uygulanmadı.\n\n';
+            if (data.do_ssh) c += 'tmsh modify sys sshd allow replace-all-with { ' + nets.join(' ') + ' }\n';
+            if (sshTo) c += 'tmsh modify sys sshd inactivity-timeout ' + sshTo + '\n';
+            if (banner) c += 'tmsh modify sys sshd banner enabled banner-text "' + banner + '"\n';
+            if (data.do_gui) c += 'tmsh modify sys httpd allow replace-all-with { ' + nets.join(' ') + ' }\n';
+            if (guiTo) c += 'tmsh modify sys httpd auth-pam-idle-timeout ' + guiTo + '\n';
+            if (banner) c += 'tmsh modify sys global-settings gui-security-banner enabled gui-security-banner-text "' + banner + '"\n';
+            if (conTo) c += 'tmsh modify sys global-settings console-inactivity-timeout ' + conTo + '\n';
+            c += '\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list sys sshd allow inactivity-timeout\n# tmsh list sys httpd allow auth-pam-idle-timeout\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: SNMP ───────────────────────────────────────────────────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_snmp.html
+//            (allowed-addresses, communities, users, traps örnekleri; auth-protocol md5|sha, privacy-protocol aes|des)
+F5LTM.snmp = {
+    label: 'SNMP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-chart-line',
+                title: 'SNMP (v3 / v2c)',
+                desc: 'İzleme sistemi için SNMP erişimi: izinli adresler, salt okunur v3 kullanıcı veya v2c community ve trap hedefi.<br>Örnek: <code>tmsh modify sys snmp users add { snmpmon { username snmpmon access ro security-level auth-privacy ... } }</code>'
+            },
+            configTypes: [
+                { id: 'v3', label: 'SNMPv3', icon: 'fas fa-lock', desc: 'Kimlik doğrulama + şifreleme', badge: { text: 'Önerilen', cls: 'recommended' } },
+                { id: 'v2c', label: 'SNMPv2c', icon: 'fas fa-unlock', desc: 'Düz metin community', badge: { text: 'Eski', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Erişim',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'allow_net', label: 'İzinli Ağ (NMS)', type: 'text', validate: 'ip_cidr', required: true, placeholder: '192.0.2.0/24', hint: 'allowed-addresses; adres/maske biçimine çevrilir', why: "allowed-addresses boşsa SNMP yalnız localhost'a cevap verir; çok geniş verilirse community/kullanıcı tahmini için saldırı yüzeyi açılır." },
+                        { name: 'contact', label: 'sys-contact', type: 'text', placeholder: 'noc@example.com' },
+                        { name: 'location', label: 'sys-location', type: 'text', placeholder: 'DC1-Rack12' }
+                    ]
+                },
+                {
+                    title: 'SNMPv3 Kullanıcı',
+                    icon: 'fas fa-user-shield',
+                    showFor: ['v3'],
+                    fields: [
+                        { name: 'v3_user', label: 'Kullanıcı Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'snmpmon' },
+                        { name: 'v3_auth', label: 'Auth Protokolü', type: 'select', options: [
+                            { value: 'sha', label: 'SHA', selected: true },
+                            { value: 'md5', label: 'MD5 (zayıf)' }
+                        ] },
+                        { name: 'v3_auth_pw', label: 'Auth Parolası', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'Ornek-AuthPass-01', hint: 'En az 8 karakter' },
+                        { name: 'v3_priv', label: 'Privacy Protokolü', type: 'select', options: [
+                            { value: 'aes', label: 'AES', selected: true },
+                            { value: 'des', label: 'DES (zayıf)' }
+                        ], why: "auth-privacy seviyesi hem bütünlük hem gizlilik sağlar; DES ve MD5 günümüzde kırılabilir kabul edilir ve denetimlerde bulgu üretir." },
+                        { name: 'v3_priv_pw', label: 'Privacy Parolası', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'Ornek-PrivPass-01' }
+                    ]
+                },
+                {
+                    title: 'SNMPv2c Community',
+                    icon: 'fas fa-users',
+                    showFor: ['v2c'],
+                    warn: 'v2c community ağda düz metin gider. Yalnız ayrık yönetim ağında ve salt okunur (ro) kullanın.',
+                    fields: [
+                        { name: 'v2_comm', label: 'Community', type: 'text', requiredIf: { field: '_cgtype', in: ['v2c'] }, placeholder: 'Ornek-RO-Topluluk', hint: '"public" kullanmayın' },
+                        { name: 'v2_src', label: 'Kaynak (source)', type: 'text', validate: 'ip', placeholder: '192.0.2.20', hint: 'Bu community yalnız bu NMS\'ten kabul edilir' }
+                    ]
+                },
+                {
+                    title: 'Trap Hedefi',
+                    icon: 'fas fa-bell',
+                    fields: [
+                        { name: 'trap_host', label: 'Trap Alıcısı', type: 'text', validate: 'ip', placeholder: '192.0.2.20', hint: 'Boşsa trap yazılmaz' },
+                        { name: 'trap_port', label: 'Trap Portu', type: 'text', validate: 'port', placeholder: '162', hint: 'Boşsa 162' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const v3 = data._cgtype !== 'v2c';
+            const allow = cgF5AddrMask(cgEsc(data.allow_net || ''));
+            const contact = cgEsc(data.contact || ''), location = cgEsc(data.location || '');
+            const user = cgEsc(data.v3_user || ''), auth = cgEsc(data.v3_auth || 'sha'), authPw = cgEsc(data.v3_auth_pw || '');
+            const priv = cgEsc(data.v3_priv || 'aes'), privPw = cgEsc(data.v3_priv_pw || '');
+            const comm = cgEsc(data.v2_comm || ''), src = cgEsc(data.v2_src || '');
+            const trap = cgEsc(data.trap_host || ''), tport = cgEsc(data.trap_port || '') || '162';
+            let c = '# ========================================\n# F5 BIG-IP — SNMP ' + (v3 ? 'v3' : 'v2c') + '\n# ========================================\n\n';
+            c += 'tmsh modify sys snmp allowed-addresses replace-all-with { ' + allow + ' }\n';
+            if (contact) c += 'tmsh modify sys snmp sys-contact "' + contact + '"\n';
+            if (location) c += 'tmsh modify sys snmp sys-location "' + location + '"\n';
+            c += '\n';
+            if (v3) {
+                if (auth === 'md5' || priv === 'des') c += '# UYARI: MD5/DES zayıf kabul edilir — SHA/AES tercih edin.\n';
+                const sec = ' security-level auth-privacy auth-protocol ' + auth + ' auth-password ' + authPw + ' privacy-protocol ' + priv + ' privacy-password ' + privPw;
+                c += 'tmsh modify sys snmp users add { ' + user + ' { username ' + user + ' access ro' + sec + ' } }\n';
+                if (trap) c += 'tmsh modify sys snmp traps add { TRAP_V3 { version 3 host ' + trap + ' port ' + tport + ' security-name ' + user + sec + ' } }\n';
+            } else {
+                if (!src) c += '# UYARI: source boş — izinli ağdaki her adres bu community ile sorgu yapabilir.\n';
+                c += 'tmsh modify sys snmp communities add { COMM_RO { community-name ' + comm + ' access ro' + (src ? ' source ' + src : '') + ' } }\n';
+                if (trap) c += 'tmsh modify sys snmp traps add { TRAP_V2 { version 2c community ' + comm + ' host ' + trap + ' port ' + tport + ' } }\n';
+            }
+            c += '\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list sys snmp allowed-addresses\n# tmsh list sys snmp ' + (v3 ? 'users' : 'communities') + '\n';
+            if (trap) c += '# tmsh list sys snmp traps\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: Yerel Kullanıcı, Rol, Parola Politikası ────────────────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/auth/auth_user.html (partition-access, shell, prompt-for-password, roller)
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/auth/auth_partition.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/auth/auth_password-policy.html
+F5LTM.authuser = {
+    label: 'Yerel Kullanıcı & Rol',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-cog',
+                title: 'Yerel Kullanıcı, Rol ve Parola Politikası',
+                desc: 'Kişiye özel yönetici hesabı (paylaşılan admin yerine), partition bazlı rol ve parola politikası.<br>Örnek: <code>tmsh create auth user netops1 partition-access add { all-partitions { role operator } } shell tmsh prompt-for-password</code>'
+            },
+            sections: [
+                {
+                    title: 'Kullanıcı',
+                    icon: 'fas fa-user',
+                    fields: [
+                        { name: 'user', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netops1', why: "Paylaşılan <code>admin</code> hesabı ile yapılan değişikliğin kimin olduğu audit log'dan anlaşılamaz; kişisel hesap izlenebilirlik sağlar." },
+                        { name: 'role', label: 'Rol', type: 'select', options: [
+                            { value: 'operator', label: 'operator — üye enable/disable', selected: true },
+                            { value: 'guest', label: 'guest — salt okunur' },
+                            { value: 'auditor', label: 'auditor — tüm config salt okunur' },
+                            { value: 'application-editor', label: 'application-editor' },
+                            { value: 'manager', label: 'manager' },
+                            { value: 'certificate-manager', label: 'certificate-manager' },
+                            { value: 'irule-manager', label: 'irule-manager' },
+                            { value: 'user-manager', label: 'user-manager' },
+                            { value: 'resource-admin', label: 'resource-admin' },
+                            { value: 'admin', label: 'admin — tam yetki' }
+                        ], why: "En az yetki ilkesi: günlük operasyon (üye devreden çıkarma) için operator yeterlidir; admin rolü bash erişimi ve tüm partition'lar üzerinde tam yetki verir." },
+                        { name: 'partition', label: 'Partition', type: 'text', placeholder: 'Common', hint: 'Boşsa all-partitions' },
+                        { name: 'mk_part', label: 'Partition\'ı oluştur (yeni ise)', type: 'checkbox', checked: false },
+                        { name: 'shell', label: 'Kabuk', type: 'select', options: [
+                            { value: 'tmsh', label: 'tmsh', selected: true },
+                            { value: 'none', label: 'none — yalnız GUI' },
+                            { value: 'bash', label: 'bash — yalnız admin' }
+                        ], why: "bash kabuğu işletim sistemine sınırsız erişim verir ve yalnız admin rolünde anlamlıdır; operatörlere tmsh veya none verin." },
+                        { name: 'password', label: 'Parola', type: 'text', placeholder: 'Ornek-Parola-2026', hint: 'Boşsa prompt-for-password (tmsh sorar)' },
+                        { name: 'desc', label: 'Açıklama', type: 'text', placeholder: 'NOC operatoru' }
+                    ]
+                },
+                {
+                    title: 'Parola Politikası (sistem geneli)',
+                    icon: 'fas fa-key',
+                    fields: [
+                        { name: 'pp_on', label: 'Parola politikasını uygula', type: 'checkbox', checked: true },
+                        { name: 'pp_min', label: 'Minimum Uzunluk', type: 'text', min: 6, max: 255, placeholder: '12', hint: 'minimum-length' },
+                        { name: 'pp_complex', label: 'Büyük/küçük harf + rakam + özel karakter zorunlu', type: 'checkbox', checked: true },
+                        { name: 'pp_fail', label: 'Kilitlenme Öncesi Hatalı Deneme', type: 'text', min: 1, max: 64, placeholder: '5', hint: 'max-login-failures', why: "Varsayılan 0 (kapalı): kaba kuvvet denemelerine sınırsız hak tanır. Değer çok düşükse yanlış yazan operatörler sık kilitlenir." },
+                        { name: 'pp_maxdur', label: 'Parola Geçerlilik (gün)', type: 'text', min: 1, max: 99999, placeholder: '90', hint: 'max-duration' },
+                        { name: 'pp_mem', label: 'Parola Geçmişi', type: 'text', min: 1, max: 127, placeholder: '5', hint: 'password-memory' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const user = cgEsc(data.user || ''), role = cgEsc(data.role || 'operator');
+            const part = cgEsc(data.partition || ''), shell = cgEsc(data.shell || 'tmsh');
+            const pw = cgEsc(data.password || ''), desc = cgEsc(data.desc || '');
+            const pmin = cgEsc(data.pp_min || ''), pfail = cgEsc(data.pp_fail || ''), pdur = cgEsc(data.pp_maxdur || ''), pmem = cgEsc(data.pp_mem || '');
+            let c = '# ========================================\n# F5 BIG-IP — Yerel Kullanıcı & Rol\n# ========================================\n\n';
+            if (part && data.mk_part) c += 'tmsh create auth partition ' + part + '\n';
+            if (part && (role === 'admin' || role === 'resource-admin')) c += '# UYARI: ' + role + ' rolü yalnız all-partitions ile atanabilir — partition alanını boş bırakın.\n';
+            if (shell === 'bash' && role !== 'admin') c += '# UYARI: bash kabuğu yalnız admin rolünde kullanılabilir.\n';
+            if (!pw) c += '# NOT: parola girilmedi — tmsh parolayı soracak; bu satırı tek başına çalıştırın.\n';
+            c += 'tmsh create auth user ' + user + ' partition-access add { ' + (part || 'all-partitions') + ' { role ' + role + ' } } shell ' + shell;
+            if (desc) c += ' description "' + desc + '"';
+            c += pw ? ' password ' + pw : ' prompt-for-password';
+            c += '\n';
+            if (data.pp_on) {
+                c += '\ntmsh modify auth password-policy policy-enforcement enabled';
+                if (pmin) c += ' minimum-length ' + pmin;
+                if (data.pp_complex) c += ' required-uppercase 1 required-lowercase 1 required-numeric 1 required-special 1';
+                if (pfail) c += ' max-login-failures ' + pfail;
+                if (pdur) c += ' max-duration ' + pdur;
+                if (pmem) c += ' password-memory ' + pmem;
+                c += '\n';
+            }
+            c += '\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list auth user ' + user + '\n';
+            if (data.pp_on) c += '# tmsh list auth password-policy\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: Uzak Kimlik Doğrulama (LDAP / RADIUS / TACACS+) ───────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/auth/auth_ldap.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/auth/auth_radius-server.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/auth/auth_radius.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/auth/auth_tacacs.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/auth/auth_source.html (type, fallback)
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/auth/auth_remote-user.html
+F5LTM.remoteauth = {
+    label: 'Uzak Kimlik Doğrulama',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-id-badge',
+                title: 'Uzak Kimlik Doğrulama — LDAP / RADIUS / TACACS+',
+                desc: 'BIG-IP yönetici girişlerini merkezi dizine/AAA sunucusuna bağlar (<code>auth source</code>). Uygulama kullanıcıları için değil, cihaz yönetimi içindir (APM ayrı).',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            configTypes: [
+                { id: 'ldap', label: 'LDAP / AD', icon: 'fas fa-address-book', desc: 'LDAPS ile dizin', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'radius', label: 'RADIUS', icon: 'fas fa-broadcast-tower', desc: 'NPS / ISE' },
+                { id: 'tacacs', label: 'TACACS+', icon: 'fas fa-terminal', desc: 'ISE / tac_plus' }
+            ],
+            sections: [
+                {
+                    title: 'LDAP',
+                    icon: 'fas fa-address-book',
+                    showFor: ['ldap'],
+                    fields: [
+                        { name: 'ldap1', label: 'LDAP Sunucu 1', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: '192.0.2.30' },
+                        { name: 'ldap2', label: 'LDAP Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.31' },
+                        { name: 'ldap_base', label: 'Search Base DN', type: 'text', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: 'dc=example,dc=com' },
+                        { name: 'ldap_bind_dn', label: 'Bind DN', type: 'text', placeholder: 'cn=svc-bigip,ou=svc,dc=example,dc=com', hint: 'Boşsa anonim arama' },
+                        { name: 'ldap_bind_pw', label: 'Bind Parolası', type: 'text', placeholder: 'Ornek-Bind-Parola' },
+                        { name: 'ldap_attr', label: 'Login Attribute', type: 'select', options: [
+                            { value: 'samaccountname', label: 'samaccountname (AD)', selected: true },
+                            { value: 'uid', label: 'uid (OpenLDAP)' }
+                        ] },
+                        { name: 'ldap_tls', label: 'Bağlantı', type: 'select', options: [
+                            { value: 'ssl', label: 'LDAPS (636, ssl enabled)', selected: true },
+                            { value: 'plain', label: 'LDAP (389, şifresiz)' }
+                        ], why: "Şifresiz LDAP'ta yönetici parolaları ağda düz metin geçer. LDAPS'te CA dosyası verilip ssl-check-peer açılmazsa sahte LDAP sunucusu parolaları toplayabilir." },
+                        { name: 'ldap_ca', label: 'CA Sertifikası (ssl-ca-cert-file)', type: 'text', placeholder: 'ldap-ca.crt', hint: 'Önceden sys file ssl-cert olarak yüklenmiş olmalı' }
+                    ]
+                },
+                {
+                    title: 'RADIUS',
+                    icon: 'fas fa-broadcast-tower',
+                    showFor: ['radius'],
+                    fields: [
+                        { name: 'rad1', label: 'RADIUS Sunucu 1', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['radius'] }, placeholder: '192.0.2.40' },
+                        { name: 'rad2', label: 'RADIUS Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.41' },
+                        { name: 'rad_secret', label: 'Paylaşılan Anahtar', type: 'text', requiredIf: { field: '_cgtype', in: ['radius'] }, placeholder: 'Ornek-Radius-Anahtar' },
+                        { name: 'rad_port', label: 'Port', type: 'text', validate: 'port', placeholder: '1812', hint: 'Boşsa 1812' }
+                    ]
+                },
+                {
+                    title: 'TACACS+',
+                    icon: 'fas fa-terminal',
+                    showFor: ['tacacs'],
+                    fields: [
+                        { name: 'tac1', label: 'TACACS+ Sunucu 1', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['tacacs'] }, placeholder: '192.0.2.45' },
+                        { name: 'tac2', label: 'TACACS+ Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.46' },
+                        { name: 'tac_secret', label: 'Paylaşılan Anahtar', type: 'text', requiredIf: { field: '_cgtype', in: ['tacacs'] }, placeholder: 'Ornek-Tacacs-Anahtar' },
+                        { name: 'tac_service', label: 'Service', type: 'text', requiredIf: { field: '_cgtype', in: ['tacacs'] }, placeholder: 'ppp', hint: 'TACACS+ sunucusundaki servis adı ile aynı olmalı' },
+                        { name: 'tac_proto', label: 'Protocol', type: 'text', requiredIf: { field: '_cgtype', in: ['tacacs'] }, placeholder: 'ip' }
+                    ]
+                },
+                {
+                    title: 'Varsayılan Yetki & Yedek',
+                    icon: 'fas fa-user-tag',
+                    fields: [
+                        { name: 'def_role', label: 'Varsayılan Rol (remote-user)', type: 'select', options: [
+                            { value: 'no-access', label: 'no-access (önerilen)', selected: true },
+                            { value: 'guest', label: 'guest' },
+                            { value: 'operator', label: 'operator' },
+                            { value: 'auditor', label: 'auditor' }
+                        ], why: "Dizinde doğrulanan HER kullanıcı bu rolü alır. admin gibi geniş bir rol seçmek şirketteki tüm hesaplara cihaz yönetimi açar; rol eşlemesi (remote-role) ile yalnız belirli gruplara yetki verin." },
+                        { name: 'console', label: 'Konsol Erişimi', type: 'select', options: [
+                            { value: 'disabled', label: 'disabled', selected: true },
+                            { value: 'tmsh', label: 'tmsh' }
+                        ] },
+                        { name: 'fallback', label: 'Sunucular erişilemezse yerel hesaba düş (fallback)', type: 'checkbox', checked: true, why: "Fallback kapalıyken AAA sunucusu çökerse yerel admin dahil kimse giriş yapamaz (konsol hariç)." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'ldap';
+            const role = cgEsc(data.def_role || 'no-access'), con = cgEsc(data.console || 'disabled');
+            let c = '# ========================================\n# F5 BIG-IP — Uzak Kimlik Doğrulama (' + t.toUpperCase() + ')\n# ========================================\n\n';
+            if (t === 'ldap') {
+                const srv = [data.ldap1, data.ldap2].map(v => cgEsc(v || '')).filter(Boolean);
+                const base = cgEsc(data.ldap_base || ''), bdn = cgEsc(data.ldap_bind_dn || ''), bpw = cgEsc(data.ldap_bind_pw || '');
+                const attr = cgEsc(data.ldap_attr || 'samaccountname'), ca = cgEsc(data.ldap_ca || '');
+                const tls = data.ldap_tls !== 'plain';
+                if (!tls) c += '# UYARI: şifresiz LDAP — parolalar ağda düz metin geçer.\n';
+                if (tls && !ca) c += '# UYARI: CA dosyası yok — LDAP sunucu sertifikası doğrulanmaz (ssl-check-peer kapalı).\n';
+                if (bdn && !bpw) c += '# UYARI: Bind DN var ama parola yok — bind başarısız olur.\n';
+                c += 'tmsh create auth ldap system-auth servers add { ' + srv.join(' ') + ' } port ' + (tls ? '636' : '389');
+                c += ' search-base-dn "' + base + '" login-attribute ' + attr;
+                if (bdn) c += ' bind-dn "' + bdn + '"';
+                if (bpw) c += ' bind-pw "' + bpw + '"';
+                if (tls) c += ' ssl enabled' + (ca ? ' ssl-ca-cert-file ' + ca + ' ssl-check-peer enabled' : '');
+                c += '\n';
+            } else if (t === 'radius') {
+                const srv = [data.rad1, data.rad2].map(v => cgEsc(v || '')).filter(Boolean);
+                const sec = cgEsc(data.rad_secret || ''), port = cgEsc(data.rad_port || '');
+                const names = [];
+                srv.forEach((ip, i) => {
+                    const n = 'RADIUS' + (i + 1);
+                    names.push(n);
+                    c += 'tmsh create auth radius-server ' + n + ' server ' + ip + ' secret "' + sec + '"' + (port ? ' port ' + port : '') + '\n';
+                });
+                c += 'tmsh create auth radius system-auth servers add { ' + names.join(' ') + ' }\n';
+            } else {
+                const srv = [data.tac1, data.tac2].map(v => cgEsc(v || '')).filter(Boolean);
+                c += 'tmsh create auth tacacs system-auth servers add { ' + srv.join(' ') + ' } secret "' + cgEsc(data.tac_secret || '') + '"';
+                c += ' service ' + cgEsc(data.tac_service || '') + ' protocol ' + cgEsc(data.tac_proto || '') + ' encryption enabled\n';
+            }
+            c += '\ntmsh modify auth remote-user default-role ' + role + ' default-partition all remote-console-access ' + con + '\n';
+            c += 'tmsh modify auth source type ' + t + ' fallback ' + (data.fallback ? 'true' : 'false') + '\n';
+            if (!data.fallback) c += '# UYARI: fallback kapalı — AAA sunucuları erişilemezse yalnız konsoldan giriş yapılabilir.\n';
+            c += '\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list auth source\n# tmsh list auth ' + t + ' system-auth\n# tmsh list auth remote-user\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: Self IP Port Kısıtlama (allow-service) ─────────────────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/net/net_self.html
+//            (allow-service [all | default | none] / [add | delete | replace-all-with] { protocol:port ... })
+F5LTM.selfport = {
+    label: 'Self IP Port Kısıtlama',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-door-closed',
+                title: 'Self IP Port Lockdown (allow-service)',
+                desc: 'Self IP\'lerin hangi servislere (SSH, GUI, config-sync, failover) cevap vereceğini sınırlar. Virtual server trafiğini etkilemez; yalnız BIG-IP\'nin kendisine gelen trafiği.<br>Örnek: <code>tmsh modify net self SELF_HA allow-service replace-all-with { tcp:4353 udp:1026 }</code>',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            sections: [
+                {
+                    title: 'Self IP',
+                    icon: 'fas fa-map-marker-alt',
+                    fields: [
+                        { name: 'self_name', label: 'Self IP Adı', type: 'text', required: true, placeholder: 'SELF_EXTERNAL', hint: '<code>tmsh list net self</code> çıktısındaki ad' },
+                        { name: 'mode', label: 'Mod', type: 'select', options: [
+                            { value: 'custom', label: 'Yalnız seçilen portlar', selected: true },
+                            { value: 'none', label: 'none — hiçbir servis (dış bacak için önerilen)' },
+                            { value: 'default', label: 'default — F5 varsayılan listesi (geniş)' }
+                        ], why: "İnternete bakan self IP'de <code>allow-service all/default</code> GUI (443) ve SSH'ı dışarı açar; BIG-IP yönetim arayüzü açıkları (ör. iControl REST) bu yoldan istismar edilmiştir. Dış bacakta <code>none</code> kullanın." }
+                    ]
+                },
+                {
+                    title: 'İzinli Servisler (Özel mod)',
+                    icon: 'fas fa-list-check',
+                    fields: [
+                        { name: 'p_ha', label: 'HA: config-sync tcp:4353 + failover udp:1026', type: 'checkbox', checked: false, why: "HA VLAN'ındaki self IP'de bu iki port kapalıysa cihazlar sync olamaz ve failover kalp atışı kesilir — iki cihaz da active olur." },
+                        { name: 'p_ssh', label: 'SSH tcp:22', type: 'checkbox', checked: false },
+                        { name: 'p_https', label: 'GUI / iControl tcp:443', type: 'checkbox', checked: false },
+                        { name: 'p_snmp', label: 'SNMP udp:161', type: 'checkbox', checked: false },
+                        { name: 'p_extra', label: 'Ek Portlar', type: 'text', placeholder: 'tcp:8443', hint: 'protocol:port, virgülle ayrılmış (örn: tcp:8443,udp:514)' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const name = cgEsc(data.self_name || ''), mode = cgEsc(data.mode || 'custom');
+            let c = '# ========================================\n# F5 BIG-IP — Self IP Port Kısıtlama\n# ========================================\n\n';
+            if (mode !== 'custom') {
+                if (mode === 'default') c += '# UYARI: default listesi SSH (22) ve GUI (443) dahil birçok servisi açar; dış bacakta kullanmayın.\n';
+                c += 'tmsh modify net self ' + name + ' allow-service ' + mode + '\n';
+            } else {
+                const ports = [];
+                if (data.p_ha) ports.push('tcp:4353', 'udp:1026');
+                if (data.p_ssh) ports.push('tcp:22');
+                if (data.p_https) ports.push('tcp:443');
+                if (data.p_snmp) ports.push('udp:161');
+                const bad = [];
+                cgF5List(cgEsc(data.p_extra || '')).forEach(p => {
+                    const m = p.toLowerCase().match(/^(tcp|udp):(\d{1,5})$/);
+                    if (m && +m[2] <= 65535) { if (!ports.includes(m[0])) ports.push(m[0]); } else bad.push(p);
+                });
+                if (bad.length) c += '# UYARI: geçersiz port girdisi atlandı: ' + bad.join(' ') + '\n';
+                if (ports.length) c += 'tmsh modify net self ' + name + ' allow-service replace-all-with { ' + ports.join(' ') + ' }\n';
+                else c += '# NOT: hiçbir servis seçilmedi — self IP tüm servislere kapatılıyor.\ntmsh modify net self ' + name + ' allow-service none\n';
+            }
+            c += '\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list net self ' + name + ' allow-service\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: Static Route (net route) ───────────────────────────────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/net/net_route.html
+//            (create route [name | default] network/gw/interface/pool/blackhole/mtu/description; gw/interface/pool/blackhole birbirini dışlar)
+F5LTM.route = {
+    label: 'Static Route',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Static Route (TMM)',
+                desc: 'Veri düzlemi (TMM) statik rotası. Yönetim arayüzü rotaları için <b>Sistem Temeli</b> aracındaki management-route kullanılır.<br>Örnek: <code>tmsh create net route RT_BRANCH network 10.64.0.0/16 gw 192.0.2.1</code>'
+            },
+            sections: [
+                {
+                    title: 'Hedef',
+                    icon: 'fas fa-bullseye',
+                    fields: [
+                        { name: 'rt_default', label: 'Default route (0.0.0.0/0)', type: 'checkbox', checked: false },
+                        { name: 'rt_name', label: 'Route Adı', type: 'text', requiredIf: { field: 'rt_default', checked: false }, placeholder: 'RT_BRANCH', hint: 'Default route\'ta ad "default" olur' },
+                        { name: 'rt_net', label: 'Hedef Ağ (CIDR)', type: 'text', validate: 'cidr', requiredIf: { field: 'rt_default', checked: false }, placeholder: '10.64.0.0/16' }
+                    ]
+                },
+                {
+                    title: 'Sonraki Atlama',
+                    icon: 'fas fa-share',
+                    fields: [
+                        { name: 'rt_type', label: 'Tip', type: 'select', options: [
+                            { value: 'gw', label: 'Gateway IP', selected: true },
+                            { value: 'pool', label: 'Gateway Pool' },
+                            { value: 'interface', label: 'VLAN / Tunnel' },
+                            { value: 'blackhole', label: 'Blackhole (düşür)' }
+                        ], why: "Gateway pool, birden çok next-hop'a monitor'lu yük dağıtımı sağlar; tek gateway düşerse rota da düşer. Blackhole, hedef ağa giden trafiği sessizce atar." },
+                        { name: 'rt_gw', label: 'Gateway IP', type: 'text', validate: 'ip', requiredIf: { field: 'rt_type', in: ['gw'] }, placeholder: '192.0.2.1', why: "Gateway bir self IP subnet'inde olmalı; aksi halde rota eklenir ama ARP çözülemediği için trafik düşer." },
+                        { name: 'rt_pool', label: 'Gateway Pool', type: 'text', requiredIf: { field: 'rt_type', in: ['pool'] }, placeholder: 'POOL_GW' },
+                        { name: 'rt_if', label: 'VLAN / Tunnel Adı', type: 'text', requiredIf: { field: 'rt_type', in: ['interface'] }, placeholder: 'external' },
+                        { name: 'rt_mtu', label: 'MTU', type: 'text', min: 576, max: 9198, placeholder: '1500', hint: 'Opsiyonel' },
+                        { name: 'rt_desc', label: 'Açıklama', type: 'text', placeholder: 'Sube agi' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const def = !!data.rt_default;
+            const name = def ? 'default' : cgEsc(data.rt_name || '');
+            const net = cgEsc(data.rt_net || ''), type = cgEsc(data.rt_type || 'gw');
+            const mtu = cgEsc(data.rt_mtu || ''), desc = cgEsc(data.rt_desc || '');
+            let c = '# ========================================\n# F5 BIG-IP — Static Route\n# ========================================\n\n';
+            c += 'tmsh create net route ' + name;
+            if (!def) c += ' network ' + net;
+            if (type === 'gw') c += ' gw ' + cgEsc(data.rt_gw || '');
+            else if (type === 'pool') c += ' pool ' + cgEsc(data.rt_pool || '');
+            else if (type === 'interface') c += ' interface ' + cgEsc(data.rt_if || '');
+            else c += ' blackhole';
+            if (mtu) c += ' mtu ' + mtu;
+            if (desc) c += ' description "' + desc + '"';
+            c += '\n\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list net route ' + name + '\n# tmsh show net route\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: Device Trust + Config Sync (DSC) ──────────────────────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/cm/cm_device.html (configsync-ip, unicast-address {ip, port}, management-ip anahtar sözcüğü, mirror-ip)
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/cm/cm_trust-domain.html (v13+: modify trust-domain Root add-device { ... })
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/cm/cm_device-group.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/cm/cm_config-sync.html
+F5LTM.devicetrust = {
+    label: 'Device Trust + Config Sync',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-handshake',
+                title: 'Device Trust + Config Sync (DSC)',
+                desc: 'İki BIG-IP arasında güven alanı (trust domain), device group ve ilk senkronizasyon. <code>add-device</code> sözdizimi v13.0 ve sonrası içindir.<br>Örnek: <code>tmsh modify cm trust-domain Root add-device { ca-device true device-ip 192.0.2.12 ... }</code>'
+            },
+            sections: [
+                {
+                    title: 'Bu Cihaz (her iki cihazda kendi değerleriyle)',
+                    icon: 'fas fa-server',
+                    info: 'Adım 1 her iki cihazda, o cihazın kendi adı ve self IP\'leriyle çalıştırılır. Adım 2-4 yalnız bir cihazda.',
+                    fields: [
+                        { name: 'local_dev', label: 'Bu Cihazın cm device Adı', type: 'text', required: true, placeholder: 'bigip1.example.com', hint: '<code>tmsh list cm device</code> çıktısındaki ad', why: "cm device adı hostname'den farklı olabilir; yanlış ad verilirse <code>modify cm device</code> 'not found' ile başarısız olur." },
+                        { name: 'sync_ip', label: 'Config-Sync IP', type: 'text', validate: 'ip', required: true, placeholder: '198.51.100.1', hint: 'HA VLAN\'ındaki yüzmeyen self IP', why: "Config-sync self IP'si <code>tcp:4353</code>'e izin vermiyorsa (Self IP Port Kısıtlama) cihazlar Disconnected kalır." },
+                        { name: 'fo_ip', label: 'Failover (unicast) IP', type: 'text', validate: 'ip', required: true, placeholder: '198.51.100.1', hint: 'Genelde config-sync IP ile aynı' },
+                        { name: 'fo_mgmt', label: 'Mgmt adresini ikinci failover yolu olarak ekle', type: 'checkbox', checked: true, why: "Tek failover yolu koparsa her iki cihaz da active olur (split-brain); management-ip ikinci kalp atışı yolu sağlar." },
+                        { name: 'mirror_ip', label: 'Mirroring IP', type: 'text', validate: 'ip', placeholder: '198.51.100.1', hint: 'Opsiyonel — bağlantı yansıtma' }
+                    ]
+                },
+                {
+                    title: 'Karşı Cihaz',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'peer_name', label: 'Karşı Cihaz Adı', type: 'text', required: true, placeholder: 'bigip2.example.com' },
+                        { name: 'peer_mgmt', label: 'Karşı Cihaz Mgmt IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.12' },
+                        { name: 'peer_user', label: 'Karşı Cihaz Yönetici', type: 'text', required: true, placeholder: 'admin' },
+                        { name: 'peer_pw', label: 'Karşı Cihaz Parolası', type: 'text', required: true, placeholder: 'Ornek-Parola', hint: 'Yalnız trust kurulumunda kullanılır, config\'e yazılmaz' }
+                    ]
+                },
+                {
+                    title: 'Device Group',
+                    icon: 'fas fa-object-group',
+                    fields: [
+                        { name: 'dg_name', label: 'Device Group Adı', type: 'text', required: true, placeholder: 'DG_FAILOVER' },
+                        { name: 'dg_type', label: 'Tip', type: 'select', options: [
+                            { value: 'sync-failover', label: 'sync-failover (aktif/yedek)', selected: true },
+                            { value: 'sync-only', label: 'sync-only' }
+                        ], why: "Tip sonradan değiştirilemez; yanlış seçilirse grup silinip yeniden kurulmalıdır." },
+                        { name: 'auto_sync', label: 'Auto-Sync', type: 'select', options: [
+                            { value: 'disabled', label: 'disabled — elle sync (önerilen)', selected: true },
+                            { value: 'enabled', label: 'enabled' }
+                        ], why: "Auto-sync açıkken bir cihazda yapılan hatalı değişiklik anında eşe de gider; elle sync gözden geçirme fırsatı verir." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const dev = cgEsc(data.local_dev || ''), sync = cgEsc(data.sync_ip || ''), fo = cgEsc(data.fo_ip || '');
+            const mir = cgEsc(data.mirror_ip || '');
+            const peer = cgEsc(data.peer_name || ''), pmgmt = cgEsc(data.peer_mgmt || '');
+            const puser = cgEsc(data.peer_user || ''), ppw = cgEsc(data.peer_pw || '');
+            const dg = cgEsc(data.dg_name || ''), type = cgEsc(data.dg_type || 'sync-failover'), auto = cgEsc(data.auto_sync || 'disabled');
+            let c = '# ========================================\n# F5 BIG-IP — Device Trust + Config Sync\n# ========================================\n\n';
+            c += '# 1) HER İKİ cihazda (kendi adı ve IP\'leriyle):\n';
+            c += 'tmsh modify cm device ' + dev + ' configsync-ip ' + sync + ' unicast-address { { ip ' + fo + ' port 1026 }' + (data.fo_mgmt ? ' { ip management-ip port 1026 }' : '') + ' }';
+            if (mir) c += ' mirror-ip ' + mir;
+            c += '\n\n';
+            c += '# 2) YALNIZ bu cihazda — karşı cihazı güven alanına ekle:\n';
+            c += 'tmsh modify cm trust-domain Root add-device { ca-device true device-ip ' + pmgmt + ' device-name ' + peer + ' username ' + puser + ' password ' + ppw + ' }\n\n';
+            c += '# 3) Device group:\n';
+            c += 'tmsh create cm device-group ' + dg + ' devices add { ' + dev + ' ' + peer + ' } type ' + type;
+            if (type === 'sync-failover') c += ' network-failover enabled';
+            c += ' auto-sync ' + auto + '\n\n';
+            c += '# 4) İlk senkronizasyon (bu cihazdan gruba):\n';
+            c += 'tmsh run cm config-sync to-group ' + dg + '\n';
+            c += 'tmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh show cm sync-status\n# tmsh list cm trust-domain\n# tmsh list cm device-group ' + dg + '\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: SSL Cipher Group Sertleştirme (client-ssl) ────────────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/ltm/ltm_cipher_rule.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/ltm/ltm_cipher_group.html
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/ltm/ltm_profile_client-ssl.html
+//            (cipher-group, ciphers, options { no-ssl no-tlsv1 no-tlsv1.1 no-tlsv1.3 ... }, secure-renegotiation, renegotiation)
+//            Hazır gruplar (f5-default / f5-ecc / f5-secure): https://community.f5.com/kb/technicalarticles/cipher-rules-and-groups-in-big-ip-v13/279555
+F5LTM.sslharden = {
+    label: 'SSL Cipher Group Sertleştirme',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-shield-alt',
+                title: 'Client-SSL Sertleştirme — Cipher Group + Protokol',
+                desc: 'Mevcut bir client-ssl profiline cipher group bağlar, SSLv3/TLS 1.0/1.1\'i kapatır ve güvensiz renegotiation\'ı engeller (v13+ cipher group).<br>Örnek: <code>tmsh modify ltm profile client-ssl MY_CLIENT_SSL ciphers none cipher-group f5-secure</code>',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            sections: [
+                {
+                    title: 'Profil & Cipher Group',
+                    icon: 'fas fa-lock',
+                    fields: [
+                        { name: 'prof', label: 'Client-SSL Profil Adı', type: 'text', required: true, placeholder: 'MY_CLIENT_SSL', hint: 'Var olan profil (SSL Client Profile aracıyla oluşturulan)' },
+                        { name: 'grp', label: 'Cipher Group', type: 'select', options: [
+                            { value: 'f5-secure', label: 'f5-secure (hazır, önerilen)', selected: true },
+                            { value: 'f5-ecc', label: 'f5-ecc (hazır, yalnız ECC)' },
+                            { value: 'f5-default', label: 'f5-default (hazır, geniş)' },
+                            { value: 'custom', label: 'Özel kural + grup oluştur' }
+                        ], why: "Cipher group kurala dayalıdır; F5 sürüm yükseltmelerinde zayıflayan şifreler hazır gruplardan otomatik çıkarılır. Elle yazılan cipher string'i ise sürümle güncellenmez." },
+                        { name: 'rule_name', label: 'Özel Kural Adı', type: 'text', requiredIf: { field: 'grp', in: ['custom'] }, placeholder: 'RULE_ECDHE_ONLY' },
+                        { name: 'rule_cipher', label: 'Kural Cipher String', type: 'text', requiredIf: { field: 'grp', in: ['custom'] }, placeholder: 'ECDHE:!SSLV3:!RC4:!EXP:!DES', hint: 'OpenSSL uyumlu' },
+                        { name: 'grp_name', label: 'Özel Grup Adı', type: 'text', requiredIf: { field: 'grp', in: ['custom'] }, placeholder: 'GRP_ECDHE_ONLY' }
+                    ]
+                },
+                {
+                    title: 'Protokol & Renegotiation',
+                    icon: 'fas fa-ban',
+                    info: 'SSLv3, TLS 1.0 ve TLS 1.1 her durumda kapatılır (<code>no-ssl no-tlsv1 no-tlsv1.1</code>).',
+                    fields: [
+                        { name: 'tls13', label: 'TLS 1.3\'ü aç', type: 'checkbox', checked: true, why: "TLS 1.3 client-ssl'de yalnız cipher group ile açılabilir (v14.0+); eski sürümde bu satır hata verir, kutuyu kaldırın." },
+                        { name: 'sec_reneg', label: 'Secure Renegotiation', type: 'select', options: [
+                            { value: 'require-strict', label: 'require-strict (RFC 5746 desteklemeyeni reddet)', selected: true },
+                            { value: 'require', label: 'require (F5 varsayılanı)' }
+                        ], why: "<code>request</code> modu yamalanmamış istemcilerin renegotiation'ına izin verir ve MITM saldırısına açıktır; bu yüzden listede yok." },
+                        { name: 'no_reneg', label: 'Renegotiation\'ı tamamen kapat', type: 'checkbox', checked: true, why: "İstemci kaynaklı renegotiation, tek bağlantıdan tekrar tekrar pahalı el sıkışma yaptırarak CPU tüketme (DoS) saldırısına imkan verir." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const prof = cgEsc(data.prof || ''), grpSel = cgEsc(data.grp || 'f5-secure');
+            const custom = grpSel === 'custom';
+            const grp = custom ? cgEsc(data.grp_name || '') : grpSel;
+            const reneg = cgEsc(data.sec_reneg || 'require-strict');
+            let c = '# ========================================\n# F5 BIG-IP — Client-SSL Sertleştirme\n# ========================================\n\n';
+            if (custom) {
+                const rule = cgEsc(data.rule_name || '');
+                c += 'tmsh create ltm cipher rule ' + rule + ' cipher "' + cgEsc(data.rule_cipher || '') + '"\n';
+                c += 'tmsh create ltm cipher group ' + grp + ' allow add { ' + rule + ' }\n\n';
+            }
+            if (grpSel === 'f5-default') c += '# UYARI: f5-default geniş bir listedir (CBC/RSA anahtar değişimi dahil); f5-secure tercih edin.\n';
+            c += 'tmsh modify ltm profile client-ssl ' + prof + ' ciphers none cipher-group ' + grp;
+            c += ' options { dont-insert-empty-fragments no-ssl no-tlsv1 no-tlsv1.1' + (data.tls13 ? '' : ' no-tlsv1.3') + ' }';
+            c += ' secure-renegotiation ' + reneg;
+            if (data.no_reneg) c += ' renegotiation disabled';
+            c += '\n\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list ltm profile client-ssl ' + prof + ' cipher-group ciphers options secure-renegotiation renegotiation\n# tmsh list ltm cipher group ' + grp + '\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: Virtual Server Bağlantı / Hız Limiti ──────────────────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/ltm/ltm_virtual.html
+//            (connection-limit, rate-limit, rate-limit-mode, rate-limit-src-mask, rate-limit-dst-mask)
+F5LTM.vslimit = {
+    label: 'VS Bağlantı / Hız Limiti',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-tachometer-alt',
+                title: 'Virtual Server Connection & Rate Limit',
+                desc: 'Var olan virtual server\'a eşzamanlı bağlantı sınırı ve saniyedeki yeni bağlantı sınırı ekler; arka uç sunucuları taşmaya karşı korur.<br>Örnek: <code>tmsh modify ltm virtual VS_APP_HTTPS connection-limit 10000 rate-limit 500</code>'
+            },
+            sections: [
+                {
+                    title: 'Limitler',
+                    icon: 'fas fa-sliders-h',
+                    fields: [
+                        { name: 'vs', label: 'Virtual Server Adı', type: 'text', required: true, placeholder: 'VS_APP_HTTPS' },
+                        { name: 'conn', label: 'Eşzamanlı Bağlantı Limiti', type: 'text', validate: 'posint', required: true, placeholder: '10000', hint: 'connection-limit (0 = sınırsız)', why: "Limit aşıldığında yeni bağlantılar reddedilir; değer pool'daki toplam sunucu kapasitesine göre seçilmeli. Çok düşük değer meşru trafiği keser." },
+                        { name: 'rate', label: 'Saniyede Yeni Bağlantı', type: 'text', validate: 'posint', placeholder: '500', hint: 'rate-limit; boşsa yazılmaz' },
+                        { name: 'rmode', label: 'Rate Limit Kapsamı', type: 'select', options: [
+                            { value: 'object', label: 'object — VS toplamı', selected: true },
+                            { value: 'source', label: 'source — kaynak IP başına' },
+                            { value: 'object-source', label: 'object-source' },
+                            { value: 'destination', label: 'destination' },
+                            { value: 'source-destination', label: 'source-destination' }
+                        ], why: "<code>object</code> tüm istemciler için tek sayaç tutar: tek saldırgan limiti doldurup herkesi engeller. <code>source</code> kaynak IP başına sayar, ancak NAT arkasındaki kurumsal kullanıcıları tek istemci sayar." },
+                        { name: 'smask', label: 'Kaynak Maskesi (bit)', type: 'text', min: 0, max: 32, placeholder: '24', hint: 'rate-limit-src-mask; source modlarında /24 gibi grupla sayar' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const vs = cgEsc(data.vs || ''), conn = cgEsc(data.conn || ''), rate = cgEsc(data.rate || '');
+            const mode = cgEsc(data.rmode || 'object'), smask = cgEsc(data.smask || '');
+            let c = '# ========================================\n# F5 BIG-IP — VS Bağlantı / Hız Limiti\n# ========================================\n\n';
+            c += 'tmsh modify ltm virtual ' + vs + ' connection-limit ' + conn;
+            if (rate) {
+                c += ' rate-limit ' + rate + ' rate-limit-mode ' + mode;
+                if (smask && mode.indexOf('source') >= 0) c += ' rate-limit-src-mask ' + smask;
+            }
+            c += '\n';
+            if (!rate && smask) c += '# NOT: rate-limit boş olduğu için kaynak maskesi yazılmadı.\n';
+            c += '\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list ltm virtual ' + vs + ' connection-limit rate-limit rate-limit-mode\n# tmsh show ltm virtual ' + vs + '\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: Internal Data Group ───────────────────────────────────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/ltm/ltm_data-group_internal.html
+//            (create internal NAME type ip|string|integer records add { key | key { data value } }; string'ler tırnaklı)
+F5LTM.datagroup = {
+    label: 'Data Group',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-table',
+                title: 'Internal Data Group',
+                desc: 'iRule ve LTM policy\'lerin kullandığı anahtar/değer listesi (izinli IP blokları, URL listesi, yönlendirme tablosu). iRule\'da: <code>class match [IP::client_addr] equals DG_ADI</code>'
+            },
+            sections: [
+                {
+                    title: 'Data Group',
+                    icon: 'fas fa-list',
+                    fields: [
+                        { name: 'dg', label: 'Data Group Adı', type: 'text', required: true, placeholder: 'DG_ALLOWED_NETS' },
+                        { name: 'dg_type', label: 'Tip', type: 'select', options: [
+                            { value: 'ip', label: 'ip — adres / ağ', selected: true },
+                            { value: 'string', label: 'string — metin (URL, host)' },
+                            { value: 'integer', label: 'integer' }
+                        ], why: "Tip oluşturulduktan sonra değiştirilemez; ip tipinde CIDR eşleşmesi yapılır, string tipinde birebir/prefix eşleşme. Yanlış tip iRule'da hiç eşleşmeme olarak görünür." },
+                        { name: 'records', label: 'Kayıtlar (satır başına bir)', type: 'textarea', required: true, placeholder: '10.64.0.0/16', hint: '<code>anahtar</code> veya <code>anahtar = değer</code>. ip: IP/CIDR, integer: sayı' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const dg = cgEsc(data.dg || ''), type = cgEsc(data.dg_type || 'ip');
+            const recs = [], bad = [];
+            String(data.records || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).forEach(line => {
+                const i = line.indexOf('=');
+                const key = cgEsc((i >= 0 ? line.slice(0, i) : line).trim());
+                const val = cgEsc(i >= 0 ? line.slice(i + 1).trim() : '');
+                let ok = !!key;
+                if (type === 'ip') ok = ok && (CG_F5_IP_RE.test(key) || (/^[\d.]+\/\d{1,2}$/.test(key) && CG_F5_IP_RE.test(key.split('/')[0]) && +key.split('/')[1] <= 32));
+                if (type === 'integer') ok = ok && /^-?\d+$/.test(key);
+                if (type === 'string') ok = ok && key.indexOf('&quot;') < 0 && key.indexOf('"') < 0;
+                if (!ok) { bad.push(line); return; }
+                const k = type === 'string' ? '"' + key + '"' : key;
+                recs.push(val ? k + ' { data "' + val + '" }' : k);
+            });
+            let c = '# ========================================\n# F5 BIG-IP — Internal Data Group\n# ========================================\n\n';
+            if (bad.length) c += '# UYARI: ' + type + ' tipine uymayan ' + bad.length + ' kayıt atlandı.\n';
+            if (!recs.length) c += '# UYARI: geçerli kayıt yok — data group boş oluşturulur.\n';
+            c += 'tmsh create ltm data-group internal ' + dg + ' type ' + type;
+            if (recs.length) c += ' records add { ' + recs.join(' ') + ' }';
+            c += '\n\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list ltm data-group internal ' + dg + '\n';
+            return c;
+        });
+    }
+};
+
+// ── F5 BIG-IP: Log Publisher / High Speed Logging ───────────────────────────
+// Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_log-config_destination_remote-high-speed-log.html (pool-name, protocol, distribution)
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_log-config_destination_remote-syslog.html (remote-high-speed-log, format)
+//            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/sys/sys_log-config_publisher.html (destinations add)
+//            Pool üyesi biçimi bu dosyadaki F5LTM.pool aracıyla aynı.
+F5LTM.hsl = {
+    label: 'Log Publisher / HSL',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-stream',
+                title: 'High Speed Logging (HSL) + Log Publisher',
+                desc: 'TMM\'den doğrudan (yönetim arayüzü yerine veri düzleminden) SIEM\'e log: pool → remote-high-speed-log → remote-syslog → publisher. Publisher, ASM/AFM/DoS log profillerinde ve iRule <code>HSL::open -publisher</code> ile kullanılır.'
+            },
+            sections: [
+                {
+                    title: 'Log Sunucuları (Pool)',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'pool', label: 'Pool Adı', type: 'text', required: true, placeholder: 'POOL_SIEM' },
+                        { name: 'srv1', label: 'Sunucu 1 (IP:Port)', type: 'text', validate: 'host_port', required: true, placeholder: '192.0.2.50:514' },
+                        { name: 'srv2', label: 'Sunucu 2 (IP:Port)', type: 'text', validate: 'host_port', placeholder: '192.0.2.51:514' },
+                        { name: 'mon', label: 'Pool Monitor', type: 'select', options: [
+                            { value: 'gateway_icmp', label: 'gateway_icmp', selected: true },
+                            { value: 'tcp', label: 'tcp (TCP syslog)' },
+                            { value: 'none', label: 'monitor yok' }
+                        ], why: "Monitor yoksa ölü log sunucusu da UP sayılır ve loglar sessizce kaybolur. UDP syslog'da port kontrolü yapılamadığı için ICMP en iyi yaklaşımdır." }
+                    ]
+                },
+                {
+                    title: 'Hedef & Publisher',
+                    icon: 'fas fa-share-square',
+                    fields: [
+                        { name: 'proto', label: 'Protokol', type: 'select', options: [
+                            { value: 'udp', label: 'UDP', selected: true },
+                            { value: 'tcp', label: 'TCP' }
+                        ] },
+                        { name: 'dist', label: 'Dağıtım', type: 'select', options: [
+                            { value: 'adaptive', label: 'adaptive (varsayılan)', selected: true },
+                            { value: 'balanced', label: 'balanced' },
+                            { value: 'replicated', label: 'replicated — her log tüm üyelere' }
+                        ], why: "<code>replicated</code> iki SIEM'e de aynı logu gönderir (yedeklilik); <code>balanced</code> logları üyelere böler, her sunucu logların yalnız bir kısmını görür." },
+                        { name: 'hsl_dest', label: 'HSL Hedef Adı', type: 'text', required: true, placeholder: 'DEST_HSL_SIEM' },
+                        { name: 'fmt_on', label: 'Syslog biçimlendirme hedefi ekle', type: 'checkbox', checked: true, why: "Biçimlendirme olmadan HSL ham mesaj gönderir; SIEM'ler zaman damgası ve hostname içeren syslog başlığını bekler." },
+                        { name: 'fmt', label: 'Syslog Biçimi', type: 'select', options: [
+                            { value: 'rfc5424', label: 'rfc5424', selected: true },
+                            { value: 'rfc3164', label: 'rfc3164' }
+                        ] },
+                        { name: 'rs_dest', label: 'Syslog Hedef Adı', type: 'text', requiredIf: { field: 'fmt_on', checked: true }, placeholder: 'DEST_SYSLOG_SIEM' },
+                        { name: 'pub', label: 'Publisher Adı', type: 'text', required: true, placeholder: 'PUB_SIEM' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const pool = cgEsc(data.pool || ''), mon = cgEsc(data.mon || 'gateway_icmp');
+            const members = [data.srv1, data.srv2].map(v => cgEsc(v || '')).filter(Boolean);
+            const proto = cgEsc(data.proto || 'udp'), dist = cgEsc(data.dist || 'adaptive');
+            const hsl = cgEsc(data.hsl_dest || ''), rs = cgEsc(data.rs_dest || ''), fmt = cgEsc(data.fmt || 'rfc5424');
+            const pub = cgEsc(data.pub || '');
+            let c = '# ========================================\n# F5 BIG-IP — High Speed Logging + Publisher\n# ========================================\n\n';
+            c += 'tmsh create ltm pool ' + pool + ' members add { ' + members.map(m => m + ' { address ' + m.split(':')[0] + ' }').join(' ') + ' }';
+            if (mon !== 'none') c += ' monitor ' + mon;
+            c += '\n';
+            if (mon === 'none') c += '# UYARI: monitor yok — log sunucusu çökse de pool UP görünür, loglar kaybolur.\n';
+            if (mon === 'tcp' && proto === 'udp') c += '# UYARI: UDP syslog için tcp monitor sunucuyu sürekli DOWN gösterebilir.\n';
+            c += 'tmsh create sys log-config destination remote-high-speed-log ' + hsl + ' pool-name ' + pool + ' protocol ' + proto + ' distribution ' + dist + '\n';
+            if (data.fmt_on) c += 'tmsh create sys log-config destination remote-syslog ' + rs + ' remote-high-speed-log ' + hsl + ' format ' + fmt + '\n';
+            c += 'tmsh create sys log-config publisher ' + pub + ' destinations add { ' + (data.fmt_on ? rs : hsl) + ' }\n';
+            c += '\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list sys log-config publisher ' + pub + '\n# tmsh list sys log-config destination remote-high-speed-log ' + hsl + '\n# tmsh show ltm pool ' + pool + '\n';
             return c;
         });
     }

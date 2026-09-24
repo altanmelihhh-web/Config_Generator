@@ -501,7 +501,6 @@ HuaweiUSG.ha = {
                     title: 'HA Bağlantı Ayarları',
                     icon: 'fas fa-link',
                     fields: [
-                        { name: 'local_ip', why: "HRP heartbeat adresi üretim trafiğinden ayrı bir bağlantıda olmalıdır. Heartbeat koparsa iki cihaz da kendini aktif sanar (split-brain), aynı IP adresleri iki yerde duyurulur ve ağ kullanılamaz hale gelir.", label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.240.0.1', hint: 'Bu cihazın HRP heartbeat arayüzü IP adresi' },
                         { name: 'peer_ip', why: "Karşı cihazın heartbeat adresi doğru olmalı ve arada başka bir cihaz veya filtre bulunmamalıdır. Yanlış adres HA kurulmuş gibi görünmesine ama senkronizasyonun hiç çalışmamasına yol açar; yedek cihaz oturum tablosu boş kalır.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.240.0.2', hint: 'Karşı cihazın HRP heartbeat IP adresi' },
                         { name: 'heartbeat_intf', why: "Heartbeat arayüzü doğrudan kablo ile bağlanmalı ve bu arayüz güvenlik politikalarından etkilenmemelidir. Switch üzerinden geçiriliyorsa o switchin arızası aynı anda her iki güvenlik duvarını da kararsız hale getirir.", label: 'Heartbeat Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'HA heartbeat trafiği için kullanılacak interface' }
                     ]
@@ -519,7 +518,7 @@ HuaweiUSG.ha = {
             ],
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
-            const localIp = cgEsc(data.local_ip || ''), peerIp = cgEsc(data.peer_ip || '');
+            const peerIp = cgEsc(data.peer_ip || '');
             const heartbeatIntf = cgEsc(data.heartbeat_intf || ''), preempt = cgEsc(data.preempt || 'enable');
             let c = '# ========================================\n# Huawei USG — HA Dual-System\n# ========================================\n\n';
             c += 'hrp enable\n';
