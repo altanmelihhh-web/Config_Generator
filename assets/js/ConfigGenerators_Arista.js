@@ -1048,7 +1048,7 @@ Arista.staticroute = {
                     title: 'Rota',
                     icon: 'fas fa-route',
                     fields: [
-                        { name: 'prefix', why: "Hedef ağ CIDR ile yazılır; host bitleri dolu bir prefix (10.1.1.5/24) girilirse EOS onu ağ adresine yuvarlar ve beklediğinizden farklı bir rota görürsünüz.", label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.20.0.0/16', hint: 'Hedef ağ, CIDR biçiminde' },
+                        { name: 'prefix', why: "Hedef ağ CIDR ile yazılır; host bitleri dolu bir prefix (10.1.1.5/24) girilirse EOS onu ağ adresine yuvarlar ve beklediğinizden farklı bir rota görürsünüz.", label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.100.0.0/16', hint: 'Hedef ağ, CIDR biçiminde' },
                         { name: 'vrf', why: "VRF belirtilmezse rota varsayılan tabloya girer; hedef ağ bir müşteri/servis VRF'indeyse trafik yanlış tabloda aranır ve düşer.", label: 'VRF', type: 'text', placeholder: 'PROD', hint: 'Boş = default VRF' }
                     ]
                 },
