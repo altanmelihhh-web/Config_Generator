@@ -295,7 +295,8 @@ function ccReadFortiGate(text) {
                     // accept/deny/ipsec — 'ipsec' policy-based VPN route'tur, deny değildir.
                     // Önceden burada her accept-olmayan değer sessizce 'deny' oluyordu.
                     { const _a = line.slice(11).trim();
-                      curPolicy.action = _a === 'accept' ? 'allow' : (_a === 'ipsec' ? 'ipsec' : 'deny'); }
+                      curPolicy.action = _a === 'accept' ? 'allow' : (_a === 'ipsec' ? 'ipsec' : 'deny');
+                      curPolicy._actionExplicit = true; }
                 } else if (line.startsWith('set status ')) {
                     // FortiOS'ta policy varsayilan olarak etkindir; 'set status disable'
                     // yazilmissa kural devre disidir. Okunmadiginda devre disi kural
@@ -317,7 +318,16 @@ function ccReadFortiGate(text) {
                     curPolicy.profile.appctrl = line.slice(21).replace(/"/g, '').trim();
                 }
             }
-            if (line === 'next') curPolicy = null;
+            if (line === 'next') {
+                // Kaynakta 'set action' yoksa deger FortiOS varsayilanindan (deny)
+                // turetilmistir — bu, kullaniciya bildirilmesi gereken bir varsayimdir.
+                if (curPolicy && curPolicy._actionExplicit === false) {
+                    ccAddAssumption(ir, 'firewall policy action', 'deny',
+                        'FortiOS varsayilani', "kaynakta 'set action' satiri yok",
+                        CC_SEVERITY.DANGEROUS);
+                }
+                curPolicy = null;
+            }
         }
 
         // ── IPsec Phase1 ────────────────────────────────────────────────────────

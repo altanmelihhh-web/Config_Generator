@@ -292,6 +292,9 @@
 #config-generator-root .cc-callout pre { margin: 4px 0 0; font-family: "SFMono-Regular", Consolas, monospace; font-size: .78rem; white-space: pre-wrap; }
 #config-generator-root .cc-warn-block { background: var(--warning-light, #fdebd0); border-color: var(--warning-color, #F59E0B); color: #7a4a00; }
 #config-generator-root .cc-unknowns { background: var(--bg-secondary, #f8f9fa); border-color: var(--text-tertiary, #95a5a6); color: var(--text-secondary, #555); }
+/* Varsayilan degerler — kaynakta acikca yazmayan, guvenlik etkili alanlar */
+#config-generator-root .cc-assumptions { background: var(--warning-light, #fdebd0); border-color: var(--danger-color, #E74C3C); color: #7a2e00; }
+#config-generator-root .cc-assume-note { font-size: .74rem; opacity: .85; margin-bottom: 6px; }
 
 /* Dönüşüm analizi */
 #config-generator-root .cc-lostfields-block { margin: 0 20px 20px; border: 1px solid var(--border-color, #e0e4ea); border-radius: 10px; overflow: hidden; background: var(--card-bg, #fff); }

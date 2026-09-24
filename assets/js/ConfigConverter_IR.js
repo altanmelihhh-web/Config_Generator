@@ -90,6 +90,11 @@ function ccEmptyIR() {
     pbrRules: [],
     vdoms: [],
     unknowns: [],
+    // Kaynak config'te ACIKCA yazilmayan, vendor varsayilanindan turetilen
+    // guvenlik etkili degerler. Sessiz varsayim guvenlik kararinda kabul
+    // edilemez: hangi degerin nereden geldigi kullaniciya bildirilmelidir.
+    // Kayit bicimi: { field, value, source, detail, severity }
+    assumptions: [],
     lostFields: [],
     _meta: { category: '', scope: [], srcVendor: '', srcOsVersion: '', dstOsVersion: '', parseWarnings: [] }
   };
@@ -525,6 +530,31 @@ function ccMaskSecrets(line) {
   // 'set ... ENC <blob>' (FortiOS)
   s = s.replace(/\bENC\s+\S+/g, 'ENC <MASKED>');
   return s;
+}
+
+// Varsayilan atanan guvenlik alanlarini cikti sonuna yorum olarak yazar.
+function ccWriteAssumptionsFor(vendor, assumptions) {
+  if (!assumptions || !assumptions.length) return '';
+  const ch = (CC_VENDOR_META[vendor] || {}).commentChar || '!';
+  const lines = assumptions.map(a =>
+    ch + ' [' + (a.severity || CC_SEVERITY.PARTIAL) + '] ' + a.field +
+    ' = ' + a.value + '  (' + a.source + (a.detail ? ': ' + a.detail : '') + ')');
+  return '\n' + ch + ' ---- Kaynakta acikca belirtilmeyen, varsayilandan turetilen degerler (' +
+    assumptions.length + ') ----\n' + lines.join('\n') + '\n';
+}
+
+// Ayni varsayimin her kayit icin tekrar tekrar yazilmasini onler: alan+deger+kaynak
+// ayni olanlari tek satirda toplar ve kac kayda uygulandigini belirtir.
+function ccAddAssumption(ir, field, value, source, detail, severity) {
+  if (!ir.assumptions) ir.assumptions = [];
+  const key = field + '|' + value + '|' + source;
+  let e = ir.assumptions.find(a => a._key === key);
+  if (e) { e.count++; e.detail = e.count + ' kayit'; return; }
+  ir.assumptions.push({
+    _key: key, field, value, source,
+    detail: detail || '', count: 1,
+    severity: severity || CC_SEVERITY.DANGEROUS
+  });
 }
 
 function ccWriteUnknownsFor(vendor, unknowns) {

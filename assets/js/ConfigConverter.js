@@ -59,6 +59,11 @@ const ConfigConverter = {
     <strong>Çevrilemeyen Satırlar</strong>
     <pre id="ccUnknownText"></pre>
   </div>
+  <div id="ccAssumptionList" class="cc-callout cc-assumptions" style="display:none">
+    <strong>Varsayilan Degerler</strong>
+    <div class="cc-assume-note">Bu degerler kaynak config'te acikca yazmiyordu; vendor varsayilanindan turetildi.</div>
+    <pre id="ccAssumptionText"></pre>
+  </div>
   <div id="ccLostFieldsBlock" class="cc-lostfields-block" style="display:none">
     <div class="cc-analysis-head">
       <strong><i class="fas fa-chart-line"></i> Dönüşüm Analizi</strong>
@@ -220,11 +225,31 @@ const ConfigConverter = {
                 if (ir.unknowns.length > 0) {
                     badge.textContent = '⚠ ' + ir.unknowns.length + ' satır çevrilemedi';
                     badge.style.display = '';
-                    unknownText.textContent = ir.unknowns.join('\n');
+                    // Cevrilemeyen satirlar kaynak config'ten birebir gelir ve parola
+                    // hash'i / PSK / community icerebilir — ekranda da maskelenir.
+                    unknownText.textContent = ir.unknowns
+                        .map(u => (typeof ccMaskSecrets === 'function' ? ccMaskSecrets(u) : u))
+                        .join('\n');
                     unknownList.style.display = '';
                 } else {
                     badge.style.display = 'none';
                     unknownList.style.display = 'none';
+                }
+
+                // Varsayilan degerler — kaynakta acikca yazmayan, guvenlik etkili alanlar
+                const assumeList = container.querySelector('#ccAssumptionList');
+                const assumeText = container.querySelector('#ccAssumptionText');
+                const assumptions = Array.isArray(ir.assumptions) ? ir.assumptions : [];
+                if (assumeList && assumeText) {
+                    if (assumptions.length > 0) {
+                        assumeText.textContent = assumptions.map(a =>
+                            '[' + (a.severity || 'partial') + '] ' + a.field + ' = ' + a.value +
+                            '  (' + a.source + (a.count > 1 ? ': ' + a.count + ' kayit' : '') + ')'
+                        ).join('\n');
+                        assumeList.style.display = '';
+                    } else {
+                        assumeList.style.display = 'none';
+                    }
                 }
 
                 // Dönüşüm Analizi — 6-seviye severity + confidence score (S11)
