@@ -31,7 +31,7 @@ F5LTM.vserver = {
                     title: 'Gelişmiş Seçenekler',
                     icon: 'fas fa-sliders-h',
                     fields: [
-                        { name: 'ssl_profile', why: "Client-SSL profili istemci ile BIG-IP arasındaki TLS'i sonlandırır; yoksa 443 trafiği şifreli geçer ve iRule, cookie persistence, WAF gibi katman 7 özellikleri tamamen devre dışı kalır. <b>Server-SSL</b> ile karıştırılmamalı: o backend bacağını şifreler.", label: 'SSL Client Profile', type: 'text', optional: true, placeholder: 'MY_CLIENT_SSL', hint: 'Yalnızca HTTPS türünde gereklidir.' },
+                        { name: 'ssl_profile', why: "Client-SSL profili istemci ile BIG-IP arasındaki TLS'i sonlandırır; yoksa 443 trafiği şifreli geçer ve iRule, cookie persistence, WAF gibi katman 7 özellikleri tamamen devre dışı kalır. <b>Server-SSL</b> ile karıştırılmamalı: o backend bacağını şifreler.", label: 'SSL Client Profile', type: 'text', requiredIf: { field: 'vs_type', in: ['https'] }, placeholder: 'MY_CLIENT_SSL', hint: 'Yalnızca HTTPS türünde gereklidir.' },
                         { name: 'snat', why: "SNAT yoksa sunucu dönüş trafiğini BIG-IP'ye değil doğrudan gerçek istemciye gönderir; asimetrik routing oluşur ve oturum hiç kurulamaz. <b>Automap</b> en yakın self IP'yi kullanır, yoğun trafikte kaynak port tükenirse SNAT pool gerekir.", label: 'SNAT', type: 'select', options: [
                             { value: 'automap', label: 'Automap' },
                             { value: 'none', label: 'None' }

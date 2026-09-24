@@ -91,9 +91,9 @@ PaloAlto.address = {
                             { value: 'fqdn', label: 'FQDN' },
                             { value: 'ip-range', label: 'IP Range' }
                         ], hint: 'IP/Netmask en yaygın; FQDN DNS tabanlı nesneler için' },
-                        { name: 'netmask', why: "PAN-OS CIDR bekler. Tek host için <code>/32</code> yaz; ağ tanımlarken prefix'i unutmak nesneyi tek adrese daraltır ve kural beklediğinden çok dar çalışır.", label: 'IP / Prefix (CIDR)', type: 'text', validate: 'cidr', optional: true, placeholder: '192.168.1.10/32', hint: 'IP/Netmask tipi seçildiyse doldurun' },
-                        { name: 'fqdn_val', why: "PAN-OS, FQDN'i periyodik çözer ve önbelleğe alır. DNS erişimi koparsa nesne eski IP ile kalır; erişim sorunlarının sessiz kaynağıdır.", label: 'FQDN', type: 'text', optional: true, placeholder: 'example.com', hint: 'FQDN tipi seçildiyse doldurun' },
-                        { name: 'ip_range', why: "Range nesnesi, aradaki kullanılmayan adresler dahil <b>tüm</b> aralığı kapsar. İleride bu bloğa eklenecek her cihaz otomatik olarak aynı yetkiyi alır.", label: 'IP Range', type: 'text', validate: 'ip_range', optional: true, placeholder: '192.168.1.10-192.168.1.20', hint: 'IP Range tipi seçildiyse doldurun' },
+                        { name: 'netmask', why: "PAN-OS CIDR bekler. Tek host için <code>/32</code> yaz; ağ tanımlarken prefix'i unutmak nesneyi tek adrese daraltır ve kural beklediğinden çok dar çalışır.", label: 'IP / Prefix (CIDR)', type: 'text', requiredIf: { field: 'addr_type', in: ['ip-netmask'] }, validate: 'cidr', placeholder: '192.168.1.10/32', hint: 'IP/Netmask tipi seçildiyse doldurun' },
+                        { name: 'fqdn_val', why: "PAN-OS, FQDN'i periyodik çözer ve önbelleğe alır. DNS erişimi koparsa nesne eski IP ile kalır; erişim sorunlarının sessiz kaynağıdır.", label: 'FQDN', type: 'text', requiredIf: { field: 'addr_type', in: ['fqdn'] }, placeholder: 'example.com', hint: 'FQDN tipi seçildiyse doldurun' },
+                        { name: 'ip_range', why: "Range nesnesi, aradaki kullanılmayan adresler dahil <b>tüm</b> aralığı kapsar. İleride bu bloğa eklenecek her cihaz otomatik olarak aynı yetkiyi alır.", label: 'IP Range', type: 'text', requiredIf: { field: 'addr_type', in: ['ip-range'] }, validate: 'ip_range', placeholder: '192.168.1.10-192.168.1.20', hint: 'IP Range tipi seçildiyse doldurun' },
                         { name: 'desc', why: "Altı ay sonra bu nesnenin neden açıldığını hatırlamayacaksın. Ticket numarası yazmak, kural temizliğinde neyin silinebileceğini belirleyen tek ipucudur.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'Web sunucusu', hint: 'Nesne açıklaması (opsiyonel)' },
                         { name: 'group_name', why: 'Adres grubu kural sayısını azaltır. <b>Dynamic Address Group</b> ise etiket bazlı çalışır ve commit gerektirmeden güncellenir — otomasyon için güçlü bir araçtır.', label: 'Adres Grubu', type: 'text', optional: true, placeholder: 'WEB_SERVERS', hint: 'Bu nesneyi eklemek istediğiniz adres grubu adı' }
                     ]
@@ -231,7 +231,7 @@ PaloAlto.nat = {
                             { value: 'dynamic-ip-and-port translated-address', label: 'Dynamic IP+Port (Pool)' },
                             { value: 'static-ip static-translated-address', label: 'Static IP' }
                         ], hint: 'Interface-address: WAN IP üzerinden PAT' },
-                        { name: 'to_iface', why: "Interface NAT'ta çıkış arayüzünün IP'si kullanılır — ISS'den tek IP alıyorsan doğru seçimdir.", label: 'To Interface (Interface NAT için)', type: 'text', validate: 'iface', optional: true, placeholder: 'ethernet1/1', hint: 'Dynamic IP+Port Interface seçildiyse WAN arayüzü' }
+                        { name: 'to_iface', why: "Interface NAT'ta çıkış arayüzünün IP'si kullanılır — ISS'den tek IP alıyorsan doğru seçimdir.", label: 'To Interface (Interface NAT için)', type: 'text', requiredIf: { field: 'src_trans_type', in: ['dynamic-ip-and-port interface-address'] }, validate: 'iface', placeholder: 'ethernet1/1', hint: 'Dynamic IP+Port Interface seçildiyse WAN arayüzü' }
                     ]
                 },
                 {
@@ -239,7 +239,7 @@ PaloAlto.nat = {
                     icon: 'fas fa-arrow-down',
                     showFor: ['destination'],
                     fields: [
-                        { name: 'trans_dst_ip', why: "Destination NAT'ta iç sunucunun gerçek IP'si. <b>Güvenlik kuralında hedef adres olarak orijinal (dış) IP yazılır</b>, çevrilmiş IP değil — bu ayrımı kaçırmak en sık yapılan Palo Alto hatasıdır.", label: 'Translated Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.10', hint: 'İç sunucunun IP adresi' },
+                        { name: 'trans_dst_ip', why: "Destination NAT'ta iç sunucunun gerçek IP'si. <b>Güvenlik kuralında hedef adres olarak orijinal (dış) IP yazılır</b>, çevrilmiş IP değil — bu ayrımı kaçırmak en sık yapılan Palo Alto hatasıdır.", label: 'Translated Hedef IP', type: 'text', required: true, validate: 'ip', placeholder: '192.168.1.10', hint: 'İç sunucunun IP adresi' },
                         { name: 'trans_dst_port', why: "Port yönlendirme. Dış 8080'i iç 80'e çevirmek gibi. Servis nesnesinin <b>orijinal</b> portu içermesi gerekir.", label: 'Translated Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '80', hint: 'Hedef porta yönlendirilecek port (opsiyonel)' }
                     ]
                 }

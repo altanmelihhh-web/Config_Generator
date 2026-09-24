@@ -503,7 +503,7 @@ CiscoFTD.raVpn = {
                             { value: 'Certificate', label: 'Certificate' },
                             { value: 'AAA+Certificate', label: 'AAA + Certificate' }
                         ], hint: 'VPN kullanıcı kimlik doğrulama yöntemi' },
-                        { name: 'aaa_grp', why: "Server group FMC’de önceden tanımlı olmalıdır; ad uyuşmazlığında deploy başarısız olur. Sunucu erişilemezse tüm uzak erişim aynı anda durur, yedek sunucu tanımlayın.", label: 'AAA Server Group', type: 'text', optional: true, placeholder: 'RADIUS_SERVERS', hint: 'AAA seçiliyse: FMC\'de tanımlı server group adı' }
+                        { name: 'aaa_grp', why: "Server group FMC’de önceden tanımlı olmalıdır; ad uyuşmazlığında deploy başarısız olur. Sunucu erişilemezse tüm uzak erişim aynı anda durur, yedek sunucu tanımlayın.", label: 'AAA Server Group', type: 'text', requiredIf: { field: 'auth_method', in: ['AAA', 'AAA+Certificate'] }, placeholder: 'RADIUS_SERVERS', hint: 'AAA seçiliyse: FMC\'de tanımlı server group adı' }
                     ]
                 },
                 {

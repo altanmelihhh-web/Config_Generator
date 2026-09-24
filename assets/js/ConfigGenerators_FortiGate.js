@@ -250,8 +250,8 @@ FortiGate.nat = {
                             { value: 'disable', label: 'Hayır', selected: true },
                             { value: 'enable',  label: 'Evet' }
                         ], hint: 'Belirli port eşleştirmesi gerekiyorsa Evet seçin' },
-                        { name: 'vip_extport', why: 'Dışarıdan gelinen port. Standart olmayan port kullanmak (ör. RDP için 3389 yerine başka bir port) otomatik taramaları azaltır ama güvenlik sağlamaz.',    label: 'External Port',        type: 'text', validate: 'port',   optional: true,  placeholder: '80',    hint: 'Dışarıdan gelen port' },
-                        { name: 'vip_mappedport', why: 'İç sunucunun dinlediği gerçek port. Dış 8080 → iç 80 gibi çevirmek mümkündür.', label: 'Mapped Port',          type: 'text', validate: 'port',   optional: true,  placeholder: '80',    hint: 'Yönlendirilecek iç port' }
+                        { name: 'vip_extport', why: 'Dışarıdan gelinen port. Standart olmayan port kullanmak (ör. RDP için 3389 yerine başka bir port) otomatik taramaları azaltır ama güvenlik sağlamaz.',    label: 'External Port',        type: 'text', requiredIf: { field: 'vip_portfwd', in: ['enable'] }, validate: 'port',  placeholder: '80',    hint: 'Dışarıdan gelen port' },
+                        { name: 'vip_mappedport', why: 'İç sunucunun dinlediği gerçek port. Dış 8080 → iç 80 gibi çevirmek mümkündür.', label: 'Mapped Port',          type: 'text', requiredIf: { field: 'vip_portfwd', in: ['enable'] }, validate: 'port',  placeholder: '80',    hint: 'Yönlendirilecek iç port' }
                     ]
                 },
                 {

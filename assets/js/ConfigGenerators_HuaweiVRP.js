@@ -84,7 +84,7 @@ HuaweiVRP.vlan = {
                     icon: 'fas fa-tag',
                     showFor: ['access'],
                     fields: [
-                        { name: 'vlan_id', why: "VLAN cihazda <code>vlan X</code> ile yaratılmadan porta atanamaz. Access portta bu numara <code>port default vlan</code> olur; karşı uçtaki PVID farklıysa trafik yanlış broadcast domainine düşer ve sorun ping değil sadece DHCP/ARP seviyesinde görünür.", label: 'VLAN ID (tekli)', type: 'text', validate: 'vlan', optional: true, placeholder: '10', hint: 'Porta atanacak tekil VLAN numarası' },
+                        { name: 'vlan_id', why: "VLAN cihazda <code>vlan X</code> ile yaratılmadan porta atanamaz. Access portta bu numara <code>port default vlan</code> olur; karşı uçtaki PVID farklıysa trafik yanlış broadcast domainine düşer ve sorun ping değil sadece DHCP/ARP seviyesinde görünür.", label: 'VLAN ID (tekli)', type: 'text', required: true, validate: 'vlan', placeholder: '10', hint: 'Porta atanacak tekil VLAN numarası' },
                         { name: 'vlan_desc', why: "Açıklama boşluk içeremez ve <code>display vlan</code> çıktısında tek tanımlayıcıdır. Numaradan ibaret VLANlar zamanla kimin olduğu bilinmeyen kalıntılara dönüşür ve temizlik sırasında yanlış VLAN silinir.", label: 'VLAN Açıklaması', type: 'text', optional: true, placeholder: 'BT_Personel', hint: 'VLAN description etiketi' },
                         { name: 'vlan_batch_list', why: "<code>vlan batch</code> yalnızca VLANları oluşturur; trunk üzerinde <code>port trunk allow-pass vlan</code> ile ayrıca izin verilmezse bu VLANlarda tag işaretli trafik sessizce düşer. Toplu oluşturma yanlış aralıkla yazılırsa yüzlerce gereksiz VLAN açılır ve MSTP instance eşlemesi bozulur.", label: 'VLAN Batch Liste', type: 'text', optional: true, placeholder: '5 8 17', hint: 'Boşlukla ayrılmış birden fazla VLAN ID' },
                         { name: 'vlan_batch_range', why: "Aralık sözdizimi <code>20 to 30</code> şeklindedir; tire (<code>20-30</code>) yazarsanız komut hata verir. Çok geniş aralık açmak STP hesaplama yükünü ve broadcast alanını gereksiz büyütür.", label: 'VLAN Batch Aralık', type: 'text', validate: 'vlan_list', optional: true, placeholder: '20 to 30', hint: 'Aralık formatında VLAN oluşturma (örn: 20 to 30)' }
@@ -498,10 +498,11 @@ HuaweiVRP.acl = {
                     fields: [
                         { name: 'src', why: "Kaynağı <code>any</code> bırakmak kuralı olması gerekenden çok daha geniş uygular; özellikle deny kurallarında yanlışlıkla yönetim trafiğini de kapsayıp kendinizi dışarı kilitlersiniz.", label: 'Kaynak', type: 'select', options: [
                             { value: 'any', label: 'any', selected: true },
-                            { value: 'host', label: 'host' },
-                            { value: 'specific', label: 'Belirli IP' }
+                            { value: 'host', label: 'Tek host (IP)' },
+                            { value: 'specific', label: 'Ağ (IP + wildcard)' }
                         ]},
-                        { name: 'src_ip', why: "VRP kaynak eşlemesinde wildcard maske kullanır (<code>0.0.0.255</code>), Cisco alışkanlığıyla subnet maskesi yazmak kuralın beklenmedik bir aralığı eşlemesine neden olur. Tek host için <code>0</code> wildcard gerekir.", label: 'Kaynak IP', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.0', hint: 'Kaynak olarak "Belirli IP" seçildiğinde doldurulur' }
+                        { name: 'src_ip', why: "VRP kaynak eşlemesinde wildcard maske kullanır (<code>0.0.0.255</code>), Cisco alışkanlığıyla subnet maskesi yazmak kuralın beklenmedik bir aralığı eşlemesine neden olur. Tek host için <code>0</code> wildcard gerekir.", label: 'Kaynak IP', type: 'text', requiredIf: { field: 'src', in: ['host', 'specific'] }, validate: 'ip', placeholder: '192.168.1.0', hint: 'Kaynak olarak "Belirli IP" seçildiğinde doldurulur' },
+                        { name: 'src_wc', why: 'VRP ACL <b>wildcard</b> maske kullanır (0.0.0.255 = /24), subnet maskesi değil. 255.255.255.0 yazmak bambaşka adresleri eşler.', label: 'Kaynak Wildcard', type: 'text', validate: 'wildcard', requiredIf: { field: 'src', in: ['specific'] }, placeholder: '0.0.0.255', hint: 'Ters maske: /24 için 0.0.0.255' },
                     ]
                 },
                 {
@@ -517,12 +518,13 @@ HuaweiVRP.acl = {
                         ]},
                         { name: 'dst', why: "Hedefi <code>any</code> bırakmak, servis bazlı izin vermek isterken tüm ağa erişim açmak anlamına gelebilir. Özellikle DMZ kurallarında hedefi daraltmak saldırı yüzeyini belirgin şekilde düşürür.", label: 'Hedef', type: 'select', options: [
                             { value: 'any', label: 'any', selected: true },
-                            { value: 'host', label: 'host' },
-                            { value: 'specific', label: 'Belirli IP' }
+                            { value: 'host', label: 'Tek host (IP)' },
+                            { value: 'specific', label: 'Ağ (IP + wildcard)' }
                         ]},
-                        { name: 'dst_ip', why: "Hedef adres yine wildcard maske ile yazılır. Hedef subnet yanlışsa kural sessizce hiç eşleşmez; ACLnin çalışmadığını ancak <code>display acl</code> çıktısındaki match sayacının sıfır kalmasından anlarsınız.", label: 'Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.1', hint: 'Hedef olarak "Belirli IP" seçildiğinde doldurulur' },
-                        { name: 'src_port', why: "Kaynak port çoğu istemci trafiğinde rastgeledir; buraya sabit port yazmak kuralın neredeyse hiç eşleşmemesine neden olur. Servis kısıtlaması genelde hedef portla yapılır.", label: 'Kaynak Port', type: 'text', validate: 'iface', optional: true, placeholder: 'any veya 80', hint: 'Boş bırakılırsa tüm portlar' },
-                        { name: 'dst_port', why: "Servisin gerçek portu yazılmalıdır; pasif FTP veya SIP gibi dinamik port kullanan protokollerde tek port yeterli olmaz ve bağlantı el sıkışmadan sonra kopar. Aralık gerekiyorsa <code>range</code> operatörünü kullanın.", label: 'Hedef Port', type: 'text', validate: 'iface', optional: true, placeholder: 'any veya 443', hint: 'Boş bırakılırsa tüm portlar' }
+                        { name: 'dst_ip', why: "Hedef adres yine wildcard maske ile yazılır. Hedef subnet yanlışsa kural sessizce hiç eşleşmez; ACLnin çalışmadığını ancak <code>display acl</code> çıktısındaki match sayacının sıfır kalmasından anlarsınız.", label: 'Hedef IP', type: 'text', requiredIf: { field: 'dst', in: ['host', 'specific'] }, validate: 'ip', placeholder: '10.0.0.1', hint: 'Hedef olarak "Belirli IP" seçildiğinde doldurulur' },
+                        { name: 'dst_wc', why: 'VRP ACL <b>wildcard</b> maske kullanır (0.0.0.255 = /24), subnet maskesi değil. 255.255.255.0 yazmak bambaşka adresleri eşler.', label: 'Hedef Wildcard', type: 'text', validate: 'wildcard', requiredIf: { field: 'dst', in: ['specific'] }, placeholder: '0.0.0.255', hint: 'Ters maske: /24 için 0.0.0.255' },
+                        { name: 'src_port', why: "Kaynak port çoğu istemci trafiğinde rastgeledir; buraya sabit port yazmak kuralın neredeyse hiç eşleşmemesine neden olur. Servis kısıtlaması genelde hedef portla yapılır.", label: 'Kaynak Port', type: 'text', validate: 'port', optional: true, placeholder: '80', hint: 'Boş bırakılırsa tüm portlar' },
+                        { name: 'dst_port', why: "Servisin gerçek portu yazılmalıdır; pasif FTP veya SIP gibi dinamik port kullanan protokollerde tek port yeterli olmaz ve bağlantı el sıkışmadan sonra kopar. Aralık gerekiyorsa <code>range</code> operatörünü kullanın.", label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '443', hint: 'Boş bırakılırsa tüm portlar' }
                     ]
                 },
                 {
@@ -538,18 +540,22 @@ HuaweiVRP.acl = {
             const type = data._cgtype || 'standard', num = cgEsc(data.acl_num || '');
             const rid = cgEsc(data.rule_id || '') || '10', action = cgEsc(data.action || 'permit');
             const src = cgEsc(data.src || 'any'), srcip = cgEsc(data.src_ip || ''), tr = cgEsc(data.time_range || '');
+            // VRP sozdizimi: 'any' | '<ip> 0' (tek host) | '<ip> <wildcard>' — 'host' anahtar kelimesi yoktur.
+            const addr = (sel, ip, wc) => !ip ? 'any' : sel === 'host' ? ip + ' 0' : sel === 'specific' ? ip + ' ' + wc : 'any';
+            const srcStr = addr(src, srcip, cgEsc(data.src_wc || ''));
+            const warnAny = (sel, ip, what) => (sel !== 'any' && !ip) ? '# UYARI: ' + what + ' IP boş — kural bu alanda any eşler.\n' : '';
             let c = '# ========================================\n# Huawei — ACL Configuration\n# ========================================\n\n';
+            c += warnAny(src, srcip, 'kaynak');
             c += 'acl number ' + num + '\n';
             if (type === 'standard') {
-                let srcStr = src === 'specific' ? 'host ' + srcip : src;
                 c += ' rule ' + rid + ' ' + action + ' source ' + srcStr;
                 if (tr) c += ' time-range ' + tr;
                 c += '\nquit\n';
             } else {
                 const proto = cgEsc(data.proto || 'tcp'), dst = cgEsc(data.dst || 'any'), dstip = cgEsc(data.dst_ip || '');
                 const sp = cgEsc(data.src_port || ''), dp = cgEsc(data.dst_port || '');
-                let srcStr = src === 'specific' ? 'host ' + srcip : src;
-                let dstStr = dst === 'specific' ? 'host ' + dstip : dst;
+                const dstStr = addr(dst, dstip, cgEsc(data.dst_wc || ''));
+                c = c.replace('acl number ', warnAny(dst, dstip, 'hedef') + 'acl number ');
                 c += ' rule ' + rid + ' ' + action + ' ' + proto + ' source ' + srcStr;
                 if (sp && sp !== 'any') c += ' eq ' + sp;
                 c += ' destination ' + dstStr;
@@ -578,7 +584,7 @@ HuaweiVRP.security = {
                     icon: 'fas fa-lock',
                     fields: [
                         { name: 'ps_enable', why: "Port security MAC öğrenmeyi kilitler; yanlış uygulanırsa cihaz taşındığında veya kullanıcı değiştiğinde port kendini kapatır ve saha müdahalesi gerekir. Uplink ve sunucu portlarında asla açılmamalıdır.", label: 'Port Security Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'ps_iface', why: "Yalnızca son kullanıcı erişim portlarında anlamlıdır. Uplink veya trunk portunda açarsanız komşu switchten gelen yüzlerce MAC limiti anında aşar ve tüm ağ segmentini düşürürsünüz.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Port security uygulanacak arayüz' },
+                        { name: 'ps_iface', why: "Yalnızca son kullanıcı erişim portlarında anlamlıdır. Uplink veya trunk portunda açarsanız komşu switchten gelen yüzlerce MAC limiti anında aşar ve tüm ağ segmentini düşürürsünüz.", label: 'Arayüz', type: 'text', requiredIf: { field: 'ps_enable', checked: true }, validate: 'iface', placeholder: 'GigabitEthernet0/0/1', hint: 'Port security uygulanacak arayüz' },
                         { name: 'ps_max_mac', why: "Limit çok dar ise IP telefon arkasındaki bilgisayar gibi meşru ikinci cihaz portu ihlale sokar; çok geniş ise koruma anlamını yitirir. Telefon + PC senaryosunda en az 2 gerekir.", label: 'Maks. MAC Sayısı', type: 'text', optional: true, placeholder: '2', hint: 'İzin verilen maksimum MAC adresi sayısı' },
                         { name: 'ps_violation', why: "<code>shutdown</code> modu portu err-down durumuna alır ve manuel müdahale olmadan geri gelmez; <code>protect</code> sessizce düşürür ve kimse fark etmez, <code>restrict</code> ise log üretir. Seçim doğrudan arıza süresini belirler.", label: 'İhlal Modu', type: 'select', options: [
                             { value: '', label: 'Seçin', selected: true },
@@ -594,7 +600,7 @@ HuaweiVRP.security = {
                     icon: 'fas fa-search',
                     fields: [
                         { name: 'ds_enable', why: "DHCP snooping globalde açılmadan arayüz veya VLAN seviyesindeki komutlar etkisizdir. Ayrıca snooping açıldığında tüm portlar varsayılan olarak untrusted olur; gerçek DHCP sunucusuna giden portu trusted yapmazsanız ağdaki herkes adres almayı bırakır.", label: 'DHCP Snooping Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'ds_iface', why: "Bu arayüz meşru DHCP sunucusunun bulunduğu yön ise trusted olmalıdır. Yanlış yönü trusted yapmak sahte DHCP sunucusuna kapı açar; doğru yönü unutmak ise tüm istemcileri adressiz bırakır.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/2', hint: 'DHCP snooping uygulanacak arayüz' },
+                        { name: 'ds_iface', why: "Bu arayüz meşru DHCP sunucusunun bulunduğu yön ise trusted olmalıdır. Yanlış yönü trusted yapmak sahte DHCP sunucusuna kapı açar; doğru yönü unutmak ise tüm istemcileri adressiz bırakır.", label: 'Arayüz', type: 'text', requiredIf: { field: 'ds_enable', checked: true }, validate: 'iface', placeholder: 'GigabitEthernet0/0/2', hint: 'DHCP snooping uygulanacak arayüz' },
                         { name: 'ds_vlan', why: "Snooping VLAN bazında çalışır; sadece bir VLANda açmak diğer VLANlardaki sahte DHCP sunucularını engellemez. Ayrıca DAI ve IP Source Guard bu VLANdaki snooping binding tablosuna dayanır.", label: 'VLAN', type: 'text', optional: true, placeholder: '10', hint: 'DHCP snooping VLAN numarası' }
                     ]
                 },
@@ -603,7 +609,7 @@ HuaweiVRP.security = {
                     icon: 'fas fa-exclamation-triangle',
                     fields: [
                         { name: 'dai_enable', why: "DAI, DHCP snooping binding tablosu olmadan çalışamaz; snooping kapalıyken açarsanız tablo boş olur ve tüm ARP paketleri düşürülerek ağ tamamen durur. Sabit IPli sunucular için statik binding gerekir.", label: 'DAI Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'dai_iface', why: "ARP anti-attack erişim portlarında uygulanır. Sunucu veya uplink portunda binding kaydı bulunmadığından meşru ARP trafiği de düşürülür ve kesinti kaynağı olarak ilk akla DAI gelmez.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/3', hint: 'ARP anti-attack uygulanacak arayüz' }
+                        { name: 'dai_iface', why: "ARP anti-attack erişim portlarında uygulanır. Sunucu veya uplink portunda binding kaydı bulunmadığından meşru ARP trafiği de düşürülür ve kesinti kaynağı olarak ilk akla DAI gelmez.", label: 'Arayüz', type: 'text', requiredIf: { field: 'dai_enable', checked: true }, validate: 'iface', placeholder: 'GigabitEthernet0/0/3', hint: 'ARP anti-attack uygulanacak arayüz' }
                     ]
                 },
                 {
@@ -611,7 +617,7 @@ HuaweiVRP.security = {
                     icon: 'fas fa-fingerprint',
                     fields: [
                         { name: 'isg_enable', why: "IP Source Guard paketin kaynak IP ve MAC ikilisini binding tablosuyla karşılaştırır. Statik IP kullanan yazıcı veya sunucular için elle binding girilmezse bu cihazlar ağdan tamamen kopar.", label: 'IP Source Guard Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'isg_iface', why: "Yalnızca DHCP ile adres alan istemci portlarında güvenlidir. Sabit IP atanmış cihazların bulunduğu portta açmak, o cihazların trafiğini sessizce düşürür ve arıza fiziksel katman sorunu gibi görünür.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/4', hint: 'IP source guard uygulanacak arayüz' }
+                        { name: 'isg_iface', why: "Yalnızca DHCP ile adres alan istemci portlarında güvenlidir. Sabit IP atanmış cihazların bulunduğu portta açmak, o cihazların trafiğini sessizce düşürür ve arıza fiziksel katman sorunu gibi görünür.", label: 'Arayüz', type: 'text', requiredIf: { field: 'isg_enable', checked: true }, validate: 'iface', placeholder: 'GigabitEthernet0/0/4', hint: 'IP source guard uygulanacak arayüz' }
                     ]
                 },
                 {
@@ -619,7 +625,7 @@ HuaweiVRP.security = {
                     icon: 'fas fa-ban',
                     fields: [
                         { name: 'bpdu_enable', why: "BPDU protection, edge port olarak işaretlenmiş bir porta BPDU geldiğinde portu kapatır ve yanlışlıkla takılan switchin STP topolojisini bozmasını engeller. Edge port işaretlemesi olmadan bu koruma devreye girmez.", label: 'BPDU Guard Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'bpdu_iface', why: "Bu port <code>stp edged-port enable</code> ile işaretlenmiş olmalıdır. Uplink veya switche giden portta BPDU protection açmak, meşru BPDU geldiği anda portu err-down yaparak yedek yolu koparır.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/5', hint: 'BPDU protection uygulanacak arayüz' }
+                        { name: 'bpdu_iface', why: "Bu port <code>stp edged-port enable</code> ile işaretlenmiş olmalıdır. Uplink veya switche giden portta BPDU protection açmak, meşru BPDU geldiği anda portu err-down yaparak yedek yolu koparır.", label: 'Arayüz', type: 'text', requiredIf: { field: 'bpdu_enable', checked: true }, validate: 'iface', placeholder: 'GigabitEthernet0/0/5', hint: 'BPDU protection uygulanacak arayüz' }
                     ]
                 }
             ],

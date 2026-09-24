@@ -300,10 +300,10 @@ CiscoIOS.acl = {
                     showFor: ['extended', 'named'],
                     info: 'Standard ACL yalnızca kaynağa göre filtreler, bu alanlar Standard için kullanılmaz.',
                     fields: [
-                        { name: 'dst_ip', why: "Boş bırakmak <code>any</code> demektir; kural tüm hedeflere açılır. Hedefi daraltmadan yazılan <code>permit</code>, ACL'i düşündüğünden çok daha geniş yapar.", label: 'Hedef IP', type: 'text', validate: 'ip', placeholder: '10.0.0.10 (boş = any)', hint: 'Boş bırakılırsa hedef "any" olur' },
+                        { name: 'dst_ip', why: "Boş bırakmak <code>any</code> demektir; kural tüm hedeflere açılır. Hedefi daraltmadan yazılan <code>permit</code>, ACL'i düşündüğünden çok daha geniş yapar.", label: 'Hedef IP', type: 'text', validate: 'ip', placeholder: '10.0.0.10', hint: 'Boş bırakılırsa hedef "any" olur — boş = any' },
                         { name: 'dst_wild', why: 'Tek host için <code>0.0.0.0</code> (ya da <code>host</code> anahtar kelimesi). Yanlış wildcard, kuralın beklenenden çok daha geniş eşleşmesine yol açar.', label: 'Hedef Wildcard', type: 'text', placeholder: '0.0.0.0', hint: 'Boş bırakılırsa 0.0.0.0 (host) kullanılır' },
-                        { name: 'src_port', why: "Kaynak port neredeyse her zaman rastgeledir (ephemeral). Buraya <code>eq 443</code> yazmak klasik hatadır: sunucu portu <b>hedef</b> porttur ve kural hiç eşleşmez.", label: 'Kaynak Port (opsiyonel)', type: 'text', validate: 'port_match', placeholder: 'eq 1024 (yalnızca tcp/udp)', hint: 'Örn: eq 1024, gt 1023' },
-                        { name: 'dst_port', why: "Yalnızca <code>tcp</code>/<code>udp</code> ile çalışır; protokol <code>ip</code> iken yazılan port satırı kabul edilmez. <code>range</code> kullanırken aralığın iki ucunun da dahil olduğunu unutma.", label: 'Hedef Port (opsiyonel)', type: 'text', validate: 'port_match', placeholder: 'eq 443 (yalnızca tcp/udp)', hint: 'Örn: eq 443, range 8000 8080' }
+                        { name: 'src_port', why: "Kaynak port neredeyse her zaman rastgeledir (ephemeral). Buraya <code>eq 443</code> yazmak klasik hatadır: sunucu portu <b>hedef</b> porttur ve kural hiç eşleşmez.", label: 'Kaynak Port (opsiyonel)', type: 'text', validate: 'port_match', placeholder: 'eq 1024', hint: 'Örn: eq 1024, gt 1023 — yalnızca tcp/udp' },
+                        { name: 'dst_port', why: "Yalnızca <code>tcp</code>/<code>udp</code> ile çalışır; protokol <code>ip</code> iken yazılan port satırı kabul edilmez. <code>range</code> kullanırken aralığın iki ucunun da dahil olduğunu unutma.", label: 'Hedef Port (opsiyonel)', type: 'text', validate: 'port_match', placeholder: 'eq 443', hint: 'Örn: eq 443, range 8000 8080 — yalnızca tcp/udp' }
                     ]
                 },
                 {
@@ -312,7 +312,7 @@ CiscoIOS.acl = {
                     showFor: ['standard', 'extended', 'named'],
                     info: 'Interface belirtilmezse ACL yalnızca tanımlanır, uygulanmaz.',
                     fields: [
-                        { name: 'iface', why: "ACL'i tanımlamak onu <b>uygulamaz</b>. <code>ip access-group</code> ile bir arayüze bağlamadığın sürece tek bir paketi bile etkilemez — en sık atlanan adımdır.", label: 'Interface', type: 'text', validate: 'iface', placeholder: 'GigabitEthernet0/0 (boş = uygulama yok)', hint: 'ACL\'in uygulanacağı interface. Boş bırakılabilir.' },
+                        { name: 'iface', why: "ACL'i tanımlamak onu <b>uygulamaz</b>. <code>ip access-group</code> ile bir arayüze bağlamadığın sürece tek bir paketi bile etkilemez — en sık atlanan adımdır.", label: 'Interface', type: 'text', validate: 'iface', placeholder: 'GigabitEthernet0/0', hint: 'ACL\'in uygulanacağı interface. Boş bırakılabilir. — boş = hiçbir arayüze uygulanmaz' },
                         { name: 'direction', why: '<code>in</code> arayüze <b>giren</b>, <code>out</code> <b>çıkan</b> trafiği süzer. Yanlış yön en yaygın ACL hatasıdır — filtrelemeyi kaynağa en yakın noktada yapmak iyi pratiktir.', label: 'Yön', type: 'select', options: [{ value: 'in', label: 'in — Gelen trafik' }, { value: 'out', label: 'out — Giden trafik' }] }
                     ]
                 }
@@ -449,9 +449,9 @@ CiscoIOS.route = {
                     icon: 'fas fa-map-signs',
                     fields: [
                         { name: 'is_default', why: 'Varsayılan rota, eşleşmeyen tüm trafiği gönderir. Birden fazla default rota varsa AD değeri düşük olan kazanır — yedeklilik böyle kurulur.', label: 'Default route ekle (0.0.0.0/0)', type: 'checkbox', hint: 'İşaretlenirse hedef ağ/mask otomatik 0.0.0.0 olur' },
-                        { name: 'dest', why: "Ağ adresi yazılmalı, host adresi değil. <code>0.0.0.0</code> + <code>0.0.0.0</code> default rotadır; mevcut bir default rota varsa hangisinin kazanacağını AD belirler.", label: 'Hedef Ağ', type: 'text', placeholder: '10.0.0.0', hint: 'Ulaşılmak istenen hedef ağ adresi' },
-                        { name: 'mask', why: "Maske hedefin <b>spesifikliğini</b> belirler ve her zaman en uzun eşleşme kazanır. Yanlış maske rotayı ya hiç kullandırmaz ya da istemediğin trafiği bu yola çeker.", label: 'Subnet Mask', type: 'text', validate: 'subnet', placeholder: '255.255.255.0', hint: 'Hedef ağın subnet maskı' },
-                        { name: 'nexthop', why: 'Next-hop <b>IP</b> vermek, arayüz adı vermekten güvenlidir. Ethernet gibi çoklu erişimli ağlarda sadece arayüz yazmak ARP fırtınasına ve yanlış yönlendirmeye yol açabilir.', label: 'Next Hop / Interface', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1 veya GigabitEthernet0/0', hint: 'Paketlerin yönlendirileceği sonraki IP veya çıkış interface' },
+                        { name: 'dest', why: "Ağ adresi yazılmalı, host adresi değil. <code>0.0.0.0</code> + <code>0.0.0.0</code> default rotadır; mevcut bir default rota varsa hangisinin kazanacağını AD belirler.", label: 'Hedef Ağ', type: 'text', requiredIf: { field: 'is_default', checked: false }, placeholder: '10.0.0.0', hint: 'Ulaşılmak istenen hedef ağ adresi' },
+                        { name: 'mask', why: "Maske hedefin <b>spesifikliğini</b> belirler ve her zaman en uzun eşleşme kazanır. Yanlış maske rotayı ya hiç kullandırmaz ya da istemediğin trafiği bu yola çeker.", label: 'Subnet Mask', type: 'text', requiredIf: { field: 'is_default', checked: false }, validate: 'subnet', placeholder: '255.255.255.0', hint: 'Hedef ağın subnet maskı' },
+                        { name: 'nexthop', why: 'Next-hop <b>IP</b> vermek, arayüz adı vermekten güvenlidir. Ethernet gibi çoklu erişimli ağlarda sadece arayüz yazmak ARP fırtınasına ve yanlış yönlendirmeye yol açabilir.', label: 'Next Hop / Interface', type: 'text', validate: 'nexthop', required: true, placeholder: '192.168.1.1', hint: 'Paketlerin yönlendirileceği sonraki IP veya çıkış interface — IP veya çıkış arayüzü (örn: GigabitEthernet0/0)' },
                         { name: 'ad', why: 'Administrative Distance, aynı hedefe giden rotalar arasında tercih sırasını belirler (düşük kazanır). Yedek rotaya yüksek AD vermek klasik floating static route tekniğidir.', label: 'Administrative Distance', type: 'number', placeholder: '1 (varsayılan)', min: 1, max: 255, hint: 'Düşük değer = öncelikli. Floating route için yüksek değer (örn: 254) girin' }
                     ]
                 }
@@ -600,8 +600,8 @@ CiscoIOS.ipsec = {
                     fields: [
                         { name: 'local_ip', why: "Tünelin yerel ucu olarak kullanılan genel adres. NAT arkasındaysan buraya cihazın kendi arayüz IP'sini yaz ve NAT-T'yi aç; dışarıdan görünen IP'yi yazmak Phase 1'in kimlik doğrulamasını bozar.",   label: 'Public IP',      type: 'text', required: true,  validate: 'ip', placeholder: '85.100.1.1',        hint: 'WAN/genel IP adresi' },
                         { name: 'local_wan', why: "Crypto map bu arayüze bağlanır. Yanlış arayüze bağlarsan IKE paketleri hiç şifrelenmez ve tünel Phase 1'de takılı kalır.",  label: 'WAN Interface',  type: 'text', required: true,  placeholder: 'GigabitEthernet0/0', hint: 'WAN interface adı' },
-                        { name: 'local_net', why: "Interesting traffic tanımının yerel ucu. İki tarafın ACL'leri <b>ayna görüntüsü</b> olmalı; biri /24 diğeri /16 yazarsa Phase 2 proposal uyuşmazlığı alırsın.",  label: 'Local Network',  type: 'text', required: false, validate: 'ip', placeholder: '192.168.1.0',        hint: 'Korunan iç ağ' },
-                        { name: 'local_mask', why: "Maske iki uçta simetrik olmalı. Asimetrik tanım, tünel kurulsa bile trafiğin yalnızca tek yönde akmasına yol açar ve teşhisi zordur.", label: 'Subnet Mask',    type: 'text', required: false, validate: 'subnet', placeholder: '255.255.255.0',      hint: 'Yerel ağ maskesi' }
+                        { name: 'local_net', why: "Interesting traffic tanımının yerel ucu. İki tarafın ACL'leri <b>ayna görüntüsü</b> olmalı; biri /24 diğeri /16 yazarsa Phase 2 proposal uyuşmazlığı alırsın.",  label: 'Local Network',  type: 'text', required: true, validate: 'ip', placeholder: '192.168.1.0',        hint: 'Korunan iç ağ' },
+                        { name: 'local_mask', why: "Maske iki uçta simetrik olmalı. Asimetrik tanım, tünel kurulsa bile trafiğin yalnızca tek yönde akmasına yol açar ve teşhisi zordur.", label: 'Subnet Mask',    type: 'text', required: true, validate: 'subnet', placeholder: '255.255.255.0',      hint: 'Yerel ağ maskesi' }
                     ]
                 },
                 {
@@ -609,8 +609,8 @@ CiscoIOS.ipsec = {
                     showFor: ['site-to-site', 'remote-access', 'dmvpn-ready'], warn: null, info: null,
                     fields: [
                         { name: 'remote_ip', why: "Karşı tarafın gerçek dış IP'si. NAT arkasındaysa dış IP yazılmalı ve NAT-T (UDP 4500) açık olmalı.",   label: 'Remote Public IP',  type: 'text', validate: 'ip', required: true,  placeholder: '85.200.2.2',    hint: 'Karşı taraf WAN IP' },
-                        { name: 'remote_net', why: "Karşı tarafın yerel ağı. Bu ağ aynı zamanda NAT muafiyet (<code>deny</code>) satırında da yer almalı; yoksa trafik NAT'lanır ve tünele hiç girmez.",  label: 'Remote Network',    type: 'text', validate: 'ip', required: false, placeholder: '192.168.2.0',   hint: 'Karşı ağ adresi' },
-                        { name: 'remote_mask', why: "Uzak ağın maskesi iki uçta aynı olmalı. Fazla geniş yazmak internete giden trafiği de tünele sokarak şubeyi internetsiz bırakabilir.", label: 'Remote Mask',       type: 'text', validate: 'subnet', required: false, placeholder: '255.255.255.0', hint: 'Karşı ağ maskesi' }
+                        { name: 'remote_net', why: "Karşı tarafın yerel ağı. Bu ağ aynı zamanda NAT muafiyet (<code>deny</code>) satırında da yer almalı; yoksa trafik NAT'lanır ve tünele hiç girmez.",  label: 'Remote Network',    type: 'text', required: true, validate: 'ip', placeholder: '192.168.2.0',   hint: 'Karşı ağ adresi' },
+                        { name: 'remote_mask', why: "Uzak ağın maskesi iki uçta aynı olmalı. Fazla geniş yazmak internete giden trafiği de tünele sokarak şubeyi internetsiz bırakabilir.", label: 'Remote Mask',       type: 'text', required: true, validate: 'subnet', placeholder: '255.255.255.0', hint: 'Karşı ağ maskesi' }
                     ]
                 },
                 {
@@ -619,7 +619,7 @@ CiscoIOS.ipsec = {
                     info: 'Sadece VTI veya FlexVPN yöntemi seçildiğinde kullanılır.',
                     fields: [
                         { name: 'tunnel_num', why: "Tunnel numarası yereldir, iki tarafta aynı olmak zorunda değil. Ancak kullanımdaki bir numarayı tekrar vermek çalışan VPN'i sessizce ezer.",  label: 'Tunnel No',    type: 'text', required: false, placeholder: '1',                  hint: 'Tunnel interface numarası' },
-                        { name: 'tunnel_ip', why: "VTI'da iki uç aynı /30 içinde olmalı. Fiziksel WAN ağından adres vermek yönlendirme döngüsü ve sürekli flap yaratır.",   label: 'Tunnel IP',    type: 'text', validate: 'ip', required: false, placeholder: '172.16.1.1',         hint: 'Tunnel IP (VTI/FlexVPN gerekli)' },
+                        { name: 'tunnel_ip', why: "VTI'da iki uç aynı /30 içinde olmalı. Fiziksel WAN ağından adres vermek yönlendirme döngüsü ve sürekli flap yaratır.",   label: 'Tunnel IP',    type: 'text', required: true, validate: 'ip', placeholder: '172.16.1.1',         hint: 'Tunnel IP (VTI/FlexVPN gerekli)' },
                         { name: 'tunnel_mask', why: "Point-to-point tünelde <code>255.255.255.252</code> (/30) yeterlidir. Daha geniş maske vermek, aynı blokta yapılandırılan başka bir tüneli istemeden kapsayabilir.", label: 'Tunnel Mask',  type: 'text', validate: 'subnet', required: false, placeholder: '255.255.255.252',    hint: 'Tunnel subnet maskesi' }
                     ]
                 },
@@ -688,7 +688,8 @@ CiscoIOS.ipsec = {
             const hashMapV2 = { sha512:'sha512', sha256:'sha256', sha1:'sha1', md5:'md5' };
             const esp2Enc   = { 'esp-aes256':'esp-aes 256', 'esp-aes192':'esp-aes 192', 'esp-aes128':'esp-aes', 'esp-3des':'esp-3des' };
 
-            const calcWild = mask => mask.split('.').map(o => 255 - parseInt(o)).join('.');
+            // Bos/gecersiz maskede 'NaN' uretmesin: bos birak, satir eksikligi gorunur olsun.
+            const calcWild = mask => /^(\d{1,3}\.){3}\d{1,3}$/.test(mask) ? mask.split('.').map(o => 255 - parseInt(o, 10)).join('.') : '';
 
             const p2TS = () => {
                 let c = '! ── IPSec Transform Set ──────────────────────────────────\n';
@@ -982,8 +983,8 @@ CiscoIOS.aaa = {
                     icon: 'fas fa-server',
                     info: 'TACACS+ seçildiğinde doldurulması gerekir.',
                     fields: [
-                        { name: 'tacacs_ip', why: "TACACS+ sunucusuna giden yol <b>her koşulda</b> açık olmalı. Sunucu erişilemez ve local fallback tanımlı değilse cihaza hiç giriş yapamazsın.", label: 'Sunucu IP', type: 'text', validate: 'ip', placeholder: '10.0.0.10', hint: 'TACACS+ sunucusunun IP adresi' },
-                        { name: 'tacacs_key', why: 'Paylaşılan anahtar cihazda ve sunucuda birebir aynı olmalı. TACACS+ komut bazlı yetkilendirme yapabilir, RADIUS yapamaz.', label: 'Key', type: 'text', placeholder: 'SecretKey123', hint: 'Shared secret — cihaz ve sunucuda aynı olmalı' }
+                        { name: 'tacacs_ip', why: "TACACS+ sunucusuna giden yol <b>her koşulda</b> açık olmalı. Sunucu erişilemez ve local fallback tanımlı değilse cihaza hiç giriş yapamazsın.", label: 'Sunucu IP', type: 'text', requiredIf: { field: 'auth_method', in: ['tacacs', 'tacacs_only'] }, validate: 'ip', placeholder: '10.0.0.10', hint: 'TACACS+ sunucusunun IP adresi' },
+                        { name: 'tacacs_key', why: 'Paylaşılan anahtar cihazda ve sunucuda birebir aynı olmalı. TACACS+ komut bazlı yetkilendirme yapabilir, RADIUS yapamaz.', label: 'Key', type: 'text', requiredIf: { field: 'auth_method', in: ['tacacs', 'tacacs_only'] }, placeholder: 'SecretKey123', hint: 'Shared secret — cihaz ve sunucuda aynı olmalı' }
                     ]
                 },
                 {
@@ -991,8 +992,8 @@ CiscoIOS.aaa = {
                     icon: 'fas fa-server',
                     info: 'RADIUS seçildiğinde doldurulması gerekir.',
                     fields: [
-                        { name: 'radius_ip', why: "RADIUS UDP 1812/1813 kullanır (eski cihazlarda 1645/1646). Yanlış port sunucu yanıt vermiyor hatası verir ve sunucu tarafında hiç iz bırakmaz.", label: 'Sunucu IP', type: 'text', validate: 'ip', placeholder: '10.0.0.20', hint: 'RADIUS sunucusunun IP adresi' },
-                        { name: 'radius_key', why: "Paylaşılan anahtar cihaz ve sunucuda birebir aynı olmalı. Uyuşmazlıkta sunucu isteği sessizce düşürür; cihaz tarafında yalnızca timeout görürsün.", label: 'Key', type: 'text', placeholder: 'SecretKey123', hint: 'Shared secret — auth-port 1812, acct-port 1813' }
+                        { name: 'radius_ip', why: "RADIUS UDP 1812/1813 kullanır (eski cihazlarda 1645/1646). Yanlış port sunucu yanıt vermiyor hatası verir ve sunucu tarafında hiç iz bırakmaz.", label: 'Sunucu IP', type: 'text', requiredIf: { field: 'auth_method', in: ['radius', 'radius_only'] }, validate: 'ip', placeholder: '10.0.0.20', hint: 'RADIUS sunucusunun IP adresi' },
+                        { name: 'radius_key', why: "Paylaşılan anahtar cihaz ve sunucuda birebir aynı olmalı. Uyuşmazlıkta sunucu isteği sessizce düşürür; cihaz tarafında yalnızca timeout görürsün.", label: 'Key', type: 'text', requiredIf: { field: 'auth_method', in: ['radius', 'radius_only'] }, placeholder: 'SecretKey123', hint: 'Shared secret — auth-port 1812, acct-port 1813' }
                     ]
                 },
                 {
@@ -1901,7 +1902,7 @@ CiscoIOS.etherchannel = {
                 {
                     title: 'Trunk Ayarları', icon: 'fas fa-network-wired', showFor: ['trunk'], warn: null, info: null,
                     fields: [
-                        { name: 'allowed_vlans', why: "Trunk'tan geçmesine izin verilen VLAN'lar. Varsayılan <b>tüm VLAN'lar</b>dır; daraltmak hem broadcast'i hem saldırı yüzeyini azaltır.", label: 'Allowed VLANs', type: 'text', validate: 'vlan_list', required: false, placeholder: '10,20,30 veya all', hint: 'Trunk allowed VLAN listesi' },
+                        { name: 'allowed_vlans', why: "Trunk'tan geçmesine izin verilen VLAN'lar. Varsayılan <b>tüm VLAN'lar</b>dır; daraltmak hem broadcast'i hem saldırı yüzeyini azaltır.", label: 'Allowed VLANs', type: 'text', validate: 'vlan_list', required: false, placeholder: '10,20,30', hint: 'Trunk allowed VLAN listesi — tümü için all' },
                         { name: 'native_vlan', why: "Trunk'ta etiketsiz geçen VLAN. İki uçta farklı native VLAN, <b>VLAN hopping</b> saldırısına kapı açar. Native VLAN'ı kullanılmayan bir ID'ye (ör. 999) almak iyi pratiktir.",   label: 'Native VLAN',   type: 'text', validate: 'vlan', required: false, placeholder: '1',                hint: 'Native VLAN (opsiyonel)' }
                     ]
                 },
@@ -1966,8 +1967,8 @@ CiscoIOS.dmvpn = {
                 {
                     title: 'Spoke — NHS Bilgileri', icon: 'fas fa-sitemap', showFor: ['spoke'], warn: null, info: null,
                     fields: [
-                        { name: 'hub_wan', why: "Hub'ın sabit dış IP'si. Spoke'lar dinamik IP alabilir ama hub'ın IP'si sabit olmalıdır.", label: 'Hub WAN IP (NHS)',    type: 'text', required: false, placeholder: '203.0.113.1', hint: 'Hub fiziksel WAN IP' },
-                        { name: 'hub_tun', why: "NHS adresi hub'ın <b>tünel</b> IP'sidir, genel IP'si değil. İkisini karıştırmak NHRP kaydının hiç tamamlanmamasına ve spoke'ların hub'ı bulamamasına yol açar.", label: 'Hub Tunnel IP (NHS)', type: 'text', required: false, placeholder: '10.100.0.1',  hint: 'Hub tunnel IP' }
+                        { name: 'hub_wan', why: "Hub'ın sabit dış IP'si. Spoke'lar dinamik IP alabilir ama hub'ın IP'si sabit olmalıdır.", label: 'Hub WAN IP (NHS)',    type: 'text', required: true, placeholder: '203.0.113.1', hint: 'Hub fiziksel WAN IP' },
+                        { name: 'hub_tun', why: "NHS adresi hub'ın <b>tünel</b> IP'sidir, genel IP'si değil. İkisini karıştırmak NHRP kaydının hiç tamamlanmamasına ve spoke'ların hub'ı bulamamasına yol açar.", label: 'Hub Tunnel IP (NHS)', type: 'text', required: true, placeholder: '10.100.0.1',  hint: 'Hub tunnel IP' }
                     ]
                 },
                 {

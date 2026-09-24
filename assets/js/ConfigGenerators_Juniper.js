@@ -290,7 +290,7 @@ Juniper.acl = {
                             { value: 'any', label: 'any', selected: true },
                             { value: 'specific', label: 'Belirli IP/Prefix' }
                         ]},
-                        { name: 'src_ip', why: 'Prefix uzunluğu eşleşmenin kapsamını belirler: /32 tek host, /24 tüm subnet. Maskeyi geniş yazmak filtreyi beklediğinizden çok daha fazla trafiğe uygular.', label: 'Kaynak IP / Prefix', type: 'text', validate: 'cidr', optional: true, placeholder: '192.168.1.0/24', hint: '"Belirli IP/Prefix" seçilirse doldur' }
+                        { name: 'src_ip', why: 'Prefix uzunluğu eşleşmenin kapsamını belirler: /32 tek host, /24 tüm subnet. Maskeyi geniş yazmak filtreyi beklediğinizden çok daha fazla trafiğe uygular.', label: 'Kaynak IP / Prefix', type: 'text', requiredIf: { field: 'src', in: ['specific'] }, validate: 'ip_cidr', placeholder: '192.168.1.0/24', hint: '"Belirli IP/Prefix" seçilirse doldur' }
                     ]
                 },
                 {
@@ -308,9 +308,9 @@ Juniper.acl = {
                             { value: 'any', label: 'any', selected: true },
                             { value: 'specific', label: 'Belirli IP/Prefix' }
                         ]},
-                        { name: 'dst_ip', why: "Hedef prefix'i geniş yazmak (ör. /24), tek sunucuya uyguladığınızı sandığınız kuralı tüm subnet'e uygular; host için <code>/32</code> kullanın.", label: 'Hedef IP / Prefix', type: 'text', validate: 'cidr', optional: true, placeholder: '10.0.0.1/32', hint: '"Belirli IP/Prefix" seçilirse doldur' },
-                        { name: 'src_port', why: 'Kaynak port çoğu istemcide rastgele yüksek porttur; kaynak porta göre filtrelemek genellikle hatalıdır ve kuralın hiç eşleşmemesine yol açar.', label: 'Kaynak Port', type: 'text', validate: 'iface', optional: true, placeholder: 'any veya 80', hint: 'TCP/UDP kaynak port (any veya numara)' },
-                        { name: 'dst_port', why: 'Servisi belirleyen alan hedef porttur. Firewall filter <b>stateless</b> olduğu için dönüş trafiği ayrı bir term ile ele alınmalıdır — sadece gidiş yönünü yazmak bağlantıyı tek yönlü kırar.', label: 'Hedef Port', type: 'text', validate: 'iface', optional: true, placeholder: 'any veya 443', hint: 'TCP/UDP hedef port (any veya numara)' },
+                        { name: 'dst_ip', why: "Hedef prefix'i geniş yazmak (ör. /24), tek sunucuya uyguladığınızı sandığınız kuralı tüm subnet'e uygular; host için <code>/32</code> kullanın.", label: 'Hedef IP / Prefix', type: 'text', requiredIf: { field: 'dst', in: ['specific'] }, validate: 'ip_cidr', placeholder: '10.0.0.1/32', hint: '"Belirli IP/Prefix" seçilirse doldur' },
+                        { name: 'src_port', why: 'Kaynak port çoğu istemcide rastgele yüksek porttur; kaynak porta göre filtrelemek genellikle hatalıdır ve kuralın hiç eşleşmemesine yol açar.', label: 'Kaynak Port', type: 'text', validate: 'port', optional: true, placeholder: '80', hint: 'TCP/UDP kaynak port (any veya numara)' },
+                        { name: 'dst_port', why: 'Servisi belirleyen alan hedef porttur. Firewall filter <b>stateless</b> olduğu için dönüş trafiği ayrı bir term ile ele alınmalıdır — sadece gidiş yönünü yazmak bağlantıyı tek yönlü kırar.', label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '443', hint: 'TCP/UDP hedef port (any veya numara)' },
                         { name: 'icmp_type', why: "ICMP'yi komple kapatmak PMTU discovery'yi bozar ve büyük paketlerin sessizce düşmesine yol açar. <code>echo-request</code> dışında <code>unreachable</code> ve <code>fragmentation-needed</code> tiplerine izin vermeyi unutmayın.", label: 'ICMP Tipi', type: 'text', optional: true, placeholder: 'echo-request', hint: 'Protokol ICMP ise ICMP tip adı' }
                     ]
                 },
@@ -337,7 +337,10 @@ Juniper.acl = {
             const type = data._cgtype || 'standard', action = cgEsc(data.action || 'accept');
             const src = cgEsc(data.src || 'any'), srcip = cgEsc(data.src_ip || '');
             const base = 'set firewall family inet filter ' + fname + ' term ' + term;
-            let c = '# ========================================\n# Juniper JunOS — Firewall Filter (ACL)\n# ========================================\n\nconfigure\n\n';
+            let c = '# ========================================\n# Juniper JunOS — Firewall Filter (ACL)\n# ========================================\n\n';
+            if (src === 'specific' && !srcip) c += '# UYARI: kaynak "Belirli IP" seçili ama IP boş — term her kaynağı eşler.\n';
+            if (type !== 'standard' && data.dst === 'specific' && !data.dst_ip) c += '# UYARI: hedef "Belirli IP" seçili ama IP boş — term her hedefi eşler.\n';
+            c += 'configure\n\n';
             if (type === 'standard') {
                 if (src === 'specific' && srcip) {
                     const prefix = srcip.includes('/') ? srcip : srcip + '/32';

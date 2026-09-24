@@ -14,6 +14,11 @@ const CG_VALIDATORS = {
     ip:       { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli bir IPv4 adresi girin (örn: 10.0.0.1)' },
     cidr:     { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/, msg: 'CIDR formatında girin (örn: 10.0.0.0/24)' },
     subnet:   { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli subnet mask girin (örn: 255.255.255.0)' },
+    // Next-hop: IP adresi VEYA cikis arayuzu ('ip route 0.0.0.0 0.0.0.0 Gi0/0')
+    nexthop:  { fn: v => { const t = String(v).trim(); return /^[\d.]+$/.test(t) ? CG_VALIDATORS.ip.re.test(t) : _cgIface(t); },
+                msg: 'Next-hop IP adresi veya çıkış arayüzü girin (örn: 192.168.1.1, GigabitEthernet0/0)' },
+    // Wildcard (ters) maske: 0.0.0.255 = /24. Huawei VRP ve Cisco ACL'lerinde kullanilir.
+    wildcard: { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Wildcard maske girin (örn: 0.0.0.255 = /24)' },
     ip_cidr:  { fn: v => /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v) || /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/.test(v), msg: 'IP adresi veya CIDR (örn: 10.0.0.1 veya 10.0.0.0/24)' },
     vlan:     { fn: v => _cgInt(v, 1, 4094), msg: 'VLAN ID 1-4094 arasında olmalı' },
     asn:      { fn: v => { const n = parseInt(v); return (!isNaN(n) && n >= 1 && n <= 4294967295) || /^\d+\.\d+$/.test(v.trim()); }, msg: 'AS numarası 1-4294967295 veya dotted (ör: 65000 veya 1.100)' },
@@ -340,6 +345,8 @@ const CG_WHY = {
     ip:          _cgIpWhy,
     cidr:        _cgCidrWhy,
     subnet:      _cgIpWhy,
+    nexthop:     t => (/^[\d.]+$/.test(t) ? _cgIpWhy(t) : _cgIfaceWhy(t)),
+    wildcard:    _cgIpWhy,
     ip_cidr:     t => (t.indexOf('/') >= 0 ? _cgCidrWhy(t) : _cgIpWhy(t)),
     vlan:        t => _cgNumWhy(t, 1, 4094),
     asn:         t => (/^\d+\.\d+$/.test(t) ? '' : _cgNumWhy(t, 1, 4294967295)),
@@ -398,6 +405,7 @@ function cgWhyBox(why, key) {
 }
 
 function cgValidate(form) {
+    cgApplyRequiredIf(form);
     let ok = true;
     form.querySelectorAll('[data-cgv], [required]').forEach(el => {
         if (el.disabled) return;
@@ -639,6 +647,21 @@ function cgFormBuilder(container, schema, generateFn) {
                '<input type="hidden" name="_cgtype" id="_cgtype" value=""></div>';
     }
 
+    function _riField(name) {
+        for (const sec of (schema.sections || [])) for (const x of (sec.fields || [])) if (x.name === name) return x;
+        return null;
+    }
+    function _riLabel(name) {
+        if (name === '_cgtype') return 'Yapılandırma tipi';
+        const x = _riField(name); return (x && x.label) || name;
+    }
+    function _riValLabel(name, v) {
+        if (name === '_cgtype') { const t = (schema.configTypes || []).find(c => c.id === v); return t ? t.label : v; }
+        const x = _riField(name); if (!x || !x.options) return v;
+        const o = x.options.find(o => (o.value !== undefined ? o.value : o.v) === v);
+        return o ? (o.label !== undefined ? o.label : o.l) : v;
+    }
+
     function renderField(f) {
         if (f.type === 'hidden') return '<input type="hidden" name="' + esc(f.name) + '" id="cgfb_' + esc(f.name) + '" value="' + esc(f.value || '') + '">';
 
@@ -647,7 +670,16 @@ function cgFormBuilder(container, schema, generateFn) {
         // Sonuc: 804 opsiyonel alanin yalnizca 388'i isaretliydi; kalan 416 alan
         // zorunlu alanlarla birebir ayni gorunuyordu (tek fark eksik yildiz).
         // Artik required'dan TURETILIYOR — zorunlu degilse opsiyoneldir.
-        const opt  = (!f.required) ? '<span class="cg-opt">Opsiyonel</span>' : '';
+        // Kosullu zorunlu alan (requiredIf): baska bir alanin degerine bagli.
+        // Ornek: TACACS sunucu IP'si yalnizca yontem TACACS+ secildiginde zorunlu.
+        const ri   = f.requiredIf;
+        // Rozet aciklamasinda alan ADI degil ETIKET: 'auth_method = tacacs' degil
+        // 'Auth Yöntemi = TACACS+ (fallback local)'.
+        const riTxt = !ri ? '' : ri.checked === true  ? _riLabel(ri.field) + ' işaretliyken zorunlu'
+                            : ri.checked === false ? _riLabel(ri.field) + ' işaretli değilken zorunlu'
+                            : _riLabel(ri.field) + ' = ' + [].concat(ri.in).map(v => _riValLabel(ri.field, v)).join(' / ') + ' iken zorunlu';
+        const opt  = ri ? '<span class="cg-opt cg-cond" title="' + esc(riTxt) + '">Koşullu</span>'
+                   : (!f.required) ? '<span class="cg-opt">Opsiyonel</span>' : '';
         const tip  = f.tooltip  ? '<span class="cg-tip"><i class="fas fa-info-circle"></i><span class="cg-tip-text">' + esc(f.tooltip) + '</span></span>' : '';
         const hint = f.hint     ? '<span class="cg-field-hint">' + esc(f.hint) + '</span>' : '';
         const why  = cgWhyBox(f.why, f.name);
@@ -655,6 +687,9 @@ function cgFormBuilder(container, schema, generateFn) {
         const baseAttrs = 'name="' + esc(f.name) + '" id="cgfb_' + esc(f.name) + '"' +
             (f.required    ? ' required'                        : '') +
             (f.validate    ? ' data-cgv="' + esc(f.validate) + '"' : '') +
+            (ri ? ' data-req-if="' + esc(ri.field) + '"' +
+                  (ri.checked !== undefined ? ' data-req-checked="' + (ri.checked ? '1' : '0') + '"'
+                                            : ' data-req-in="' + esc([].concat(ri.in).join('|')) + '"') : '') +
             (f.min !== undefined ? ' min="' + f.min + '"'       : '') +
             (f.max !== undefined ? ' max="' + f.max + '"'       : '') +
             (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') +
@@ -771,7 +806,9 @@ function cgFormBuilder(container, schema, generateFn) {
                 data.__cgInvalid.push({ name: el.name, label: _cgLabelOf(el), value: raw,
                                         msg: cgFieldMsg(el.dataset.cgv, raw),
                                         reason: cgFieldReason(el.dataset.cgv, raw), el });
-                delete data[el.name];          // generator bos gormus gibi davranir
+                // Silmek yerine BOS dize: korumasiz generator'lar (data.x'i dogrudan
+                // yazanlar) aksi halde config'e 'undefined' yaziyordu.
+                data[el.name] = '';
             }
         });
         // Bazı generator'lar tip alanını '_configType' diye okuyor; iki adı da ver.
@@ -788,6 +825,7 @@ function cgFormBuilder(container, schema, generateFn) {
             cgShowOutput('', []);
             return;
         }
+        cgApplyRequiredIf(formEl);
         // Yumuşak doğrulama: alanları işaretler ama üretimi engellemez
         cgValidateSoft(formEl);
         // Doldurulmamış zorunlu alanları say -> kullanıcıya "örnek değer" uyarısı
@@ -886,6 +924,21 @@ function cgFormBuilder(container, schema, generateFn) {
     cgPostRender(container);
 }
 
+// requiredIf: kosul saglandiginda alan zorunlu olur. Gizli (showFor) bolumdeki
+// alan kosul saglansa bile zorunlu sayilmaz — bolum zaten config'e girmez.
+function cgApplyRequiredIf(form) {
+    form.querySelectorAll('[data-req-if]').forEach(el => {
+        const ctl = form.querySelector('[name="' + el.dataset.reqIf + '"]');
+        let on = false;
+        if (ctl) on = el.dataset.reqChecked !== undefined ? (!!ctl.checked === (el.dataset.reqChecked === '1'))
+                                                          : el.dataset.reqIn.split('|').includes(ctl.value);
+        const sec = el.closest('.cg-fb-section');
+        if (sec && sec.style.display === 'none') on = false;
+        el.required = on;
+        if (!on && !String(el.value || '').trim()) { el.classList.remove('is-invalid'); _cgClearError(el); }
+    });
+}
+
 function cgFBSelectType(typeId, cardEl) {
     const form = cardEl.closest('form');
     form.querySelectorAll('.gen-type-card-enhanced').forEach(c => c.classList.remove('active'));
@@ -896,6 +949,7 @@ function cgFBSelectType(typeId, cardEl) {
         const show = sec.dataset.showfor.split(',').includes(typeId);
         sec.style.display = show ? '' : 'none';
         sec.querySelectorAll('input,select,textarea').forEach(el => {
+            if (el.dataset.reqIf) return;          // cgApplyRequiredIf yonetir
             if (el.dataset.origRequired === 'true' || el.required) {
                 if (!el.dataset.origRequired) el.dataset.origRequired = 'true';
                 el.disabled = !show;

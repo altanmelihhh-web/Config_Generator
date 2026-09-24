@@ -502,8 +502,8 @@ CiscoNXOS.span = {
                             { value: 'src', label: 'Kaynak Switch', selected: true },
                             { value: 'dst', label: 'Hedef Switch' }
                         ]},
-                        { name: 'rspan_src', why: "Kaynak switch üzerinde izlenecek portlar; RSPAN VLAN’ı taşıyan trunk kopuk olduğunda trafik sessizce kaybolur ve hata mesajı üretilmez.", label: 'Kaynak Arayüz(ler)', type: 'text', optional: true, placeholder: 'Ethernet1/1', hint: 'Kaynak switch üzerindeki izlenecek portlar' },
-                        { name: 'rspan_dst', why: "Hedef switch üzerindeki analyzer portu. Bu port da SPAN hedefi olduğu için normal trafiği geçirmez.", label: 'Hedef Arayüz', type: 'text', optional: true, placeholder: 'Ethernet1/48', hint: 'Hedef switch üzerindeki analyzer portu' }
+                        { name: 'rspan_src', why: "Kaynak switch üzerinde izlenecek portlar; RSPAN VLAN’ı taşıyan trunk kopuk olduğunda trafik sessizce kaybolur ve hata mesajı üretilmez.", label: 'Kaynak Arayüz(ler)', type: 'text', requiredIf: { field: 'rspan_role', in: ['src'] }, placeholder: 'Ethernet1/1', hint: 'Kaynak switch üzerindeki izlenecek portlar' },
+                        { name: 'rspan_dst', why: "Hedef switch üzerindeki analyzer portu. Bu port da SPAN hedefi olduğu için normal trafiği geçirmez.", label: 'Hedef Arayüz', type: 'text', requiredIf: { field: 'rspan_role', in: ['dst'] }, placeholder: 'Ethernet1/48', hint: 'Hedef switch üzerindeki analyzer portu' }
                     ]
                 },
                 {
