@@ -19,10 +19,20 @@ function cgMaskLen(mask) {
     return /^1*0*$/.test(bits) ? String(bits.indexOf('0') < 0 ? 32 : bits.indexOf('0')) : '';
 }
 
+// Huawei VRP/CE VLAN listesi: bosluk ayrac, aralik 'to' ile. Form '10,20,30-40'
+// kabul eder; cihaz '10 20 30 to 40' ister ('1-100' VRP'de gecersizdir).
+function cgHwVlanList(s) {
+    return String(s || '').trim().replace(/\s+to\s+/gi, '-').split(/[,\s]+/).filter(Boolean)
+        .map(p => p.replace(/^(\d+)-(\d+)$/, '$1 to $2')).join(' ');
+}
+
 const CG_VALIDATORS = {
     ip:       { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli bir IPv4 adresi girin (örn: 10.0.0.1)' },
     cidr:     { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/, msg: 'CIDR formatında girin (örn: 10.0.0.0/24)' },
     subnet:   { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli subnet mask girin (örn: 255.255.255.0)' },
+    // ASA nameif: arayuzun mantiksal adi (outside, inside, dmz, partner). Fiziksel
+    // arayuz adi degildir; 'iface' dogrulayicisi rakamsiz adlari reddediyordu.
+    nameif:   { re: /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/, msg: 'Nameif girin (örn: outside, inside, dmz)' },
     // Bitisik ag maskesi (255.255.255.0 gibi). 'subnet' her noktali dortluyu kabul eder;
     // prefix'e cevrilecek alanlarda bu kullanilir — 255.0.255.0 cevrilemez.
     netmask:  { fn: v => cgMaskLen(String(v).trim()) !== '', msg: 'Geçerli ağ maskesi girin (örn: 255.255.255.0)' },
@@ -358,6 +368,8 @@ const CG_WHY = {
     ip:          _cgIpWhy,
     cidr:        _cgCidrWhy,
     subnet:      _cgIpWhy,
+    nameif:      t => (!t || /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/.test(t) ? '' : /\s/.test(t) ? 'boşluk olamaz' : !/^[A-Za-z]/.test(t) ? 'harfle başlamalı'
+                      : t.length > 48 ? t.length + ' karakter girdiniz, en fazla 48' : 'yalnızca harf, rakam, _ . - kullanılır'),
     netmask:     t => _cgIpWhy(t) || (cgMaskLen(t) === '' ? 'maske bitişik değil — 1 bitleri soldan kesintisiz olmalı (örn: 255.255.240.0)' : ''),
     posint:      t => _cgNumWhy(t, 1, 2147483647),
     nexthop:     t => (/^[\d.]+$/.test(t) ? _cgIpWhy(t) : _cgIfaceWhy(t)),
@@ -410,6 +422,66 @@ function _cgLabelOf(el) {
     const c = lblEl.cloneNode(true);
     c.querySelectorAll('.cg-opt, .text-danger, .cg-tip').forEach(n => n.remove());
     return c.textContent.replace(/[*\s]+$/, '').trim() || el.name;
+}
+
+// ─── Geçerli değer kuralları ────────────────────────────────────────────────
+// Bilgi kartında her alanın altında "Geçerli değer" satırı olarak gösterilir.
+// Üç metin ayrı işler görür:
+//   hint  -> alan NE (Trunk allowed VLAN listesi)
+//   why   -> NEDEN önemli (kavram, risk)
+//   rule  -> NE GİREBİLİRİM (aralık, biçim, ne kabul edilmez)  <- bu tablo
+//   hata  -> girdiğimin NESİ yanlış (CG_WHY)
+// Doğrulayıcı başına tek yerde yazılır; o doğrulayıcıyı kullanan her alan alır.
+const CG_RULES = {
+    ip:          'Dört oktet (a.b.c.d), her biri 0–255. Önek (/24) yazılmaz.',
+    cidr:        'Adres/önek: a.b.c.d/0–32 — önek zorunlu. Örn: 10.0.0.0/24',
+    nameif:      'ASA arayüzünün mantıksal adı: harfle başlar, harf/rakam/_ . -, en fazla 48 karakter. Fiziksel ad (GigabitEthernet0/0) değildir.',
+    subnet:      'Noktalı dörtlü, her oktet 0–255. Örn: 255.255.255.0',
+    netmask:     'Bitişik ağ maskesi: 255.255.240.0 olur, 255.0.255.0 olmaz. Önek sayısı (24) değil noktalı biçim yazılır.',
+    posint:      '1 veya daha büyük tam sayı; ondalık ve negatif olmaz.',
+    nexthop:     'IPv4 adresi (192.168.1.1) veya çıkış arayüzü adı (GigabitEthernet0/0).',
+    wildcard:    'Ters maske: /24 için 0.0.0.255, /30 için 0.0.0.3. Subnet maskesi (255.255.255.0) yazılmaz.',
+    ip_cidr:     'Tek adres (10.0.0.1) veya adres/önek (10.0.0.0/24); önek 0–32.',
+    vlan:        'Tam sayı, 1–4094. 0 ve 4095 IEEE 802.1Q gereği ayrılmıştır; Cisco IOS\'ta 1002–1005 de ayrılmıştır.',
+    asn:         '1–4294967295 arası tam sayı veya noktalı biçim (1.100). Özel kullanım aralıkları: 64512–65534 ve 4200000000–4294967294.',
+    port:        '0–65535 arası tam sayı.',
+    port_match:  'Port (80), operatör + port (eq 443, gt 1024), iki portlu aralık (range 80 443 — küçükten büyüğe) veya any. Port 0–65535.',
+    ip_mask:     'IP ve maske boşlukla ayrılır: 10.0.0.1 255.255.255.0',
+    host_port:   'Adres veya host adı, iki nokta, port: 10.1.1.100:443. Port 0–65535.',
+    hostname:    'Harf, rakam, tire, nokta; en fazla 63 karakter; harf veya rakamla başlar ve biter. Alt çizgi ve boşluk olmaz.',
+    mac:         'Altı onaltılık ikili, iki nokta veya tireyle: 00:1A:2B:3C:4D:5E. Noktalı Cisco biçimi (001a.2b3c.4d5e) bu alanda olmaz.',
+    prefix:      '0–128 arası tam sayı (IPv4 için 0–32).',
+    rd:          'ASN:sayı (65000:100), IPv4:sayı (10.0.0.1:100) veya auto.',
+    rt:          'ASN:sayı (65000:100), IPv4:sayı veya auto; Junos\'ta target: öneki olabilir.',
+    vni:         '1–16777215 arası tam sayı (24 bit).',
+    bgp_timer:   '1–65535 arası saniye.',
+    iface:       'Harfle başlayan, rakam içeren arayüz adı: GigabitEthernet0/1, ge-0/0/0, port1, Eth-Trunk1. Boşluk olmaz; yalnızca sayı (1.2) olmaz.',
+    iface_range: 'Tek arayüz, tireli aralık (Gi0/1-4) veya boşluk/virgülle ayrılmış liste. Aralık nokta ile değil tire ile yazılır.',
+    iface_f5:    'F5 arayüzü: yuva.port (1.1, 2.3) veya trunk/VLAN adı.',
+    ip_range:    'Başlangıç-bitiş: 10.0.0.10-10.0.0.100. Başlangıç bitişten büyük olamaz.',
+    vlan_list:   'VLAN ID\'leri (1–4094) virgül veya boşlukla, aralıklar tireyle: 10,20,30-40. Tümü için all. Ters aralık (40-30) olmaz.',
+};
+
+// min/max tasiyan ama dogrulayicisi olmayan alanlar icin dinamik aralik
+// dogrulayicisi: 'range:1:4094'. Kural metni, hata mesaji ve sebebi otomatik.
+function cgRangeValidator(min, max) {
+    const lo = (min === undefined || min === '') ? -Infinity : +min;
+    const hi = (max === undefined || max === '') ?  Infinity : +max;
+    const key = 'range:' + lo + ':' + hi;
+    if (!CG_VALIDATORS[key]) {
+        const span = isFinite(lo) && isFinite(hi) ? lo + '–' + hi
+                   : isFinite(lo) ? lo + ' veya daha büyük' : hi + ' veya daha küçük';
+        CG_VALIDATORS[key] = { fn: v => /^-?\d+$/.test(String(v).trim()) && +v >= lo && +v <= hi,
+                               msg: 'Değer ' + span + ' arasında olmalı' };
+        CG_WHY[key]   = t => _cgNumWhy(t, isFinite(lo) ? lo : -2147483648, isFinite(hi) ? hi : 2147483647);
+        CG_RULES[key] = 'Tam sayı, ' + span + '.';
+    }
+    return key;
+}
+
+function cgRuleLine(vtype) {
+    const r = CG_RULES[vtype];
+    return r ? '<div class="cg-rule"><i class="fas fa-check-circle"></i> <b>Geçerli değer:</b> ' + r + '</div>' : '';
 }
 
 // "Neden?" bilgi kutusu — net-config.com'un en güçlü fikri.
@@ -697,11 +769,14 @@ function cgFormBuilder(container, schema, generateFn) {
                    : (!f.required) ? '<span class="cg-opt">Opsiyonel</span>' : '';
         const tip  = f.tooltip  ? '<span class="cg-tip"><i class="fas fa-info-circle"></i><span class="cg-tip-text">' + esc(f.tooltip) + '</span></span>' : '';
         const hint = f.hint     ? '<span class="cg-field-hint">' + esc(f.hint) + '</span>' : '';
-        const why  = cgWhyBox(f.why, f.name);
+        // min/max var ama dogrulayici yoksa: tarayici kirmizi cizip SEBEP soylemiyordu,
+        // deger de config'e aynen giriyordu. Dinamik aralik dogrulayicisina bagla.
+        const vtype = f.validate || ((f.min !== undefined || f.max !== undefined) ? cgRangeValidator(f.min, f.max) : '');
+        const why  = cgWhyBox(f.why, f.name) + cgRuleLine(vtype);
 
         const baseAttrs = 'name="' + esc(f.name) + '" id="cgfb_' + esc(f.name) + '"' +
             (f.required    ? ' required'                        : '') +
-            (f.validate    ? ' data-cgv="' + esc(f.validate) + '"' : '') +
+            (vtype         ? ' data-cgv="' + esc(vtype) + '"' : '') +
             (ri ? ' data-req-if="' + esc(ri.field) + '"' +
                   (ri.checked !== undefined ? ' data-req-checked="' + (ri.checked ? '1' : '0') + '"'
                                             : ' data-req-in="' + esc([].concat(ri.in).join('|')) + '"') : '') +

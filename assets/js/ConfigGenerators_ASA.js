@@ -159,8 +159,8 @@ CiscoASA.acl = {
                     title: 'Kaynak / Hedef',
                     icon: 'fas fa-exchange-alt',
                     fields: [
-                        { name: 'src', why: "8.3 ve sonrasında ACL, NAT’lanmış değil <b>gerçek (real)</b> IP adresine göre yazılır. Eski alışkanlıkla mapped adres yazmak kuralın hiç eşleşmemesine yol açar.", label: 'Kaynak', type: 'text', required: true, placeholder: 'any veya 192.168.1.0 255.255.255.0', hint: 'Kaynak IP adresi veya any' },
-                        { name: 'dst', why: "Dışarıdan bir DMZ sunucusuna erişim yazarken hedef, NAT’lı dış IP değil sunucunun <b>gerçek iç IP</b> adresidir. Bu ayrımı kaçırmak port-forward çalışmamasının bir numaralı nedenidir.", label: 'Hedef', type: 'text', required: true, placeholder: 'host 203.0.113.10 veya any', hint: 'Hedef IP adresi veya host' },
+                        { name: 'src', why: "8.3 ve sonrasında ACL, NAT’lanmış değil <b>gerçek (real)</b> IP adresine göre yazılır. Eski alışkanlıkla mapped adres yazmak kuralın hiç eşleşmemesine yol açar.", label: 'Kaynak', type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'Kaynak IP adresi veya any — any veya host 10.0.0.1 de yazılabilir' },
+                        { name: 'dst', why: "Dışarıdan bir DMZ sunucusuna erişim yazarken hedef, NAT’lı dış IP değil sunucunun <b>gerçek iç IP</b> adresidir. Bu ayrımı kaçırmak port-forward çalışmamasının bir numaralı nedenidir.", label: 'Hedef', type: 'text', required: true, placeholder: 'host 203.0.113.10', hint: 'Hedef IP adresi veya host — any veya ağ + maske de yazılabilir' },
                         { name: 'dst_port', why: "Port yazımı <code>eq 443</code> ya da <code>range 8000 8100</code> biçimindedir; yalnızca sayı girmek satırı geçersiz kılar. FTP, SIP, TFTP gibi dinamik port açan protokollerde ayrıca inspect gerekir.", label: 'Hedef Port', type: 'text', validate: 'port_match', optional: true, placeholder: 'eq 80', hint: 'TCP/UDP için port belirtimi — veya range 80 443' }
                     ]
                 },
@@ -168,7 +168,7 @@ CiscoASA.acl = {
                     title: 'Interface Uygulaması',
                     icon: 'fas fa-plug',
                     fields: [
-                        { name: 'apply_iface', why: "Bir ACL, <code>access-group</code> ile arayüze bağlanmadıkça hiçbir etkisi olmaz. Yazılmış ama bağlanmamış ACL, ASA’da en sık görülen sessiz hatadır.", label: 'Uygulama Interface (Nameif)', type: 'text', validate: 'iface', optional: true, placeholder: 'outside', hint: 'ACL bağlanacak interface (boş bırakılabilir)' },
+                        { name: 'apply_iface', why: "Bir ACL, <code>access-group</code> ile arayüze bağlanmadıkça hiçbir etkisi olmaz. Yazılmış ama bağlanmamış ACL, ASA’da en sık görülen sessiz hatadır.", label: 'Uygulama Interface (Nameif)', type: 'text', validate: 'nameif', optional: true, placeholder: 'outside', hint: 'ACL bağlanacak interface (boş bırakılabilir)' },
                         { name: 'direction', why: "Pratikte <b>in</b> kullanılır ve bir arayüze aynı yönde yalnızca <b>tek</b> ACL bağlanabilir; yeni bağlama eskisini uyarısızca devre dışı bırakır. Yön yanlış seçilirse kural dönüş trafiğine uygulanır ve stateful yapı bozulur.", label: 'Yön', type: 'select', options: [
                             { value: 'in', label: 'in', selected: true },
                             { value: 'out', label: 'out' }
@@ -213,7 +213,7 @@ CiscoASA.vpn = {
                     title: 'Tunnel Parametreleri',
                     icon: 'fas fa-tunnel',
                     fields: [
-                        { name: 'outside_iface', why: "Crypto map <code>crypto map MAP interface outside</code> ile bu arayüze bağlanmazsa tünel hiç kurulmaz. Ayrıca IKE bu arayüzde açık olmalıdır (<code>crypto ikev2 enable outside</code>).", label: 'Outside Interface', type: 'text', validate: 'iface', required: true, placeholder: 'outside', hint: 'VPN bitişinin bağlı olduğu nameif' },
+                        { name: 'outside_iface', why: "Crypto map <code>crypto map MAP interface outside</code> ile bu arayüze bağlanmazsa tünel hiç kurulmaz. Ayrıca IKE bu arayüzde açık olmalıdır (<code>crypto ikev2 enable outside</code>).", label: 'Outside Interface', type: 'text', validate: 'nameif', required: true, placeholder: 'outside', hint: 'VPN bitişinin bağlı olduğu nameif' },
                         { name: 'peer_ip', why: "Peer, karşı tarafın gerçek dış IP adresi olmalıdır; NAT arkasındaysa NAT-T ve <b>UDP/4500</b> trafiğinin açık olması gerekir. Yanlış peer IP’sinde Phase-1 hiç başlamaz.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.2', hint: 'Uzak VPN endpoint IP adresi' },
                         { name: 'psk', why: "PSK iki tarafta birebir aynı olmalı; en ufak fark Phase-1’in <b>MM_WAIT_MSG</b> durumunda takılmasına yol açar. Zayıf PSK yakalanan IKE paketlerinden çevrimdışı kırılabildiği için uzun ve rastgele seçilmelidir.", label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'MyS3cr3tKey!', hint: 'Paylaşılan gizli anahtar' }
                     ]
@@ -347,11 +347,20 @@ function cgAsaAaaGen(data) {
         c += '! RADIUS Sunucu Tanımı\naaa-server ' + radGrp + ' protocol radius\naaa-server ' + radGrp + ' (inside) host ' + radServer + '\n';
         c += ' key ' + radKey + '\n!\n\n';
     }
-    c += '! AAA Kimlik Doğrulama Kuralları\n';
-    if (sshEnable) c += 'aaa authentication ssh console ' + serverGrp + '\n';
-    if (httpEnable) c += 'aaa authentication http console ' + serverGrp + '\n';
-    if (consoleEnable) c += 'aaa authentication serial console ' + serverGrp + '\n';
-    c += '\n# Doğrulama:\n# show aaa-server\n# show aaa-server ' + serverGrp + '\n# test aaa authentication ' + serverGrp + ' username admin password test\n';
+    // Sunucu grubu kullaniliyorsa LOCAL yedek eklenir: sunucu erisilemezse yerel
+    // hesapla girilebilsin (alanlarin 'Neden?' metni tam bu kilitlenmeyi anlatiyor).
+    const fb = serverGrp === 'LOCAL' ? '' : ' LOCAL';
+    c += '! AAA kimlik kuralları (sunucu erişilemezse LOCAL yedek)\n';
+    if (sshEnable) c += 'aaa authentication ssh console ' + serverGrp + fb + '\n';
+    if (httpEnable) c += 'aaa authentication http console ' + serverGrp + fb + '\n';
+    if (consoleEnable) c += 'aaa authentication serial console ' + serverGrp + fb + '\n';
+    if (serverGrp === 'LOCAL') {
+        c += '\n# Doğrulama:\n# show running-config aaa\n# show running-config username\n';
+    } else {
+        const host = cgEsc(data.ldap_server || data.rad_server || '<sunucu-ip>');
+        // 'test aaa authentication GRUP ...' ASA'da yok; dogrusu 'test aaa-server authentication GRUP host IP ...'
+        c += '\n# Doğrulama:\n# show aaa-server ' + serverGrp + '\n# test aaa-server authentication ' + serverGrp + ' host ' + host + ' username <kullanici> password <parola>\n';
+    }
     return c;
 }
 
@@ -392,7 +401,7 @@ CiscoASA.routeMap = {
                         { name: 'acl_match', why: "PBR yalnızca bu ACL’de <b>permit</b> edilen trafiğe uygulanır; deny satırları PBR dışında kalıp normal route tablosuna düşer. Bu mantığı ters kurmak beklenmedik yönlendirmeye yol açar.", label: 'Match ACL Adı', type: 'text', optional: true, placeholder: 'PBR_ACL', hint: 'Eşleşme kriteri olarak kullanılacak ACL' },
                         { name: 'src_net', why: "PBR kapsamı fazla geniş tutulursa yönetim veya VPN trafiği de ikinci çıkışa kaçar ve mevcut oturumlar kopar. Kapsamı mümkün olan en dar subnetle sınırlayın.", label: 'Kaynak Network (ACL)', type: 'text', optional: true, placeholder: '192.168.10.0 255.255.255.0', hint: 'PBR uygulanacak kaynak ağ' },
                         { name: 'pbr_nexthop', why: "PBR next-hop erişilemez hale gelirse trafik <b>kara deliğe</b> düşebilir, çünkü PBR normal route tablosunu atlar. Yedekli tasarımda <code>set ip next-hop verify-availability</code> ile SLA izleme ekleyin.", label: 'PBR Next-Hop IP', type: 'text', required: true, validate: 'ip', placeholder: '10.0.0.254', hint: 'Eşleşen trafiğin yönlendirileceği IP' },
-                        { name: 'pbr_iface', why: "PBR, trafiğin <b>girdiği</b> arayüze uygulanır; çıkış arayüzüne uygulamak hiçbir etki yaratmaz. PBR çalışmıyor şikayetlerinin büyük kısmı bu hatadan kaynaklanır.", label: 'PBR Interface (Nameif)', type: 'text', validate: 'iface', optional: true, placeholder: 'inside', hint: 'Route-map uygulanacak interface' }
+                        { name: 'pbr_iface', why: "PBR, trafiğin <b>girdiği</b> arayüze uygulanır; çıkış arayüzüne uygulamak hiçbir etki yaratmaz. PBR çalışmıyor şikayetlerinin büyük kısmı bu hatadan kaynaklanır.", label: 'PBR Interface (Nameif)', type: 'text', validate: 'nameif', optional: true, placeholder: 'inside', hint: 'Route-map uygulanacak interface' }
                     ]
                 }
             ],
@@ -424,7 +433,8 @@ function cgAsaRouteMapGen(data) {
         if (pbrIface) {
             c += '! Route-Map Uygulama\ninterface ' + pbrIface + '\n ip policy route-map ' + rmName + '\n!\n\n';
         }
-        c += '# Doğrulama:\n# show route-map\n# show ip policy\n# debug ip policy\n';
+        // 'show ip policy' / 'debug ip policy' IOS komutlaridir, ASA'da yoktur.
+    c += '# Doğrulama:\n# show route-map\n# debug policy-route\n';
     }
     return c;
 }
@@ -620,7 +630,7 @@ CiscoASA.aaaRadius = {
                     icon: 'fas fa-server',
                     fields: [
                         { name: 'grp_name', why: "Server-group adı SSH, ASDM ve VPN satırlarının tamamında referans verilir; ad değişikliği bu satırların hepsini birden kırar ve kimlik doğrulama sessizce atlanabilir.", label: 'Server Group Adı', type: 'text', required: true, placeholder: 'RADIUS-SERVERS', hint: 'AAA server-group tanımı için isim' },
-                        { name: 'rad_iface', why: "RADIUS trafiği bu arayüzden çıkar; yanlış arayüz seçilirse paketler sunucuya hiç ulaşmaz ve her giriş timeout’a düşer. Sunucu tarafında da ASA’nın bu arayüz IP’si NAS client olarak tanımlı olmalıdır.", label: 'Bağlantı Interface (Nameif)', type: 'text', validate: 'iface', required: true, placeholder: 'inside', hint: 'RADIUS sunucusuna erişim interface' }
+                        { name: 'rad_iface', why: "RADIUS trafiği bu arayüzden çıkar; yanlış arayüz seçilirse paketler sunucuya hiç ulaşmaz ve her giriş timeout’a düşer. Sunucu tarafında da ASA’nın bu arayüz IP’si NAS client olarak tanımlı olmalıdır.", label: 'Bağlantı Interface (Nameif)', type: 'text', validate: 'nameif', required: true, placeholder: 'inside', hint: 'RADIUS sunucusuna erişim interface' }
                     ]
                 },
                 {
@@ -726,7 +736,7 @@ CiscoASA.ospf = {
                     title: 'Interface OSPF Parametreleri',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "OSPF’in bu arayüzde gerçekten açıldığını <code>show ospf interface</code> ile doğrulayın. Arayüz security-level veya ACL nedeniyle OSPF çoklu yayınını engelliyorsa komşuluk hiç kurulmaz.", label: 'Interface (Nameif)', type: 'text', validate: 'iface', required: true, placeholder: 'inside', hint: 'OSPF etkinleştirilecek interface nameif' },
+                        { name: 'iface', why: "OSPF’in bu arayüzde gerçekten açıldığını <code>show ospf interface</code> ile doğrulayın. Arayüz security-level veya ACL nedeniyle OSPF çoklu yayınını engelliyorsa komşuluk hiç kurulmaz.", label: 'Interface (Nameif)', type: 'text', validate: 'nameif', required: true, placeholder: 'inside', hint: 'OSPF etkinleştirilecek interface nameif' },
                         { name: 'cost', why: "Cost, yol seçimini doğrudan belirler ve yalnızca bir tarafta değiştirmek asimetrik yönlendirmeye yol açar — stateful firewall için bu kopan oturum demektir. Her iki uçta tutarlı planlayın.", label: 'OSPF Cost', type: 'text', optional: true, placeholder: '10', hint: 'Interface OSPF metrik değeri' }
                     ]
                 }

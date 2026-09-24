@@ -86,7 +86,7 @@ HuaweiVRP.vlan = {
                     fields: [
                         { name: 'vlan_id', why: "VLAN cihazda <code>vlan X</code> ile yaratılmadan porta atanamaz. Access portta bu numara <code>port default vlan</code> olur; karşı uçtaki PVID farklıysa trafik yanlış broadcast domainine düşer ve sorun ping değil sadece DHCP/ARP seviyesinde görünür.", label: 'VLAN ID (tekli)', type: 'text', required: true, validate: 'vlan', placeholder: '10', hint: 'Porta atanacak tekil VLAN numarası' },
                         { name: 'vlan_desc', why: "Açıklama boşluk içeremez ve <code>display vlan</code> çıktısında tek tanımlayıcıdır. Numaradan ibaret VLANlar zamanla kimin olduğu bilinmeyen kalıntılara dönüşür ve temizlik sırasında yanlış VLAN silinir.", label: 'VLAN Açıklaması', type: 'text', optional: true, placeholder: 'BT_Personel', hint: 'VLAN description etiketi' },
-                        { name: 'vlan_batch_list', why: "<code>vlan batch</code> yalnızca VLANları oluşturur; trunk üzerinde <code>port trunk allow-pass vlan</code> ile ayrıca izin verilmezse bu VLANlarda tag işaretli trafik sessizce düşer. Toplu oluşturma yanlış aralıkla yazılırsa yüzlerce gereksiz VLAN açılır ve MSTP instance eşlemesi bozulur.", label: 'VLAN Batch Liste', type: 'text', optional: true, placeholder: '5 8 17', hint: 'Boşlukla ayrılmış birden fazla VLAN ID' },
+                        { name: 'vlan_batch_list', why: "<code>vlan batch</code> yalnızca VLANları oluşturur; trunk üzerinde <code>port trunk allow-pass vlan</code> ile ayrıca izin verilmezse bu VLANlarda tag işaretli trafik sessizce düşer. Toplu oluşturma yanlış aralıkla yazılırsa yüzlerce gereksiz VLAN açılır ve MSTP instance eşlemesi bozulur.", label: 'VLAN Batch Liste', type: 'text', validate: 'vlan_list', optional: true, placeholder: '5 8 17', hint: 'Boşlukla ayrılmış birden fazla VLAN ID' },
                         { name: 'vlan_batch_range', why: "Aralık sözdizimi <code>20 to 30</code> şeklindedir; tire (<code>20-30</code>) yazarsanız komut hata verir. Çok geniş aralık açmak STP hesaplama yükünü ve broadcast alanını gereksiz büyütür.", label: 'VLAN Batch Aralık', type: 'text', validate: 'vlan_list', optional: true, placeholder: '20 to 30', hint: 'Aralık formatında VLAN oluşturma (örn: 20 to 30)' }
                     ]
                 },
@@ -107,7 +107,7 @@ HuaweiVRP.vlan = {
             c += '<Huawei> system-view\n[Huawei] sysname ' + hn + '\n\n';
             if (pt === 'access') {
                 const vid = cgEsc(data.vlan_id || ''), desc = cgEsc(data.vlan_desc || '');
-                const blist = cgEsc(data.vlan_batch_list || ''), brange = cgEsc(data.vlan_batch_range || '');
+                const blist = cgHwVlanList(cgEsc(data.vlan_batch_list || '')), brange = cgHwVlanList(cgEsc(data.vlan_batch_range || ''));
                 if (vid) {
                     c += '[' + hn + '] vlan ' + vid + '\n';
                     if (desc) c += '[' + hn + '-vlan' + vid + '] description ' + desc + '\n';
@@ -120,7 +120,7 @@ HuaweiVRP.vlan = {
                 if (vid) c += '[' + hn + '-' + iface + '] port default vlan ' + vid + '\n';
                 c += '[' + hn + '-' + iface + '] quit\n';
             } else {
-                const tvlans = cgEsc(data.trunk_vlans || ''), tall = data.trunk_all;
+                const tvlans = cgHwVlanList(cgEsc(data.trunk_vlans || '')), tall = data.trunk_all;
                 c += '[' + hn + '] interface ' + iface + '\n';
                 c += '[' + hn + '-' + iface + '] port link-type trunk\n';
                 if (tall) {
@@ -606,7 +606,7 @@ HuaweiVRP.security = {
                     fields: [
                         { name: 'ds_enable', why: "DHCP snooping globalde açılmadan arayüz veya VLAN seviyesindeki komutlar etkisizdir. Ayrıca snooping açıldığında tüm portlar varsayılan olarak untrusted olur; gerçek DHCP sunucusuna giden portu trusted yapmazsanız ağdaki herkes adres almayı bırakır.", label: 'DHCP Snooping Etkinleştir', type: 'checkbox', checked: false },
                         { name: 'ds_iface', why: "Bu arayüz meşru DHCP sunucusunun bulunduğu yön ise trusted olmalıdır. Yanlış yönü trusted yapmak sahte DHCP sunucusuna kapı açar; doğru yönü unutmak ise tüm istemcileri adressiz bırakır.", label: 'Arayüz', type: 'text', requiredIf: { field: 'ds_enable', checked: true }, validate: 'iface', placeholder: 'GigabitEthernet0/0/2', hint: 'DHCP snooping uygulanacak arayüz' },
-                        { name: 'ds_vlan', why: "Snooping VLAN bazında çalışır; sadece bir VLANda açmak diğer VLANlardaki sahte DHCP sunucularını engellemez. Ayrıca DAI ve IP Source Guard bu VLANdaki snooping binding tablosuna dayanır.", label: 'VLAN', type: 'text', optional: true, placeholder: '10', hint: 'DHCP snooping VLAN numarası' }
+                        { name: 'ds_vlan', why: "Snooping VLAN bazında çalışır; sadece bir VLANda açmak diğer VLANlardaki sahte DHCP sunucularını engellemez. Ayrıca DAI ve IP Source Guard bu VLANdaki snooping binding tablosuna dayanır.", label: 'VLAN', type: 'text', validate: 'vlan_list', optional: true, placeholder: '10', hint: 'DHCP snooping VLAN numarası' }
                     ]
                 },
                 {
@@ -650,7 +650,7 @@ HuaweiVRP.security = {
                 }
             }
             if (data.ds_enable) {
-                const iface = cgEsc(data.ds_iface || ''), vlan = cgEsc(data.ds_vlan || '');
+                const iface = cgEsc(data.ds_iface || ''), vlan = cgHwVlanList(cgEsc(data.ds_vlan || ''));
                 if (iface) {
                     c += '# DHCP Snooping\ninterface ' + iface + '\n dhcp snooping enable\n';
                     if (vlan) c += ' dhcp snooping vlan ' + vlan + '\n';
@@ -1048,7 +1048,7 @@ HuaweiVRP.mstp = {
                     title: 'MSTP Region ve Edge Port',
                     icon: 'fas fa-map',
                     fields: [
-                        { name: 'vlan_map', why: "VLAN-instance eşlemesi bölgedeki <b>tüm</b> switchlerde birebir aynı olmalıdır; region adı, revizyon numarası ve eşleme tablosundan biri bile farklıysa cihaz farklı bölge sayılır ve MSTP tek instancea düşerek yedek yolları bloklar.", label: 'VLAN Map', type: 'text', optional: true, placeholder: '1-100', hint: 'Instance\'a bağlanacak VLAN aralığı (örn: 1-100)' },
+                        { name: 'vlan_map', why: "VLAN-instance eşlemesi bölgedeki <b>tüm</b> switchlerde birebir aynı olmalıdır; region adı, revizyon numarası ve eşleme tablosundan biri bile farklıysa cihaz farklı bölge sayılır ve MSTP tek instancea düşerek yedek yolları bloklar.", label: 'VLAN Map', type: 'text', validate: 'vlan_list', optional: true, placeholder: '1-100', hint: 'Instance\'a bağlanacak VLAN aralığı (örn: 1-100)' },
                         { name: 'portfast_intfs', why: "<code>stp edged-port</code> yalnızca uç cihaz bağlı portlarda kullanılmalıdır; switche giden bir portta açmak geçici döngü ve yayın fırtınası riski yaratır. Birlikte BPDU protection açmak bu riski kontrol altına alır.", label: 'Edge Port Interface(ler)', type: 'text', validate: 'iface_range', optional: true, placeholder: 'GigabitEthernet0/0/5', hint: 'Virgülle ayrılmış stp edged-port uygulanacak arayüzler' }
                     ]
                 }
@@ -1056,7 +1056,7 @@ HuaweiVRP.mstp = {
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
             const mode = cgEsc(data.mode || 'mstp'), priority = cgEsc(data.priority || ''), instance = cgEsc(data.instance || '');
-            const vlanMap = cgEsc(data.vlan_map || '');
+            const vlanMap = cgHwVlanList(cgEsc(data.vlan_map || ''));
             const portfastIntfs = cgEsc(data.portfast_intfs || '').split(',').map(s => s.trim()).filter(Boolean);
             let c = '# ========================================\n# Huawei VRP — MSTP / STP\n# ========================================\n\n';
             c += 'stp mode ' + mode + '\n';

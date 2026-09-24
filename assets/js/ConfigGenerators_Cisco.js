@@ -5,222 +5,71 @@ const CiscoIOS = {};
 // ── VLAN ──────────────────────────────────────────────────────────────────────
 CiscoIOS.vlan = {
     label: 'VLAN',
+    // Sitedeki tek elle yazilmis formdu. Form oluşturucuya tasindi: kural karti,
+    // sebep mesaji, kosullu zorunluluk ve etiketli uyarilar diger araclarla ayni.
+    // Eski canli onizleme bos metin alanlarina placeholder'i ('Örn: ...') aynen
+    // yaziyordu -> 'interface Örn: GigabitEthernet0/1' ciktisi uretiyordu.
     init(container) {
-        container.innerHTML = `
-<div class="cg-topic-box">
-  <div class="cg-topic-box-icon"><i class="fas fa-network-wired"></i></div>
-  <div class="cg-topic-box-content">
-    <h6>VLAN — Virtual Local Area Network</h6>
-    <p>Fiziksel ağı mantıksal bölümlere ayırarak güvenlik, performans ve yönetim kolaylığı sağlar. Her VLAN ayrı bir broadcast domain'dir. <strong>Access portlar</strong> tek bir VLAN'a, <strong>trunk portlar</strong> birden fazla VLAN'a hizmet eder.</p>
-  </div>
-</div>
-<form id="cgVlanForm">
-  <div class="cg-section">
-    <div class="cg-section-title"><i class="fas fa-th-large"></i> Yapılandırma Tipi</div>
-    <div class="row g-3 mb-1">
-      <div class="col-md-4">
-        <div class="gen-type-card-enhanced" onclick="cgVlanSelectType('basic',this)">
-          <span class="cg-card-badge recommended">En Yaygın</span>
-          <i class="fas fa-ethernet card-icon"></i>
-          Tek Port VLAN
-          <div class="card-desc">Tek interface'e VLAN ata — access veya trunk modu</div>
-        </div>
-      </div>
-      <div class="col-md-4">
-        <div class="gen-type-card-enhanced" onclick="cgVlanSelectType('batch',this)">
-          <span class="cg-card-badge common">Toplu</span>
-          <i class="fas fa-layer-group card-icon"></i>
-          Toplu VLAN
-          <div class="card-desc">Birden fazla VLAN'ı tek seferde oluştur</div>
-        </div>
-      </div>
-      <div class="col-md-4">
-        <div class="gen-type-card-enhanced" onclick="cgVlanSelectType('svi',this)">
-          <span class="cg-card-badge advanced">Gelişmiş</span>
-          <i class="fas fa-sitemap card-icon"></i>
-          SVI Arayüzü
-          <div class="card-desc">Layer-3 VLAN arayüzü — inter-VLAN routing</div>
-        </div>
-      </div>
-    </div>
-    <input type="hidden" name="config_type" id="cgVlanConfigType" value="">
-  </div>
-
-  <div id="cgVlanBasic" style="display:none">
-    <div class="cg-section">
-      <div class="cg-section-title"><i class="fas fa-id-card"></i> VLAN Kimliği</div>
-      <div class="mb-4 row">
-        <label class="col-sm-3 col-form-label">VLAN ID <span class="text-danger">*</span></label>
-        <div class="col-sm-9">
-          <input type="number" name="vlan_id" id="cgVlanId" class="form-control" min="1" max="4094" placeholder="Örn: 10" required><div class="cg-why"><b>Neden?</b> VLAN 1 varsayılandır ve güvenlik açısından kullanılmamalıdır. 1002-1005 Token Ring/FDDI için rezervedir.</div>
-          <span class="cg-field-hint">1–4094 arası bir değer girin. 1002–1005 rezerve, 4095 dahili kullanım için ayrılmıştır.</span>
-        </div>
-      </div>
-      <div class="mb-2 row">
-        <label class="col-sm-3 col-form-label">VLAN Adı <span class="cg-opt">Opsiyonel</span></label>
-        <div class="col-sm-9">
-          <input type="text" name="vlan_name" id="cgVlanName" class="form-control" placeholder="Örn: SALES_VLAN"><div class="cg-why"><b>Neden?</b> VLAN adı yalnızca okunabilirlik içindir ama 4094 VLAN'lı bir ağda adsız VLAN yönetilemez hale gelir.</div>
-          <span class="cg-field-hint">Açıklayıcı bir isim girin. Boşluk yerine alt çizgi (_) kullanın. Örn: MUHASEBE_VLAN</span>
-        </div>
-      </div>
-    </div>
-    <div class="cg-section">
-      <div class="cg-section-title"><i class="fas fa-plug"></i> Interface Ayarları</div>
-      <div class="mb-4 row">
-        <label class="col-sm-3 col-form-label">Interface <span class="text-danger">*</span>
-          <span class="cg-tip"><i class="fas fa-info-circle"></i><span class="cg-tip-text">GigabitEthernet0/1, FastEthernet0/1 veya kısa gösterim Gi0/1 kullanılabilir. Cisco cihazlarda her ikisi de geçerlidir.</span></span>
-        </label>
-        <div class="col-sm-9">
-          <input type="text" name="interface" id="cgVlanIface" class="form-control" placeholder="Örn: GigabitEthernet0/1" required><div class="cg-why"><b>Neden?</b> Access port tek VLAN taşır. <code>switchport mode access</code> açıkça yazılmazsa port DTP ile kendiliğinden trunk olabilir — güvenlik riski.</div>
-          <span class="cg-field-hint">VLAN'ın atanacağı fiziksel port. Gi0/1 kısa gösterimi de kullanılabilir.</span>
-        </div>
-      </div>
-      <div class="mb-4 row">
-        <label class="col-sm-3 col-form-label">Switchport Mode
-          <span class="cg-tip"><i class="fas fa-info-circle"></i><span class="cg-tip-text">Access: Tek VLAN, son kullanıcı portları için. Trunk: Çoklu VLAN, switch-switch veya switch-router arası bağlantı için kullanılır.</span></span>
-        </label>
-        <div class="col-sm-9">
-          <select name="sw_mode" id="cgVlanMode" class="form-select" onchange="cgVlanModeChange()">
-            <option value="access">Access — Tek VLAN (son kullanıcı portu)</option>
-            <option value="trunk">Trunk — Çoklu VLAN (switch/router arası)</option>
-          </select>
-          <span class="cg-field-hint">Access: bilgisayar/yazıcı gibi son cihazlar için. Trunk: iki switch veya switch-router arasındaki bağlantı için.</span>
-        </div>
-      </div>
-      <div id="cgVlanAccessFields">
-        <div class="mb-2 row">
-          <label class="col-sm-3 col-form-label">Access VLAN <span class="text-danger">*</span></label>
-          <div class="col-sm-9">
-            <input type="number" name="access_vlan" id="cgVlanAccessVlan" class="form-control" min="1" max="4094" placeholder="Örn: 10" required>
-            <span class="cg-field-hint">Bu porta atanacak VLAN numarası (1–4094). Porttan gelen trafik bu VLAN'a ait sayılır.</span>
-          </div>
-        </div>
-      </div>
-      <div id="cgVlanTrunkFields" style="display:none">
-        <div class="mb-3 row">
-          <label class="col-sm-3 col-form-label">Allowed VLANs <span class="cg-opt">Opsiyonel</span>
-            <span class="cg-tip"><i class="fas fa-info-circle"></i><span class="cg-tip-text">Boş bırakılırsa tüm VLAN'lara izin verilir. Yalnızca belirli VLAN'lar geçirilecekse: 10,20,30-40 formatını kullanın.</span></span>
-          </label>
-          <div class="col-sm-9">
-            <input type="text" name="allowed_vlans" id="cgVlanAllowed" class="form-control" placeholder="Örn: 10,20,30-40">
-            <span class="cg-field-hint">Boş = tüm VLAN'lara izin ver. Seçici erişim için virgül ve tire kullanın: 10,20,100-200</span>
-          </div>
-        </div>
-        <div class="cg-warn-box mb-2"><i class="fas fa-exclamation-triangle"></i><span>Native VLAN 1 güvenlik riski oluşturabilir. Trunk portlarda farklı bir Native VLAN kullanmanız önerilir.</span></div>
-      </div>
-    </div>
-    <div class="cg-section">
-      <div class="cg-section-title"><i class="fas fa-sliders-h"></i> Ek Seçenekler</div>
-      <div class="mb-3 form-check">
-        <input type="checkbox" name="portfast" id="cgVlanPortfast" class="form-check-input">
-        <label class="form-check-label" for="cgVlanPortfast">
-          PortFast etkinleştir
-          <span class="cg-tip"><i class="fas fa-info-circle"></i><span class="cg-tip-text">STP convergence süresini atlayarak portu hızlı aktif eder. SADECE son kullanıcı portlarında (bilgisayar, yazıcı) kullanın — switch-switch bağlantısında döngüye neden olur.</span></span>
-        </label>
-      </div>
-      <div class="form-check">
-        <input type="checkbox" name="save_config" id="cgVlanSave" class="form-check-input" checked>
-        <label class="form-check-label" for="cgVlanSave">write memory ekle <span style="font-size:12px;color:#6b7280">(konfigürasyonu NVRAM'e kalıcı kaydet)</span></label>
-      </div>
-    </div>
-  </div>
-
-  <div id="cgVlanBatch" style="display:none">
-    <div class="cg-section">
-      <div class="cg-section-title"><i class="fas fa-list-ol"></i> Toplu VLAN Oluşturma</div>
-      <div class="cg-info-callout mb-4"><i class="fas fa-info-circle"></i><span>Bu mod, birden fazla VLAN'ı tek komutla oluşturmak için kullanılır. Virgülle ayırın veya aralık için tire (-) kullanın.</span></div>
-      <div class="mb-4 row">
-        <label class="col-sm-3 col-form-label">VLAN ID Listesi <span class="text-danger">*</span></label>
-        <div class="col-sm-9">
-          <input type="text" name="batch_vlans" id="cgVlanBatchIds" class="form-control" placeholder="Örn: 10,20,30-40,100" required>
-          <span class="cg-field-hint">Virgülle ayırın, aralık için tire kullanın. Örn: 10,20,30-40,100</span>
-        </div>
-      </div>
-      <div class="mb-2 row">
-        <label class="col-sm-3 col-form-label">İsim Öneki <span class="cg-opt">Opsiyonel</span></label>
-        <div class="col-sm-9">
-          <input type="text" name="batch_prefix" id="cgVlanBatchPrefix" class="form-control" placeholder="Örn: DATA_VLAN_">
-          <span class="cg-field-hint">Her VLAN'ın adına eklenecek ön ek. VLAN ID otomatik eklenir: DATA_VLAN_10, DATA_VLAN_20...</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="cgVlanSvi" style="display:none">
-    <div class="cg-section">
-      <div class="cg-section-title"><i class="fas fa-sitemap"></i> SVI — Layer-3 VLAN Arayüzü</div>
-      <div class="cg-info-callout mb-4"><i class="fas fa-info-circle"></i><span>SVI (Switched Virtual Interface), switch üzerinde Layer-3 routing için VLAN'a IP adresi atamak amacıyla kullanılır. Inter-VLAN routing için her VLAN'ın bir SVI'ya ihtiyacı vardır.</span></div>
-      <div class="mb-4 row">
-        <label class="col-sm-3 col-form-label">VLAN ID <span class="text-danger">*</span></label>
-        <div class="col-sm-9">
-          <input type="number" name="svi_vlan" id="cgVlanSviId" class="form-control" min="1" max="4094" placeholder="Örn: 10" required>
-          <span class="cg-field-hint">SVI arayüzü oluşturulacak VLAN numarası. Bu VLAN switch'te tanımlı olmalıdır.</span>
-        </div>
-      </div>
-      <div class="mb-4 row">
-        <label class="col-sm-3 col-form-label">IP Adresi <span class="text-danger">*</span></label>
-        <div class="col-sm-9">
-          <input type="text" name="svi_ip" id="cgVlanSviIp" class="form-control" placeholder="Örn: 192.168.10.1" required>
-          <span class="cg-field-hint">Bu VLAN'ın default gateway IP adresi. VLAN içindeki cihazların gateway'i bu adres olacak.</span>
-        </div>
-      </div>
-      <div class="mb-4 row">
-        <label class="col-sm-3 col-form-label">Subnet Mask <span class="text-danger">*</span></label>
-        <div class="col-sm-9">
-          <input type="text" name="svi_mask" id="cgVlanSviMask" class="form-control" placeholder="Örn: 255.255.255.0" required>
-          <span class="cg-field-hint">Subnet mask değeri. Örn: /24 için 255.255.255.0, /25 için 255.255.255.128</span>
-        </div>
-      </div>
-      <div class="mb-2 row">
-        <label class="col-sm-3 col-form-label">Açıklama <span class="cg-opt">Opsiyonel</span></label>
-        <div class="col-sm-9">
-          <input type="text" name="svi_desc" id="cgVlanSviDesc" class="form-control" placeholder="Örn: SALES VLAN Gateway">
-          <span class="cg-field-hint">Interface description olarak eklenir. Yönetim kolaylığı için açıklayıcı bir metin yazın.</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <button type="submit" class="btn btn-primary" id="cgVlanSubmit" style="display:none">
-    <i class="fas fa-code"></i> VLAN Konfigürasyonu Oluştur
-  </button>
-</form>`;
-        document.getElementById('cgVlanForm').addEventListener('submit', e => {
-            e.preventDefault();
-            if (!cgValidate(e.target)) return;
-            const cfg = cgVlanGenerate();
-            cgShowOutput(cfg.config, cfg.warnings);
-        });
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-network-wired',
+                title: 'VLAN — Virtual Local Area Network',
+                desc: 'Fiziksel ağı mantıksal bölümlere ayırarak güvenlik, performans ve yönetim kolaylığı sağlar. Her VLAN ayrı bir broadcast domain\'dir. <strong>Access portlar</strong> tek bir VLAN\'a, <strong>trunk portlar</strong> birden fazla VLAN\'a hizmet eder.'
+            },
+            configTypes: [
+                { id: 'basic', label: 'Tek Port VLAN', icon: 'fas fa-ethernet', desc: 'Tek interface\'e VLAN ata — access veya trunk modu', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'batch', label: 'Toplu VLAN', icon: 'fas fa-layer-group', desc: 'Birden fazla VLAN\'ı tek seferde oluştur', badge: { text: 'Toplu', cls: 'common' } },
+                { id: 'svi', label: 'SVI Arayüzü', icon: 'fas fa-sitemap', desc: 'Layer-3 VLAN arayüzü — inter-VLAN routing', badge: { text: 'Gelişmiş', cls: 'advanced' } }
+            ],
+            sections: [
+                {
+                    title: 'VLAN Kimliği', icon: 'fas fa-id-card', showFor: ['basic'],
+                    fields: [
+                        { name: 'vlan_id', why: 'VLAN 1 varsayılandır ve güvenlik açısından kullanılmamalıdır.', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'Oluşturulacak VLAN numarası' },
+                        { name: 'vlan_name', why: 'VLAN adı yalnızca okunabilirlik içindir ama 4094 VLAN\'lı bir ağda adsız VLAN yönetilemez hale gelir.', label: 'VLAN Adı', type: 'text', placeholder: 'SALES_VLAN', hint: 'Boşluk yerine alt çizgi (_) kullanın; boşluklar otomatik alt çizgiye çevrilir' }
+                    ]
+                },
+                {
+                    title: 'Interface Ayarları', icon: 'fas fa-plug', showFor: ['basic'],
+                    fields: [
+                        { name: 'interface', why: 'Access port tek VLAN taşır. <code>switchport mode access</code> açıkça yazılmazsa port DTP ile kendiliğinden trunk olabilir — güvenlik riski.', label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/1', hint: 'VLAN\'ın atanacağı fiziksel port. Gi0/1 kısa gösterimi de kullanılabilir.', tooltip: 'GigabitEthernet0/1, FastEthernet0/1 veya kısa gösterim Gi0/1 kullanılabilir.' },
+                        { name: 'sw_mode', label: 'Switchport Mode', type: 'select', options: [
+                            { value: 'access', label: 'Access — Tek VLAN (son kullanıcı portu)', selected: true },
+                            { value: 'trunk', label: 'Trunk — Çoklu VLAN (switch/router arası)' }
+                        ], hint: 'Access: bilgisayar/yazıcı gibi son cihazlar. Trunk: iki switch veya switch-router arası bağlantı.' },
+                        { name: 'access_vlan', why: 'Porttan gelen etiketsiz trafik bu VLAN\'a ait sayılır.', label: 'Access VLAN', type: 'text', validate: 'vlan', requiredIf: { field: 'sw_mode', in: ['access'] }, placeholder: '10', hint: 'Yalnızca Access modunda kullanılır' },
+                        { name: 'allowed_vlans', why: 'Boş bırakılırsa trunk tüm VLAN\'ları taşır. Daraltmak hem broadcast\'i hem saldırı yüzeyini azaltır.', label: 'Allowed VLANs', type: 'text', validate: 'vlan_list', placeholder: '10,20,30-40', hint: 'Yalnızca Trunk modunda kullanılır — boş = tüm VLAN\'lar' },
+                        { name: 'portfast', label: 'PortFast etkinleştir (yalnızca Access)', type: 'checkbox', tooltip: 'STP bekleme süresini atlayarak portu hızlı aktif eder. SADECE son kullanıcı portlarında kullanın — switch-switch bağlantısında döngüye neden olur.' },
+                        { name: 'save_config', label: 'write memory ekle (konfigürasyonu NVRAM\'e kalıcı kaydet)', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'Toplu VLAN Oluşturma', icon: 'fas fa-list-ol', showFor: ['batch'],
+                    info: 'Birden fazla VLAN\'ı tek seferde oluşturur. Virgülle ayırın, aralık için tire (-) kullanın.',
+                    fields: [
+                        { name: 'batch_vlans', label: 'VLAN ID Listesi', type: 'text', validate: 'vlan_list', required: true, placeholder: '10,20,30-40,100', hint: 'Her ID ayrı bir vlan bloğu olarak yazılır' },
+                        { name: 'batch_prefix', label: 'İsim Öneki', type: 'text', placeholder: 'DATA_VLAN_', hint: 'VLAN ID otomatik eklenir: DATA_VLAN_10, DATA_VLAN_20...' }
+                    ]
+                },
+                {
+                    title: 'SVI — Layer-3 VLAN Arayüzü', icon: 'fas fa-sitemap', showFor: ['svi'],
+                    info: 'SVI (Switched Virtual Interface), VLAN\'a IP adresi atayarak switch üzerinde Layer-3 routing sağlar. Inter-VLAN routing için her VLAN\'ın bir SVI\'ya ihtiyacı vardır.',
+                    fields: [
+                        { name: 'svi_vlan', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'Bu VLAN switch\'te tanımlı olmalıdır' },
+                        { name: 'svi_ip', label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.10.1', hint: 'VLAN içindeki cihazların default gateway\'i' },
+                        { name: 'svi_mask', label: 'Subnet Mask', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.255.0', hint: '/24 için 255.255.255.0, /25 için 255.255.255.128' },
+                        { name: 'svi_desc', label: 'Açıklama', type: 'text', placeholder: 'SALES VLAN Gateway', hint: 'Interface description olarak eklenir' }
+                    ]
+                }
+            ],
+            submit: 'VLAN Konfigürasyonu Oluştur'
+        }, (data) => cgVlanGenerate(data));
     }
 };
 
-function cgVlanSelectType(type, el) {
-    document.querySelectorAll('#cgVlanForm .gen-type-card-enhanced').forEach(c => c.classList.remove('active'));
-    el.classList.add('active');
-    document.getElementById('cgVlanConfigType').value = type;
-    ['cgVlanBasic','cgVlanBatch','cgVlanSvi'].forEach(id => { const s = document.getElementById(id); if (s) s.style.display = 'none'; });
-    const map = { basic:'cgVlanBasic', batch:'cgVlanBatch', svi:'cgVlanSvi' };
-    const target = document.getElementById(map[type]);
-    if (target) target.style.display = '';
-    document.getElementById('cgVlanSubmit').style.display = '';
-    const f = document.getElementById('cgVlanForm');
-    f.querySelectorAll('[name="vlan_id"],[name="interface"],[name="access_vlan"]').forEach(i => i.required = (type === 'basic'));
-    f.querySelectorAll('[name="batch_vlans"]').forEach(i => i.required = (type === 'batch'));
-    f.querySelectorAll('[name="svi_vlan"],[name="svi_ip"],[name="svi_mask"]').forEach(i => i.required = (type === 'svi'));
-}
-
-function cgVlanModeChange() {
-    const mode = document.getElementById('cgVlanMode').value;
-    document.getElementById('cgVlanAccessFields').style.display = (mode === 'access') ? '' : 'none';
-    document.getElementById('cgVlanTrunkFields').style.display  = (mode === 'trunk')  ? '' : 'none';
-    document.getElementById('cgVlanAccessVlan').required = (mode === 'access');
-}
-
-function cgVlanGenerate() {
-    const f = document.getElementById('cgVlanForm');
-    const fv = n => (f.querySelector('[name="' + n + '"]')?.value ?? '').trim();
-    const type = fv('config_type');
-    const warnings = [];
+function cgVlanGenerate(data) {
+    const fv = n => String(data[n] == null ? '' : data[n]).trim();
+    const type = data._cgtype;
     let config = '! ========================================\n! Cisco IOS VLAN Configuration\n! ========================================\n\n';
     if (type === 'basic') {
         const vlanId = fv('vlan_id'), vlanName = fv('vlan_name'), iface = fv('interface'), mode = fv('sw_mode');
@@ -229,21 +78,21 @@ function cgVlanGenerate() {
         config += '!\ninterface ' + iface + '\n';
         if (mode === 'access') {
             config += ' switchport mode access\n switchport access vlan ' + fv('access_vlan') + '\n';
-            if (f.querySelector('[name="portfast"]')?.checked) { config += ' spanning-tree portfast\n'; warnings.push('PortFast sadece son kullanıcı portlarında kullanılmalı.'); }
+            if (data.portfast) config += ' spanning-tree portfast\n';
         } else {
             const allowed = fv('allowed_vlans');
             config += ' switchport mode trunk\n switchport trunk encapsulation dot1q\n';
             if (allowed) config += ' switchport trunk allowed vlan ' + allowed + '\n';
-            warnings.push('Native VLAN 1 güvenlik riski — farklı bir Native VLAN kullanın.');
+            config += '! Not: native VLAN 1 güvenlik riski — trunk\'ta farklı bir native VLAN kullanın.\n';
         }
         config += ' no shutdown\n!\n';
-        if (f.querySelector('[name="save_config"]')?.checked) config += 'write memory\n';
+        if (data.save_config) config += 'write memory\n';
         config += '\n! Doğrulama:\n! show vlan brief\n! show interfaces trunk\n! show interfaces ' + iface + ' switchport\n';
     } else if (type === 'batch') {
         const parts = fv('batch_vlans').split(',').map(s => s.trim()).filter(Boolean);
         const prefix = fv('batch_prefix');
         parts.forEach(p => {
-            const m = p.match(/^(\d+)-(\d+)$/);
+            const m = p.match(/^(\d+)\s*-\s*(\d+)$/);
             if (m) { for (let i = parseInt(m[1]); i <= parseInt(m[2]); i++) config += 'vlan ' + i + '\n' + (prefix ? ' name ' + prefix + i + '\n' : '') + '!\n'; }
             else config += 'vlan ' + p + '\n' + (prefix ? ' name ' + prefix + p + '\n' : '') + '!\n';
         });
@@ -256,7 +105,7 @@ function cgVlanGenerate() {
         config += 'ip routing\n';
         config += '\n! Doğrulama:\n! show interface Vlan' + sviId + '\n! show ip route\n';
     }
-    return { config, warnings };
+    return config;
 }
 
 // ── ACL ───────────────────────────────────────────────────────────────────────
@@ -280,7 +129,7 @@ CiscoIOS.acl = {
                     icon: 'fas fa-id-card',
                     showFor: ['standard', 'extended', 'named'],
                     fields: [
-                        { name: 'acl_name', why: "Numaralı ACL'lerde aralık anlamı taşır: 1-99 standart, 100-199 genişletilmiş. <b>İsimli ACL kullan</b> — sonradan araya satır ekleyebilirsin, numaralıda ACL'i silip baştan yazman gerekir.", label: 'ACL Ad / Numara', type: 'text', required: true, placeholder: 'ACL_PERMIT_WEB veya 100', hint: 'Standard: 1-99, Extended: 100-199, Named: metin isim' }
+                        { name: 'acl_name', why: "Numaralı ACL'lerde aralık anlamı taşır: 1-99 standart, 100-199 genişletilmiş. <b>İsimli ACL kullan</b> — sonradan araya satır ekleyebilirsin, numaralıda ACL'i silip baştan yazman gerekir.", label: 'ACL Ad / Numara', type: 'text', required: true, placeholder: 'ACL_PERMIT_WEB', hint: 'Standard: 1-99, Extended: 100-199, Named: metin isim — numaralı ACL için 1-99 / 100-199' }
                     ]
                 },
                 {
@@ -1332,7 +1181,7 @@ CiscoIOS.stp = {
                     showFor: ['mst'],
                     fields: [
                         { name: 'mst_region', why: "MST'de <b>region adı, revizyon ve VLAN-instance eşlemesi</b> tüm switch'lerde birebir aynı olmalı. En ufak fark, switch'lerin ayrı region sanmasına ve topolojinin bozulmasına yol açar.", label: 'Region Adı', type: 'text', placeholder: 'MST_REGION_1', optional: true },
-                        { name: 'mst_rev', why: 'Revizyon numarası region kimliğinin parçasıdır. Değiştirmeyi unutmak sessiz topoloji hatalarının klasik sebebidir.', label: 'Revision', type: 'number', placeholder: '1', optional: true },
+                        { name: 'mst_rev', why: 'Revizyon numarası region kimliğinin parçasıdır. Değiştirmeyi unutmak sessiz topoloji hatalarının klasik sebebidir.', label: 'Revision', type: 'number', min: 0, max: 65535, placeholder: '1', optional: true },
                         { name: 'mst_inst', why: "MST instance'ı VLAN gruplarını tek topolojiye eşler. Region adı, revizyon numarası ve VLAN-instance eşlemesi tüm switch'lerde <b>birebir</b> aynı olmalı.", label: 'Instance No', type: 'text', placeholder: '1', optional: true },
                         { name: 'mst_vlans', why: "Bir VLAN yalnızca tek instance'a ait olabilir. Eşlemeyi bir cihazda değiştirip diğerlerinde unutmak ağı iki ayrı region'a böler ve döngü riski doğurur.", label: 'MST VLANs', type: 'text', validate: 'vlan_list', placeholder: '10,20,30', optional: true },
                         { name: 'root_type', why: "<code>primary</code> önceliği 24576, <code>secondary</code> 28672 yapar. Root bridge'i <b>elle belirlemezsen</b> en düşük MAC'li switch root olur — genelde en eski ve en yavaş cihaz.", label: 'Root Tipi', type: 'select', options: [{ value: 'primary', label: 'Primary' }, { value: 'secondary', label: 'Secondary' }] }
@@ -1424,7 +1273,7 @@ CiscoIOS.portSecurity = {
                         ]},
                         { name: 'sticky', why: "Öğrenilen MAC'ler running-config'e yazılır. <b>Kaydetmezsen</b> yeniden başlatmada kaybolur ve tüm portlar yeniden öğrenir.", label: 'Sticky MAC learning etkinleştir', type: 'checkbox', checked: true, hint: 'Öğrenilen MAC adresleri running-config\'e kaydedilir' },
                         { name: 'sticky_mac', why: "Sticky MAC öğrenilen adresi çalışan config'e yazar, ama <code>write memory</code> demezsen reboot sonrası kaybolur ve port yeni MAC'i öğrenir.", label: 'Sticky MAC (manuel)', type: 'text', placeholder: '0000.1111.2222 (boş = dynamic)', hint: 'Belirli bir MAC adresi sabitlemek istiyorsanız girin', optional: true },
-                        { name: 'aging_time', why: "Aging 0 (varsayılan) öğrenilen adreslerin <b>hiç</b> düşmemesi demektir. Ortak kullanılan masalarda bu, cihaz değişince portun kapanmasına yol açar.", label: 'Aging Time (dk)', type: 'number', placeholder: '30', optional: true },
+                        { name: 'aging_time', why: "Aging 0 (varsayılan) öğrenilen adreslerin <b>hiç</b> düşmemesi demektir. Ortak kullanılan masalarda bu, cihaz değişince portun kapanmasına yol açar.", label: 'Aging Time (dk)', type: 'number', min: 1, max: 1440, placeholder: '30', optional: true },
                         { name: 'aging_type', why: "<code>absolute</code> süre dolunca siler, <code>inactivity</code> yalnızca trafik kesilince. IP telefon arkası PC gibi aralıklı trafik üreten uçlarda <code>inactivity</code> daha doğrudur.", label: 'Aging Type', type: 'select', options: [
                             { value: '', label: 'Yok' },
                             { value: 'absolute', label: 'absolute' },
@@ -1438,7 +1287,7 @@ CiscoIOS.portSecurity = {
                     info: 'Violation sonucu err-disabled olan portun otomatik kurtarılması.',
                     fields: [
                         { name: 'auto_rec', why: 'err-disable olan portu belirli süre sonra otomatik açar. Açmazsan her ihlalde sahaya gitmek gerekir.', label: 'errdisable recovery etkinleştir', type: 'checkbox' },
-                        { name: 'rec_interval', why: "<code>errdisable recovery</code> portu otomatik açar. Süre çok kısaysa gerçek bir döngü sürekli açılıp kapanır; bu ayar kök nedeni çözmez, yalnızca belirtiyi gizler.", label: 'Recovery Interval (sn)', type: 'number', placeholder: '300', optional: true }
+                        { name: 'rec_interval', why: "<code>errdisable recovery</code> portu otomatik açar. Süre çok kısaysa gerçek bir döngü sürekli açılıp kapanır; bu ayar kök nedeni çözmez, yalnızca belirtiyi gizler.", label: 'Recovery Interval (sn)', type: 'number', min: 30, max: 86400, placeholder: '300', optional: true }
                     ]
                 }
             ],
@@ -1576,10 +1425,10 @@ CiscoIOS.gre = {
                         { name: 'tun_int', why: "Tunnel numarası cihaz içinde benzersiz olmalı. Kullanımdaki bir numarayı seçmek çalışan tüneli habersizce yeniden yapılandırır.", label: 'Tunnel Interface', type: 'text', required: true, placeholder: 'Tunnel0', hint: 'Sanal tünel arayüzü numarası' },
                         { name: 'tun_ip', why: "Tünel IP'si fiziksel WAN ağından farklı bir blokta olmalı. Tünel hedefine giden rota tünelin kendi üzerinden geçerse arayüz sürekli up/down olur (recursive routing).", label: 'Tunnel IP', type: 'text', validate: 'ip', placeholder: '10.10.10.1', optional: true },
                         { name: 'tun_mask', why: "Point-to-point tünelde /30 yeterlidir. mGRE (DMVPN) kullanıyorsan tüm spoke'lar <b>aynı</b> alt ağda olmalı; /30 vermek DMVPN'i tamamen bozar.", label: 'Tunnel Mask', type: 'text', validate: 'subnet', placeholder: '255.255.255.252', optional: true },
-                        { name: 'tun_src', why: 'Tünel kaynağı olarak <b>Loopback</b> kullanmak, fiziksel arayüz down olsa bile tünelin ayakta kalmasını sağlar.', label: 'Tunnel Source', type: 'text', required: true, placeholder: 'GigabitEthernet0/0 veya 1.2.3.4', hint: 'Tünelin kaynak interface veya IP adresi' },
+                        { name: 'tun_src', why: 'Tünel kaynağı olarak <b>Loopback</b> kullanmak, fiziksel arayüz down olsa bile tünelin ayakta kalmasını sağlar.', label: 'Tunnel Source', type: 'text', required: true, placeholder: 'GigabitEthernet0/0', hint: 'Tünelin kaynak interface veya IP adresi — arayüz adı veya IP adresi' },
                         { name: 'tun_dst', why: "Karşı tarafın ulaşılabilir IP'si. Bu adrese giden rota tünelin <b>kendi içinden</b> geçmemelidir — aksi halde tünel kendini yer (recursive routing) ve flap eder.", label: 'Tunnel Destination', type: 'text', placeholder: '5.6.7.8 (mGRE için boş)', hint: 'Karşı uç public IP. mGRE\'de boş bırakın.', optional: true },
                         { name: 'tun_mtu', why: 'GRE 24 byte ek yük getirir. MTU ayarlanmazsa büyük paketler parçalanır; 1400 yaygın bir değerdir.', label: 'MTU', type: 'number', placeholder: '1400', hint: 'GRE overhead için önerilen: 1400', optional: true },
-                        { name: 'tun_mss', why: "TCP MSS clamping, parçalanmayı kaynakta önler. GRE/IPSec tünellerinde <b>MTU'dan daha etkili</b> bir çözümdür; 1360 tipik değerdir.", label: 'TCP MSS', type: 'number', placeholder: '1360', optional: true },
+                        { name: 'tun_mss', why: "TCP MSS clamping, parçalanmayı kaynakta önler. GRE/IPSec tünellerinde <b>MTU'dan daha etkili</b> bir çözümdür; 1360 tipik değerdir.", label: 'TCP MSS', type: 'number', min: 500, max: 1460, placeholder: '1360', optional: true },
                         { name: 'keepalive', why: "GRE keepalive, karşı taraf kaybolduğunda tüneli down işaretler. Olmadan tünel 'up' görünmeye devam eder ve trafik kara deliğe gider.", label: 'Keepalive', type: 'text', placeholder: '10 3 (interval retries)', optional: true }
                     ]
                 },

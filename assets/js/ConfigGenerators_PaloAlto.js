@@ -908,7 +908,7 @@ PaloAlto.service = {
                             { value: 'udp', label: 'UDP' }
                         ]},
                         { name: 'dst_port', why: 'Palo Alto uygulamayı porttan bağımsız tanır (App-ID). Yine de servis kısıtı koymak, uygulamanın beklenmedik portlarda çalışmasını engeller.', label: 'Hedef Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'Hedef port veya aralık (ör: 443, 8080-8090)' },
-                        { name: 'src_port', why: "Kaynak port neredeyse her zaman rastgeledir. Burayı doldurmak kuralın hiç eşleşmemesine yol açan klasik hatadır — boş bırak.", label: 'Kaynak Port', type: 'text', validate: 'iface', optional: true, placeholder: 'any', hint: 'Kaynak port kısıtlaması (genellikle boş bırakılır)' },
+                        { name: 'src_port', why: "Kaynak port neredeyse her zaman rastgeledir. Burayı doldurmak kuralın hiç eşleşmemesine yol açan klasik hatadır — boş bırak.", label: 'Kaynak Port', type: 'text', optional: true, placeholder: 'any', hint: 'Kaynak port kısıtlaması (genellikle boş bırakılır)' },
                         { name: 'description', why: "Çok portlu bir cihazda hangi kablonun nereye gittiğini söyleyen tek kayıt budur. Boş bırakılan portlar, arıza anında en çok zaman kaybettiren yerdir.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'HTTPS service', hint: 'Servis nesnesi açıklaması' }
                     ]
                 }

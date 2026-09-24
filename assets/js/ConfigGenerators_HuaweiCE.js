@@ -300,7 +300,7 @@ HuaweiCE.lacp = {
             c += ' mode ' + lacpMode + '\n';
             if (swMode === 'trunk') {
                 c += ' port link-type trunk\n';
-                if (vlanIp) c += ' port trunk allow-pass vlan ' + vlanIp + '\n';
+                if (vlanIp) c += ' port trunk allow-pass vlan ' + cgHwVlanList(vlanIp) + '\n';
             } else if (swMode === 'access') {
                 c += ' port link-type access\n';
                 if (vlanIp) c += ' port default vlan ' + vlanIp + '\n';
@@ -555,7 +555,7 @@ HuaweiCE.evpnsymirb = {
                     title: 'VLAN ve VNI Eşlemesi',
                     icon: 'fas fa-layer-group',
                     fields: [
-                        { name: 'vbdif_id', why: "Vbdif arayüzü bridge-domain için L3 gateway görevi görür ve BD numarasıyla eşleşmelidir. Yanlış numara, arayüzün hiçbir bridge-domain ile ilişkilendirilmemesine ve gateway trafiğinin sessizce düşmesine yol açar.", label: 'Vbdif ID', type: 'number', required: true, placeholder: '100', hint: 'Virtual Bridge-Domain Interface numarası — genellikle VLAN ID ile aynı' },
+                        { name: 'vbdif_id', why: "Vbdif arayüzü bridge-domain için L3 gateway görevi görür ve BD numarasıyla eşleşmelidir. Yanlış numara, arayüzün hiçbir bridge-domain ile ilişkilendirilmemesine ve gateway trafiğinin sessizce düşmesine yol açar.", label: 'Vbdif ID', type: 'number', min: 1, max: 16777215, required: true, placeholder: '100', hint: 'Virtual Bridge-Domain Interface numarası — genellikle VLAN ID ile aynı' },
                         { name: 'vlan_id', why: "VLAN, bridge-domain içinde <code>bind vlan</code> ile VNIya eşlenir; eşleme eksikse yerel trafik tünele hiç girmez. Symmetric IRB tasarımında bu VLAN tüm ilgili leaf cihazlarda tutarlı yapılandırılmalıdır.", label: 'VLAN ID', type: 'number', validate: 'vlan', required: true, placeholder: '100', hint: 'VXLAN ile eşlenecek VLAN numarası', min: 1, max: 4094 },
                         { name: 'vni', why: "Symmetric IRBde L2 VNI yanında ayrı bir <b>L3 VNI</b> gerekir ve L3 VNI tüm leaf cihazlarda aynı olmalıdır. İkisini karıştırmak, aynı subnet içinde iletişimin çalışıp subnetler arası yönlendirmenin hiç çalışmamasına neden olur.", label: 'VNI', type: 'number', required: true, placeholder: '10100', hint: 'VXLAN Network Identifier — 1–16777215 arası', min: 1, max: 16777215 }
                     ]
