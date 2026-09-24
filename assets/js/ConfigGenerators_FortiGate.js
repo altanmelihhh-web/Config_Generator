@@ -240,16 +240,16 @@ FortiGate.nat = {
                     icon: 'fas fa-arrow-right',
                     showFor: ['vip'],
                     fields: [
-                        { name: 'vip_name',       label: 'VIP Adı',              type: 'text',   required: true,  placeholder: 'WEB_VIP',       hint: 'Policy dstaddr kısmında kullanılacak ad' },
-                        { name: 'vip_extintf',    label: 'External Interface',   type: 'text',   required: true,  placeholder: 'port1',          hint: 'WAN tarafındaki interface' },
-                        { name: 'vip_extip',      label: 'External IP',          type: 'text', validate: 'ip',   required: true,  placeholder: '203.0.113.10',   hint: 'Dışarıdan erişilecek genel IP' },
-                        { name: 'vip_mappedip',   label: 'Mapped IP (İç Sunucu)',type: 'text', validate: 'ip',   required: true,  placeholder: '192.168.1.10',   hint: 'Yönlendirilecek iç sunucu IP' },
-                        { name: 'vip_portfwd',    label: 'Port Yönlendirme',     type: 'select', options: [
+                        { name: 'vip_name', why: "VIP nesnesi tek başına trafiği geçirmez — mutlaka bu VIP'i hedef adres olarak kullanan <b>ayrı bir firewall kuralı</b> (WAN→LAN) gerekir. En sık atlanan adım budur.",       label: 'VIP Adı',              type: 'text',   required: true,  placeholder: 'WEB_VIP',       hint: 'Policy dstaddr kısmında kullanılacak ad' },
+                        { name: 'vip_extintf', why: "VIP'in dinleyeceği dış arayüz. Birden fazla WAN varsa yanlış seçim, dışarıdan erişimin hiç çalışmamasına yol açar.",    label: 'External Interface',   type: 'text',   required: true,  placeholder: 'port1',          hint: 'WAN tarafındaki interface' },
+                        { name: 'vip_extip', why: "Dışarıdan erişilecek IP. WAN arayüzünün IP'siyle aynı olabilir; farklı bir IP kullanıyorsan ISS'nin o IP'yi yönlendirdiğinden emin ol.",      label: 'External IP',          type: 'text', validate: 'ip',   required: true,  placeholder: '203.0.113.10',   hint: 'Dışarıdan erişilecek genel IP' },
+                        { name: 'vip_mappedip', why: "İç sunucunun gerçek IP'si. Firewall kuralında <b>hedef adres olarak VIP nesnesi</b> yazılır, iç IP değil.",   label: 'Mapped IP (İç Sunucu)',type: 'text', validate: 'ip',   required: true,  placeholder: '192.168.1.10',   hint: 'Yönlendirilecek iç sunucu IP' },
+                        { name: 'vip_portfwd', why: 'Kapalıyken tüm portlar yönlendirilir (static NAT). Açıkken yalnızca belirtilen port — güvenlik açısından port yönlendirme her zaman daha dar ve tercih edilir.',    label: 'Port Yönlendirme',     type: 'select', options: [
                             { value: 'disable', label: 'Hayır', selected: true },
                             { value: 'enable',  label: 'Evet' }
                         ], hint: 'Belirli port eşleştirmesi gerekiyorsa Evet seçin' },
-                        { name: 'vip_extport',    label: 'External Port',        type: 'text', validate: 'port',   optional: true,  placeholder: '80',    hint: 'Dışarıdan gelen port' },
-                        { name: 'vip_mappedport', label: 'Mapped Port',          type: 'text', validate: 'port',   optional: true,  placeholder: '80',    hint: 'Yönlendirilecek iç port' }
+                        { name: 'vip_extport', why: 'Dışarıdan gelinen port. Standart olmayan port kullanmak (ör. RDP için 3389 yerine başka bir port) otomatik taramaları azaltır ama güvenlik sağlamaz.',    label: 'External Port',        type: 'text', validate: 'port',   optional: true,  placeholder: '80',    hint: 'Dışarıdan gelen port' },
+                        { name: 'vip_mappedport', why: 'İç sunucunun dinlediği gerçek port. Dış 8080 → iç 80 gibi çevirmek mümkündür.', label: 'Mapped Port',          type: 'text', validate: 'port',   optional: true,  placeholder: '80',    hint: 'Yönlendirilecek iç port' }
                     ]
                 },
                 {
@@ -257,8 +257,8 @@ FortiGate.nat = {
                     icon: 'fas fa-random',
                     showFor: ['ippool'],
                     fields: [
-                        { name: 'pool_name',  label: 'Pool Adı',       type: 'text', required: true, placeholder: 'SNAT_POOL',     hint: 'Policy ippool parametresi için kullanılır' },
-                        { name: 'pool_start', label: 'Başlangıç IP',   type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.10',  hint: 'SNAT havuzunun ilk IP adresi' },
+                        { name: 'pool_name', why: "IP Pool, giden trafikte kaynak IP'yi belirler. Kurala bağlanmadan tek başına etkisizdir.",  label: 'Pool Adı',       type: 'text', required: true, placeholder: 'SNAT_POOL',     hint: 'Policy ippool parametresi için kullanılır' },
+                        { name: 'pool_start', why: "Havuzun ilk IP'si. Bu adresler WAN arayüzüyle aynı subnet'te olmalı ve ISS tarafından yönlendirilmelidir.", label: 'Başlangıç IP',   type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.10',  hint: 'SNAT havuzunun ilk IP adresi' },
                         { name: 'pool_end',   label: 'Bitiş IP',       type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.20',  hint: 'SNAT havuzunun son IP adresi' }
                     ]
                 }
@@ -402,18 +402,18 @@ FortiGate.sslvpn = {
                     title: 'SSL-VPN Genel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'src_iface',   label: 'WAN Interface',        type: 'text', required: true, placeholder: 'port1',                          hint: 'SSL-VPN dinleyeceği WAN arayüzü' },
-                        { name: 'ssl_port',    label: 'SSL-VPN Port',         type: 'text', validate: 'port', required: true, placeholder: '10443',                          hint: 'HTTPS 443\'ten farklı bir port önerilir' },
-                        { name: 'tunnel_pool', label: 'Tunnel IP Pool Adı',   type: 'text', required: true, placeholder: 'SSLVPN_TUNNEL_ADDR1',            hint: 'IP pool nesnesinin adı' },
-                        { name: 'pool_range',  label: 'IP Pool Aralığı',      type: 'text', required: true, placeholder: '10.212.134.200-10.212.134.210',  hint: 'Başlangıç-Bitiş formatında IP aralığı' }
+                        { name: 'src_iface', why: "SSL-VPN'in dinleyeceği dış arayüz. Yönetim arayüzüyle <b>aynı portu</b> paylaşırsa çakışma olur.",   label: 'WAN Interface',        type: 'text', required: true, placeholder: 'port1',                          hint: 'SSL-VPN dinleyeceği WAN arayüzü' },
+                        { name: 'ssl_port', why: "Varsayılan 443, ama yönetim arayüzü de 443 kullanır. İkisini aynı portta bırakmak yönetim erişimini kırar — SSL-VPN'i 10443 gibi bir porta almak yaygın pratiktir.",    label: 'SSL-VPN Port',         type: 'text', validate: 'port', required: true, placeholder: '10443',                          hint: 'HTTPS 443\'ten farklı bir port önerilir' },
+                        { name: 'tunnel_pool', why: 'VPN istemcilerine dağıtılacak IP havuzu. İç ağdaki hiçbir subnet ile <b>çakışmamalı</b>, aksi halde yönlendirme kırılır.', label: 'Tunnel IP Pool Adı',   type: 'text', required: true, placeholder: 'SSLVPN_TUNNEL_ADDR1',            hint: 'IP pool nesnesinin adı' },
+                        { name: 'pool_range', why: 'Havuz aralığı eşzamanlı kullanıcı sayısından büyük olmalı. Dolduğunda yeni kullanıcılar sessizce bağlanamaz.',  label: 'IP Pool Aralığı',      type: 'text', required: true, placeholder: '10.212.134.200-10.212.134.210',  hint: 'Başlangıç-Bitiş formatında IP aralığı' }
                     ]
                 },
                 {
                     title: 'Portal & Grup Ayarları',
                     icon: 'fas fa-users',
                     fields: [
-                        { name: 'portal_name', label: 'Portal Adı',      type: 'text', required: true, placeholder: 'full-access', hint: 'Web portal şablonu adı' },
-                        { name: 'vpn_group',   label: 'VPN User Group',  type: 'text', required: true, placeholder: 'VPN_USERS',   hint: 'Kullanıcı grubunun portal erişimini bağlar' }
+                        { name: 'portal_name', why: 'Portal, kullanıcının hangi kaynaklara ve hangi modda (web/tunnel) erişeceğini belirler. Kullanıcı grubuna atanmazsa erişim olmaz.', label: 'Portal Adı',      type: 'text', required: true, placeholder: 'full-access', hint: 'Web portal şablonu adı' },
+                        { name: 'vpn_group', why: 'Erişim yetkisi kullanıcı grubuna göre verilir. Grubu geniş tutmak, ayrılan çalışanların erişiminin sürmesine yol açar. LDAP/RADIUS entegrasyonu merkezi yönetim sağlar.',   label: 'VPN User Group',  type: 'text', required: true, placeholder: 'VPN_USERS',   hint: 'Kullanıcı grubunun portal erişimini bağlar' }
                     ]
                 }
             ],
@@ -469,10 +469,10 @@ FortiGate.secprofile = {
                     icon: 'fas fa-tag',
                     info: 'Her profil ayrı oluşturulur ve belirtilen policy ID\'sine bağlanır.',
                     fields: [
-                        { name: 'av_name',   label: 'AV Profil Adı',         type: 'text', required: true, placeholder: 'corp-av',        hint: 'Antivirus profil adı' },
-                        { name: 'ips_name',  label: 'IPS Sensor Adı',        type: 'text', required: true, placeholder: 'corp-ips',       hint: 'IPS sensor adı' },
-                        { name: 'wf_name',   label: 'Web Filter Profil Adı', type: 'text', required: true, placeholder: 'corp-webfilter', hint: 'Web filtre profil adı' },
-                        { name: 'app_name',  label: 'App Control Liste Adı', type: 'text', required: true, placeholder: 'corp-appctrl',   hint: 'Uygulama denetim listesi adı' }
+                        { name: 'av_name', why: 'Antivirüs profili firewall kuralına <b>bağlanmalıdır</b>; oluşturmak tek başına korumaz. Ayrıca HTTPS trafiğinde tarama için SSL Inspection gerekir.',   label: 'AV Profil Adı',         type: 'text', required: true, placeholder: 'corp-av',        hint: 'Antivirus profil adı' },
+                        { name: 'ips_name', why: "IPS sensörü kurala bağlanmadan çalışmaz. Üretimde önce <code>monitor</code> ile izleyip sonra <code>block</code>'a geçmek kesintiyi önler.",  label: 'IPS Sensor Adı',        type: 'text', required: true, placeholder: 'corp-ips',       hint: 'IPS sensor adı' },
+                        { name: 'wf_name', why: "Web Filter profili. HTTPS sitelerde kategori tespiti için SSL Inspection açık olmalı; aksi halde yalnızca SNI'ye bakılır.",   label: 'Web Filter Profil Adı', type: 'text', required: true, placeholder: 'corp-webfilter', hint: 'Web filtre profil adı' },
+                        { name: 'app_name', why: 'Application Control, uygulamayı port/protokolden bağımsız tanır. Böylece 443 üzerinden geçen TeamViewer veya torrent yakalanabilir.',  label: 'App Control Liste Adı', type: 'text', required: true, placeholder: 'corp-appctrl',   hint: 'Uygulama denetim listesi adı' }
                     ]
                 },
                 {
@@ -541,9 +541,9 @@ FortiGate.sdwan = {
                     title: 'WAN1 Üyesi',
                     icon: 'fas fa-globe',
                     fields: [
-                        { name: 'wan1_iface', label: 'Interface', type: 'text', required: true, placeholder: 'port1',       hint: 'Birincil WAN bağlantısının arayüzü' },
-                        { name: 'wan1_gw',    label: 'Gateway',   type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'ISP tarafından verilen default gateway' },
-                        { name: 'wan1_cost',  label: 'Maliyet',   type: 'text', optional: true, placeholder: '0',           hint: 'Düşük değer daha yüksek öncelik (varsayılan: 0)' }
+                        { name: 'wan1_iface', why: 'SD-WAN üyesi arayüz. Üye eklenmeden önce o arayüzün <b>statik rotası kaldırılmalıdır</b>; SD-WAN kendi rotasını yönetir.', label: 'Interface', type: 'text', required: true, placeholder: 'port1',       hint: 'Birincil WAN bağlantısının arayüzü' },
+                        { name: 'wan1_gw', why: "Üyenin gateway'i. Yanlışsa health check hep başarısız olur ve o hat hiç kullanılmaz.",    label: 'Gateway',   type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'ISP tarafından verilen default gateway' },
+                        { name: 'wan1_cost', why: 'Maliyet, eşit performanslı hatlar arasında tercih belirler. Düşük maliyet kazanır.',  label: 'Maliyet',   type: 'text', optional: true, placeholder: '0',           hint: 'Düşük değer daha yüksek öncelik (varsayılan: 0)' }
                     ]
                 },
                 {
@@ -559,9 +559,9 @@ FortiGate.sdwan = {
                     title: 'Health Check & SLA',
                     icon: 'fas fa-heartbeat',
                     fields: [
-                        { name: 'hc_server',  label: 'Health Check Sunucusu', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'Ping ile test edilecek IP (genellikle DNS)' },
-                        { name: 'hc_latency', label: 'Latency Eşiği (ms)',    type: 'text', optional: true, placeholder: '150',     hint: 'Aşıldığında link degrade sayılır' },
-                        { name: 'hc_jitter',  label: 'Jitter Eşiği (ms)',     type: 'text', optional: true, placeholder: '30',      hint: 'Jitter tolerans sınırı' }
+                        { name: 'hc_server', why: "Health check hedefi. <b>ISS'den bağımsız</b> bir adres seç (kendi veri merkezin gibi); ISS'nin DNS'ine ping atmak yanıltıcı sonuç verir.",  label: 'Health Check Sunucusu', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'Ping ile test edilecek IP (genellikle DNS)' },
+                        { name: 'hc_latency', why: 'Gecikme eşiği. Bu değerin üstündeki hat SLA dışı sayılır. Eşiği çok dar tutmak gereksiz hat değişimine (flapping) yol açar.', label: 'Latency Eşiği (ms)',    type: 'text', optional: true, placeholder: '150',     hint: 'Aşıldığında link degrade sayılır' },
+                        { name: 'hc_jitter', why: "Jitter eşiği özellikle VoIP için kritiktir. Ses kalitesi jitter'a gecikmeden daha duyarlıdır.",  label: 'Jitter Eşiği (ms)',     type: 'text', optional: true, placeholder: '30',      hint: 'Jitter tolerans sınırı' }
                     ]
                 }
             ],
@@ -616,15 +616,15 @@ FortiGate.ha = {
                     title: 'HA Temel Ayarlar',
                     icon: 'fas fa-crown',
                     fields: [
-                        { name: 'ha_role',      label: 'Rol',               type: 'select', options: [
+                        { name: 'ha_role', why: "Active-Passive'de tek cihaz trafik işler. İki cihazın <b>aynı FortiOS sürümü ve aynı model</b> olması zorunludur.",      label: 'Rol',               type: 'select', options: [
                             { value: 'primary',   label: 'Primary',   selected: true },
                             { value: 'secondary', label: 'Secondary' }
                         ], hint: 'Bu cihazın HA kümesindeki rolü' },
-                        { name: 'grp_name',     label: 'HA Grup Adı',       type: 'text',   required: true, placeholder: 'FG-HA-CLUSTER',   hint: 'İki cihazda aynı olmalı' },
-                        { name: 'ha_pass',      label: 'HA Şifresi',        type: 'text',   required: true, placeholder: 'ha-secret123',    hint: 'İki cihazda aynı olmalı' },
-                        { name: 'hb_iface',     label: 'Heartbeat Interface\'lar', type: 'text', required: true, placeholder: 'port3 port4', hint: 'Boşlukla ayrılmış arayüz adları' },
-                        { name: 'priority',     label: 'Öncelik',           type: 'text',   required: true, placeholder: '200',             hint: 'Primary\'de yüksek (ör: 200), Secondary\'de düşük (ör: 100)' },
-                        { name: 'session_sync', label: 'Session Sync',      type: 'select', options: [
+                        { name: 'grp_name', why: 'HA grup adı iki üyede aynı olmalı. Aynı L2 segmentindeki farklı HA çiftlerinde ise <b>farklı</b> olmalı, aksi halde üyeler birbirini yanlış eşleştirir.',     label: 'HA Grup Adı',       type: 'text',   required: true, placeholder: 'FG-HA-CLUSTER',   hint: 'İki cihazda aynı olmalı' },
+                        { name: 'ha_pass', why: "HA şifresi iki üyede aynı olmalı. Şifresiz HA, aynı ağa takılan başka bir FortiGate'in cluster'a katılmasına açık kapı bırakır.",      label: 'HA Şifresi',        type: 'text',   required: true, placeholder: 'ha-secret123',    hint: 'İki cihazda aynı olmalı' },
+                        { name: 'hb_iface', why: "Heartbeat arayüzü üyeler arasında <b>doğrudan</b> bağlanmalı (switch üzerinden değil). Kopması split-brain'e yol açar; en az iki heartbeat arayüzü önerilir.",     label: 'Heartbeat Interface\'lar', type: 'text', required: true, placeholder: 'port3 port4', hint: 'Boşlukla ayrılmış arayüz adları' },
+                        { name: 'priority', why: 'Yüksek öncelikli üye primary olur. <code>override</code> kapalıyken primary döndüğünde rolü geri almaz — bu ikinci kesintiyi önler.',     label: 'Öncelik',           type: 'text',   required: true, placeholder: '200',             hint: 'Primary\'de yüksek (ör: 200), Secondary\'de düşük (ör: 100)' },
+                        { name: 'session_sync', why: "Açıkken mevcut TCP oturumları failover'da kopmaz. Kapalıysa failover anında tüm bağlantılar yeniden kurulur; kullanıcı kesinti hisseder.", label: 'Session Sync',      type: 'select', options: [
                             { value: 'enable',  label: 'Evet', selected: true },
                             { value: 'disable', label: 'Hayır' }
                         ]}
@@ -678,12 +678,12 @@ FortiGate.vlanintf = {
                     icon: 'fas fa-sitemap',
                     fields: [
                         { name: 'name',         label: 'VLAN Interface Adı', type: 'text', required: true, placeholder: 'VLAN100',           hint: 'Yeni alt interface adı' },
-                        { name: 'vlan_id',      label: 'VLAN ID',            type: 'text', validate: 'vlan', required: true, placeholder: '100',               hint: '1–4094 arası VLAN ID' },
-                        { name: 'parent_intf',  label: 'Parent Interface',   type: 'text', required: true, placeholder: 'port1',             hint: 'Trunk port (ör: port1, internal)' },
+                        { name: 'vlan_id', why: "802.1Q etiketi (1-4094). Karşı switch portu <b>trunk</b> modda ve bu VLAN'a izin veriyor olmalı, yoksa tag'li trafik sessizce düşer.",      label: 'VLAN ID',            type: 'text', validate: 'vlan', required: true, placeholder: '100',               hint: '1–4094 arası VLAN ID' },
+                        { name: 'parent_intf', why: "VLAN alt arayüzünün bağlanacağı fiziksel arayüz. FortiOS'ta ad <code>port1</code> üzerinde <code>VLAN100</code> şeklinde oluşur.",  label: 'Parent Interface',   type: 'text', required: true, placeholder: 'port1',             hint: 'Trunk port (ör: port1, internal)' },
                         { name: 'ip',           label: 'IP Adresi',          type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1',     hint: 'Bu VLAN\'ın gateway IP\'si' },
                         { name: 'mask',         label: 'Subnet Mask',        type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0',     hint: 'Nokta-ondalık subnet maskı' },
-                        { name: 'zone',         label: 'Zone Adı',           type: 'text', required: true, placeholder: 'LAN',              hint: 'Arayüzün atanacağı zone' },
-                        { name: 'allowaccess',  label: 'İzin Verilen Servisler', type: 'text', optional: true, placeholder: 'ping https', hint: 'Boşlukla ayrılmış: ping https ssh' }
+                        { name: 'zone', why: "Zone, birden fazla arayüzü tek isimde gruplar ve kural sayısını azaltır. Zone'a alınan arayüzler arası trafik varsayılan olarak <b>engellidir</b>.",         label: 'Zone Adı',           type: 'text', required: true, placeholder: 'LAN',              hint: 'Arayüzün atanacağı zone' },
+                        { name: 'allowaccess', why: 'Bu arayüzden hangi yönetim servislerine erişilebileceği. WAN tarafında <code>https</code>/<code>ssh</code> açmak yönetim arayüzünü internete açar — mümkünse yalnızca <code>ping</code> bırak.',  label: 'İzin Verilen Servisler', type: 'text', optional: true, placeholder: 'ping https', hint: 'Boşlukla ayrılmış: ping https ssh' }
                     ]
                 }
             ],
@@ -728,13 +728,13 @@ FortiGate.dhcp = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'interface', label: 'Interface',          type: 'text', required: true,  placeholder: 'VLAN100',         hint: 'DHCP sunucusunun çalışacağı arayüz' },
-                        { name: 'start_ip',  label: 'Pool Başlangıç IP', type: 'text', validate: 'ip', required: true,  placeholder: '192.168.100.10',  hint: 'Dağıtılacak IP aralığının başlangıcı' },
+                        { name: 'start_ip', why: 'DHCP havuzunun başı. Statik IP verilen sunucular bu aralığın <b>dışında</b> kalmalı, aksi halde IP çakışması yaşanır.',  label: 'Pool Başlangıç IP', type: 'text', validate: 'ip', required: true,  placeholder: '192.168.100.10',  hint: 'Dağıtılacak IP aralığının başlangıcı' },
                         { name: 'end_ip',    label: 'Pool Bitiş IP',     type: 'text', validate: 'ip', required: true,  placeholder: '192.168.100.200', hint: 'Dağıtılacak IP aralığının sonu' },
-                        { name: 'gateway',   label: 'Default Gateway',   type: 'text', validate: 'ip', required: true,  placeholder: '192.168.100.1',   hint: 'İstemcilere verilecek varsayılan gateway' },
+                        { name: 'gateway', why: "İstemcilere dağıtılacak varsayılan ağ geçidi. Genelde FortiGate'in o arayüzdeki IP'sidir.",   label: 'Default Gateway',   type: 'text', validate: 'ip', required: true,  placeholder: '192.168.100.1',   hint: 'İstemcilere verilecek varsayılan gateway' },
                         { name: 'mask',      label: 'Subnet Mask',       type: 'text', validate: 'subnet', required: true,  placeholder: '255.255.255.0',   hint: 'Nokta-ondalık subnet maskı' },
-                        { name: 'dns1',      label: 'DNS Sunucu 1',      type: 'text', validate: 'ip', required: true,  placeholder: '8.8.8.8',         hint: 'Birincil DNS sunucusu' },
+                        { name: 'dns1', why: 'İç kaynaklara isimle erişim için <b>iç DNS sunucusu</b> verilmelidir. Dış DNS vermek, iç sunucuların bulunamamasına yol açar.',      label: 'DNS Sunucu 1',      type: 'text', validate: 'ip', required: true,  placeholder: '8.8.8.8',         hint: 'Birincil DNS sunucusu' },
                         { name: 'dns2',      label: 'DNS Sunucu 2',      type: 'text', validate: 'ip', optional: true,  placeholder: '8.8.4.4',         hint: 'İkincil DNS sunucusu (opsiyonel)' },
-                        { name: 'lease',     label: 'Lease Süresi (sn)', type: 'text', required: true,  placeholder: '86400',           hint: 'IP kiralama süresi saniye cinsinden (86400 = 1 gün)' }
+                        { name: 'lease', why: 'Lease süresi kısa olursa DHCP trafiği artar, uzun olursa havuz dolabilir. Misafir ağlarında kısa (ör. 2 saat) tutmak mantıklıdır.',     label: 'Lease Süresi (sn)', type: 'text', required: true,  placeholder: '86400',           hint: 'IP kiralama süresi saniye cinsinden (86400 = 1 gün)' }
                     ]
                 }
             ],
@@ -779,11 +779,11 @@ FortiGate.ospf = {
                     title: 'OSPF Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'router_id',   label: 'Router ID',                  type: 'text', validate: 'ip', required: true,  placeholder: '10.0.0.1',              hint: 'Genellikle Loopback IP adresi' },
-                        { name: 'area',        label: 'Area',                       type: 'text', required: true,  placeholder: '0.0.0.0',               hint: 'Backbone için 0.0.0.0' },
+                        { name: 'router_id', why: 'Benzersiz olmalı; Loopback IP tercih edilir çünkü hiç down olmaz. Değiştirmek OSPF sürecini sıfırlar.',   label: 'Router ID',                  type: 'text', validate: 'ip', required: true,  placeholder: '10.0.0.1',              hint: 'Genellikle Loopback IP adresi' },
+                        { name: 'area', why: "Backbone <code>0</code>'dır ve tüm alanlar ona bitişik olmalıdır. Alan numarası eşleşmezse komşuluk kurulmaz.",        label: 'Area',                       type: 'text', required: true,  placeholder: '0.0.0.0',               hint: 'Backbone için 0.0.0.0' },
                         { name: 'networks',    label: 'Network\'ler (virgülle, CIDR)',type: 'text', required: true,  placeholder: '192.168.1.0/24,10.0.0.0/30', hint: 'OSPF\'e dahil edilecek prefixler' },
-                        { name: 'passive_intfs',label: 'Passive Interface\'ler',    type: 'text', optional: true,  placeholder: 'port2,port3',           hint: 'OSPF paketi gönderilmeyecek arayüzler' },
-                        { name: 'redistribute_connected', label: 'Redistribute Connected', type: 'select', options: [
+                        { name: 'passive_intfs', why: 'Passive arayüz hello göndermez ama ağı duyurur. WAN arayüzlerinde güvenlik için açılmalıdır.',label: 'Passive Interface\'ler',    type: 'text', optional: true,  placeholder: 'port2,port3',           hint: 'OSPF paketi gönderilmeyecek arayüzler' },
+                        { name: 'redistribute_connected', why: "Bağlı ağları OSPF'e duyurur. Dikkatli kullan — istemeden yönetim ağını da duyurabilirsin.", label: 'Redistribute Connected', type: 'select', options: [
                             { value: 'enable',  label: 'Enable',  selected: true },
                             { value: 'disable', label: 'Disable' }
                         ]}
@@ -833,18 +833,18 @@ FortiGate.bgp = {
                     title: 'BGP Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'local_as',   label: 'Local AS',    type: 'text', validate: 'asn', required: true,  placeholder: '65001',    hint: 'Bu cihazın Autonomous System numarası' },
-                        { name: 'router_id',  label: 'Router ID',   type: 'text', validate: 'ip', required: true,  placeholder: '10.0.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
+                        { name: 'local_as', why: "Kendi AS numaran. Peer'ın AS'i farklıysa eBGP, aynıysa iBGP olur.",   label: 'Local AS',    type: 'text', validate: 'asn', required: true,  placeholder: '65001',    hint: 'Bu cihazın Autonomous System numarası' },
+                        { name: 'router_id', why: 'Benzersiz olmalı; Loopback IP tercih edilir çünkü hiç down olmaz. Değiştirmek OSPF sürecini sıfırlar.',  label: 'Router ID',   type: 'text', validate: 'ip', required: true,  placeholder: '10.0.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
                     ]
                 },
                 {
                     title: 'Neighbor Ayarları',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'neighbor_ip',    label: 'Neighbor IP',      type: 'text', validate: 'ip', required: true,  placeholder: '10.0.0.2',  hint: 'BGP komşusunun IP adresi' },
-                        { name: 'remote_as',      label: 'Remote AS',        type: 'text', validate: 'asn', required: true,  placeholder: '65002',     hint: 'Komşunun AS numarası' },
-                        { name: 'route_map_in',   label: 'Route Map IN',     type: 'text', optional: true,  placeholder: 'RM-IN',     hint: 'Gelen rotalar için uygulanan politika' },
-                        { name: 'route_map_out',  label: 'Route Map OUT',    type: 'text', optional: true,  placeholder: 'RM-OUT',    hint: 'Gönderilen rotalar için uygulanan politika' },
+                        { name: 'neighbor_ip', why: "BGP komşusunun IP'si. FortiGate'te oturumun kurulabilmesi için komşu IP'sine giden trafiğe <b>izin veren kural</b> da gerekir.",    label: 'Neighbor IP',      type: 'text', validate: 'ip', required: true,  placeholder: '10.0.0.2',  hint: 'BGP komşusunun IP adresi' },
+                        { name: 'remote_as', why: "Komşunun AS numarası. Yanlışsa oturum Idle/Active'de takılır — <code>get router info bgp summary</code> ile görürsün.",      label: 'Remote AS',        type: 'text', validate: 'asn', required: true,  placeholder: '65002',     hint: 'Komşunun AS numarası' },
+                        { name: 'route_map_in', why: 'Gelen duyuruları filtreler. Route-map olmadan komşunun duyurduğu her şeyi kabul edersin — internet tablosunun tamamı gelebilir.',   label: 'Route Map IN',     type: 'text', optional: true,  placeholder: 'RM-IN',     hint: 'Gelen rotalar için uygulanan politika' },
+                        { name: 'route_map_out', why: 'Giden duyuruları filtreler. Filtresiz bırakmak, istemeden transit AS olmana ve trafiğin üzerinden akmasına yol açabilir.',  label: 'Route Map OUT',    type: 'text', optional: true,  placeholder: 'RM-OUT',    hint: 'Gönderilen rotalar için uygulanan politika' },
                         { name: 'networks',       label: 'Advertise Network (virgülle, CIDR)', type: 'text', optional: true, placeholder: '192.168.1.0/24', hint: 'BGP ile duyurulacak prefixler' }
                     ]
                 }
@@ -894,12 +894,12 @@ FortiGate.webfilter = {
                     title: 'Web Filter',
                     icon: 'fas fa-filter',
                     fields: [
-                        { name: 'profile_name',     label: 'Profil Adı',              type: 'text',   required: true,  placeholder: 'WF-PROFILE',           hint: 'Policy\'e bağlanacak profil adı' },
-                        { name: 'action_safesearch', label: 'Safe Search',             type: 'select', options: [
+                        { name: 'profile_name', why: 'Profil adı kuralda görünür. Tutarlı isimlendirme (ör. <code>WF_CORPORATE</code>) çok profilli kurulumlarda karışıklığı önler.',     label: 'Profil Adı',              type: 'text',   required: true,  placeholder: 'WF-PROFILE',           hint: 'Policy\'e bağlanacak profil adı' },
+                        { name: 'action_safesearch', why: "Google, Bing ve YouTube'da güvenli arama zorunlu hale gelir. Eğitim kurumlarında yaygın gereksinimdir.", label: 'Safe Search',             type: 'select', options: [
                             { value: 'enable',  label: 'Enable',  selected: true },
                             { value: 'disable', label: 'Disable' }
                         ]},
-                        { name: 'block_categories',  label: 'Engellenen Kategoriler', type: 'text',   optional: true,  placeholder: 'gambling,malware', hint: 'Virgülle ayrılmış FortiGuard kategori adları' }
+                        { name: 'block_categories', why: "Kategori engelleme. Engellenen kategorinin kullanıcıya nasıl bildirileceğini (block page) ayarlamazsan kullanıcı 'internet çalışmıyor' der.",  label: 'Engellenen Kategoriler', type: 'text',   optional: true,  placeholder: 'gambling,malware', hint: 'Virgülle ayrılmış FortiGuard kategori adları' }
                     ]
                 }
             ],
@@ -941,8 +941,8 @@ FortiGate.ips = {
                     title: 'IPS Sensor',
                     icon: 'fas fa-bug',
                     fields: [
-                        { name: 'sensor_name', label: 'Sensor Adı', type: 'text',   required: true,  placeholder: 'IPS-SENSOR', hint: 'Policy\'e bağlanacak sensor adı' },
-                        { name: 'severity',    label: 'Severity',   type: 'select', options: [
+                        { name: 'sensor_name', why: "IPS sensörü içindeki imza grupları. Tüm imzaları açmak CPU'yu ciddi yükler; kritik olanlarla başla.", label: 'Sensor Adı', type: 'text',   required: true,  placeholder: 'IPS-SENSOR', hint: 'Policy\'e bağlanacak sensor adı' },
+                        { name: 'severity', why: 'İmza önem seviyesi. Düşük severity imzaları çok sayıda false positive üretir; <code>high</code> ve <code>critical</code> ile başlamak doğru yaklaşımdır.',    label: 'Severity',   type: 'select', options: [
                             { value: 'critical', label: 'Critical' },
                             { value: 'high',     label: 'High',    selected: true },
                             { value: 'medium',   label: 'Medium' },
@@ -994,11 +994,11 @@ FortiGate.antivirus = {
                     title: 'Anti-Virus Profil',
                     icon: 'fas fa-virus-slash',
                     fields: [
-                        { name: 'profile_name', label: 'Profil Adı',    type: 'text',   required: true,  placeholder: 'AV-PROFILE', hint: 'Policy\'e bağlanacak profil adı' },
+                        { name: 'profile_name', why: 'Profil adı kuralda görünür. Tutarlı isimlendirme (ör. <code>WF_CORPORATE</code>) çok profilli kurulumlarda karışıklığı önler.', label: 'Profil Adı',    type: 'text',   required: true,  placeholder: 'AV-PROFILE', hint: 'Policy\'e bağlanacak profil adı' },
                         { name: 'http_scan',    label: 'HTTP Tarama',   type: 'select', options: [{ value: 'enable', label: 'Enable', selected: true }, { value: 'disable', label: 'Disable' }] },
                         { name: 'ftp_scan',     label: 'FTP Tarama',    type: 'select', options: [{ value: 'enable', label: 'Enable', selected: true }, { value: 'disable', label: 'Disable' }] },
                         { name: 'smtp_scan',    label: 'SMTP Tarama',   type: 'select', options: [{ value: 'enable', label: 'Enable', selected: true }, { value: 'disable', label: 'Disable' }] },
-                        { name: 'quarantine',   label: 'Quarantine',    type: 'select', options: [
+                        { name: 'quarantine', why: 'Karantina, tehdit tespit edilen kaynağı belirli süre bloklar. Yanlış pozitifte meşru kullanıcıyı da keser — süreyi kısa tut.',   label: 'Quarantine',    type: 'select', options: [
                             { value: 'infected', label: 'Infected', selected: true },
                             { value: 'none',     label: 'None' }
                         ]}
@@ -1042,7 +1042,7 @@ FortiGate.appcontrol = {
                     title: 'Application Control',
                     icon: 'fas fa-cubes',
                     fields: [
-                        { name: 'profile_name', label: 'Profil Adı',     type: 'text', required: true, placeholder: 'APP-CTRL',    hint: 'Policy\'e bağlanacak liste adı' },
+                        { name: 'profile_name', why: 'Profil adı kuralda görünür. Tutarlı isimlendirme (ör. <code>WF_CORPORATE</code>) çok profilli kurulumlarda karışıklığı önler.', label: 'Profil Adı',     type: 'text', required: true, placeholder: 'APP-CTRL',    hint: 'Policy\'e bağlanacak liste adı' },
                         { name: 'categories',   label: 'Kategoriler',    type: 'text', required: true, placeholder: 'botnet,P2P',  hint: 'Virgülle ayrılmış FortiGuard uygulama kategori adları' }
                     ]
                 }
@@ -1079,10 +1079,10 @@ FortiGate.dnsfilter = {
                     title: 'DNS Filter',
                     icon: 'fas fa-search',
                     fields: [
-                        { name: 'profile_name',    label: 'Profil Adı',          type: 'text',   required: true,  placeholder: 'DNS-FILTER',    hint: 'Policy\'e bağlanacak DNS filtre profili' },
-                        { name: 'block_botnet',    label: 'Botnet Engelle',       type: 'select', options: [{ value: 'enable', label: 'Enable', selected: true }, { value: 'disable', label: 'Disable' }] },
-                        { name: 'safe_search',     label: 'Safe Search',          type: 'select', options: [{ value: 'enable', label: 'Enable', selected: true }, { value: 'disable', label: 'Disable' }] },
-                        { name: 'redirect_portal', label: 'Redirect Portal IP',   type: 'text',   optional: true,  placeholder: '192.168.1.1',   hint: 'Engellenen sorgular bu IP\'ye yönlendirilir' }
+                        { name: 'profile_name', why: 'Profil adı kuralda görünür. Tutarlı isimlendirme (ör. <code>WF_CORPORATE</code>) çok profilli kurulumlarda karışıklığı önler.',    label: 'Profil Adı',          type: 'text',   required: true,  placeholder: 'DNS-FILTER',    hint: 'Policy\'e bağlanacak DNS filtre profili' },
+                        { name: 'block_botnet', why: 'Botnet C2 adreslerini engeller. <b>Enfekte iç makineyi tespit etmenin en pratik yoludur</b> — loglarda sürekli botnet bloğu gören bir IP muhtemelen zararlı yazılım barındırıyordur.',    label: 'Botnet Engelle',       type: 'select', options: [{ value: 'enable', label: 'Enable', selected: true }, { value: 'disable', label: 'Disable' }] },
+                        { name: 'safe_search', why: 'Arama motorlarında güvenli aramayı zorunlu kılar. HTTPS trafiğinde çalışması için SSL Inspection gerekir.',     label: 'Safe Search',          type: 'select', options: [{ value: 'enable', label: 'Enable', selected: true }, { value: 'disable', label: 'Disable' }] },
+                        { name: 'redirect_portal', why: 'Engellenen DNS sorgularını yönlendirilecek adres. Kullanıcıya neden engellendiğini gösteren bir sayfa, destek çağrılarını azaltır.', label: 'Redirect Portal IP',   type: 'text',   optional: true,  placeholder: '192.168.1.1',   hint: 'Engellenen sorgular bu IP\'ye yönlendirilir' }
                     ]
                 }
             ],
@@ -1120,11 +1120,11 @@ FortiGate.pbr = {
                     title: 'Policy Based Route',
                     icon: 'fas fa-directions',
                     fields: [
-                        { name: 'seq',           label: 'Sequence No',            type: 'text', required: true,  placeholder: '1',               hint: 'Kural sırası (küçük sayı önce işlenir)' },
-                        { name: 'src_addr',      label: 'Kaynak Adres (CIDR)',    type: 'text', validate: 'cidr', required: true,  placeholder: '192.168.1.0/24',  hint: 'PBR\'ı tetikleyen kaynak subnet' },
+                        { name: 'seq', why: "Policy route'lar sıra numarasına göre <b>yukarıdan aşağıya</b> değerlendirilir ve normal routing tablosundan <b>önce</b> gelir. Geniş bir kural üstteyse altındakiler hiç çalışmaz.",           label: 'Sequence No',            type: 'text', required: true,  placeholder: '1',               hint: 'Kural sırası (küçük sayı önce işlenir)' },
+                        { name: 'src_addr', why: 'Kaynak ağ. Policy route, routing tablosunu bypass eder — yanlış tanım trafiği yanlış hatta gönderir ve teşhisi zorlaştırır.',      label: 'Kaynak Adres (CIDR)',    type: 'text', validate: 'cidr', required: true,  placeholder: '192.168.1.0/24',  hint: 'PBR\'ı tetikleyen kaynak subnet' },
                         { name: 'dst_addr',      label: 'Hedef Adres (CIDR)',     type: 'text', validate: 'cidr', optional: true,  placeholder: '0.0.0.0/0',       hint: 'Hedef kısıtı (opsiyonel, tüm için 0.0.0.0/0)' },
-                        { name: 'out_interface', label: 'Çıkış Interface',        type: 'text', required: true,  placeholder: 'port2',           hint: 'Trafiğin yönlendirileceği arayüz' },
-                        { name: 'gateway',       label: 'Gateway',                type: 'text', validate: 'ip', required: true,  placeholder: '203.0.113.1',     hint: 'Çıkış arayüzündeki next-hop IP' }
+                        { name: 'out_interface', why: "Trafiğin zorla yönlendirileceği arayüz. Bu arayüz down olduğunda PBR devre dışı kalır ve trafik normal routing'e döner.", label: 'Çıkış Interface',        type: 'text', required: true,  placeholder: 'port2',           hint: 'Trafiğin yönlendirileceği arayüz' },
+                        { name: 'gateway', why: "İstemcilere dağıtılacak varsayılan ağ geçidi. Genelde FortiGate'in o arayüzdeki IP'sidir.",       label: 'Gateway',                type: 'text', validate: 'ip', required: true,  placeholder: '203.0.113.1',     hint: 'Çıkış arayüzündeki next-hop IP' }
                     ]
                 }
             ],
@@ -1164,8 +1164,8 @@ FortiGate.ipv6 = {
                     icon: 'fas fa-globe-asia',
                     fields: [
                         { name: 'interface',   label: 'Interface',               type: 'text',   required: true,  placeholder: 'port1',           hint: 'IPv6 adresi atanacak arayüz' },
-                        { name: 'ipv6_addr',   label: 'IPv6 Adresi (prefix dahil)', type: 'text', required: true, placeholder: '2001:db8::1/64',  hint: 'CIDR formatında IPv6 adresi' },
-                        { name: 'ra_send',     label: 'RA Gönder',               type: 'select', options: [
+                        { name: 'ipv6_addr', why: "IPv6 adresi prefix ile birlikte (<code>2001:db8::1/64</code>). IPv6 kuralları IPv4'ten <b>ayrıdır</b>; IPv4 kuralı yazmak IPv6 trafiğini kapsamaz — sessiz bir güvenlik açığı kaynağıdır.",   label: 'IPv6 Adresi (prefix dahil)', type: 'text', required: true, placeholder: '2001:db8::1/64',  hint: 'CIDR formatında IPv6 adresi' },
+                        { name: 'ra_send', why: 'Router Advertisement, istemcilerin SLAAC ile adres almasını sağlar. Kapalıysa istemciler IPv6 gateway bulamaz.',     label: 'RA Gönder',               type: 'select', options: [
                             { value: 'enable',  label: 'Enable',  selected: true },
                             { value: 'disable', label: 'Disable' }
                         ], hint: 'Router Advertisement (SLAAC için gerekli)' },
@@ -1209,8 +1209,8 @@ FortiGate.vdom = {
                     title: 'VDOM Tanımı',
                     icon: 'fas fa-layer-group',
                     fields: [
-                        { name: 'vdom_name',  label: 'VDOM Adı',           type: 'text',   required: true, placeholder: 'VDOM-CUSTOMER1',   hint: 'Benzersiz virtual domain adı' },
-                        { name: 'opmode',     label: 'Operation Mode',     type: 'select', options: [
+                        { name: 'vdom_name', why: "VDOM, tek cihazı bağımsız firewall'lara böler. Her VDOM'un kendi kuralları, rotaları ve yönetici hesapları olur — çoklu müşteri senaryolarında kullanılır.",  label: 'VDOM Adı',           type: 'text',   required: true, placeholder: 'VDOM-CUSTOMER1',   hint: 'Benzersiz virtual domain adı' },
+                        { name: 'opmode', why: "<b>NAT</b> modda VDOM yönlendirme yapar, <b>Transparent</b> modda şeffaf köprü gibi davranır. Mod değişimi o VDOM'un config'ini sıfırlar.",     label: 'Operation Mode',     type: 'select', options: [
                             { value: 'nat',         label: 'NAT',         selected: true },
                             { value: 'transparent', label: 'Transparent' }
                         ]}
@@ -1260,12 +1260,12 @@ FortiGate.haaa = {
                     title: 'HA Active-Active',
                     icon: 'fas fa-clone',
                     fields: [
-                        { name: 'group_id',     label: 'Group ID',          type: 'text',   required: true, placeholder: '1',           hint: '0–255 arası grup numarası' },
+                        { name: 'group_id', why: 'Group ID aynı ağdaki HA çiftlerinde benzersiz olmalı. Çakışma iki ayrı çiftin birbirine karışmasına yol açar.',     label: 'Group ID',          type: 'text',   required: true, placeholder: '1',           hint: '0–255 arası grup numarası' },
                         { name: 'group_name',   label: 'Group Adı',         type: 'text',   required: true, placeholder: 'FG-HA',       hint: 'Küme adı — her iki cihazda aynı olmalı' },
                         { name: 'password',     label: 'HA Şifresi',        type: 'text',   required: true, placeholder: 'hapassword',  hint: 'Her iki cihazda aynı şifre kullanılmalı' },
-                        { name: 'monitor_intfs',label: 'Monitor Interface\'ler', type: 'text', required: true, placeholder: 'port1,port2', hint: 'Virgülle ayrılmış izlenecek arayüzler' },
-                        { name: 'priority',     label: 'Priority',          type: 'text',   required: true, placeholder: '128',         hint: '0–255; birincil cihaz için daha yüksek değer' },
-                        { name: 'session_sync', label: 'Session Sync',      type: 'select', options: [
+                        { name: 'monitor_intfs', why: 'İzlenen arayüz down olursa failover tetiklenir. WAN ve LAN arayüzlerini izlemek şarttır; izlenmezse hat kopsa bile cihaz primary kalmaya devam eder.',label: 'Monitor Interface\'ler', type: 'text', required: true, placeholder: 'port1,port2', hint: 'Virgülle ayrılmış izlenecek arayüzler' },
+                        { name: 'priority', why: 'Yüksek öncelikli üye primary olur. <code>override</code> kapalıyken primary döndüğünde rolü geri almaz — bu ikinci kesintiyi önler.',     label: 'Priority',          type: 'text',   required: true, placeholder: '128',         hint: '0–255; birincil cihaz için daha yüksek değer' },
+                        { name: 'session_sync', why: "Açıkken mevcut TCP oturumları failover'da kopmaz. Kapalıysa failover anında tüm bağlantılar yeniden kurulur; kullanıcı kesinti hisseder.", label: 'Session Sync',      type: 'select', options: [
                             { value: 'enable',  label: 'Enable',  selected: true },
                             { value: 'disable', label: 'Disable' }
                         ]}
@@ -1311,13 +1311,13 @@ FortiGate.snmpv3 = {
                     icon: 'fas fa-user-shield',
                     fields: [
                         { name: 'username',   label: 'Kullanıcı Adı',      type: 'text',   required: true, placeholder: 'snmp-admin',    hint: 'NMS\'te de aynı kullanıcı adı kullanılmalı' },
-                        { name: 'auth_proto', label: 'Auth Protocol',      type: 'select', options: [
+                        { name: 'auth_proto', why: "SNMPv3'te <code>MD5</code> ve <code>SHA1</code> zayıftır; mümkünse <code>SHA256</code> kullan.", label: 'Auth Protocol',      type: 'select', options: [
                             { value: 'sha256', label: 'SHA-256', selected: true },
                             { value: 'sha',    label: 'SHA' },
                             { value: 'md5',    label: 'MD5' }
                         ]},
                         { name: 'auth_pass',  label: 'Auth Şifresi',       type: 'text',   required: true, placeholder: 'AuthPass123!',   hint: 'En az 8 karakter' },
-                        { name: 'priv_proto', label: 'Privacy Protocol',   type: 'select', options: [
+                        { name: 'priv_proto', why: '<code>DES</code> kırılabilir; <code>AES</code> tercih edilmeli. authPriv seviyesi olmadan SNMP verisi ağda açık geçer.', label: 'Privacy Protocol',   type: 'select', options: [
                             { value: 'aes256', label: 'AES-256', selected: true },
                             { value: 'aes',    label: 'AES' },
                             { value: 'des',    label: 'DES' }
@@ -1367,14 +1367,14 @@ FortiGate.fswport = {
                     icon: 'fas fa-plug',
                     info: 'Bu konfigürasyon FortiGate tarafından yönetilen (FortiLink) FortiSwitch cihazları için geçerlidir.',
                     fields: [
-                        { name: 'profile_name',  label: 'Profil Adı',           type: 'text',   required: true, placeholder: 'ACCESS-PROFILE', hint: 'FortiSwitch port profilinin adı' },
-                        { name: 'native_vlan',   label: 'Native VLAN',          type: 'text', validate: 'vlan',   required: true, placeholder: '1',              hint: 'Etiketlenmemiş (untagged) VLAN ID' },
-                        { name: 'allowed_vlans', label: 'Allowed VLAN\'lar',    type: 'text',   required: true, placeholder: '10,20,30',       hint: 'Virgülle ayrılmış izin verilen VLAN ID\'leri' },
-                        { name: 'poe',           label: 'PoE',                  type: 'select', options: [
+                        { name: 'profile_name', why: 'Profil adı kuralda görünür. Tutarlı isimlendirme (ör. <code>WF_CORPORATE</code>) çok profilli kurulumlarda karışıklığı önler.',  label: 'Profil Adı',           type: 'text',   required: true, placeholder: 'ACCESS-PROFILE', hint: 'FortiSwitch port profilinin adı' },
+                        { name: 'native_vlan', why: 'Trunk portta etiketsiz gelen trafiğin atanacağı VLAN. İki uçta farklı native VLAN, <b>VLAN hopping</b> saldırısına kapı açar.',   label: 'Native VLAN',          type: 'text', validate: 'vlan',   required: true, placeholder: '1',              hint: 'Etiketlenmemiş (untagged) VLAN ID' },
+                        { name: 'allowed_vlans', why: "Trunk'tan geçmesine izin verilen VLAN'lar. Tümünü açmak (<code>all</code>) gereksiz broadcast ve güvenlik riski üretir.", label: 'Allowed VLAN\'lar',    type: 'text',   required: true, placeholder: '10,20,30',       hint: 'Virgülle ayrılmış izin verilen VLAN ID\'leri' },
+                        { name: 'poe', why: 'Port üzerinden güç. Toplam PoE bütçesini aşmak, portların sessizce kapanmasına yol açar.',           label: 'PoE',                  type: 'select', options: [
                             { value: 'enable',  label: 'Enable',  selected: true },
                             { value: 'disable', label: 'Disable' }
                         ]},
-                        { name: 'storm_control', label: 'Storm Control',        type: 'select', options: [
+                        { name: 'storm_control', why: 'Broadcast/multicast fırtınasını sınırlar. Döngü oluştuğunda ağın tamamen kilitlenmesini önler — açık bırakılması önerilir.', label: 'Storm Control',        type: 'select', options: [
                             { value: 'enable',  label: 'Enable',  selected: true },
                             { value: 'disable', label: 'Disable' }
                         ]}
