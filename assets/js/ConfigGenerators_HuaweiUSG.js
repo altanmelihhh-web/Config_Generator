@@ -16,16 +16,16 @@ HuaweiUSG.zone = {
                     title: 'Trust Zone',
                     icon: 'fas fa-lock',
                     fields: [
-                        { name: 'trust_iface', label: 'Trust Zone Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Trust zone\'a atanacak interface adı' },
-                        { name: 'trust_ip', label: 'Trust IP / Mask', type: 'text', required: true, placeholder: '192.168.1.1 255.255.255.0', hint: 'IP adresi ve subnet mask (boşlukla ayrılmış)' }
+                        { name: 'trust_iface', why: "USG üzerinde bir arayüz <b>security zone</b> içine alınmadan üzerinden hiçbir trafik geçmez; IP verilmiş ve up durumda olsa bile paketler sessizce düşer. Bu, Huawei güvenlik duvarlarında en sık yapılan ve teşhisi en çok geciken hatadır.", label: 'Trust Zone Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Trust zone\'a atanacak interface adı' },
+                        { name: 'trust_ip', why: "IP ve maske <b>boşlukla</b> ayrılmış yazılır (<code>10.1.1.1 255.255.255.0</code>), CIDR kabul edilmez. Yanlış subnet verildiğinde iç istemciler gateway olarak cihazı göremez ve arıza politika sorunu sanılır.", label: 'Trust IP / Mask', type: 'text', required: true, placeholder: '192.168.1.1 255.255.255.0', hint: 'IP adresi ve subnet mask (boşlukla ayrılmış)' }
                     ]
                 },
                 {
                     title: 'Untrust Zone',
                     icon: 'fas fa-globe',
                     fields: [
-                        { name: 'untrust_iface', label: 'Untrust Zone Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'Untrust zone\'a atanacak interface adı (WAN tarafı)' },
-                        { name: 'untrust_ip', label: 'Untrust IP / Mask', type: 'text', required: true, placeholder: '203.0.113.1 255.255.255.252', hint: 'WAN IP adresi ve subnet mask' }
+                        { name: 'untrust_iface', why: "Untrust zone varsayılan olarak en düşük önceliğe sahiptir; WAN arayüzünü yanlışlıkla trust içine almak, internetten gelen trafiğin yüksek öncelikli bölgeden geliyormuş gibi değerlendirilmesine ve güvenlik modelinin tamamen çökmesine yol açar.", label: 'Untrust Zone Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'Untrust zone\'a atanacak interface adı (WAN tarafı)' },
+                        { name: 'untrust_ip', why: "WAN adresi ISPnin verdiğiyle aynı olmalıdır; ayrıca bu adres NAT ve IPSec yapılandırmalarında da referans alınır. Değiştiğinde NAT Server ve VPN peer tanımlarını güncellemezseniz dışarıdan erişim ve tüneller sessizce kopar.", label: 'Untrust IP / Mask', type: 'text', required: true, placeholder: '203.0.113.1 255.255.255.252', hint: 'WAN IP adresi ve subnet mask' }
                     ]
                 }
             ],
@@ -59,18 +59,18 @@ HuaweiUSG.policy = {
                     title: 'Kural Tanımı',
                     icon: 'fas fa-list-alt',
                     fields: [
-                        { name: 'rule_name', label: 'Kural Adı', type: 'text', required: true, placeholder: 'ALLOW-TRUST-TO-UNTRUST', hint: 'Benzersiz kural adı, boşluk kullanmayın' },
-                        { name: 'src_zone', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'trust', hint: 'Trafiğin geldiği güvenlik zone adı' },
-                        { name: 'dst_zone', label: 'Hedef Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Trafiğin gideceği güvenlik zone adı' }
+                        { name: 'rule_name', why: "Kural adı USGde benzersiz kimliktir ve boşluk içeremez. Var olan bir adı tekrar kullanmak eski kuralın üzerine yazar; fark edilmeden mevcut bir izin kuralını silmiş olabilirsiniz.", label: 'Kural Adı', type: 'text', required: true, placeholder: 'ALLOW-TRUST-TO-UNTRUST', hint: 'Benzersiz kural adı, boşluk kullanmayın' },
+                        { name: 'src_zone', why: "Kaynak zone trafiğin hangi yönde değerlendirileceğini belirler. Zone çiftini ters yazmak (inbound yerine outbound) kuralın hiç eşleşmemesine neden olur ve kural listesinde doğru görünmesine rağmen trafik varsayılan <code>deny</code> ile düşer.", label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'trust', hint: 'Trafiğin geldiği güvenlik zone adı' },
+                        { name: 'dst_zone', why: "Hedef zone kaynakla birlikte interzone ilişkisini kurar; aynı zone içindeki trafik (intrazone) varsayılan olarak farklı işlenir ve bu kural onu kapsamaz. Local zone yönetim trafiği içindir, veri trafiği için kullanılmaz.", label: 'Hedef Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Trafiğin gideceği güvenlik zone adı' }
                     ]
                 },
                 {
                     title: 'Adres ve Aksiyon',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'src_ip', label: 'Kaynak IP', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'any için boş bırakın, aksi hâlde subnet girin' },
-                        { name: 'dst_ip', label: 'Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.0 255.255.255.0', hint: 'any için boş bırakın' },
-                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'src_ip', why: "Boş bırakmak <code>any</code> anlamına gelir ve kuralı düşündüğünüzden çok daha geniş açar. Adres nesnesi tanımlanmadan doğrudan subnet yazmak, ileride adres değiştiğinde onlarca kuralı tek tek düzeltmenizi gerektirir.", label: 'Kaynak IP', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'any için boş bırakın, aksi hâlde subnet girin' },
+                        { name: 'dst_ip', why: "Hedefi daraltmamak, tek bir servise izin vermek isterken tüm DMZ veya iç ağı açmak demektir. NAT Server ile birlikte kullanırken politika <b>çevrilmiş (iç) adresi</b> görür, dış global IPyi değil; burada yapılan karışıklık en sık NAT arızası nedenidir.", label: 'Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.0 255.255.255.0', hint: 'any için boş bırakın' },
+                        { name: 'action', why: "USGde politika listesinin sonunda örtük <code>deny</code> vardır; eşleşmeyen her şey düşer. Kurallar yukarıdan aşağı işlenir ve ilk eşleşen uygulanır, bu yüzden geniş bir permit kuralını listenin üstüne koymak altındaki tüm daraltmaları etkisiz kılar.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'permit', label: 'Permit — trafiğe izin ver', selected: true },
                             { value: 'deny', label: 'Deny — trafiği engelle' }
                         ]}
@@ -116,9 +116,9 @@ HuaweiUSG.nat = {
                     icon: 'fas fa-network-wired',
                     showFor: ['easyip'],
                     fields: [
-                        { name: 'out_iface', label: 'Outbound Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'WAN tarafındaki çıkış interface\'i' },
-                        { name: 'acl_name', label: 'ACL / Address Group Adı', type: 'text', required: true, placeholder: 'LAN_TO_WAN', hint: 'NAT politikası için address group adı' },
-                        { name: 'int_net', label: 'İç Network', type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'NAT uygulanacak iç ağ (IP mask formatında)' }
+                        { name: 'out_iface', why: "NAT çıkış arayüzü yanlışsa iç adresler çevrilmeden WAN tarafına çıkar ve ISP tarafında düşürülür; arıza internet kesintisi gibi görünür. Yedek WAN varsa her iki arayüz için ayrı NAT politikası gerekir.", label: 'Outbound Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'WAN tarafındaki çıkış interface\'i' },
+                        { name: 'acl_name', why: "USGde kaynak NAT bir <b>address-group</b> üzerinden çalışır; grup tanımlanmadan politikada referans verilirse NAT hiç uygulanmaz. Havuzdaki adres sayısı eşzamanlı oturum sayısını sınırlar, tek adres yoğun kullanımda port tükenmesine yol açar.", label: 'ACL / Address Group Adı', type: 'text', required: true, placeholder: 'LAN_TO_WAN', hint: 'NAT politikası için address group adı' },
+                        { name: 'int_net', why: "İç ağ tanımı NATın hangi trafiği kapsadığını belirler; fazla geniş yazmak VPN tüneline gitmesi gereken trafiği de NATlayarak tünelin sessizce boş kalmasına neden olur. IPSec ile birlikte kullanırken NAT muafiyeti şarttır.", label: 'İç Network', type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'NAT uygulanacak iç ağ (IP mask formatında)' }
                     ]
                 },
                 {
@@ -126,14 +126,14 @@ HuaweiUSG.nat = {
                     icon: 'fas fa-server',
                     showFor: ['static'],
                     fields: [
-                        { name: 'global_ip', label: 'Global (Dış) IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.10', hint: 'İnternetten erişilecek dış IP adresi' },
-                        { name: 'inside_ip', label: 'Inside (İç) IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Sunucunun iç IP adresi' },
-                        { name: 'proto', label: 'Protocol', type: 'select', options: [
+                        { name: 'global_ip', why: "NAT Server için internetten erişilen adres budur ve ISP tarafından size atanmış olmalıdır. Bu adres WAN arayüz IPsi ile aynıysa yönetim portlarıyla çakışma riski doğar; farklıysa ISPnin o adresi cihaza yönlendirdiğinden emin olun.", label: 'Global (Dış) IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.10', hint: 'İnternetten erişilecek dış IP adresi' },
+                        { name: 'inside_ip', why: "Sunucunun gerçek iç adresidir ve sabit olmalıdır. Kritik ayrıntı: güvenlik politikası NATtan sonraki bu <b>iç adresi</b> görür, dolayısıyla politikada hedef olarak global IPyi yazarsanız kural hiç eşleşmez ve bağlantı reddedilir.", label: 'Inside (İç) IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Sunucunun iç IP adresi' },
+                        { name: 'proto', why: "TCP kuralı UDP trafiğini kapsamaz; DNS, VPN veya VoIP servislerinde yanlış protokol seçimi bağlantının hiç kurulmamasına yol açar ve hata mesajı üretilmez. Her iki protokol gerekiyorsa iki ayrı NAT Server tanımı yazılmalıdır.", label: 'Protocol', type: 'select', options: [
                             { value: 'tcp', label: 'TCP', selected: true },
                             { value: 'udp', label: 'UDP' }
                         ]},
-                        { name: 'global_port', label: 'Global Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'Dışarıdan gelen bağlantı portu' },
-                        { name: 'inside_port', label: 'Inside Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'Sunucunun dinlediği iç port' }
+                        { name: 'global_port', why: "Dış port doğrudan internete açılır; RDP veya SSH gibi portları tüm dünyaya açmak saldırı yüzeyini ciddi büyütür. Aynı global IP ve port ikilisini iki farklı sunucuya yönlendiremezsiniz, ikinci tanım reddedilir.", label: 'Global Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'Dışarıdan gelen bağlantı portu' },
+                        { name: 'inside_port', why: "Sunucunun gerçekten dinlediği port yazılmalıdır; dış port ile farklı olabilir (port çevirme). İç portta servis kapalıysa NAT doğru çalışır ama bağlantı reddedilir ve sorun boş yere güvenlik duvarında aranır.", label: 'Inside Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'Sunucunun dinlediği iç port' }
                     ]
                 }
             ],
@@ -177,17 +177,17 @@ HuaweiUSG.interface = {
                     title: 'Interface Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'intf_name', label: 'Interface Adı', type: 'text', required: true, placeholder: 'GigabitEthernet1/0/1', hint: 'Fiziksel veya mantıksal interface adı' },
-                        { name: 'ip', label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'Interface IP adresi' },
-                        { name: 'mask', label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet mask (noktalı desimal formatında)' },
-                        { name: 'description', label: 'Açıklama', type: 'text', optional: true, placeholder: 'LAN Interface', hint: 'Interface açıklaması (opsiyonel)' }
+                        { name: 'intf_name', why: "Arayüz adı tam yazılmalıdır (<code>GigabitEthernet1/0/1</code>). USGde alt arayüz kullanılıyorsa (<code>.100</code>) VLAN etiketi ayrıca tanımlanmalı, aksi halde arayüz up görünür ama etiketli trafik alınmaz.", label: 'Interface Adı', type: 'text', required: true, placeholder: 'GigabitEthernet1/0/1', hint: 'Fiziksel veya mantıksal interface adı' },
+                        { name: 'ip', why: "IP vermek tek başına yetmez; arayüz bir zone içine alınmazsa trafik geçmez. Ayrıca yönetim erişimi için arayüzde <code>service-manage</code> ile ping/https/ssh izinleri ayrı ayrı açılmalıdır, yoksa cihaza kendi arayüzünden erişemezsiniz.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'Interface IP adresi' },
+                        { name: 'mask', why: "Maske noktalı desimal yazılır. Bir bit hata gateway adresinin subnet dışında kalmasına ve tüm yönlendirmenin sessizce çalışmamasına yol açar; USG bu durumda hata vermez, sadece paketleri düşürür.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet mask (noktalı desimal formatında)' },
+                        { name: 'description', why: "Arayüz etiketi kesinti anında hangi kablonun nereye gittiğini gösteren tek güvenilir kaynaktır. Etiketsiz arayüzler, bakım sırasında yanlış WAN bacağının kapatılmasının en yaygın nedenidir.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'LAN Interface', hint: 'Interface açıklaması (opsiyonel)' }
                     ]
                 },
                 {
                     title: 'Zone Ataması',
                     icon: 'fas fa-shield-alt',
                     fields: [
-                        { name: 'zone', label: 'Zone Adı', type: 'text', required: true, placeholder: 'trust', hint: 'Interface\'in atanacağı güvenlik zone adı (trust/untrust/dmz vb.)' }
+                        { name: 'zone', why: "Zone ataması USGde zorunludur: <b>zone yoksa trafik yok</b>. Zone önceliği (local 100, trust 85, dmz 50, untrust 5) varsayılan davranışı belirler; arayüzü yanlış zone içine almak güvenlik modelini tersine çevirir ve dışarıya beklenmedik erişim açar.", label: 'Zone Adı', type: 'text', required: true, placeholder: 'trust', hint: 'Interface\'in atanacağı güvenlik zone adı (trust/untrust/dmz vb.)' }
                     ]
                 }
             ],
@@ -224,17 +224,17 @@ HuaweiUSG.ipsec = {
                     title: 'Peer Ayarları',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'peer_name', label: 'Peer Adı', type: 'text', required: true, placeholder: 'PEER-HQ', hint: 'IKE peer ve IPSec policy için referans ad' },
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Uzak VPN gateway\'in genel IP adresi' },
-                        { name: 'psk', label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'VPNSecret123', hint: 'Her iki tarafta aynı olmalı' }
+                        { name: 'peer_name', why: "Bu ad IKE peer, IPSec proposal ve policy zincirini birbirine bağlar. Policy içinde farklı yazılan bir isim tüneli tamamen sessiz bırakır: yapılandırma hatasız görünür fakat SA hiç kurulmaz.", label: 'Peer Adı', type: 'text', required: true, placeholder: 'PEER-HQ', hint: 'IKE peer ve IPSec policy için referans ad' },
+                        { name: 'peer_ip', why: "Karşı gateway NAT arkasındaysa NAT-T gerekir ve kimlik IP yerine FQDN olmalıdır. Ayrıca untrust zone ile local zone arasında IKE (UDP 500/4500) trafiğine izin veren bir politika yoksa tünel hiç başlamaz.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Uzak VPN gateway\'in genel IP adresi' },
+                        { name: 'psk', why: "PSK iki tarafta birebir aynı olmalıdır; tek karakter farkı faz 1i başarısız kılar ve log çoğu zaman yalnızca kimlik doğrulama hatası der. Proposal parametreleri (şifreleme, hash, DH grubu) de eşleşmezse doğru anahtarla bile tünel kurulmaz.", label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'VPNSecret123', hint: 'Her iki tarafta aynı olmalı' }
                     ]
                 },
                 {
                     title: 'Tünel Ağları',
                     icon: 'fas fa-route',
                     fields: [
-                        { name: 'local_net', label: 'Local Network (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.0/24', hint: 'Yerel korumalı ağ (CIDR formatında)' },
-                        { name: 'remote_net', label: 'Remote Network (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '10.0.0.0/24', hint: 'Uzak korumalı ağ (CIDR formatında)' }
+                        { name: 'local_net', why: "Korunan ağlar faz 2 seçicileridir ve iki uçta <b>ayna simetrik</b> olmalıdır. Ayrıca bu trafiğin kaynak NATa girmemesi için NAT muafiyeti tanımlanmalıdır; aksi halde paketler çevrilmiş adresle çıkar, seçiciyle eşleşmez ve tünel boş kalır.", label: 'Local Network (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.0/24', hint: 'Yerel korumalı ağ (CIDR formatında)' },
+                        { name: 'remote_net', why: "Uzak ağ karşı taraftaki local tanımıyla birebir eşleşmelidir; maske farkı faz 1 kurulurken faz 2nin sürekli başarısız olmasına yol açar. Bu ağa giden trafiğin tünel arayüzüne yönlenmesi için rota ve iki zone arasında izin politikası da gerekir.", label: 'Remote Network (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '10.0.0.0/24', hint: 'Uzak korumalı ağ (CIDR formatında)' }
                     ]
                 }
             ],
@@ -278,17 +278,17 @@ HuaweiUSG.sslvpn = {
                     title: 'Gateway Ayarları',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'gw_name', label: 'Gateway Adı', type: 'text', required: true, placeholder: 'SSL-GW1', hint: 'SSL VPN gateway referans adı' },
-                        { name: 'ip', label: 'Gateway IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.254', hint: 'SSL VPN dinleyeceği IP adresi' },
-                        { name: 'port', label: 'Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'SSL VPN servis portu (genellikle 443)' }
+                        { name: 'gw_name', why: "Gateway adı, kullanıcı grupları ve kaynak politikalarının bağlandığı referanstır. İsim uyuşmazlığında kullanıcı giriş yapar ama hiçbir kaynağa erişemez ve sorun kimlik doğrulama gibi görünür.", label: 'Gateway Adı', type: 'text', required: true, placeholder: 'SSL-GW1', hint: 'SSL VPN gateway referans adı' },
+                        { name: 'ip', why: "Gateway adresi genellikle untrust arayüz IPsidir ve o arayüzde <code>service-manage https</code> açık olmalıdır. Yönetim HTTPS portu ile çakışırsa cihazın web arayüzüne erişimi kaybedebilirsiniz.", label: 'Gateway IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.254', hint: 'SSL VPN dinleyeceği IP adresi' },
+                        { name: 'port', why: "443 seçilirse cihazın yönetim web arayüzüyle çakışır ve biri diğerini devre dışı bırakır; farklı port seçilirse kullanıcıların URLye port yazması gerekir ve kısıtlı misafir ağlarında bu port engellenmiş olabilir.", label: 'Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'SSL VPN servis portu (genellikle 443)' }
                     ]
                 },
                 {
                     title: 'IP Pool',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'ip_pool_start', label: 'IP Pool Start', type: 'text', validate: 'ip', required: true, placeholder: '172.16.0.1', hint: 'VPN istemcilerine atanacak IP havuzunun başlangıcı' },
-                        { name: 'ip_pool_end', label: 'IP Pool End', type: 'text', validate: 'ip', required: true, placeholder: '172.16.0.100', hint: 'VPN istemcilerine atanacak IP havuzunun sonu' }
+                        { name: 'ip_pool_start', why: "Havuz, iç ağda kullanılan hiçbir subnetle çakışmamalıdır; çakışma durumunda VPN istemcileri kendi yerel ağlarına erişemez. Ayrıca iç yönlendiricilerde bu havuza dönüş rotası olmalı, yoksa trafik tek yönlü çalışır.", label: 'IP Pool Start', type: 'text', validate: 'ip', required: true, placeholder: '172.16.0.1', hint: 'VPN istemcilerine atanacak IP havuzunun başlangıcı' },
+                        { name: 'ip_pool_end', why: "Havuz aralığı eşzamanlı bağlanabilecek kullanıcı sayısını belirler; dar tutulursa yoğun saatte kullanıcılar sessizce bağlanamaz ve hata mesajı erişim reddi gibi görünür.", label: 'IP Pool End', type: 'text', validate: 'ip', required: true, placeholder: '172.16.0.100', hint: 'VPN istemcilerine atanacak IP havuzunun sonu' }
                     ]
                 }
             ],
@@ -326,13 +326,13 @@ HuaweiUSG.antivirus = {
                     title: 'Profil Ayarları',
                     icon: 'fas fa-shield-virus',
                     fields: [
-                        { name: 'profile_name', label: 'Profile Adı', type: 'text', required: true, placeholder: 'AV-POLICY', hint: 'Security policy\'de referans gösterilecek AV profil adı' },
-                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'profile_name', why: "Profil oluşturmak tek başına hiçbir şey yapmaz; mutlaka bir güvenlik politikasına <code>profile av</code> ile bağlanmalıdır. Bağlanmamış profil konfigürasyonda görünür ve koruma var sanılır, oysa hiçbir dosya taranmaz.", label: 'Profile Adı', type: 'text', required: true, placeholder: 'AV-POLICY', hint: 'Security policy\'de referans gösterilecek AV profil adı' },
+                        { name: 'action', why: "<code>declare</code> yalnızca uyarır ve dosya geçer, <code>block</code> engeller. Doğrudan block ile başlamak meşru iş trafiğini kesebilir; önce declare ile izleyip yanlış pozitifleri görmek daha güvenli bir geçiştir.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'block', label: 'Block — zararlıları engelle', selected: true },
                             { value: 'alert', label: 'Alert — uyar ve geçir' },
                             { value: 'permit', label: 'Permit — sadece logla' }
                         ]},
-                        { name: 'whitelist', label: 'Whitelist IP (CIDR)', type: 'text', validate: 'cidr', optional: true, placeholder: '192.168.1.0/24', hint: 'AV taramasından muaf tutulacak ağ (opsiyonel)' }
+                        { name: 'whitelist', why: "Muafiyet listesi taramayı tamamen atlar; gereğinden geniş tutmak kritik sunucuları korumasız bırakır. Yedekleme veya büyük dosya aktarımı yapan sunucular için ise dar bir muafiyet performans sorununu çözer.", label: 'Whitelist IP (CIDR)', type: 'text', validate: 'cidr', optional: true, placeholder: '192.168.1.0/24', hint: 'AV taramasından muaf tutulacak ağ (opsiyonel)' }
                     ]
                 }
             ],
@@ -368,14 +368,14 @@ HuaweiUSG.ips = {
                     title: 'IPS Profil Ayarları',
                     icon: 'fas fa-crosshairs',
                     fields: [
-                        { name: 'profile_name', label: 'Profile Adı', type: 'text', required: true, placeholder: 'IPS-POLICY', hint: 'Security policy\'de referans gösterilecek IPS profil adı' },
-                        { name: 'severity', label: 'Severity', type: 'select', options: [
+                        { name: 'profile_name', why: "IPS profili bir güvenlik politikasına bağlanmadan etkinleşmez. Ayrıca imza veritabanı güncel değilse profil çalışır ama yeni saldırıları tanımaz; lisans süresi dolduğunda güncelleme sessizce durur.", label: 'Profile Adı', type: 'text', required: true, placeholder: 'IPS-POLICY', hint: 'Security policy\'de referans gösterilecek IPS profil adı' },
+                        { name: 'severity', why: "Yalnızca yüksek seviyeyi izlemek orta seviyeli ama gerçek saldırıları kaçırır; tüm seviyeleri engellemek ise yanlış pozitiflerle iş trafiğini keser. Seviye seçimi doğrudan alarm gürültüsü ile risk arasındaki dengeyi belirler.", label: 'Severity', type: 'select', options: [
                             { value: 'high', label: 'High — kritik tehditler', selected: true },
                             { value: 'medium', label: 'Medium — orta düzey tehditler' },
                             { value: 'low', label: 'Low — düşük öncelikli tehditler' },
                             { value: 'all', label: 'All — tüm imzalar' }
                         ]},
-                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'action', why: "Block modunda bir yanlış pozitif üretim uygulamasını anında durdurur ve sorun ağ arızası gibi görünür. Yeni profilleri önce alarm modunda çalıştırıp loglara bakmak kesinti riskini büyük ölçüde azaltır.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'block', label: 'Block — saldırıyı engelle', selected: true },
                             { value: 'alert', label: 'Alert — uyar ve geçir' },
                             { value: 'permit', label: 'Permit — sadece logla' }
@@ -413,9 +413,9 @@ HuaweiUSG.urlfilter = {
                     title: 'URL Filtre Ayarları',
                     icon: 'fas fa-globe',
                     fields: [
-                        { name: 'profile_name', label: 'Profile Adı', type: 'text', required: true, placeholder: 'URL-FILTER', hint: 'Security policy\'de referans gösterilecek URL filtre profil adı' },
-                        { name: 'category', label: 'Kategori(ler)', type: 'text', required: true, placeholder: 'gambling,porn', hint: 'Virgülle ayrılmış kategori listesi (ör: gambling, porn, social-networking)' },
-                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'profile_name', why: "URL filtresi güvenlik politikasına bağlanmadan çalışmaz. HTTPS trafiğinde SSL inceleme yapılandırılmamışsa yalnızca SNI üzerinden sınırlı filtreleme yapılabilir ve birçok site kategorilendirilemez.", label: 'Profile Adı', type: 'text', required: true, placeholder: 'URL-FILTER', hint: 'Security policy\'de referans gösterilecek URL filtre profil adı' },
+                        { name: 'category', why: "Kategori isimleri cihazın veritabanındaki adlarla birebir eşleşmelidir; yanlış yazılan kategori sessizce yok sayılır ve filtre uygulanmış sanılır. Kategori veritabanı lisansı yoksa sınıflandırma hiç çalışmaz.", label: 'Kategori(ler)', type: 'text', required: true, placeholder: 'gambling,porn', hint: 'Virgülle ayrılmış kategori listesi (ör: gambling, porn, social-networking)' },
+                        { name: 'action', why: "Block yanlış kategorilendirilmiş iş sitelerini de keser ve kullanıcı bunu genel internet arızası olarak bildirir. İstisna listesi hazırlamadan geniş kategori engellemek en sık şikâyet kaynağıdır.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'block', label: 'Block — kategoriyi engelle', selected: true },
                             { value: 'alert', label: 'Alert — uyar ve geçir' },
                             { value: 'permit', label: 'Permit — sadece logla' }
@@ -456,9 +456,9 @@ HuaweiUSG.appcontrol = {
                     title: 'Uygulama Kontrol Ayarları',
                     icon: 'fas fa-app-indicator',
                     fields: [
-                        { name: 'profile_name', label: 'Profile Adı', type: 'text', required: true, placeholder: 'APP-CTRL', hint: 'Security policy\'de referans gösterilecek uygulama kontrol profil adı' },
-                        { name: 'app_group', label: 'App Group(lar)', type: 'text', required: true, placeholder: 'P2P,Social-Networking', hint: 'Virgülle ayrılmış uygulama grubu listesi (ör: P2P, Social-Networking, Games)' },
-                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'profile_name', why: "Uygulama kontrolü profili politikaya bağlanmadan etkisizdir. Uygulama imza veritabanı güncel değilse yeni sürüm uygulamalar tanınmaz ve engellendiği sanılan trafik rahatça geçer.", label: 'Profile Adı', type: 'text', required: true, placeholder: 'APP-CTRL', hint: 'Security policy\'de referans gösterilecek uygulama kontrol profil adı' },
+                        { name: 'app_group', why: "Grup adları veritabanındaki adlarla birebir eşleşmelidir; yanlış yazım sessizce yok sayılır. P2P gibi geniş grupları engellemek bazı meşru güncelleme ve yedekleme servislerini de kapsayabilir.", label: 'App Group(lar)', type: 'text', required: true, placeholder: 'P2P,Social-Networking', hint: 'Virgülle ayrılmış uygulama grubu listesi (ör: P2P, Social-Networking, Games)' },
+                        { name: 'action', why: "Uygulama engelleme kullanıcı tarafından ağ yavaşlığı veya uygulama hatası olarak algılanır ve destek ekibine güvenlik kuralı olarak ulaşmaz. Engellenen uygulamaları belgelemek teşhis süresini kısaltır.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'block', label: 'Block — grubu engelle', selected: true },
                             { value: 'alert', label: 'Alert — uyar ve geçir' },
                             { value: 'permit', label: 'Permit — sadece logla' }
@@ -497,16 +497,16 @@ HuaweiUSG.ha = {
                     title: 'HA Bağlantı Ayarları',
                     icon: 'fas fa-link',
                     fields: [
-                        { name: 'local_ip', label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Bu cihazın HRP heartbeat arayüzü IP adresi' },
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'Karşı cihazın HRP heartbeat IP adresi' },
-                        { name: 'heartbeat_intf', label: 'Heartbeat Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'HA heartbeat trafiği için kullanılacak interface' }
+                        { name: 'local_ip', why: "HRP heartbeat adresi üretim trafiğinden ayrı bir bağlantıda olmalıdır. Heartbeat koparsa iki cihaz da kendini aktif sanar (split-brain), aynı IP adresleri iki yerde duyurulur ve ağ kullanılamaz hale gelir.", label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Bu cihazın HRP heartbeat arayüzü IP adresi' },
+                        { name: 'peer_ip', why: "Karşı cihazın heartbeat adresi doğru olmalı ve arada başka bir cihaz veya filtre bulunmamalıdır. Yanlış adres HA kurulmuş gibi görünmesine ama senkronizasyonun hiç çalışmamasına yol açar; yedek cihaz oturum tablosu boş kalır.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'Karşı cihazın HRP heartbeat IP adresi' },
+                        { name: 'heartbeat_intf', why: "Heartbeat arayüzü doğrudan kablo ile bağlanmalı ve bu arayüz güvenlik politikalarından etkilenmemelidir. Switch üzerinden geçiriliyorsa o switchin arızası aynı anda her iki güvenlik duvarını da kararsız hale getirir.", label: 'Heartbeat Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'HA heartbeat trafiği için kullanılacak interface' }
                     ]
                 },
                 {
                     title: 'HA Davranış Ayarları',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'preempt', label: 'Preempt', type: 'select', options: [
+                        { name: 'preempt', why: "Preempt açıkken düzelen birincil cihaz derhal aktif rolü geri alır ve bu geçiş mevcut oturumları düşürebilir; kararsız bir donanımda sürekli rol değişimi (flapping) yaşanır. Kapalı tutmak, sorunu inceleyene kadar kararlı kalmayı sağlar.", label: 'Preempt', type: 'select', options: [
                             { value: 'enable', label: 'Enable — preempt aktif (60sn gecikme)', selected: true },
                             { value: 'disable', label: 'Disable — preempt pasif' }
                         ]}
@@ -543,10 +543,10 @@ HuaweiUSG.dnsproxy = {
                     title: 'DNS Proxy Ayarları',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'zone_from', label: 'Zone (From)', type: 'text', required: true, placeholder: 'trust', hint: 'DNS sorgularının geldiği güvenlik zone adı' },
-                        { name: 'dns_server', label: 'DNS Server', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'Varsayılan DNS sunucusu IP adresi' },
-                        { name: 'redirect_dns', label: 'Redirect DNS Server', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'Sorguların yönlendirileceği iç DNS sunucusu' },
-                        { name: 'domain', label: 'Domain', type: 'text', optional: true, placeholder: 'company.local', hint: 'Özel yönlendirme uygulanacak domain (opsiyonel)' }
+                        { name: 'zone_from', why: "DNS proxy yalnızca belirtilen zoneden gelen sorguları işler; yanlış zone seçilirse istemci sorguları hiç yakalanmaz ve doğrudan dışarı çıkar. Zone ile istemcilerin gerçekte bağlı olduğu arayüzün bölgesi eşleşmelidir.", label: 'Zone (From)', type: 'text', required: true, placeholder: 'trust', hint: 'DNS sorgularının geldiği güvenlik zone adı' },
+                        { name: 'dns_server', why: "Cihazın kendi DNS çözümlemesi de bu sunucuya bağlıdır; erişilemezse lisans güncellemesi, imza veritabanı indirme ve FQDN tabanlı politikalar sessizce çalışmaz. Yedek sunucu tanımlamak bu zinciri korur.", label: 'DNS Server', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'Varsayılan DNS sunucusu IP adresi' },
+                        { name: 'redirect_dns', why: "Yönlendirilen iç DNS sunucusuna güvenlik duvarı üzerinden UDP/TCP 53 izni olmalıdır; izin yoksa istemciler ad çözemez ve arıza internet kesintisi gibi görünür. Split-DNS senaryolarında yanlış sunucu iç kaynakların dış adreslerle çözülmesine yol açar.", label: 'Redirect DNS Server', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'Sorguların yönlendirileceği iç DNS sunucusu' },
+                        { name: 'domain', why: "Alan adı tabanlı yönlendirme yalnızca tam eşleşen sorguları kapsar; alt alan adları için ayrıca tanım gerekebilir. Yanlış alan adı yazmak kuralı sessizce etkisiz bırakır ve sorgular varsayılan sunucuya gider.", label: 'Domain', type: 'text', optional: true, placeholder: 'company.local', hint: 'Özel yönlendirme uygulanacak domain (opsiyonel)' }
                     ]
                 }
             ],

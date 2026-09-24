@@ -17,18 +17,18 @@ MikroTik.general = {
                     title: 'Sistem Kimliği',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'hostname', label: 'Hostname', type: 'text', required: true, placeholder: 'MikroTik-GW1', hint: 'Cihaz adı (/system identity)' }
+                        { name: 'hostname', why: "System identity Winbox neighbor listesinde, MAC-telnet ekranında ve log'larda görünür; varsayılan <code>MikroTik</code> bırakılırsa aynı ağdaki onlarca cihaz birbirinden ayırt edilemez ve yanlış cihaza config basılır.", label: 'Hostname', type: 'text', required: true, placeholder: 'MikroTik-GW1', hint: 'Cihaz adı (/system identity)' }
                     ]
                 },
                 {
                     title: 'VLAN ve Arayüz',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'vlan', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: '1–4094 arası VLAN kimliği' },
-                        { name: 'wan_ip', label: 'IP Adresi / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1/24', hint: 'CIDR formatında (örn: 192.168.1.1/24)' },
-                        { name: 'gw', label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.254', hint: 'Varsayılan çıkış gateway adresi' },
-                        { name: 'iface', label: 'LAN Arayüzü', type: 'text', required: true, placeholder: 'ether2', hint: 'VLAN eklenecek arayüz' },
-                        { name: 'wan_iface', label: 'WAN Arayüzü', type: 'text', required: true, placeholder: 'ether1', hint: 'Internet bağlantısı taşıyan port' }
+                        { name: 'vlan', why: "VLAN ID bridge VLAN tablosunda ve karşı uçtaki tagged portta birebir aynı olmalıdır; RouterOS'ta VLAN interface tanımlansa bile bridge tarafında izin verilmemişse trafik <b>sessizce</b> düşer.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: '1–4094 arası VLAN kimliği' },
+                        { name: 'wan_ip', why: "RouterOS adresi CIDR ile ister (<code>/24</code>); prefix yazmayı unutursanız adres /32 olarak eklenir, cihaz hiçbir komşuyu göremez ve bağlantı anında kopar.", label: 'IP Adresi / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1/24', hint: 'CIDR formatında (örn: 192.168.1.1/24)' },
+                        { name: 'gw', why: "Varsayılan rota bu gateway'e kurulur. Gateway doğrudan bağlı bir ağda değilse RouterOS rotayı <b>unreachable</b> işaretler ve rota mavi (inactive) kalır, hiçbir hata mesajı görmezsiniz.", label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.254', hint: 'Varsayılan çıkış gateway adresi' },
+                        { name: 'iface', why: "Arayüz adı RouterOS'ta birebir yazılmalıdır (<code>ether2</code>, <code>bridge1</code>); isim yanlışsa komut hata verip durur ve script'in geri kalanı uygulanmaz, config yarım kalır.", label: 'LAN Arayüzü', type: 'text', required: true, placeholder: 'ether2', hint: 'VLAN eklenecek arayüz' },
+                        { name: 'wan_iface', why: "WAN arayüzü masquerade ve firewall kurallarının dayanağıdır; yanlış arayüz seçilirse ya NAT hiç çalışmaz ya da <b>iç ağınız internete açık</b> hâle gelir.", label: 'WAN Arayüzü', type: 'text', required: true, placeholder: 'ether1', hint: 'Internet bağlantısı taşıyan port' }
                     ]
                 }
             ],
@@ -67,10 +67,10 @@ MikroTik.bridgevlan = {
                     title: 'Bridge + VLAN Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'bridge_name', label: 'Bridge Adı', type: 'text', required: true, placeholder: 'bridge1', hint: 'Oluşturulacak bridge arayüzünün adı' },
-                        { name: 'vlan_id', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN kimliği' },
-                        { name: 'tagged_ports', label: 'Tagged Port(lar)', type: 'text', required: true, placeholder: 'ether1,ether2', hint: 'Virgülle ayrılmış tagged portlar (trunk portlar)' },
-                        { name: 'untagged_port', label: 'Untagged Port', type: 'text', optional: true, placeholder: 'ether3', hint: 'Access port (opsiyonel)' }
+                        { name: 'bridge_name', why: "Tüm portlar aynı bridge altında toplanmalıdır; ayrı bridge'ler VLAN'ları birleştirmez. Ayrıca <code>vlan-filtering=yes</code> yapmadan önce yönetim erişiminizi güvenceye alın, aksi hâlde cihaza <b>kilitlenirsiniz</b>.", label: 'Bridge Adı', type: 'text', required: true, placeholder: 'bridge1', hint: 'Oluşturulacak bridge arayüzünün adı' },
+                        { name: 'vlan_id', why: "Bridge VLAN tablosuna eklenmeyen bir VLAN, port üzerinde tanımlı olsa bile taşınmaz. VLAN filtering açıldığında listede olmayan her VLAN <b>anında düşer</b> - en sık yaşanan kesinti sebebidir.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN kimliği' },
+                        { name: 'tagged_ports', why: "Tagged listesine uplink'i ve gerekirse bridge'in kendisini eklemeyi unutmayın; bridge tagged değilse yönetim VLAN'ı üzerinden cihaza erişemezsiniz ve konsol dışında dönüş yolu kalmaz.", label: 'Tagged Port(lar)', type: 'text', required: true, placeholder: 'ether1,ether2', hint: 'Virgülle ayrılmış tagged portlar (trunk portlar)' },
+                        { name: 'untagged_port', why: "Untagged port için <code>pvid</code> da aynı VLAN'a ayarlanmalıdır; pvid eşleşmezse gelen etiketsiz trafik yanlış VLAN'a düşer ve iki ayrı segment istemeden birleşir.", label: 'Untagged Port', type: 'text', optional: true, placeholder: 'ether3', hint: 'Access port (opsiyonel)' }
                     ]
                 }
             ],
@@ -108,9 +108,9 @@ MikroTik.ipaddress = {
                     title: 'IP Adresi',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'interface', label: 'Arayüz', type: 'text', required: true, placeholder: 'ether1', hint: 'IP atanacak fiziksel veya sanal arayüz' },
-                        { name: 'ip_address', label: 'IP Adresi (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1/24', hint: 'Örn: 192.168.1.1/24' },
-                        { name: 'comment', label: 'Yorum', type: 'text', optional: true, placeholder: 'WAN uplink', hint: 'Tanımlayıcı not (opsiyonel)' }
+                        { name: 'interface', why: "Adres yanlış arayüze eklenirse trafik beklenen bacaktan çıkmaz ve asimetrik yönlendirme oluşur; connection tracking bu durumda oturumları <b>invalid</b> sayıp düşürür.", label: 'Arayüz', type: 'text', required: true, placeholder: 'ether1', hint: 'IP atanacak fiziksel veya sanal arayüz' },
+                        { name: 'ip_address', why: "RouterOS adresi mutlaka CIDR ile ister; <code>/24</code> yazmadan girilen adres /32 kabul edilir, komşuluk kurulmaz. Uzaktan bağlıysanız yanlış adres girmek oturumunuzu anında koparır.", label: 'IP Adresi (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1/24', hint: 'Örn: 192.168.1.1/24' },
+                        { name: 'comment', why: "RouterOS'ta yorum, kuralı ve adresi script ile bulmanın tek güvenilir yoludur (<code>find comment=</code>); boş bırakılan kayıtlar zamanla kimsenin silmeye cesaret edemediği ölü config'e dönüşür.", label: 'Yorum', type: 'text', optional: true, placeholder: 'WAN uplink', hint: 'Tanımlayıcı not (opsiyonel)' }
                     ]
                 },
                 {
@@ -118,8 +118,8 @@ MikroTik.ipaddress = {
                     icon: 'fas fa-route',
                     info: 'Her iki alan da doldurulursa statik rota eklenir.',
                     fields: [
-                        { name: 'dst_route', label: 'Hedef Route', type: 'text', optional: true, placeholder: '0.0.0.0/0', hint: 'Default route için 0.0.0.0/0' },
-                        { name: 'gateway', label: 'Gateway', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.254', hint: 'Çıkış gateway IP adresi' }
+                        { name: 'dst_route', why: "Hedef ağ çok geniş yazılırsa (<code>0.0.0.0/0</code>) mevcut varsayılan rotayla yarışır; RouterOS en uzun eşleşmeyi seçtiği için trafik sessizce yanlış bacaktan çıkabilir.", label: 'Hedef Route', type: 'text', optional: true, placeholder: '0.0.0.0/0', hint: 'Default route için 0.0.0.0/0' },
+                        { name: 'gateway', why: "Gateway doğrudan erişilebilir bir ağda olmalıdır; değilse rota inactive kalır. Yedeklilik için <code>check-gateway=ping</code> eklemezseniz gateway ölse bile rota aktif görünmeye devam eder.", label: 'Gateway', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.254', hint: 'Çıkış gateway IP adresi' }
                     ]
                 }
             ],
@@ -157,26 +157,26 @@ MikroTik.firewall = {
                     title: 'Kural Ayarları',
                     icon: 'fas fa-shield-alt',
                     fields: [
-                        { name: 'chain', label: 'Chain', type: 'select', options: [
+                        { name: 'chain', why: "<b>Chain seçimi yanlışsa kural hiç eşleşmez.</b> <code>input</code> yalnızca router'ın kendisine gelen trafiktir, <code>forward</code> router üzerinden geçen kullanıcı trafiğidir; LAN-WAN trafiğini input'ta engellemeye çalışmak hiçbir işe yaramaz.", label: 'Chain', type: 'select', options: [
                             { value: 'input', label: 'input', selected: true },
                             { value: 'forward', label: 'forward' },
                             { value: 'output', label: 'output' }
                         ], hint: 'input: cihaza gelen, forward: yönlendirilen, output: cihazdan çıkan' },
-                        { name: 'src_address', label: 'Kaynak Adres', type: 'text', optional: true, placeholder: '10.0.0.0/8', hint: 'Boş bırakılırsa tüm kaynaklar eşleşir' },
-                        { name: 'dst_address', label: 'Hedef Adres', type: 'text', optional: true, placeholder: '192.168.1.1', hint: 'Boş bırakılırsa tüm hedefler eşleşir' },
-                        { name: 'protocol', label: 'Protokol', type: 'select', options: [
+                        { name: 'src_address', why: "Kaynak boş bırakılırsa kural tüm kaynaklar için çalışır. Yönetim erişimi kurallarında kaynağı daraltmamak, Winbox ve API portlarını internete açık bırakmakla aynı anlama gelir.", label: 'Kaynak Adres', type: 'text', optional: true, placeholder: '10.0.0.0/8', hint: 'Boş bırakılırsa tüm kaynaklar eşleşir' },
+                        { name: 'dst_address', why: "Hedef daraltması kuralın kapsamını belirler; boş bırakmak kuralı tüm hedeflere uygular ve istemeden kendi yönetim trafiğinizi de engelleyebilirsiniz.", label: 'Hedef Adres', type: 'text', optional: true, placeholder: '192.168.1.1', hint: 'Boş bırakılırsa tüm hedefler eşleşir' },
+                        { name: 'protocol', why: "Port belirtebilmek için protokolün <code>tcp</code> veya <code>udp</code> olması gerekir; protokol seçilmeden yazılan port alanı RouterOS tarafından kabul edilmez ve kural eklenmez.", label: 'Protokol', type: 'select', options: [
                             { value: 'any', label: 'any', selected: true },
                             { value: 'tcp', label: 'tcp' },
                             { value: 'udp', label: 'udp' },
                             { value: 'icmp', label: 'icmp' }
                         ]},
-                        { name: 'dst_port', label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '22', hint: 'Protokol seçiliyken geçerli (örn: 80, 443, 22)' },
-                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'dst_port', why: "Tek port yerine aralık veya liste kullanabilirsiniz, ancak port daraltması olmayan bir drop kuralı tüm servisleri kapatır. Kuralı eklemeden önce <b>Safe Mode</b> açın.", label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '22', hint: 'Protokol seçiliyken geçerli (örn: 80, 443, 22)' },
+                        { name: 'action', why: "Kurallar <b>yukarıdan aşağı sırayla</b> değerlendirilir ve ilk eşleşen uygulanır; <code>drop</code> kuralını <code>accept</code> kuralının üstüne koymak çalışan trafiği keser. <code>drop</code> sessizce düşürür, <code>reject</code> ise geri bildirim verir.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'accept', label: 'accept', selected: true },
                             { value: 'drop', label: 'drop' },
                             { value: 'reject', label: 'reject' }
                         ], hint: 'accept: izin ver, drop: sessizce düşür, reject: reddet' },
-                        { name: 'comment', label: 'Yorum', type: 'text', optional: true, placeholder: 'Allow SSH from mgmt', hint: 'Kural açıklaması' }
+                        { name: 'comment', why: "Yorumsuz firewall kuralları birkaç ay sonra dokunulamaz hâle gelir; kimse hangi kuralın hangi servisi ayakta tuttuğunu bilemediği için gereksiz kurallar yıllarca temizlenmeden kalır.", label: 'Yorum', type: 'text', optional: true, placeholder: 'Allow SSH from mgmt', hint: 'Kural açıklaması' }
                     ]
                 }
             ],
@@ -223,8 +223,8 @@ MikroTik.nat = {
                     icon: 'fas fa-mask',
                     showFor: ['masquerade'],
                     fields: [
-                        { name: 'out_interface', label: 'Çıkış Arayüzü', type: 'text', required: true, placeholder: 'ether1', hint: 'Internet çıkışı yapan WAN arayüzü' },
-                        { name: 'masq_src_address', label: 'Kaynak Ağ', type: 'text', optional: true, placeholder: '192.168.1.0/24', hint: 'Belirli bir ağı NAT etmek için (boş = tümü)' }
+                        { name: 'out_interface', why: "Masquerade kuralı <b>mutlaka out-interface ile sınırlanmalıdır</b>; sınırlanmazsa VPN ve iç ağlar arası trafik de NAT'lanır, kaynak adresler bozulur ve site-to-site tüneller çalışmaz.", label: 'Çıkış Arayüzü', type: 'text', required: true, placeholder: 'ether1', hint: 'Internet çıkışı yapan WAN arayüzü' },
+                        { name: 'masq_src_address', why: "<code>masquerade</code> çıkış arayüzünün adresini dinamik kullanır ve DHCP/PPPoE WAN için uygundur; sabit public IP varsa <code>src-nat</code> daha öngörülebilirdir, çünkü masquerade her link değişiminde bağlantıları sıfırlar.", label: 'Kaynak Ağ', type: 'text', optional: true, placeholder: '192.168.1.0/24', hint: 'Belirli bir ağı NAT etmek için (boş = tümü)' }
                     ]
                 },
                 {
@@ -232,14 +232,14 @@ MikroTik.nat = {
                     icon: 'fas fa-arrow-right',
                     showFor: ['dst-nat'],
                     fields: [
-                        { name: 'dst_address', label: 'Hedef Adres (Public IP)', type: 'text', required: true, placeholder: '203.0.113.1', hint: 'Gelen paketin hedef adresi (WAN IP)' },
-                        { name: 'dst_protocol', label: 'Protokol', type: 'select', options: [
+                        { name: 'dst_address', why: "dst-nat kuralında hedef public IP belirtilmezse kural tüm gelen trafiğe uygulanır; bu, iç sunucunuzu istemeden her arayüzden erişilebilir yapar.", label: 'Hedef Adres (Public IP)', type: 'text', required: true, placeholder: '203.0.113.1', hint: 'Gelen paketin hedef adresi (WAN IP)' },
+                        { name: 'dst_protocol', why: "Port yönlendirmesi yalnızca tcp veya udp ile anlamlıdır; protokol seçilmeden port yazılamaz ve kural hiç eklenmez. Yanlış protokolde servis dışarıdan sessizce erişilemez kalır.", label: 'Protokol', type: 'select', options: [
                             { value: 'tcp', label: 'tcp', selected: true },
                             { value: 'udp', label: 'udp' }
                         ]},
-                        { name: 'dst_port', label: 'Hedef Port', type: 'text', validate: 'port', required: true, placeholder: '80', hint: 'Dışarıdan erişilen port numarası' },
-                        { name: 'to_addresses', label: 'Yönlendirilecek Adres', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.100', hint: 'İç sunucunun IP adresi' },
-                        { name: 'to_ports', label: 'Yönlendirilecek Port', type: 'text', optional: true, placeholder: '8080', hint: 'İç sunucunun dinlediği port (farklıysa)' }
+                        { name: 'dst_port', why: "Dışarıdan gelen port ile iç porttaki servis farklı olabilir; ikisini karıştırmak <b>bağlantı kuruluyor ama cevap gelmiyor</b> tablosunu yaratır. Ayrıca bu portu firewall'da da izinli hâle getirmeniz gerekir.", label: 'Hedef Port', type: 'text', validate: 'port', required: true, placeholder: '80', hint: 'Dışarıdan erişilen port numarası' },
+                        { name: 'to_addresses', why: "Yönlendirilecek iç adres yanlışsa RouterOS paketi var olmayan bir hosta gönderir ve istemci zaman aşımına uğrar; hiçbir hata log'lanmaz, yalnızca <code>/ip firewall connection</code> tablosunda takılı oturumlar görünür.", label: 'Yönlendirilecek Adres', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.100', hint: 'İç sunucunun IP adresi' },
+                        { name: 'to_ports', why: "İç servis farklı bir portta dinliyorsa burada belirtin; boş bırakılırsa gelen port aynen kullanılır ve servis dinlemediği porta yönlendirildiği için bağlantı reddedilir.", label: 'Yönlendirilecek Port', type: 'text', optional: true, placeholder: '8080', hint: 'İç sunucunun dinlediği port (farklıysa)' }
                     ]
                 },
                 {
@@ -247,8 +247,8 @@ MikroTik.nat = {
                     icon: 'fas fa-arrow-left',
                     showFor: ['src-nat'],
                     fields: [
-                        { name: 'src_address', label: 'Kaynak Adres / Ağ', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'NAT uygulanacak iç kaynak ağı' },
-                        { name: 'src_to_addresses', label: 'Çevrileceği Adres', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Kaynak adresin yerini alacak public IP' }
+                        { name: 'src_address', why: "src-nat kuralında kaynak ağı daraltmak şarttır; daraltmazsanız router üzerinden geçen tüm trafik tek bir adrese çevrilir ve iç ağdaki kaynak takibi tamamen kaybolur.", label: 'Kaynak Adres / Ağ', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'NAT uygulanacak iç kaynak ağı' },
+                        { name: 'src_to_addresses', why: "<code>src-nat</code> sabit bir adres gerektirir ve WAN adresi değişirse kural <b>kırılır</b>, trafik tamamen durur; dinamik IP kullanıyorsanız masquerade tercih edin.", label: 'Çevrileceği Adres', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Kaynak adresin yerini alacak public IP' }
                     ]
                 }
             ],
@@ -295,13 +295,13 @@ MikroTik.dhcp = {
                     title: 'DHCP Server Ayarları',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'interface', label: 'Arayüz', type: 'text', required: true, placeholder: 'bridge1', hint: 'DHCP hizmeti verilecek arayüz veya bridge' },
-                        { name: 'network', label: 'Ağ Adresi (CIDR)', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'DHCP dağıtılacak ağ bloğu' },
-                        { name: 'gateway', label: 'Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'İstemcilere verilecek default gateway' },
-                        { name: 'pool_start', label: 'Pool Başlangıç', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Dağıtılacak IP aralığının başlangıcı' },
-                        { name: 'pool_end', label: 'Pool Bitiş', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.100', hint: 'Dağıtılacak IP aralığının sonu' },
-                        { name: 'dns_servers', label: 'DNS Sunucuları', type: 'text', required: true, placeholder: '8.8.8.8,8.8.4.4', hint: 'Virgülle ayrılmış DNS adresleri' },
-                        { name: 'lease_time', label: 'Kira Süresi', type: 'text', required: true, placeholder: '1d', hint: 'Örn: 1d (1 gün), 12h (12 saat)' }
+                        { name: 'interface', why: "DHCP server yanlış arayüze bağlanırsa istemcilere hiç ulaşamaz veya daha kötüsü <b>başka bir ağa IP dağıtmaya başlar</b> ve o ağdaki mevcut DHCP ile çakışır.", label: 'Arayüz', type: 'text', required: true, placeholder: 'bridge1', hint: 'DHCP hizmeti verilecek arayüz veya bridge' },
+                        { name: 'network', why: "Network tanımı arayüzdeki IP ile aynı subnet'te olmalıdır; uyuşmazlıkta istemciler adres alır ama gateway'e erişemez, klasik <b>IP var internet yok</b> tablosu oluşur.", label: 'Ağ Adresi (CIDR)', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'DHCP dağıtılacak ağ bloğu' },
+                        { name: 'gateway', why: "İstemcilere dağıtılan gateway yanlışsa cihazlar birbirini görür ama dışarı çıkamaz; bu, DHCP'nin çalışıyor görünmesi nedeniyle teşhisi en çok geciken hatalardandır.", label: 'Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'İstemcilere verilecek default gateway' },
+                        { name: 'pool_start', why: "Havuz başlangıcı statik adresler ve gateway ile çakışmamalıdır; çakışırsa DHCP bir sunucunun adresini bir istemciye verir ve o servis aralıklarla erişilemez hâle gelir.", label: 'Pool Başlangıç', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Dağıtılacak IP aralığının başlangıcı' },
+                        { name: 'pool_end', why: "Havuz aralığı beklenen istemci sayısını karşılamalı; havuz dolduğunda yeni cihazlar <b>hiç adres alamaz</b> ve kullanıcılar sorunu rastgele bir ağ arızası sanır.", label: 'Pool Bitiş', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.100', hint: 'Dağıtılacak IP aralığının sonu' },
+                        { name: 'dns_servers', why: "DNS dağıtılmazsa istemciler IP alır ama hiçbir ismi çözemez. Router'ın kendisini DNS olarak vereceksen <code>/ip dns allow-remote-requests=yes</code> olmalı ve bu port dışarıya <b>kapalı</b> tutulmalıdır.", label: 'DNS Sunucuları', type: 'text', required: true, placeholder: '8.8.8.8,8.8.4.4', hint: 'Virgülle ayrılmış DNS adresleri' },
+                        { name: 'lease_time', why: "Çok uzun lease, havuzun ayrılan ama kullanılmayan adreslerle dolmasına yol açar; çok kısa lease ise DHCP sunucusunda ve log'larda gereksiz yük oluşturur.", label: 'Kira Süresi', type: 'text', required: true, placeholder: '1d', hint: 'Örn: 1d (1 gün), 12h (12 saat)' }
                     ]
                 }
             ],
@@ -337,11 +337,11 @@ MikroTik.ipsec = {
                     title: 'IPSec IKEv2 Ayarları',
                     icon: 'fas fa-lock',
                     fields: [
-                        { name: 'peer_address', label: 'Peer Adresi', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Uzak tarafın public IP adresi' },
-                        { name: 'local_address', label: 'Yerel Adres', type: 'text', validate: 'ip', required: true, placeholder: '198.51.100.1', hint: 'Bu cihazın WAN (public) IP adresi' },
-                        { name: 'preshared_key', label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'VerySecretKey123', hint: 'Her iki tarafta aynı PSK kullanılmalı' },
-                        { name: 'local_network', label: 'Yerel Ağ (CIDR)', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Şifrelenecek yerel ağ bloğu' },
-                        { name: 'remote_network', label: 'Uzak Ağ (CIDR)', type: 'text', required: true, placeholder: '10.0.0.0/24', hint: 'Uzak taraftaki ağ bloğu' }
+                        { name: 'peer_address', why: "Peer adresi karşı ucun gerçek public adresi olmalı ve iki uçtaki tanımlar birbirini işaret etmelidir; NAT arkasındaki uçta bu adres değişiyorsa tünel sürekli kurulup kopar.", label: 'Peer Adresi', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Uzak tarafın public IP adresi' },
+                        { name: 'local_address', why: "Yerel adres sabitlenmezse RouterOS çıkış arayüzüne göre farklı kaynak adres kullanabilir; karşı uç bu adresi tanımadığı için IKE müzakeresi <b>no phase1 peer</b> hatasıyla düşer.", label: 'Yerel Adres', type: 'text', validate: 'ip', required: true, placeholder: '198.51.100.1', hint: 'Bu cihazın WAN (public) IP adresi' },
+                        { name: 'preshared_key', why: "PSK iki uçta birebir aynı olmalıdır ve yeterince uzun olmalıdır; kısa bir PSK yakalanan IKE trafiğinden çevrimdışı kırılabilir ve tünelin tüm gizliliği kaybolur.", label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'VerySecretKey123', hint: 'Her iki tarafta aynı PSK kullanılmalı' },
+                        { name: 'local_network', why: "Policy'deki yerel ağ karşı uçtaki uzak ağ ile <b>ayna görüntüsü</b> olmalıdır; uyuşmazlıkta Phase 2 kurulmaz. Ayrıca bu trafiğin masquerade kuralına yakalanmaması için NAT'tan muaf tutulmalıdır.", label: 'Yerel Ağ (CIDR)', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Şifrelenecek yerel ağ bloğu' },
+                        { name: 'remote_network', why: "Uzak ağ karşı uçtaki yerel ağ ile aynı olmalı; iki tarafta çakışan adres planı (her iki uçta 192.168.1.0/24) varsa tünel kurulsa bile trafik hiçbir zaman karşıya gitmez.", label: 'Uzak Ağ (CIDR)', type: 'text', required: true, placeholder: '10.0.0.0/24', hint: 'Uzak taraftaki ağ bloğu' }
                     ]
                 }
             ],
@@ -378,18 +378,18 @@ MikroTik.wireguard = {
                     title: 'WireGuard Arayüzü',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'interface_name', label: 'Arayüz Adı', type: 'text', required: true, placeholder: 'wg0', hint: 'WireGuard sanal arayüz adı' },
-                        { name: 'listen_port', label: 'Dinleme Portu', type: 'text', validate: 'port', required: true, placeholder: '51820', hint: 'WireGuard UDP port numarası' },
-                        { name: 'wg_address', label: 'WireGuard Yerel IP (CIDR)', type: 'text', required: true, placeholder: '10.10.0.1/24', hint: 'VPN tünel arayüzüne atanacak IP' }
+                        { name: 'interface_name', why: "Arayüz adı firewall ve routing kurallarında referans alınır; adı sonradan değiştirmek bu kuralları sessizce etkisiz bırakır ve tünel kurulur ama trafik geçmez.", label: 'Arayüz Adı', type: 'text', required: true, placeholder: 'wg0', hint: 'WireGuard sanal arayüz adı' },
+                        { name: 'listen_port', why: "Dinleme portunun WAN tarafında <code>input</code> chain'inde <b>açık olması</b> gerekir; firewall'da izin verilmezse el sıkışma paketleri düşer ve tünel hiçbir zaman kurulmaz.", label: 'Dinleme Portu', type: 'text', validate: 'port', required: true, placeholder: '51820', hint: 'WireGuard UDP port numarası' },
+                        { name: 'wg_address', why: "Tünel adresi iki uçta aynı subnet'te ama farklı adresler olmalı; çakışma veya farklı subnet kullanımı el sıkışma başarılı olsa bile veri akışını imkânsız kılar.", label: 'WireGuard Yerel IP (CIDR)', type: 'text', required: true, placeholder: '10.10.0.1/24', hint: 'VPN tünel arayüzüne atanacak IP' }
                     ]
                 },
                 {
                     title: 'Peer Ayarları',
                     icon: 'fas fa-user-shield',
                     fields: [
-                        { name: 'peer_pubkey', label: 'Peer Public Key', type: 'text', required: true, placeholder: 'PEER_PUBLIC_KEY_BASE64=', hint: 'Uzak tarafın WireGuard public key değeri' },
-                        { name: 'allowed_address', label: 'Allowed Address', type: 'text', required: true, placeholder: '10.10.0.2/32', hint: 'Bu peer üzerinden geçecek IP aralığı' },
-                        { name: 'endpoint', label: 'Endpoint (IP:Port)', type: 'text', optional: true, placeholder: '203.0.113.1:51820', hint: 'Uzak peer adresi — client tarafında gerekli' }
+                        { name: 'peer_pubkey', why: "Public key karşı ucun <b>public</b> anahtarı olmalıdır, kendi anahtarınız değil; yanlış anahtarda el sıkışma sessizce başarısız olur ve log'da yalnızca handshake tekrarları görünür.", label: 'Peer Public Key', type: 'text', required: true, placeholder: 'PEER_PUBLIC_KEY_BASE64=', hint: 'Uzak tarafın WireGuard public key değeri' },
+                        { name: 'allowed_address', why: "Allowed-address hem routing hem de kabul filtresidir: burada listelenmeyen kaynaklardan gelen paketler <b>düşürülür</b>. Çok dar yazmak trafiği keser, <code>0.0.0.0/0</code> yazmak tüm trafiği tünele sokar.", label: 'Allowed Address', type: 'text', required: true, placeholder: '10.10.0.2/32', hint: 'Bu peer üzerinden geçecek IP aralığı' },
+                        { name: 'endpoint', why: "Endpoint yalnızca bağlantıyı başlatan tarafta gereklidir; NAT arkasındaki uçta tanımlanmazsa tünel ancak karşı taraf veri gönderdiğinde ayağa kalkar, bu yüzden keepalive kullanmak gerekir.", label: 'Endpoint (IP:Port)', type: 'text', optional: true, placeholder: '203.0.113.1:51820', hint: 'Uzak peer adresi — client tarafında gerekli' }
                     ]
                 }
             ],
@@ -433,11 +433,11 @@ MikroTik.ospf = {
                     title: 'OSPF Ayarları',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Genellikle Loopback IP adresi' },
-                        { name: 'instance_name', label: 'Instance Adı', type: 'text', required: true, placeholder: 'ospf1', hint: 'OSPF process adı' },
-                        { name: 'area', label: 'Area ID', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0' },
-                        { name: 'interfaces', label: 'Arayüzler', type: 'text', required: true, placeholder: 'ether1,ether2', hint: 'Virgülle ayrılmış OSPF arayüzleri' },
-                        { name: 'redistribute_static', label: 'Static Redistribute', type: 'select', options: [
+                        { name: 'router_id', why: "Router-ID ağ genelinde benzersiz olmalı; çakışmada komşuluklar sürekli flap eder ve rota tablosu kararsızlaşır. RouterOS v7'de bu bir loopback adresi olarak verilmelidir.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Genellikle Loopback IP adresi' },
+                        { name: 'instance_name', why: "Instance adı area ve interface template tanımlarında referans alınır; isim uyuşmazsa RouterOS v7 yapılandırmayı kabul eder ama OSPF hiçbir arayüzde çalışmaz.", label: 'Instance Adı', type: 'text', required: true, placeholder: 'ospf1', hint: 'OSPF process adı' },
+                        { name: 'area', why: "Area ID linkin iki ucunda aynı olmalı; farklıysa hello paketleri reddedilir ve komşuluk kurulmaz. Backbone (<code>0.0.0.0</code>) dışındaki tüm alanlar backbone'a değmek zorundadır.", label: 'Area ID', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0' },
+                        { name: 'interfaces', why: "Interface template'te ağı çok geniş tanımlamak WAN ve kullanıcı portlarını da OSPF'e sokar; bu portlardan hello göndermek hem güvenlik açığıdır hem de yetkisiz bir komşunun rota enjekte etmesine izin verir.", label: 'Arayüzler', type: 'text', required: true, placeholder: 'ether1,ether2', hint: 'Virgülle ayrılmış OSPF arayüzleri' },
+                        { name: 'redistribute_static', why: "Statik rotaları dağıtmak, filtre olmadan yapıldığında varsayılan rota dâhil her şeyi komşulara yayar ve <b>trafiği kendi üzerinize çekersiniz</b>; mutlaka routing filter ile sınırlayın.", label: 'Static Redistribute', type: 'select', options: [
                             { value: 'no', label: 'Hayır', selected: true },
                             { value: 'yes', label: 'Evet' }
                         ], hint: 'Statik rotaları OSPF ile duyur' }
@@ -481,17 +481,17 @@ MikroTik.bgp = {
                     title: 'BGP Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'local_as', label: 'Yerel AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Bu cihazın Autonomous System numarası' },
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
+                        { name: 'local_as', why: "Local AS karşı taraftaki remote-as ile eşleşmeli; uyuşmazlıkta oturum açılmaz ve log'da yalnızca tekrar eden bağlantı denemeleri görünür. RouterOS v7'de bu alan <code>/routing bgp connection</code> altındadır.", label: 'Yerel AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Bu cihazın Autonomous System numarası' },
+                        { name: 'router_id', why: "BGP Router-ID benzersiz olmalıdır; aynı ID'li iki cihaz arasında oturum hiç kurulmaz. Arayüz bağımsız olması için loopback adresi kullanın.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
                     ]
                 },
                 {
                     title: 'Peer Ayarları',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
-                        { name: 'remote_as', label: 'Uzak AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
-                        { name: 'prefix_list', label: 'Prefix Listesi (CIDR)', type: 'text', optional: true, placeholder: '192.168.0.0/16', hint: 'Output filter için duyurulacak prefix (opsiyonel)' }
+                        { name: 'peer_ip', why: "Peer adresi karşı ucun paketleri gerçekten gönderdiği adres olmalıdır; farklı bir kaynaktan gelirse RouterOS oturumu reddeder. Loopback peering yapıyorsanız <code>local.address</code> da tanımlanmalıdır.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
+                        { name: 'remote_as', why: "Remote AS karşı tarafın local AS'i ile aynı olmalı ve oturumun iBGP mi eBGP mi olduğunu belirler; eBGP'de TTL 1 olduğu için loopback peering ek ayar (multihop) gerektirir.", label: 'Uzak AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
+                        { name: 'prefix_list', why: "Çıkış filtresi olmadan BGP kurmak, öğrendiğiniz tüm rotaları komşuya geri duyurmanıza yani <b>istemeden transit sağlayıcı olmanıza</b> yol açar; mutlaka yalnızca kendi prefix'lerinizi duyurun.", label: 'Prefix Listesi (CIDR)', type: 'text', optional: true, placeholder: '192.168.0.0/16', hint: 'Output filter için duyurulacak prefix (opsiyonel)' }
                     ]
                 }
             ],
@@ -528,10 +528,10 @@ MikroTik.queue = {
                     title: 'Queue Ayarları',
                     icon: 'fas fa-sliders-h',
                     fields: [
-                        { name: 'queue_name', label: 'Queue Adı', type: 'text', required: true, placeholder: 'CLIENT-QUEUE', hint: 'Tanımlayıcı kuyruk adı' },
-                        { name: 'target', label: 'Hedef (IP veya subnet)', type: 'text', required: true, placeholder: '192.168.1.100', hint: 'Sınırlandırılacak IP veya ağ' },
-                        { name: 'max_limit_up', label: 'Maks. Upload Limiti', type: 'text', required: true, placeholder: '10M', hint: 'Örn: 10M, 512k, 1G' },
-                        { name: 'max_limit_down', label: 'Maks. Download Limiti', type: 'text', required: true, placeholder: '50M', hint: 'Örn: 50M, 100M' }
+                        { name: 'queue_name', why: "Queue adı script ve izleme için referanstır; anlamsız isimler zamanla hangi kuyruğun hangi müşteriye ait olduğunun bilinmemesine ve yanlış kuyruğun silinmesine yol açar.", label: 'Queue Adı', type: 'text', required: true, placeholder: 'CLIENT-QUEUE', hint: 'Tanımlayıcı kuyruk adı' },
+                        { name: 'target', why: "Hedef adres veya subnet yanlış girilirse limit istenmeyen kullanıcılara uygulanır; ayrıca <code>0.0.0.0/0</code> gibi geniş bir hedef tüm ağı tek bir bant genişliğine hapseder.", label: 'Hedef (IP veya subnet)', type: 'text', required: true, placeholder: '192.168.1.100', hint: 'Sınırlandırılacak IP veya ağ' },
+                        { name: 'max_limit_up', why: "Simple queue'de yön <b>hedefin bakış açısına göredir</b>: upload istemciden çıkan trafiktir. Yönleri karıştırmak kullanıcıların indirme hızını yanlışlıkla kısar.", label: 'Maks. Upload Limiti', type: 'text', required: true, placeholder: '10M', hint: 'Örn: 10M, 512k, 1G' },
+                        { name: 'max_limit_down', why: "Limiti fiziksel hat kapasitesinin biraz altında tutmak kuyruğun sizde oluşmasını sağlar; hattın tam kapasitesine eşit verilirse tıkanıklık operatör tarafında oluşur ve QoS tamamen etkisiz kalır.", label: 'Maks. Download Limiti', type: 'text', required: true, placeholder: '50M', hint: 'Örn: 50M, 100M' }
                     ]
                 },
                 {
@@ -539,8 +539,8 @@ MikroTik.queue = {
                     icon: 'fas fa-bolt',
                     info: 'Burst ayarları opsiyoneldir. Her iki alan da doldurulursa aktif olur.',
                     fields: [
-                        { name: 'burst_limit_up', label: 'Burst Upload Limiti', type: 'text', optional: true, placeholder: '15M', hint: 'Burst dönemindeki maksimum upload hızı' },
-                        { name: 'burst_time', label: 'Burst Süresi (saniye)', type: 'text', optional: true, placeholder: '8', hint: 'Burst uygulanacak süre (saniye)' }
+                        { name: 'burst_limit_up', why: "Burst limiti max-limit'ten büyük olmalıdır, aksi hâlde burst hiç devreye girmez. Çok yüksek burst ise hattı anlık doldurup diğer kullanıcılarda gecikme sıçramasına neden olur.", label: 'Burst Upload Limiti', type: 'text', optional: true, placeholder: '15M', hint: 'Burst dönemindeki maksimum upload hızı' },
+                        { name: 'burst_time', why: "Burst-time gerçek burst süresi değil, ortalamanın hesaplandığı penceredir; değeri yanlış anlamak burst'ün beklenenden çok daha kısa veya uzun sürmesine yol açar.", label: 'Burst Süresi (saniye)', type: 'text', optional: true, placeholder: '8', hint: 'Burst uygulanacak süre (saniye)' }
                     ]
                 }
             ],
@@ -575,16 +575,16 @@ MikroTik.snmp = {
                     title: 'SNMP Ayarları',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'community', label: 'Community', type: 'text', required: true, placeholder: 'PUBLIC-RO', hint: 'SNMP community string (read-only önerilir)' },
-                        { name: 'trap_target', label: 'Trap Hedefi', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap alacak sunucunun IP adresi' }
+                        { name: 'community', why: "Community açık metin taşınır ve bir şifre gibidir; <code>public</code> bırakmak cihazın arayüz, trafik ve komşu bilgilerini ağdaki herkese açar. Erişimi <code>addresses</code> ile sınırlayın.", label: 'Community', type: 'text', required: true, placeholder: 'PUBLIC-RO', hint: 'SNMP community string (read-only önerilir)' },
+                        { name: 'trap_target', why: "Trap hedefi yanlışsa arıza bildirimleri hiçbir yere ulaşmaz; izleme sistemindeki sessizlik sağlıklı sanılır, oysa cihaz saatlerdir sorun bildirmeye çalışıyordur.", label: 'Trap Hedefi', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap alacak sunucunun IP adresi' }
                     ]
                 },
                 {
                     title: 'Sistem Bilgisi',
                     icon: 'fas fa-info-circle',
                     fields: [
-                        { name: 'contact', label: 'İletişim', type: 'text', optional: true, placeholder: 'noc@company.com', hint: 'sysContact değeri (SNMP MIB-II)' },
-                        { name: 'location', label: 'Konum', type: 'text', optional: true, placeholder: 'DC1-Rack-A', hint: 'sysLocation değeri (SNMP MIB-II)' }
+                        { name: 'contact', why: "İletişim bilgisi cihazın sahibi ekibi gösterir; tanımsızsa arıza veya değişiklik anında kimin onay vereceği bilinemez ve müdahale gereksiz yere bekler.", label: 'İletişim', type: 'text', optional: true, placeholder: 'noc@company.com', hint: 'sysContact değeri (SNMP MIB-II)' },
+                        { name: 'location', why: "Konum bilgisi izleme sisteminde cihazı fiziksel olarak bulmayı sağlar; boş bırakılırsa saha ekibi hangi kabine gideceğini bilemez ve kesinti süresi uzar.", label: 'Konum', type: 'text', optional: true, placeholder: 'DC1-Rack-A', hint: 'sysLocation değeri (SNMP MIB-II)' }
                     ]
                 }
             ],
@@ -620,9 +620,9 @@ MikroTik.logging = {
                     title: 'Remote Syslog Ayarları',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'remote_host', label: 'Uzak Syslog Sunucusu', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.200', hint: 'Syslog mesajlarının gönderileceği sunucu IP' },
-                        { name: 'remote_port', label: 'Uzak Port', type: 'text', validate: 'port', optional: true, placeholder: '514', hint: 'Varsayılan UDP 514 (boş bırakılabilir)' },
-                        { name: 'topics', label: 'Konular', type: 'text', required: true, placeholder: 'info,error,warning', hint: 'Virgülle ayrılmış log konuları: info, error, warning, debug, firewall...' }
+                        { name: 'remote_host', why: "RouterOS log'ları varsayılan olarak <b>bellekte</b> tutar ve yeniden başlatmada tamamen kaybolur; uzak syslog tanımlanmazsa arıza sonrası inceleyecek hiçbir kanıt kalmaz.", label: 'Uzak Syslog Sunucusu', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.200', hint: 'Syslog mesajlarının gönderileceği sunucu IP' },
+                        { name: 'remote_port', why: "Syslog sunucusunun dinlediği port ile aynı olmalı ve aradaki firewall'da izinli olmalıdır; uyuşmazlıkta paketler sessizce düşer, RouterOS hiçbir hata göstermez.", label: 'Uzak Port', type: 'text', validate: 'port', optional: true, placeholder: '514', hint: 'Varsayılan UDP 514 (boş bırakılabilir)' },
+                        { name: 'topics', why: "Konu seçimi kritiktir: <code>debug</code> veya tüm konuları açmak cihazın CPU'sunu ve WAN'ı gereksiz log ile doldurur, <code>error,warning,critical</code> gibi dar bir seçim ise kritik olayları kaçırmamanızı sağlar.", label: 'Konular', type: 'text', required: true, placeholder: 'info,error,warning', hint: 'Virgülle ayrılmış log konuları: info, error, warning, debug, firewall...' }
                     ]
                 }
             ],

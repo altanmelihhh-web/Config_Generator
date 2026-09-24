@@ -17,32 +17,32 @@ Juniper.general = {
                     title: 'Sistem',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'hostname', label: 'Hostname', type: 'text', required: true, placeholder: 'JNP-SW1', hint: 'Cihaz hostname\'i' }
+                        { name: 'hostname', why: 'Sadece kozmetik değil: <code>set system host-name</code> sonrası CLI prompt ve tüm syslog kayıtları bu adla gelir. Ortak log sunucusunda hangi cihazın alarm ürettiğini ayırt etmenin tek yolu budur.', label: 'Hostname', type: 'text', required: true, placeholder: 'JNP-SW1', hint: 'Cihaz hostname\'i' }
                     ]
                 },
                 {
                     title: 'VLAN & IRB',
                     icon: 'fas fa-layer-group',
                     fields: [
-                        { name: 'vlan', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'VLAN numarası (1–4094)' },
-                        { name: 'vlan_name', label: 'VLAN Adı', type: 'text', required: true, placeholder: 'MGMT', hint: 'VLAN mantıksal adı' },
-                        { name: 'ip_prefix', label: 'IRB IP / Prefix', type: 'text', required: true, placeholder: '192.168.1.1/24', hint: 'Layer 3 gateway IP adresi (CIDR)' }
+                        { name: 'vlan', why: "VLAN ID, Layer 2 izolasyon sınırını belirler. JunOS'ta IRB unit numarasını VLAN ID ile aynı tutmak fiili standarttır; farklı verirseniz konfig çalışır ama sonraki mühendis yanlış unit'i silip gateway'i düşürür.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'VLAN numarası (1–4094)' },
+                        { name: 'vlan_name', why: "JunOS'ta VLAN'lar numarayla değil <b>adla</b> referans edilir; trunk ve arayüz altında yazdığınız ad buradakiyle bire bir aynı olmalı. Uyuşmazsa <code>commit</code> aşamasında VLAN bulunamadı hatası alırsınız.", label: 'VLAN Adı', type: 'text', required: true, placeholder: 'MGMT', hint: 'VLAN mantıksal adı' },
+                        { name: 'ip_prefix', why: "IRB arayüzüne verilen bu adres VLAN'ın gateway'idir. Maskeyi yanlış yazmak (ör. /32) istemcilerin gateway'e ARP atamamasına yol açar; ayrıca VLAN altında <code>l3-interface irb.X</code> tanımlı değilse adres hiçbir işe yaramaz.", label: 'IRB IP / Prefix', type: 'text', required: true, placeholder: '192.168.1.1/24', hint: 'Layer 3 gateway IP adresi (CIDR)' }
                     ]
                 },
                 {
                     title: 'Routing',
                     icon: 'fas fa-route',
                     fields: [
-                        { name: 'gw', label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.254', hint: 'Statik default route next-hop' }
+                        { name: 'gw', why: "Statik default route'un next-hop'u. Next-hop doğrudan bağlı bir arayüzden erişilebilir olmalı; değilse route <code>show route</code> çıktısında <b>hidden</b> kalır ve trafik hiç akmaz.", label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.254', hint: 'Statik default route next-hop' }
                     ]
                 },
                 {
                     title: 'Arayüzler',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', label: 'LAN Arayüzü', type: 'text', required: true, placeholder: 'ge-0/0/1', hint: 'VLAN\'a üye erişim portu' },
-                        { name: 'wan_iface', label: 'WAN Arayüzü', type: 'text', required: true, placeholder: 'ge-0/0/0', hint: 'Uplink/WAN portu' },
-                        { name: 'wan_ip_prefix', label: 'WAN IP / Prefix', type: 'text', required: true, placeholder: '203.0.113.1/30', hint: 'WAN arayüzü IP adresi (CIDR)' }
+                        { name: 'iface', why: "JunOS'ta fiziksel arayüz adı yuva/PIC/port düzenini taşır (<code>ge-0/0/1</code>) ve konfigin etkili olması için mutlaka bir logical unit (<code>.0</code>) gerekir. Var olmayan arayüz adı commit'te hata vermeyebilir, sadece sessizce çalışmaz.", label: 'LAN Arayüzü', type: 'text', required: true, placeholder: 'ge-0/0/1', hint: 'VLAN\'a üye erişim portu' },
+                        { name: 'wan_iface', why: 'Uplink portu. Yanlış arayüzü seçip üzerine adres yazmak, uzaktan bağlanıyorsanız <code>commit</code> anında kendinizi dışarıda bırakır; riskli değişiklikte <code>commit confirmed 5</code> kullanın, onaylamazsanız cihaz otomatik geri döner.', label: 'WAN Arayüzü', type: 'text', required: true, placeholder: 'ge-0/0/0', hint: 'Uplink/WAN portu' },
+                        { name: 'wan_ip_prefix', why: "Sağlayıcının verdiği maskeyi birebir kullanın; /30 yerine /24 yazmak next-hop'u yanlış subnet'e düşürür ve uplink'i komşu devrelerle çakıştırır.", label: 'WAN IP / Prefix', type: 'text', required: true, placeholder: '203.0.113.1/30', hint: 'WAN arayüzü IP adresi (CIDR)' }
                     ]
                 }
             ],
@@ -82,10 +82,10 @@ Juniper.vlan = {
                     title: 'VLAN Temel',
                     icon: 'fas fa-layer-group',
                     fields: [
-                        { name: 'iface', label: 'Arayüz', type: 'text', required: true, placeholder: 'ge-0/0/15', hint: 'Porta bağlı fiziksel arayüz' },
-                        { name: 'vlan_id', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'VLAN numarası (1–4094)' },
-                        { name: 'vlan_name', label: 'VLAN Adı', type: 'text', required: true, placeholder: 'Muhasebe', hint: 'Tanımlayıcı VLAN adı' },
-                        { name: 'port_mode', label: 'Port Modu', type: 'select', options: [
+                        { name: 'iface', why: "JunOS'ta fiziksel arayüz adı yuva/PIC/port düzenini taşır (<code>ge-0/0/1</code>) ve konfigin etkili olması için mutlaka bir logical unit (<code>.0</code>) gerekir. Var olmayan arayüz adı commit'te hata vermeyebilir, sadece sessizce çalışmaz.", label: 'Arayüz', type: 'text', required: true, placeholder: 'ge-0/0/15', hint: 'Porta bağlı fiziksel arayüz' },
+                        { name: 'vlan_id', why: "VLAN etiketi (1–4094). Karşı switch'te farklı ID kullanılırsa link yine up görünür ama trafik sessizce düşer; IRB unit numarasını VLAN ID ile eşleştirmek teşhisi kolaylaştırır.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'VLAN numarası (1–4094)' },
+                        { name: 'vlan_name', why: "JunOS'ta VLAN'lar numarayla değil <b>adla</b> referans edilir; trunk ve arayüz altında yazdığınız ad buradakiyle bire bir aynı olmalı. Uyuşmazsa <code>commit</code> aşamasında VLAN bulunamadı hatası alırsınız.", label: 'VLAN Adı', type: 'text', required: true, placeholder: 'Muhasebe', hint: 'Tanımlayıcı VLAN adı' },
+                        { name: 'port_mode', why: "<b>access</b> tek VLAN'ı etiketsiz, <b>trunk</b> birden fazla VLAN'ı etiketli taşır. Sunucu portunu trunk yapmak VLAN sızıntısına, uplink'i access yapmak diğer tüm VLAN'ların kopmasına yol açar.", label: 'Port Modu', type: 'select', options: [
                             { value: 'access', label: 'Access', selected: true },
                             { value: 'trunk', label: 'Trunk' }
                         ]}
@@ -96,7 +96,7 @@ Juniper.vlan = {
                     icon: 'fas fa-route',
                     showFor: ['L3'],
                     fields: [
-                        { name: 'l3_ip', label: 'IRB IP / Prefix', type: 'text', optional: true, placeholder: '192.168.10.1/24', hint: 'VLAN gateway IP adresi (CIDR)' }
+                        { name: 'l3_ip', why: "Bu adres IRB arayüzüne yazılır ve VLAN'ın gateway'i olur. Aynı gateway'i VRRP/MC-LAG olmadan iki cihazda birden tanımlamak duplicate IP ve kararsız ARP tablosu üretir.", label: 'IRB IP / Prefix', type: 'text', optional: true, placeholder: '192.168.10.1/24', hint: 'VLAN gateway IP adresi (CIDR)' }
                     ]
                 },
                 {
@@ -104,8 +104,8 @@ Juniper.vlan = {
                     icon: 'fas fa-sitemap',
                     info: 'Yalnızca Port Modu "Trunk" seçildiğinde geçerlidir.',
                     fields: [
-                        { name: 'native_vlan', label: 'Native VLAN', type: 'text', validate: 'vlan', optional: true, placeholder: '1', hint: 'Trunk native VLAN ID (opsiyonel)' },
-                        { name: 'allowed_vlans', label: 'İzin Verilen VLAN\'lar', type: 'text', optional: true, placeholder: '10,20,30', hint: 'Virgülle ayrılmış VLAN listesi' }
+                        { name: 'native_vlan', why: "Trunk üzerinde etiketsiz gelen çerçeveler bu VLAN'a atanır. İki uçtaki native VLAN farklıysa iki ağ arasında istemsiz köprü kurulur (VLAN hopping riski); mümkünse kullanılmayan bir VLAN seçin.", label: 'Native VLAN', type: 'text', validate: 'vlan', optional: true, placeholder: '1', hint: 'Trunk native VLAN ID (opsiyonel)' },
+                        { name: 'allowed_vlans', why: "Trunk'ta yalnızca listelenen VLAN'lar taşınır. <code>all</code> yazmak kolaydır ama broadcast alanını tüm switch'lere yayar; yeni VLAN eklerken bu listeyi güncellemeyi unutmak en sık kopma sebebidir.", label: 'İzin Verilen VLAN\'lar', type: 'text', optional: true, placeholder: '10,20,30', hint: 'Virgülle ayrılmış VLAN listesi' }
                     ]
                 }
             ],
@@ -170,12 +170,12 @@ Juniper.dhcp = {
                     icon: 'fas fa-server',
                     showFor: ['server'],
                     fields: [
-                        { name: 'srv_pool', label: 'Havuz Adı', type: 'text', required: true, placeholder: 'my-pool', hint: 'DHCP adres havuzu adı' },
-                        { name: 'srv_network', label: 'Network (CIDR)', type: 'text', required: true, placeholder: '192.168.20.0/24', hint: 'Havuzun kapsadığı ağ adresi' },
-                        { name: 'srv_irb_ip', label: 'IRB IP / Prefix', type: 'text', required: true, placeholder: '192.168.20.1/24', hint: 'IRB arayüzü IP adresi (CIDR)' },
-                        { name: 'srv_vlan_id', label: 'VLAN ID (IRB unit)', type: 'text', required: true, placeholder: '20', hint: 'IRB unit numarası = VLAN ID' },
-                        { name: 'srv_gw', label: 'Gateway', type: 'text', required: true, placeholder: '192.168.20.1', hint: 'İstemcilere atanacak gateway IP' },
-                        { name: 'srv_dns', label: 'DNS Sunucusu', type: 'text', required: true, placeholder: '8.8.8.8', hint: 'İstemcilere atanacak DNS IP' }
+                        { name: 'srv_pool', why: 'DHCP havuzunun adı; <code>dhcp-local-server</code> grubu ile havuz eşleşmesi bu adla yapılır. Ad tutarsızlığında sunucu ayakta görünür ama hiçbir istemciye OFFER gitmez.', label: 'Havuz Adı', type: 'text', required: true, placeholder: 'my-pool', hint: 'DHCP adres havuzu adı' },
+                        { name: 'srv_network', why: "Havuzun ağ adresi, IRB arayüzünün subnet'iyle birebir örtüşmelidir. Örtüşmezse JunOS isteği hangi havuzdan karşılayacağını bulamaz ve DISCOVER cevapsız kalır.", label: 'Network (CIDR)', type: 'text', required: true, placeholder: '192.168.20.0/24', hint: 'Havuzun kapsadığı ağ adresi' },
+                        { name: 'srv_irb_ip', why: "IRB adresi hem gateway hem de DHCP sunucunun istemci bacağıdır. Bu adres yoksa <code>dhcp-local-server</code> ilgili VLAN'da isteği hiç dinlemez.", label: 'IRB IP / Prefix', type: 'text', required: true, placeholder: '192.168.20.1/24', hint: 'IRB arayüzü IP adresi (CIDR)' },
+                        { name: 'srv_vlan_id', why: 'IRB unit numarası. <code>irb.20</code> ile VLAN 20 arasındaki bağ otomatik değildir; VLAN altında <code>l3-interface irb.20</code> tanımlı değilse gateway ölü durur.', label: 'VLAN ID (IRB unit)', type: 'text', required: true, placeholder: '20', hint: 'IRB unit numarası = VLAN ID' },
+                        { name: 'srv_gw', why: 'İstemcilere option 3 olarak gider ve genellikle IRB adresiyle aynı olmalıdır. Farklı yazmak klasik <b>IP alıyor ama internete çıkmıyor</b> tablosunu üretir.', label: 'Gateway', type: 'text', required: true, placeholder: '192.168.20.1', hint: 'İstemcilere atanacak gateway IP' },
+                        { name: 'srv_dns', why: 'Option 6 ile iletilir. Ulaşılamayan bir DNS vermek en yanıltıcı arızadır: IP ile ping çalışır, isimle çalışmaz ve kullanıcı internet yok der.', label: 'DNS Sunucusu', type: 'text', required: true, placeholder: '8.8.8.8', hint: 'İstemcilere atanacak DNS IP' }
                     ]
                 },
                 {
@@ -183,9 +183,9 @@ Juniper.dhcp = {
                     icon: 'fas fa-laptop',
                     showFor: ['server'],
                     fields: [
-                        { name: 'srv_static_host', label: 'Static Host Adı', type: 'text', optional: true, placeholder: 'Linux-2', hint: 'Sabit IP atanacak host adı' },
-                        { name: 'srv_static_mac', label: 'Static MAC', type: 'text', optional: true, placeholder: 'aa:aa:aa:00:00:02', hint: 'Host MAC adresi' },
-                        { name: 'srv_static_ip', label: 'Static IP', type: 'text', optional: true, placeholder: '192.168.20.100', hint: 'Atanacak sabit IP adresi' }
+                        { name: 'srv_static_host', why: 'Statik rezervasyonun adı; JunOS bunu <code>static-binding</code> anahtarı olarak kullanır. Aynı adı ikinci kez kullanmak önceki kaydı sessizce ezer.', label: 'Static Host Adı', type: 'text', optional: true, placeholder: 'Linux-2', hint: 'Sabit IP atanacak host adı' },
+                        { name: 'srv_static_mac', why: 'Rezervasyon MAC ile eşleşir. Sunucuda birden fazla NIC veya bonding varsa istek beklemediğiniz MAC ile gelir, rezervasyon tutmaz ve cihaz havuzdan rastgele IP alır.', label: 'Static MAC', type: 'text', optional: true, placeholder: 'aa:aa:aa:00:00:02', hint: 'Host MAC adresi' },
+                        { name: 'srv_static_ip', why: 'Sabit atanan adres, dinamik aralığın <b>dışında</b> ya da exclude edilmiş olmalıdır; aksi halde aynı IP başka bir istemciye de dağıtılır ve çakışma yaşanır.', label: 'Static IP', type: 'text', optional: true, placeholder: '192.168.20.100', hint: 'Atanacak sabit IP adresi' }
                     ]
                 },
                 {
@@ -193,8 +193,8 @@ Juniper.dhcp = {
                     icon: 'fas fa-ban',
                     showFor: ['server'],
                     fields: [
-                        { name: 'srv_excl_low', label: 'Exclude Low', type: 'text', optional: true, placeholder: '192.168.20.1', hint: 'Hariç tutulacak aralık başlangıcı' },
-                        { name: 'srv_excl_high', label: 'Exclude High', type: 'text', optional: true, placeholder: '192.168.20.19', hint: 'Hariç tutulacak aralık sonu' }
+                        { name: 'srv_excl_low', why: "Gateway, sunucu ve yazıcı gibi sabit adresleri havuzun dışında tutar. Exclude tanımlamadan gateway IP'sini havuz içinde bırakmak, bir istemcinin gateway adresini kapıp tüm VLAN'ı düşürmesi demektir.", label: 'Exclude Low', type: 'text', optional: true, placeholder: '192.168.20.1', hint: 'Hariç tutulacak aralık başlangıcı' },
+                        { name: 'srv_excl_high', why: "Aralığın üst sınırı. Low/high değerlerini ters yazmak veya alt ağ dışına taşırmak commit'te yakalanmaz; havuz sadece beklediğiniz gibi davranmaz.", label: 'Exclude High', type: 'text', optional: true, placeholder: '192.168.20.19', hint: 'Hariç tutulacak aralık sonu' }
                     ]
                 },
                 {
@@ -202,11 +202,11 @@ Juniper.dhcp = {
                     icon: 'fas fa-globe',
                     showFor: ['global'],
                     fields: [
-                        { name: 'gbl_pool', label: 'Havuz Adı', type: 'text', required: true, placeholder: 'LAN1', hint: 'Global havuz adı' },
-                        { name: 'gbl_bind_ip', label: 'Static Bind IP', type: 'text', required: true, placeholder: '192.168.2.15', hint: 'MAC\'e bağlanacak sabit IP' },
-                        { name: 'gbl_bind_mac', label: 'Static Bind MAC', type: 'text', required: true, placeholder: 'aa:bb:cc:dd:ee:ff', hint: 'Sabit IP atanacak MAC adresi' },
-                        { name: 'gbl_iface', label: 'Arayüz', type: 'text', required: true, placeholder: 'ge-0/0/1', hint: 'DHCP local server arayüzü' },
-                        { name: 'gbl_ip', label: 'Arayüz IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '192.168.2.1/24', hint: 'Arayüz IP adresi (CIDR)' }
+                        { name: 'gbl_pool', why: 'Global DHCP havuzunun adı. Global havuz tüm arayüzler için ortaktır; VLAN başına farklı gateway/DNS gerekiyorsa global yerine ayrı havuzlar kullanın.', label: 'Havuz Adı', type: 'text', required: true, placeholder: 'LAN1', hint: 'Global havuz adı' },
+                        { name: 'gbl_bind_ip', why: "MAC'e sabitlenen adres. Havuzun ağı içinde ama dinamik dağıtım aralığının dışında olmalı; değilse aynı adres ikinci bir istemciye de verilebilir.", label: 'Static Bind IP', type: 'text', required: true, placeholder: '192.168.2.15', hint: 'MAC\'e bağlanacak sabit IP' },
+                        { name: 'gbl_bind_mac', why: "Bağlamanın anahtarı MAC'tir. Sanal makinede klonlama veya NIC değişimi MAC'i değiştirdiğinde rezervasyon sessizce çalışmaz ve cihaz rastgele IP alır.", label: 'Static Bind MAC', type: 'text', required: true, placeholder: 'aa:bb:cc:dd:ee:ff', hint: 'Sabit IP atanacak MAC adresi' },
+                        { name: 'gbl_iface', why: '<code>dhcp-local-server</code> yalnızca burada listelenen arayüzlerde istek dinler. Arayüzü eklemeyi unutmak, havuz doğru olsa bile hiçbir istemcinin IP alamaması demektir.', label: 'Arayüz', type: 'text', required: true, placeholder: 'ge-0/0/1', hint: 'DHCP local server arayüzü' },
+                        { name: 'gbl_ip', why: "Arayüz adresi, istemcilere verilecek gateway ile aynı subnet'te olmalıdır; DHCP sunucu hangi havuzu kullanacağına bu adrese bakarak karar verir.", label: 'Arayüz IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '192.168.2.1/24', hint: 'Arayüz IP adresi (CIDR)' }
                     ]
                 },
                 {
@@ -214,9 +214,9 @@ Juniper.dhcp = {
                     icon: 'fas fa-arrows-alt-h',
                     showFor: ['relay'],
                     fields: [
-                        { name: 'relay_iface', label: 'Relay Arayüzü', type: 'text', required: true, placeholder: 'ge-0/0/1', hint: 'İstemci tarafındaki arayüz' },
-                        { name: 'relay_server', label: 'Relay Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.10.10.1', hint: 'Harici DHCP sunucu IP adresi' },
-                        { name: 'relay_vrf', label: 'VRF', type: 'text', optional: true, placeholder: 'blue', hint: 'VRF adı (opsiyonel)' }
+                        { name: 'relay_iface', why: 'Relay, istemci tarafındaki arayüzde çalışır; yanlış arayüzde broadcast DISCOVER paketleri hiç yakalanmaz. Aynı arayüzde relay ile local-server birlikte kullanılamaz.', label: 'Relay Arayüzü', type: 'text', required: true, placeholder: 'ge-0/0/1', hint: 'İstemci tarafındaki arayüz' },
+                        { name: 'relay_server', why: "Harici DHCP sunucusunun adresi. Sunucu tarafında bu cihazın relay (giaddr) adresine dönüş route'u yoksa DISCOVER gider ama OFFER geri dönmez.", label: 'Relay Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.10.10.1', hint: 'Harici DHCP sunucu IP adresi' },
+                        { name: 'relay_vrf', why: "Sunucu farklı bir routing-instance içindeyse relay'i o VRF'te tanımlamalısınız; VRF izolasyonu nedeniyle global tabloda tanımlı relay o sunucuya asla ulaşamaz.", label: 'VRF', type: 'text', optional: true, placeholder: 'blue', hint: 'VRF adı (opsiyonel)' }
                     ]
                 }
             ],
@@ -278,19 +278,19 @@ Juniper.acl = {
                     title: 'Filter Tanımı',
                     icon: 'fas fa-tag',
                     fields: [
-                        { name: 'filter_name', label: 'Filter Adı', type: 'text', required: true, placeholder: 'block-telnet', hint: 'Firewall filter adı' },
-                        { name: 'term_name', label: 'Term Adı', type: 'text', required: true, placeholder: 'term-10', hint: 'Filter term adı' }
+                        { name: 'filter_name', why: 'Firewall filter adı. Filtre bir arayüze uygulanmadığı sürece sadece konfigde durur ve hiçbir etkisi olmaz — yazıp uygulamayı unutmak en sık yanılgıdır.', label: 'Filter Adı', type: 'text', required: true, placeholder: 'block-telnet', hint: 'Firewall filter adı' },
+                        { name: 'term_name', why: "Term'ler <b>yazıldıkları sırayla</b> değerlendirilir ve ilk eşleşen kazanır. Genel bir term'i yukarı koyarsanız altındaki özel term'ler hiç çalışmaz; doğru konuma almak için <code>insert</code> komutunu kullanın.", label: 'Term Adı', type: 'text', required: true, placeholder: 'term-10', hint: 'Filter term adı' }
                     ]
                 },
                 {
                     title: 'Kaynak',
                     icon: 'fas fa-arrow-right',
                     fields: [
-                        { name: 'src', label: 'Kaynak', type: 'select', options: [
+                        { name: 'src', why: 'Kaynak eşleşmesi. <code>any</code> bırakmak filtreyi kendi yönetim trafiğinizi de kapsayacak kadar genişletir; uzaktan bağlıyken <code>commit confirmed</code> ile deneyin.', label: 'Kaynak', type: 'select', options: [
                             { value: 'any', label: 'any', selected: true },
                             { value: 'specific', label: 'Belirli IP/Prefix' }
                         ]},
-                        { name: 'src_ip', label: 'Kaynak IP / Prefix', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.0/24', hint: '"Belirli IP/Prefix" seçilirse doldur' }
+                        { name: 'src_ip', why: 'Prefix uzunluğu eşleşmenin kapsamını belirler: /32 tek host, /24 tüm subnet. Maskeyi geniş yazmak filtreyi beklediğinizden çok daha fazla trafiğe uygular.', label: 'Kaynak IP / Prefix', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.0/24', hint: '"Belirli IP/Prefix" seçilirse doldur' }
                     ]
                 },
                 {
@@ -298,33 +298,33 @@ Juniper.acl = {
                     icon: 'fas fa-exchange-alt',
                     showFor: ['extended'],
                     fields: [
-                        { name: 'proto', label: 'Protokol', type: 'select', options: [
+                        { name: 'proto', why: "Protokol seçimi port eşleşmesini de belirler: <code>icmp</code> seçildiğinde port alanları anlamsızdır, TCP yerine UDP yazmak ise term'in hiç eşleşmemesine yol açar.", label: 'Protokol', type: 'select', options: [
                             { value: 'tcp', label: 'TCP', selected: true },
                             { value: 'udp', label: 'UDP' },
                             { value: 'icmp', label: 'ICMP' },
                             { value: 'ip', label: 'IP' }
                         ]},
-                        { name: 'dst', label: 'Hedef', type: 'select', options: [
+                        { name: 'dst', why: "Hedefi <code>any</code> bırakmak term'i çok geniş yapar. İlk eşleşen term kazandığı için geniş bir term, altındaki tüm özel term'leri ölü koda çevirir.", label: 'Hedef', type: 'select', options: [
                             { value: 'any', label: 'any', selected: true },
                             { value: 'specific', label: 'Belirli IP/Prefix' }
                         ]},
-                        { name: 'dst_ip', label: 'Hedef IP / Prefix', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.1/32', hint: '"Belirli IP/Prefix" seçilirse doldur' },
-                        { name: 'src_port', label: 'Kaynak Port', type: 'text', validate: 'port', optional: true, placeholder: 'any veya 80', hint: 'TCP/UDP kaynak port (any veya numara)' },
-                        { name: 'dst_port', label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: 'any veya 443', hint: 'TCP/UDP hedef port (any veya numara)' },
-                        { name: 'icmp_type', label: 'ICMP Tipi', type: 'text', optional: true, placeholder: 'echo-request', hint: 'Protokol ICMP ise ICMP tip adı' }
+                        { name: 'dst_ip', why: "Hedef prefix'i geniş yazmak (ör. /24), tek sunucuya uyguladığınızı sandığınız kuralı tüm subnet'e uygular; host için <code>/32</code> kullanın.", label: 'Hedef IP / Prefix', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.1/32', hint: '"Belirli IP/Prefix" seçilirse doldur' },
+                        { name: 'src_port', why: 'Kaynak port çoğu istemcide rastgele yüksek porttur; kaynak porta göre filtrelemek genellikle hatalıdır ve kuralın hiç eşleşmemesine yol açar.', label: 'Kaynak Port', type: 'text', validate: 'port', optional: true, placeholder: 'any veya 80', hint: 'TCP/UDP kaynak port (any veya numara)' },
+                        { name: 'dst_port', why: 'Servisi belirleyen alan hedef porttur. Firewall filter <b>stateless</b> olduğu için dönüş trafiği ayrı bir term ile ele alınmalıdır — sadece gidiş yönünü yazmak bağlantıyı tek yönlü kırar.', label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: 'any veya 443', hint: 'TCP/UDP hedef port (any veya numara)' },
+                        { name: 'icmp_type', why: "ICMP'yi komple kapatmak PMTU discovery'yi bozar ve büyük paketlerin sessizce düşmesine yol açar. <code>echo-request</code> dışında <code>unreachable</code> ve <code>fragmentation-needed</code> tiplerine izin vermeyi unutmayın.", label: 'ICMP Tipi', type: 'text', optional: true, placeholder: 'echo-request', hint: 'Protokol ICMP ise ICMP tip adı' }
                     ]
                 },
                 {
                     title: 'Eylem & Uygulama',
                     icon: 'fas fa-check-circle',
                     fields: [
-                        { name: 'action', label: 'Eylem', type: 'select', options: [
+                        { name: 'action', why: "<b>discard</b> paketi sessizce atar, <b>reject</b> ICMP unreachable döner — sorun giderirken bu fark kritiktir. Filtrenin sonunda <b>gizli varsayılan reddetme</b> vardır: SSH, BGP ve OSPF için accept term'i yoksa cihaza erişiminizi kaybedersiniz.", label: 'Eylem', type: 'select', options: [
                             { value: 'accept', label: 'Accept (Permit)', selected: true },
                             { value: 'discard', label: 'Discard (Deny)' },
                             { value: 'reject', label: 'Reject (ICMP unreachable)' }
                         ]},
-                        { name: 'apply_iface', label: 'Uygulama Arayüzü', type: 'text', optional: true, placeholder: 'ge-0/0/0', hint: 'Filtreyi uygulayacak arayüz (opsiyonel)' },
-                        { name: 'apply_dir', label: 'Uygulama Yönü', type: 'select', options: [
+                        { name: 'apply_iface', why: 'Filtre bir arayüze uygulanmadan hiçbir şey yapmaz. <code>lo0</code> üzerine uygulanan filtre cihazın kendi kontrol düzlemini korur — oraya yanlış filtre koymak tüm yönetim erişimini bitirir.', label: 'Uygulama Arayüzü', type: 'text', optional: true, placeholder: 'ge-0/0/0', hint: 'Filtreyi uygulayacak arayüz (opsiyonel)' },
+                        { name: 'apply_dir', why: '<b>input</b> arayüze giren, <b>output</b> çıkan trafiği süzer. Yönü ters seçmek filtrenin hiç eşleşmemesine yol açar; filtre stateless olduğu için dönüş trafiğini ayrıca düşünmeniz gerekir.', label: 'Uygulama Yönü', type: 'select', options: [
                             { value: 'input', label: 'Input', selected: true },
                             { value: 'output', label: 'Output' }
                         ]}
@@ -396,21 +396,21 @@ JuniperMX.interface = {
                     title: 'Arayüz',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', label: 'Interface', type: 'text', required: true, placeholder: 'xe-0/0/0', hint: 'Fiziksel arayüz adı (ör: xe-0/0/0, ge-0/0/0)' },
-                        { name: 'unit', label: 'Unit', type: 'text', required: true, placeholder: '0', hint: 'Logical unit numarası (genellikle 0)' },
-                        { name: 'desc', label: 'Açıklama', type: 'text', optional: true, placeholder: 'To-Provider-PE1', hint: 'Arayüz açıklaması' },
-                        { name: 'ip', label: 'IP Adresi / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi' }
+                        { name: 'iface', why: "JunOS'ta fiziksel arayüz adı yuva/PIC/port düzenini taşır (<code>ge-0/0/1</code>) ve konfigin etkili olması için mutlaka bir logical unit (<code>.0</code>) gerekir. Var olmayan arayüz adı commit'te hata vermeyebilir, sadece sessizce çalışmaz.", label: 'Interface', type: 'text', required: true, placeholder: 'xe-0/0/0', hint: 'Fiziksel arayüz adı (ör: xe-0/0/0, ge-0/0/0)' },
+                        { name: 'unit', why: "JunOS'ta adres fiziksel arayüze değil <b>logical unit</b>'e yazılır ve etiketsiz arayüzlerde unit her zaman <code>0</code> olmalıdır. Tagging açık değilken 0 dışında unit vermek commit hatası verir.", label: 'Unit', type: 'text', required: true, placeholder: '0', hint: 'Logical unit numarası (genellikle 0)' },
+                        { name: 'desc', why: 'Trafiği etkilemez ama <code>show interfaces descriptions</code> çıktısında görünür. Portun hangi devreye gittiğinin bilinmemesi, sahada yanlış kablo çekilmesinin bir numaralı sebebidir.', label: 'Açıklama', type: 'text', optional: true, placeholder: 'To-Provider-PE1', hint: 'Arayüz açıklaması' },
+                        { name: 'ip', why: "Adres, logical unit altında <code>family inet</code> içine yazılır. Aynı unit'e ikinci adres eklerseniz JunOS ikisini birden tutar; eskisini gerçekten kaldırmak için <code>delete</code> gerekir — yeni adresi <code>set</code> etmek eskisini silmez.", label: 'IP Adresi / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi' }
                     ]
                 },
                 {
                     title: 'Gelişmiş Ayarlar',
                     icon: 'fas fa-cogs',
                     fields: [
-                        { name: 'mpls_en', label: 'MPLS Etkinleştir', type: 'select', options: [
+                        { name: 'mpls_en', why: 'Etiketli paketin geçebilmesi için hem arayüzde <code>family mpls</code> hem de <code>protocols mpls</code> altında arayüz tanımı gerekir. Biri eksikse LDP komşuluğu kurulur ama LSP trafiği sessizce düşer.', label: 'MPLS Etkinleştir', type: 'select', options: [
                             { value: 'yes', label: 'Evet', selected: true },
                             { value: 'no', label: 'Hayır' }
                         ]},
-                        { name: 'mtu', label: 'MTU', type: 'text', optional: true, placeholder: '9192', hint: 'Interface MTU (opsiyonel, ör: 9192 jumbo)' }
+                        { name: 'mtu', why: "JunOS'ta arayüz MTU'su L2 başlığı dahil sayılır; komşuyla eşit değilse OSPF komşuluğu ExStart'ta takılır. MPLS/VXLAN gibi ek başlık ekleyen tasarımlarda payload için fazladan alan bırakın.", label: 'MTU', type: 'text', optional: true, placeholder: '9192', hint: 'Interface MTU (opsiyonel, ör: 9192 jumbo)' }
                     ]
                 }
             ],
@@ -447,17 +447,17 @@ JuniperMX.ospf = {
                     title: 'OSPF Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'OSPF Router-ID (genellikle loopback IP)' },
-                        { name: 'area', label: 'Area', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0' }
+                        { name: 'router_id', why: 'Router-ID protokollerde cihazın kimliğidir ve çakışması komşuluğun kurulup sürekli kopmasına yol açar. Loopback adresi verin: fiziksel arayüzden türetilen ID, o arayüz düştüğünde değişir ve tüm oturumları sıfırlar.', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'OSPF Router-ID (genellikle loopback IP)' },
+                        { name: 'area', why: "Backbone <code>0.0.0.0</code> olmalı ve tüm alanlar ona komşu olmalıdır. Linkin iki ucunun farklı area'da olması komşuluğun hiç kurulmamasına neden olur — link up görünür, komşu yoktur.", label: 'Area', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0' }
                     ]
                 },
                 {
                     title: 'Interface Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'interfaces', label: 'Interface(ler)', type: 'text', required: true, placeholder: 'xe-0/0/0.0, lo0.0', hint: 'Virgülle ayrılmış OSPF arayüzleri' },
-                        { name: 'lo_iface', label: 'Loopback (passive)', type: 'text', optional: true, placeholder: 'lo0.0', hint: 'Passive olarak işaretlenecek loopback arayüzü' },
-                        { name: 'auth_key', label: 'Authentication Key', type: 'text', optional: true, placeholder: 'ospf-secret', hint: 'MD5 authentication şifresi (opsiyonel)' }
+                        { name: 'interfaces', why: "OSPF yalnızca burada listelenen arayüzlerde çalışır. Loopback'i eklemeyi unutmak router-ID prefix'inin duyurulmamasına, dolayısıyla iBGP ve LDP'nin loopback'e ulaşamamasına yol açar.", label: 'Interface(ler)', type: 'text', required: true, placeholder: 'xe-0/0/0.0, lo0.0', hint: 'Virgülle ayrılmış OSPF arayüzleri' },
+                        { name: 'lo_iface', why: "Loopback'i <b>passive</b> işaretlemek prefix'i duyurur ama üzerinde komşuluk aramaz. Passive yapılmayan kullanıcı/yönetim arayüzleri ise güvenilmeyen tarafa OSPF paketi yayar ve sahte komşu kabul edebilir.", label: 'Loopback (passive)', type: 'text', optional: true, placeholder: 'lo0.0', hint: 'Passive olarak işaretlenecek loopback arayüzü' },
+                        { name: 'auth_key', why: "İki uçta anahtar veya tip farklıysa komşuluk sessizce kurulmaz, log'da yalnızca authentication mismatch görünür. Anahtar konfigde şifreli görünse de geri çözülebilir; tek güvenlik katmanı sayılmamalıdır.", label: 'Authentication Key', type: 'text', optional: true, placeholder: 'ospf-secret', hint: 'MD5 authentication şifresi (opsiyonel)' }
                     ]
                 }
             ],
@@ -495,22 +495,22 @@ JuniperMX.bgp = {
                     title: 'BGP Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'local_as', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'BGP Router-ID (genellikle loopback IP)' }
+                        { name: 'local_as', why: 'Yerel AS numarası iBGP/eBGP ayrımını belirler. Karşı tarafın beklediği AS ile farklıysa OPEN mesajında bad peer AS hatası alınır ve oturum sürekli Active/Connect arasında gidip gelir.', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
+                        { name: 'router_id', why: 'Router-ID protokollerde cihazın kimliğidir ve çakışması komşuluğun kurulup sürekli kopmasına yol açar. Loopback adresi verin: fiziksel arayüzden türetilen ID, o arayüz düştüğünde değişir ve tüm oturumları sıfırlar.', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'BGP Router-ID (genellikle loopback IP)' }
                     ]
                 },
                 {
                     title: 'Peer Ayarları',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
-                        { name: 'peer_as', label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
-                        { name: 'peer_group', label: 'Peer Group Adı', type: 'text', required: true, placeholder: 'IBGP_PEERS', hint: 'BGP peer group adı' },
-                        { name: 'bgp_type', label: 'BGP Tipi', type: 'select', options: [
+                        { name: 'peer_ip', why: "BGP komşusunun adresi. Komşunun gördüğü kaynak adres ile burada yazdığınız adres birebir aynı olmalı; loopback üzerinden iBGP kuruyorsanız ayrıca <code>local-address</code> gerekir, yoksa oturum Idle'da kalır.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
+                        { name: 'peer_as', why: "Komşunun AS numarası eBGP/iBGP davranışını belirler: aynı AS ise öğrenilen route'lar diğer iBGP komşulara duyurulmaz (full-mesh veya route-reflector gerekir). Yanlış AS oturumu hiç kurdurmaz.", label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
+                        { name: 'peer_group', why: "JunOS'ta komşular mutlaka bir <code>group</code> altında tanımlanır ve tip/policy ayarları gruptan miras alınır. Farklı politikaya ihtiyacı olan peer'ı aynı gruba koymak ona da grubun export policy'sini uygular.", label: 'Peer Group Adı', type: 'text', required: true, placeholder: 'IBGP_PEERS', hint: 'BGP peer group adı' },
+                        { name: 'bgp_type', why: "<b>internal</b> (iBGP) öğrenilen route'ları diğer iBGP komşulara duyurmaz; bu yüzden full-mesh ya da route-reflector şarttır. Tip ile AS numaralarının tutarsız olması oturumu hiç kurdurmaz.", label: 'BGP Tipi', type: 'select', options: [
                             { value: 'internal', label: 'iBGP', selected: true },
                             { value: 'external', label: 'eBGP' }
                         ]},
-                        { name: 'vpnv4', label: 'VPNv4 (L3VPN için)', type: 'select', options: [
+                        { name: 'vpnv4', why: "L3VPN için <code>family inet-vpn unicast</code> ayrıca açılmalıdır; sadece IPv4 unicast açık bir iBGP oturumu VRF route'larını hiç taşımaz. İki PE'de de aynı family açık olmalı, yoksa oturum family mismatch ile reset olur.", label: 'VPNv4 (L3VPN için)', type: 'select', options: [
                             { value: 'no', label: 'Hayır', selected: true },
                             { value: 'yes', label: 'Evet' }
                         ]}
@@ -557,9 +557,9 @@ JuniperMX.mpls = {
                     title: 'MPLS & LDP Arayüzleri',
                     icon: 'fas fa-random',
                     fields: [
-                        { name: 'mpls_ifaces', label: 'MPLS Interface(ler)', type: 'text', required: true, placeholder: 'xe-0/0/0.0, xe-0/0/1.0', hint: 'Virgülle ayrılmış MPLS arayüzleri' },
-                        { name: 'ldp_ifaces', label: 'LDP Interface(ler)', type: 'text', required: true, placeholder: 'xe-0/0/0.0, xe-0/0/1.0', hint: 'Virgülle ayrılmış LDP arayüzleri' },
-                        { name: 'router_id', label: 'Router ID (LDP Transport)', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'LDP transport-address (genellikle loopback IP)' }
+                        { name: 'mpls_ifaces', why: "Arayüz <code>protocols mpls</code> altında listelenmezse etiketli paket o arayüzden geçmez. Core arayüzlerden birini atlamak LSP'nin sessizce kurulmamasına yol açar.", label: 'MPLS Interface(ler)', type: 'text', required: true, placeholder: 'xe-0/0/0.0, xe-0/0/1.0', hint: 'Virgülle ayrılmış MPLS arayüzleri' },
+                        { name: 'ldp_ifaces', why: 'LDP komşuluğu yalnızca listelenen arayüzlerde kurulur; <code>lo0.0</code> genelde transport adresi için eklenir. LDP açık ama MPLS ailesi kapalıysa oturum kurulur, trafik akmaz.', label: 'LDP Interface(ler)', type: 'text', required: true, placeholder: 'xe-0/0/0.0, xe-0/0/1.0', hint: 'Virgülle ayrılmış LDP arayüzleri' },
+                        { name: 'router_id', why: 'Router-ID protokollerde cihazın kimliğidir ve çakışması komşuluğun kurulup sürekli kopmasına yol açar. Loopback adresi verin: fiziksel arayüzden türetilen ID, o arayüz düştüğünde değişir ve tüm oturumları sıfırlar.', label: 'Router ID (LDP Transport)', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'LDP transport-address (genellikle loopback IP)' }
                     ]
                 }
             ],
@@ -594,19 +594,19 @@ JuniperMX.l3vpn = {
                     title: 'VRF Tanımı',
                     icon: 'fas fa-layer-group',
                     fields: [
-                        { name: 'vrf_name', label: 'VRF Adı', type: 'text', required: true, placeholder: 'CUST_A', hint: 'Routing instance (VRF) adı' },
-                        { name: 'rd', label: 'Route Distinguisher', type: 'text', validate: 'rd', required: true, placeholder: '65001:100', hint: 'ASN:NN formatında RD' },
-                        { name: 'rt_import', label: 'Route Target Import', type: 'text', validate: 'rt', required: true, placeholder: '65001:100', hint: 'Import community' },
-                        { name: 'rt_export', label: 'Route Target Export', type: 'text', validate: 'rt', required: true, placeholder: '65001:100', hint: 'Export community' }
+                        { name: 'vrf_name', why: "Routing instance adı VRF'i tanımlar ve tam izolasyon sağlar: global tablodaki route'lar buraya sızmaz. Arayüzü VRF'e taşıdığınız anda global tablodan çıkar — yönetim arayüzünü yanlışlıkla VRF'e almak klasik erişim kaybı sebebidir.", label: 'VRF Adı', type: 'text', required: true, placeholder: 'CUST_A', hint: 'Routing instance (VRF) adı' },
+                        { name: 'rd', why: "RD, aynı prefix'in farklı müşterilerde çakışmasını önlemek için route'u benzersizleştirir ve her VRF'te farklı olmalıdır. RD tek başına route sızdırmayı kontrol etmez — onu yapan route-target'tır.", label: 'Route Distinguisher', type: 'text', validate: 'rd', required: true, placeholder: '65001:100', hint: 'ASN:NN formatında RD' },
+                        { name: 'rt_import', why: "Bu VRF'in hangi route-target'lı route'ları kabul edeceğini belirler. Hub-spoke tasarımda import/export'u simetrik yazmak, izole olması gereken spoke'ların birbirini görmesine yol açar.", label: 'Route Target Import', type: 'text', validate: 'rt', required: true, placeholder: '65001:100', hint: 'Import community' },
+                        { name: 'rt_export', why: "Bu VRF'ten duyurulan route'lara eklenen community. Karşı PE'nin import ettiği değerle eşleşmezse route BGP tablosunda görünür ama VRF'e hiç yüklenmez.", label: 'Route Target Export', type: 'text', validate: 'rt', required: true, placeholder: '65001:100', hint: 'Export community' }
                     ]
                 },
                 {
                     title: 'CE Interface',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'ce_iface', label: 'CE Interface', type: 'text', required: true, placeholder: 'xe-0/1/0.100', hint: 'Müşteri tarafı arayüzü' },
-                        { name: 'ce_ip', label: 'CE IP / Prefix', type: 'text', required: true, placeholder: '10.1.1.1/30', hint: 'CE-PE link IP adresi (CIDR)' },
-                        { name: 'ce_as', label: 'CE BGP AS', type: 'text', validate: 'asn', optional: true, placeholder: '65100', hint: 'CE-PE BGP için CE AS numarası (opsiyonel)' }
+                        { name: 'ce_iface', why: "Müşteri bacağı arayüzü VRF'e atandığı anda global tablodan çıkar. Alt arayüz (ör. <code>.100</code>) kullanıyorsanız VLAN tagging açık olmalı, yoksa unit adres almaz.", label: 'CE Interface', type: 'text', required: true, placeholder: 'xe-0/1/0.100', hint: 'Müşteri tarafı arayüzü' },
+                        { name: 'ce_ip', why: "PE-CE link adresi VRF içinde connected route olarak görünür. İki müşteride aynı adres kullanılması sorun değildir — izolasyonu sağlayan VRF'tir.", label: 'CE IP / Prefix', type: 'text', required: true, placeholder: '10.1.1.1/30', hint: 'CE-PE link IP adresi (CIDR)' },
+                        { name: 'ce_as', why: "Aynı CE AS numarası farklı sahalarda tekrarlanıyorsa route'lar AS-path loop sayılıp reddedilir; bu durumda <code>as-override</code> ya da <code>loops</code> ayarı gerekir.", label: 'CE BGP AS', type: 'text', validate: 'asn', optional: true, placeholder: '65100', hint: 'CE-PE BGP için CE AS numarası (opsiyonel)' }
                     ]
                 }
             ],
@@ -659,12 +659,12 @@ Juniper.lag = {
                     title: 'AE Interface',
                     icon: 'fas fa-link',
                     fields: [
-                        { name: 'ae_id', label: 'AE Interface ID', type: 'text', required: true, placeholder: '0', hint: 'ae arayüzü numarası (ör: 0 → ae0)' },
-                        { name: 'lacp_mode', label: 'LACP Mod', type: 'select', options: [
+                        { name: 'ae_id', why: '<code>ae0</code> gibi bir toplu arayüz oluşturur. Ayrıca <code>chassis aggregated-devices ethernet device-count</code> değerinin yeterli olması gerekir; değilse arayüz hiç oluşmaz ve konfig boş yere durur.', label: 'AE Interface ID', type: 'text', required: true, placeholder: '0', hint: 'ae arayüzü numarası (ör: 0 → ae0)' },
+                        { name: 'lacp_mode', why: "<b>active</b> taraf LACP paketini başlatır; iki uç da passive ise pazarlık hiç başlamaz ve link bundle'a katılmaz. LACP tamamen kapalıysa kablolama hatası tespit edilemez ve trafik kara deliğe gider.", label: 'LACP Mod', type: 'select', options: [
                             { value: 'active', label: 'Active', selected: true },
                             { value: 'passive', label: 'Passive' }
                         ]},
-                        { name: 'members', label: 'Üye Interface(ler)', type: 'text', required: true, placeholder: 'xe-0/0/0, xe-0/0/1', hint: 'Virgülle ayrılmış fiziksel arayüzler' }
+                        { name: 'members', why: "Üye portların hızı ve dupleksi aynı olmalıdır; farklı hızda port eklemek bazı platformlarda bundle'ı komple reddettirir. Üye eklemeden önce portun eski adres/VLAN konfigini <code>delete</code> edin, aksi halde commit hata verir.", label: 'Üye Interface(ler)', type: 'text', required: true, placeholder: 'xe-0/0/0, xe-0/0/1', hint: 'Virgülle ayrılmış fiziksel arayüzler' }
                     ]
                 },
                 {
@@ -672,8 +672,8 @@ Juniper.lag = {
                     icon: 'fas fa-cogs',
                     info: 'Routed IP veya L2 Trunk moddan birini doldurun; ikisi birden kullanılmaz.',
                     fields: [
-                        { name: 'ae_ip', label: 'AE IP (routed ise)', type: 'text', optional: true, placeholder: '10.0.0.1/30', hint: 'Layer 3 routed mod için IP adresi (CIDR)' },
-                        { name: 'vlans', label: 'Trunk VLAN\'lar (L2 ise)', type: 'text', optional: true, placeholder: '10 20 100', hint: 'Boşluk/virgülle ayrılmış VLAN listesi (L2 trunk mod)' }
+                        { name: 'ae_ip', why: "Layer 3 modda adres <code>ae0.0</code> üzerine yazılır, üye fiziksel portlara değil. Fiziksel portta adres bırakmak commit'i reddettirir.", label: 'AE IP (routed ise)', type: 'text', optional: true, placeholder: '10.0.0.1/30', hint: 'Layer 3 routed mod için IP adresi (CIDR)' },
+                        { name: 'vlans', why: "L2 trunk modda taşınacak VLAN listesi. İki uçtaki liste farklıysa eksik VLAN'ların trafiği tek yönlü kaybolur ve arıza aralıklı gibi görünerek teşhisi zorlaştırır.", label: 'Trunk VLAN\'lar (L2 ise)', type: 'text', optional: true, placeholder: '10 20 100', hint: 'Boşluk/virgülle ayrılmış VLAN listesi (L2 trunk mod)' }
                     ]
                 }
             ],
@@ -716,17 +716,17 @@ Juniper.mclag = {
                     title: 'ICCP Ayarları',
                     icon: 'fas fa-link',
                     fields: [
-                        { name: 'local_ip', label: 'ICCP Local IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.255.1', hint: 'Bu cihazın ICCP IP adresi' },
-                        { name: 'peer_ip', label: 'ICCP Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.255.2', hint: 'Karşı cihazın ICCP IP adresi' }
+                        { name: 'local_ip', why: 'ICCP oturumunun yerel adresi; karşı cihazdan yönlendirilebilir olmalıdır. Bu oturumu ICL üzerinden taşımak, ICL koptuğunda hem veri hem kontrol yolunu aynı anda kaybetmek demektir.', label: 'ICCP Local IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.255.1', hint: 'Bu cihazın ICCP IP adresi' },
+                        { name: 'peer_ip', why: "ICCP oturumunun karşı ucu. Bu oturum ayrı bir L3 yol üzerinden kurulmalıdır; ICCP koptuğu halde ICL ayakta kalırsa MC-LAG split-brain'e girip Layer 2 loop üretebilir.", label: 'ICCP Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.255.2', hint: 'Karşı cihazın ICCP IP adresi' }
                     ]
                 },
                 {
                     title: 'MC-LAG Interface',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'sys_id', label: 'LACP System ID', type: 'text', required: true, placeholder: '00:11:22:33:44:55', hint: 'Her iki cihazda aynı LACP system-id (sanal MAC)' },
-                        { name: 'ae_id', label: 'AE Interface ID (MC-LAG)', type: 'text', required: true, placeholder: '10', hint: 'MC-LAG ae arayüzü numarası' },
-                        { name: 'icl_ae', label: 'ICL AE Interface ID', type: 'text', required: true, placeholder: '0', hint: 'Inter-Chassis Link (ICL) ae arayüzü numarası' }
+                        { name: 'sys_id', why: "İki şasi karşı switch'e <b>tek bir cihaz</b> gibi görünmek zorundadır; LACP system-id her iki tarafta birebir aynı olmalıdır. Farklı olursa karşı taraf iki ayrı LAG görür ve loop oluşur.", label: 'LACP System ID', type: 'text', required: true, placeholder: '00:11:22:33:44:55', hint: 'Her iki cihazda aynı LACP system-id (sanal MAC)' },
+                        { name: 'ae_id', why: "MC-LAG'de iki şasideki ae numaraları farklı olabilir ama <b>LACP system-id ve mc-ae id</b> aynı olmalıdır. Uyuşmazsa karşı switch iki ayrı LAG görür ve Layer 2 loop oluşur.", label: 'AE Interface ID (MC-LAG)', type: 'text', required: true, placeholder: '10', hint: 'MC-LAG ae arayüzü numarası' },
+                        { name: 'icl_ae', why: "ICL, üyelerden biri düştüğünde trafiğin diğer şasiye geçtiği yoldur ve MAC senkronizasyonunu taşır. Tek fiziksel link bırakmak ICL'i tekil arıza noktasına çevirir.", label: 'ICL AE Interface ID', type: 'text', required: true, placeholder: '0', hint: 'Inter-Chassis Link (ICL) ae arayüzü numarası' }
                     ]
                 }
             ],
@@ -766,25 +766,25 @@ Juniper.evpnvxlan = {
                     title: 'VNI & VLAN',
                     icon: 'fas fa-layer-group',
                     fields: [
-                        { name: 'vni', label: 'VNI', type: 'text', validate: 'vni', required: true, placeholder: '10100', hint: 'VXLAN Network Identifier' },
-                        { name: 'vlan_id', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: 'VNI ile eşlenecek VLAN ID' }
+                        { name: 'vni', why: "VNI, VXLAN'ın ağ kimliğidir ve aynı VLAN için tüm VTEP'lerde aynı olmalıdır. Bir uçta farklı VNI kullanmak tüneli kurdurur ama trafiği hiç eşleştirmez.", label: 'VNI', type: 'text', validate: 'vni', required: true, placeholder: '10100', hint: 'VXLAN Network Identifier' },
+                        { name: 'vlan_id', why: "VLAN etiketi (1–4094). Karşı switch'te farklı ID kullanılırsa link yine up görünür ama trafik sessizce düşer; IRB unit numarasını VLAN ID ile eşleştirmek teşhisi kolaylaştırır.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: 'VNI ile eşlenecek VLAN ID' }
                     ]
                 },
                 {
                     title: 'VTEP (Loopback)',
                     icon: 'fas fa-circle',
                     fields: [
-                        { name: 'lo_iface', label: 'VTEP Loopback', type: 'text', required: true, placeholder: 'lo0.0', hint: 'VTEP kaynak arayüzü (loopback)' },
-                        { name: 'vtep_ip', label: 'VTEP IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1/32', hint: 'Loopback IP adresi (CIDR)' }
+                        { name: 'lo_iface', why: "VTEP kaynağı loopback olmalıdır; fiziksel arayüz kullanmak, o link düştüğünde tüm VXLAN tünellerinin kopması demektir. Bu loopback underlay'de duyurulmazsa uzak VTEP'ler birbirini hiç bulamaz.", label: 'VTEP Loopback', type: 'text', required: true, placeholder: 'lo0.0', hint: 'VTEP kaynak arayüzü (loopback)' },
+                        { name: 'vtep_ip', why: "VTEP kaynak adresi <code>/32</code> olmalı ve underlay'de duyurulmalıdır. Uzak VTEP bu adrese ulaşamıyorsa EVPN route'ları görünse bile veri düzleminde tek paket geçmez.", label: 'VTEP IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1/32', hint: 'Loopback IP adresi (CIDR)' }
                     ]
                 },
                 {
                     title: 'BGP EVPN',
                     icon: 'fas fa-route',
                     fields: [
-                        { name: 'bgp_as', label: 'BGP AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel AS numarası' },
-                        { name: 'rd', label: 'Route Distinguisher', type: 'text', validate: 'rd', required: true, placeholder: '10.0.0.1:100', hint: 'EVPN routing instance RD' },
-                        { name: 'rt', label: 'Route Target', type: 'text', validate: 'rt', required: true, placeholder: 'target:65001:100', hint: 'EVPN VNI route target' }
+                        { name: 'bgp_as', why: "EVPN kontrol düzlemi BGP üzerinde çalışır. AS tasarımı yanlışsa (iBGP'de route-reflector yoksa) VTEP'ler birbirinin MAC route'larını hiç görmez, tüneller boş kalır.", label: 'BGP AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel AS numarası' },
+                        { name: 'rd', why: "RD, aynı prefix'in farklı müşterilerde çakışmasını önlemek için route'u benzersizleştirir ve her VRF'te farklı olmalıdır. RD tek başına route sızdırmayı kontrol etmez — onu yapan route-target'tır.", label: 'Route Distinguisher', type: 'text', validate: 'rd', required: true, placeholder: '10.0.0.1:100', hint: 'EVPN routing instance RD' },
+                        { name: 'rt', why: "Route-target, VNI'ye hangi route'ların yükleneceğini belirler. Otomatik türetme kullanılmıyorsa tüm leaf'lerde aynı değer yazılmalı; tek cihazda farklı yazmak o cihazı sessizce ağdan izole eder.", label: 'Route Target', type: 'text', validate: 'rt', required: true, placeholder: 'target:65001:100', hint: 'EVPN VNI route target' }
                     ]
                 }
             ],
@@ -826,11 +826,11 @@ JuniperMX.bfd = {
                     title: 'BFD Parametreleri',
                     icon: 'fas fa-heartbeat',
                     fields: [
-                        { name: 'neighbor', label: 'Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BFD komşu IP adresi' },
-                        { name: 'local_addr', label: 'Local Address', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Yerel BFD kaynak IP adresi' },
-                        { name: 'min_interval', label: 'Min Interval (ms)', type: 'text', required: true, placeholder: '300', hint: 'Minimum BFD hello aralığı (ms)' },
-                        { name: 'multiplier', label: 'Multiplier', type: 'text', required: true, placeholder: '3', hint: 'Kaç hello miss sonrası failure kabul edilsin' },
-                        { name: 'session_mode', label: 'Session Mode', type: 'select', options: [
+                        { name: 'neighbor', why: "BFD oturumu iki uçta da yapılandırılmalıdır; tek taraflı konfig oturumu Down'da bırakır. Adres, üzerinde çalıştığı protokolün (OSPF/BGP) kullandığı komşu adresiyle aynı olmalıdır.", label: 'Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BFD komşu IP adresi' },
+                        { name: 'local_addr', why: 'BFD paketlerinin kaynak adresi. Multihop senaryolarda yanlış kaynak adres karşı tarafta eşleşmez ve oturum sürekli flap ederek üzerindeki protokolü de düşürür.', label: 'Local Address', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Yerel BFD kaynak IP adresi' },
+                        { name: 'min_interval', why: "Çok agresif değerler (ör. 50 ms) kontrol düzlemi yoğunken yanlış pozitif arıza algısına ve protokol flap'ine yol açar. Platformun donanım destekli BFD sunup sunmadığını bilmeden 300 ms altına inmeyin.", label: 'Min Interval (ms)', type: 'text', required: true, placeholder: '300', hint: 'Minimum BFD hello aralığı (ms)' },
+                        { name: 'multiplier', why: 'Algılama süresi = interval × multiplier. Çok düşük değer tek paket kaybında linki down sayar; çok yüksek değer ise BFD kullanmanın amacını ortadan kaldırır.', label: 'Multiplier', type: 'text', required: true, placeholder: '3', hint: 'Kaç hello miss sonrası failure kabul edilsin' },
+                        { name: 'session_mode', why: 'Single-hop doğrudan bağlı komşular içindir; loopback üzerinden kurulan iBGP gibi oturumlarda <b>multihop</b> gerekir. Yanlış mod seçimi oturumun asla Up olmamasıyla sonuçlanır.', label: 'Session Mode', type: 'select', options: [
                             { value: 'automatic', label: 'automatic', selected: true },
                             { value: 'multihop', label: 'multihop' }
                         ]}
@@ -870,10 +870,10 @@ JuniperMX.rsvpte = {
                     title: 'LSP Yapılandırması',
                     icon: 'fas fa-route',
                     fields: [
-                        { name: 'lsp_name', label: 'LSP Adı', type: 'text', required: true, placeholder: 'LSP-TO-PE2', hint: 'Label Switched Path adı' },
-                        { name: 'destination', label: 'Destination (Router ID)', type: 'text', required: true, placeholder: '10.255.0.2', hint: 'Hedef PE Router-ID' },
-                        { name: 'bandwidth', label: 'Bandwidth', type: 'text', required: true, placeholder: '100m', hint: 'Bant genişliği (ör: 100m, 1g)' },
-                        { name: 'primary_path', label: 'Primary Path Adı', type: 'text', required: true, placeholder: 'PATH-DIRECT', hint: 'Birincil yol adı' }
+                        { name: 'lsp_name', why: "LSP adı yalnızca yerel anlamlıdır ama istatistik, policy ve sorun gidermede tek referansınızdır. Aynı adı iki LSP'de kullanmak ikincisinin birincisini ezmesine neden olur.", label: 'LSP Adı', type: 'text', required: true, placeholder: 'LSP-TO-PE2', hint: 'Label Switched Path adı' },
+                        { name: 'destination', why: "Hedef PE'nin router-ID'si olmalıdır; fiziksel arayüz adresi vermek RSVP'nin yolu kuramamasına yol açar. Hedef loopback IGP'de görünmüyorsa LSP Down kalır.", label: 'Destination (Router ID)', type: 'text', required: true, placeholder: '10.255.0.2', hint: 'Hedef PE Router-ID' },
+                        { name: 'bandwidth', why: "Ayrılan bant genişliği gerçek trafiği sınırlamaz, sadece CSPF hesabında rezervasyon yapar. Aşırı rezervasyon, kapasitesi olan linklerde bile LSP'nin kurulamamasına neden olur.", label: 'Bandwidth', type: 'text', required: true, placeholder: '100m', hint: 'Bant genişliği (ör: 100m, 1g)' },
+                        { name: 'primary_path', why: 'Adlandırılmış yol, <code>explicit-path</code> ile hop zorlamak veya yedek yolla karşılaştırmak için kullanılır. Yedek yolun birincisiyle aynı fiziksel güzergâhı paylaşmadığından emin olun, yoksa koruma kâğıt üzerinde kalır.', label: 'Primary Path Adı', type: 'text', required: true, placeholder: 'PATH-DIRECT', hint: 'Birincil yol adı' }
                     ]
                 }
             ],
@@ -909,15 +909,15 @@ JuniperMX.cos = {
                     title: 'Forwarding Class & Scheduler',
                     icon: 'fas fa-tachometer-alt',
                     fields: [
-                        { name: 'forwarding_class', label: 'Forwarding Class Adı', type: 'text', required: true, placeholder: 'voice', hint: 'Trafik sınıfı adı (ör: voice, video, best-effort)' },
-                        { name: 'scheduler_map_name', label: 'Scheduler Map Adı', type: 'text', required: true, placeholder: 'SCH-MAP-EDGE', hint: 'Scheduler map adı' },
-                        { name: 'shaping_rate', label: 'Shaping Rate', type: 'text', required: true, placeholder: '100m', hint: 'Maksimum şekillendirme hızı (ör: 100m, 1g)' },
-                        { name: 'priority', label: 'Priority', type: 'select', options: [
+                        { name: 'forwarding_class', why: "Trafik sınıfı bir kuyruğa eşlenir. JunOS'un varsayılan <b>network-control</b> sınıfı protokol paketlerinin tıkanmada düşmesini önler — yeni şema yazarken onu ezmek OSPF/BGP flap'ine yol açar.", label: 'Forwarding Class Adı', type: 'text', required: true, placeholder: 'voice', hint: 'Trafik sınıfı adı (ör: voice, video, best-effort)' },
+                        { name: 'scheduler_map_name', why: 'Scheduler map arayüze uygulanmadıkça QoS hiçbir şey yapmaz; uygulama <code>class-of-service interfaces</code> altında yapılır. Yanlış arayüze bağlanan map sessizce etkisiz kalır.', label: 'Scheduler Map Adı', type: 'text', required: true, placeholder: 'SCH-MAP-EDGE', hint: 'Scheduler map adı' },
+                        { name: 'shaping_rate', why: 'Şekillendirme, hattın gerçek kapasitesinin biraz altına ayarlanmalıdır; aksi halde kuyruk sizde değil sağlayıcıda oluşur ve önceliklendirme tamamen anlamsızlaşır.', label: 'Shaping Rate', type: 'text', required: true, placeholder: '100m', hint: 'Maksimum şekillendirme hızı (ör: 100m, 1g)' },
+                        { name: 'priority', why: 'Strict-high kuyruk yukarıdan sınırlandırılmazsa diğer tüm sınıfları aç bırakabilir. Sesi strict-high yaparken mutlaka bir transmit-rate veya shaping sınırı koyun.', label: 'Priority', type: 'select', options: [
                             { value: 'high', label: 'high', selected: true },
                             { value: 'medium-high', label: 'medium-high' },
                             { value: 'low', label: 'low' }
                         ]},
-                        { name: 'dscp_match', label: 'DSCP Match', type: 'text', required: true, placeholder: 'ef', hint: 'DSCP code point (ör: ef, af41, cs3, be)' }
+                        { name: 'dscp_match', why: 'Sınıflandırma işaretlere güvenir. Sınır cihazında güvenilmeyen işaretleri yeniden yazmazsanız istemciler kendilerini EF işaretleyip öncelikli kuyruğu ele geçirir.', label: 'DSCP Match', type: 'text', required: true, placeholder: 'ef', hint: 'DSCP code point (ör: ef, af41, cs3, be)' }
                     ]
                 }
             ],
@@ -953,21 +953,21 @@ JuniperMX.routepolicy = {
                     title: 'Prefix-List',
                     icon: 'fas fa-list',
                     fields: [
-                        { name: 'pl_name', label: 'Prefix-List Adı', type: 'text', required: true, placeholder: 'PL-CUSTOMER', hint: 'Prefix listesi adı' },
-                        { name: 'prefix', label: 'Prefix', type: 'text', required: true, placeholder: '192.168.0.0/16 upto /24', hint: 'Prefix ve opsiyonel upto koşulu' }
+                        { name: 'pl_name', why: "Prefix-list, policy içinde yeniden kullanılabilir bir liste sunar. Boş bir prefix-list'e atıfta bulunan term hiçbir şeyle eşleşmez ve sessizce atlanır — policy doğru görünse de çalışmaz.", label: 'Prefix-List Adı', type: 'text', required: true, placeholder: 'PL-CUSTOMER', hint: 'Prefix listesi adı' },
+                        { name: 'prefix', why: "<code>upto</code>, <code>exact</code>, <code>orlonger</code> niteleyicileri eşleşmenin kapsamını tamamen değiştirir: <code>exact</code> alt prefix'leri kaçırır, <code>orlonger</code> ise beklediğinizden çok fazlasını yakalar.", label: 'Prefix', type: 'text', required: true, placeholder: '192.168.0.0/16 upto /24', hint: 'Prefix ve opsiyonel upto koşulu' }
                     ]
                 },
                 {
                     title: 'Policy Statement',
                     icon: 'fas fa-code-branch',
                     fields: [
-                        { name: 'policy_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'POLICY-EXPORT', hint: 'Policy statement adı' },
-                        { name: 'term_name', label: 'Term Adı', type: 'text', required: true, placeholder: 'MATCH-CUSTOMER', hint: 'Policy term adı' },
-                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'policy_name', why: "Policy, tanımlandığı yerde değil uygulandığı yerde (BGP import/export, OSPF export) çalışır. Uygulamayı unutmak, doğru yazılmış bir policy'nin hiçbir etkisi olmaması demektir.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'POLICY-EXPORT', hint: 'Policy statement adı' },
+                        { name: 'term_name', why: "Term'ler <b>yazıldıkları sırayla</b> değerlendirilir ve ilk eşleşen kazanır. Genel bir term'i yukarı koyarsanız altındaki özel term'ler hiç çalışmaz; doğru konuma almak için <code>insert</code> komutunu kullanın.", label: 'Term Adı', type: 'text', required: true, placeholder: 'MATCH-CUSTOMER', hint: 'Policy term adı' },
+                        { name: 'action', why: "Policy term'inde <code>accept</code>/<code>reject</code> değerlendirmeyi bitirir, <code>next term</code> devam ettirir. Hiçbir term eşleşmezse protokolün varsayılan davranışı devreye girer; BGP export'ta bu, route'un hiç duyurulmaması demektir.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'accept', label: 'accept', selected: true },
                             { value: 'reject', label: 'reject' }
                         ]},
-                        { name: 'set_community', label: 'Set Community', type: 'text', optional: true, placeholder: '65001:100', hint: 'BGP community ekle (opsiyonel)' }
+                        { name: 'set_community', why: "Community eklerken <code>set</code> mevcut değerleri ezer, <code>add</code> üzerine ekler. Yanlışını seçmek karşı tarafın filtrelediği bir etiketi silip route'un beklenmedik yerlere yayılmasına yol açar.", label: 'Set Community', type: 'text', optional: true, placeholder: '65001:100', hint: 'BGP community ekle (opsiyonel)' }
                     ]
                 }
             ],
@@ -1007,25 +1007,25 @@ JuniperMX.snmp = {
                     title: 'USM Kullanıcı',
                     icon: 'fas fa-user-shield',
                     fields: [
-                        { name: 'usm_user', label: 'USM User', type: 'text', required: true, placeholder: 'snmp-mx', hint: 'SNMP v3 USM kullanıcı adı' },
-                        { name: 'auth_proto', label: 'Auth Protokol', type: 'select', options: [
+                        { name: 'usm_user', why: 'SNMPv3 kullanıcı adı NMS tarafındaki tanımla birebir aynı olmalıdır. Uyuşmazlığı anlamlı bir hata olarak değil, yalnızca zaman aşımı olarak görürsünüz — teşhisi bu yüzden zordur.', label: 'USM User', type: 'text', required: true, placeholder: 'snmp-mx', hint: 'SNMP v3 USM kullanıcı adı' },
+                        { name: 'auth_proto', why: 'MD5 artık zayıf kabul edilir, mümkünse SHA seçin. Protokolü değiştirip NMS tarafını güncellemezseniz cihaz sessizce cevap vermez.', label: 'Auth Protokol', type: 'select', options: [
                             { value: 'sha', label: 'SHA', selected: true },
                             { value: 'md5', label: 'MD5' }
                         ]},
-                        { name: 'auth_pass', label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123!', hint: 'Authentication şifresi (min 8 karakter)' },
-                        { name: 'priv_proto', label: 'Priv Protokol', type: 'select', options: [
+                        { name: 'auth_pass', why: "Şifre konfigde hash'li görünse de yedeklerde taşınır. SNMP kullanıcısına yazma yetkisi gerekmedikçe yalnızca read-only view bağlayın.", label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123!', hint: 'Authentication şifresi (min 8 karakter)' },
+                        { name: 'priv_proto', why: 'Privacy kapalıysa SNMP verisi düz metin gider ve tüm topoloji bilgisi dinlenebilir. DES yerine AES tercih edin; desteklemeyen NMS güncellenmelidir.', label: 'Priv Protokol', type: 'select', options: [
                             { value: 'aes128', label: 'AES-128', selected: true },
                             { value: 'des', label: 'DES' }
                         ]},
-                        { name: 'priv_pass', label: 'Priv Şifresi', type: 'text', required: true, placeholder: 'PrivPass123!', hint: 'Privacy şifresi (min 8 karakter)' }
+                        { name: 'priv_pass', why: 'Auth şifresiyle aynı değeri kullanmak yaygın ama kötü bir alışkanlıktır: tek bir sızıntı hem doğrulamayı hem şifrelemeyi aynı anda çökertir.', label: 'Priv Şifresi', type: 'text', required: true, placeholder: 'PrivPass123!', hint: 'Privacy şifresi (min 8 karakter)' }
                     ]
                 },
                 {
                     title: 'Trap Hedefi',
                     icon: 'fas fa-bullseye',
                     fields: [
-                        { name: 'trap_group', label: 'Trap Group Adı', type: 'text', required: true, placeholder: 'TRAPS', hint: 'SNMP trap group adı' },
-                        { name: 'target_ip', label: 'Target IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap alıcısı IP adresi' }
+                        { name: 'trap_group', why: 'Trap group hem sürümü hem alıcıları belirler. <code>categories</code> eklemezseniz grup tanımlı görünür ama hiçbir trap gönderilmez.', label: 'Trap Group Adı', type: 'text', required: true, placeholder: 'TRAPS', hint: 'SNMP trap group adı' },
+                        { name: 'target_ip', why: "Alıcı adres yönlendirilebilir olmalı ve trap'lerin çıkacağı kaynak adres NMS tarafında tanımlı olmalıdır; tanımadığı kaynaktan gelen trap'i NMS sessizce düşürür.", label: 'Target IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap alıcısı IP adresi' }
                     ]
                 }
             ],

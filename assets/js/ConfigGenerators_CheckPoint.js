@@ -94,7 +94,7 @@ CheckPoint.interface = {
                     fields: [
                         { name: 'iface', why: "Gaia'da arayüz adları <code>eth0</code>, <code>eth1</code> biçimindedir. Yanlış arayüze IP vermek yönetim erişimini koparabilir.", label: 'Interface', type: 'text', required: true, placeholder: 'eth1', hint: 'Yapılandırılacak fiziksel arayüz adı' },
                         { name: 'iface_ip', why: "CIDR formatında (<code>10.0.0.1/24</code>). Gaia'da topoloji Management tarafından okunur; IP değişikliğinden sonra <b>gateway topolojisini yeniden çekmen</b> gerekir.", label: 'IP / Prefix (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında IP adresi (örn: 10.0.0.1/24)' },
-                        { name: 'desc', label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN', hint: 'Interface yorumu (comments)' }
+                        { name: 'desc', why: "Arayüz açıklaması SmartConsole'da ve <code>show interfaces</code> çıktısında görünür. Hangi hatta bağlı olduğunu yazmak, arıza anında kablo takip etmekten çok daha hızlıdır.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN', hint: 'Interface yorumu (comments)' }
                     ]
                 },
                 {
@@ -103,10 +103,10 @@ CheckPoint.interface = {
                     showFor: ['bond'],
                     fields: [
                         { name: 'bond_id', why: "Bond arayüzü <code>bond0</code>, <code>bond1</code> olarak adlandırılır. Üye arayüzlerin üzerindeki IP'ler önce kaldırılmalıdır.", label: 'Bond ID', type: 'text', required: true, placeholder: 'bond0', hint: 'Bond arayüzü adı (örn: bond0)' },
-                        { name: 'bond_ip', label: 'Bond IP / Prefix (CIDR)', type: 'text', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında bond IP adresi' },
+                        { name: 'bond_ip', why: "IP bond arayüzüne verilir, üyelere <b>değil</b>. Üye arayüzlerde IP kalırsa bond kurulmaz.", label: 'Bond IP / Prefix (CIDR)', type: 'text', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında bond IP adresi' },
                         { name: 'bond_m1', why: "Bond üyeleri karşı switch'te de aynı LACP/etherchannel grubunda olmalı. Tek taraflı yapılandırma STP döngüsüne yol açabilir.", label: 'Üye Interface 1', type: 'text', required: true, placeholder: 'eth1', hint: 'Bond grubuna eklenecek birinci arayüz' },
-                        { name: 'bond_m2', label: 'Üye Interface 2', type: 'text', required: true, placeholder: 'eth2', hint: 'Bond grubuna eklenecek ikinci arayüz' },
-                        { name: 'desc', label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN-BOND', hint: 'Interface yorumu (comments)' }
+                        { name: 'bond_m2', why: "İkinci üye. Bond'un anlamı yedeklilik olduğundan üyeler <b>farklı fiziksel switch'lere</b> bağlanmalıdır; aynı switch'e bağlamak tek arıza noktasını korur.", label: 'Üye Interface 2', type: 'text', required: true, placeholder: 'eth2', hint: 'Bond grubuna eklenecek ikinci arayüz' },
+                        { name: 'desc', why: "Arayüz açıklaması SmartConsole'da ve <code>show interfaces</code> çıktısında görünür. Hangi hatta bağlı olduğunu yazmak, arıza anında kablo takip etmekten çok daha hızlıdır.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN-BOND', hint: 'Interface yorumu (comments)' }
                     ]
                 }
             ],
@@ -380,7 +380,7 @@ CheckPoint.bgp = {
                         { name: 'local_as', why: "Kendi AS numaran. Peer'ın AS'i farklıysa eBGP, aynıysa iBGP olur.", label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
                         { name: 'neighbor_ip', why: "BGP komşusunun IP'si. Check Point'te BGP oturumunun kurulabilmesi için <b>komşu IP'sine giden trafiğe izin veren kural</b> da gerekir.", label: 'Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
                         { name: 'remote_as', why: "Komşunun AS numarası. Yanlışsa oturum Idle/Active'de takılır.", label: 'Remote AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun Autonomous System numarası' },
-                        { name: 'description', label: 'Açıklama', type: 'text', optional: true, placeholder: 'ISP-PEER', hint: 'BGP komşu açıklaması' },
+                        { name: 'description', why: "Nesne açıklaması. Altı ay sonra bu kaydı neden oluşturduğunu hatırlamayacaksın — ticket numarası veya sorumlu ekip yazmak denetimlerde hayat kurtarır.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'ISP-PEER', hint: 'BGP komşu açıklaması' },
                         { name: 'redistribute_static', why: "Statik rotaları BGP'ye duyurur. Dikkatli kullan — istemeden tüm iç ağını dışarı duyurabilirsin.", label: 'Redistribute Static', type: 'select', options: [
                             { value: 'no', label: 'Hayır', selected: true },
                             { value: 'yes', label: 'Evet' }
@@ -425,9 +425,9 @@ CheckPoint.vlanintf = {
                     fields: [
                         { name: 'vlan_id', why: "802.1Q VLAN etiketi (1-4094). Karşı switch portu <b>trunk</b> modda ve bu VLAN'a izin veriyor olmalı, aksi halde tag'li trafik düşer.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası' },
                         { name: 'parent_bond', why: "VLAN alt arayüzünün bağlanacağı fiziksel veya bond arayüz. Gaia'da isim <code>bond0.100</code> biçiminde oluşur.", label: 'Parent Bond / Interface', type: 'text', required: true, placeholder: 'bond0', hint: 'VLAN\'ın oluşturulacağı üst arayüz (örn: bond0, eth1)' },
-                        { name: 'ip', label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1', hint: 'VLAN interface IP adresi' },
-                        { name: 'mask', label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0)' },
-                        { name: 'comment', label: 'Açıklama', type: 'text', optional: true, placeholder: 'Server VLAN', hint: 'Interface yorumu (comments)' }
+                        { name: 'ip', why: "Host nesnesinin IP'si. Aynı IP için ikinci bir nesne oluşturmak, kural analizinde yanlış eşleşmeye ve çelişkili politikalara yol açar.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1', hint: 'VLAN interface IP adresi' },
+                        { name: 'mask', why: "Ağ maskesi. Çok geniş tanımlamak kuralı istemeden komşu segmentlere de açar.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0)' },
+                        { name: 'comment', why: "Nesne yorumu. Check Point'te nesne silmeden önce nerede kullanıldığına bakılır; iyi yazılmış bir yorum bu aramayı gereksiz kılar.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'Server VLAN', hint: 'Interface yorumu (comments)' }
                     ]
                 }
             ],
@@ -476,8 +476,8 @@ CheckPoint.hostobj = {
                     title: 'Host Nesnesi',
                     icon: 'fas fa-desktop',
                     fields: [
-                        { name: 'name', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'SRV-WEB-01', hint: 'SmartConsole\'da görünecek nesne adı' },
-                        { name: 'ip', label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Host\'un IP adresi' },
+                        { name: 'name', why: "Nesne adı SmartConsole veritabanında benzersiz olmalı. Tutarlı isimlendirme (<code>SRV_WEB_01</code>) 500 nesneli bir kurulumda aranabilirliği belirler.", label: 'Nesne Adı', type: 'text', required: true, placeholder: 'SRV-WEB-01', hint: 'SmartConsole\'da görünecek nesne adı' },
+                        { name: 'ip', why: "Host nesnesinin IP'si. Aynı IP için ikinci bir nesne oluşturmak, kural analizinde yanlış eşleşmeye ve çelişkili politikalara yol açar.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Host\'un IP adresi' },
                         { name: 'color', why: "SmartConsole'da nesne rengi. Kurumsal renk şeması (ör. kırmızı=DMZ, yeşil=LAN) büyük kural listelerinde hata oranını gözle görülür azaltır.", label: 'Renk', type: 'select', options: [
                             { value: 'blue', label: 'blue', selected: true },
                             { value: 'red', label: 'red' },
@@ -485,7 +485,7 @@ CheckPoint.hostobj = {
                             { value: 'yellow', label: 'yellow' }
                         ], hint: 'SmartConsole\'da nesne rengi' },
                         { name: 'groups', why: 'Nesneyi gruba eklemek, kural sayısını azaltır. Ama grup içeriğini değiştirmek <b>o grubu kullanan tüm kuralları</b> etkiler — önce nerede kullanıldığını kontrol et.', label: 'Gruplar', type: 'text', optional: true, placeholder: 'GRP-SERVERS,GRP-DMZ', hint: 'Virgülle ayrılmış grup adları — nesne bu gruplara eklenecek' },
-                        { name: 'comment', label: 'Açıklama', type: 'text', optional: true, placeholder: 'Web server 1', hint: 'Nesne yorumu' }
+                        { name: 'comment', why: "Nesne yorumu. Check Point'te nesne silmeden önce nerede kullanıldığına bakılır; iyi yazılmış bir yorum bu aramayı gereksiz kılar.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'Web server 1', hint: 'Nesne yorumu' }
                     ]
                 }
             ],
@@ -526,16 +526,16 @@ CheckPoint.netobj = {
                     title: 'Network Nesnesi',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'name', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'NET-DMZ', hint: 'SmartConsole\'da görünecek nesne adı' },
+                        { name: 'name', why: "Nesne adı SmartConsole veritabanında benzersiz olmalı. Tutarlı isimlendirme (<code>SRV_WEB_01</code>) 500 nesneli bir kurulumda aranabilirliği belirler.", label: 'Nesne Adı', type: 'text', required: true, placeholder: 'NET-DMZ', hint: 'SmartConsole\'da görünecek nesne adı' },
                         { name: 'subnet', why: 'Ağ nesnesi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet', type: 'text', required: true, placeholder: '192.168.2.0', hint: 'Ağ adresi (host bitleri sıfır olmalı)' },
-                        { name: 'mask', label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0 → /24)' },
+                        { name: 'mask', why: "Ağ maskesi. Çok geniş tanımlamak kuralı istemeden komşu segmentlere de açar.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0 → /24)' },
                         { name: 'color', why: "SmartConsole'da nesne rengi. Kurumsal renk şeması (ör. kırmızı=DMZ, yeşil=LAN) büyük kural listelerinde hata oranını gözle görülür azaltır.", label: 'Renk', type: 'select', options: [
                             { value: 'green', label: 'green', selected: true },
                             { value: 'blue', label: 'blue' },
                             { value: 'red', label: 'red' }
                         ]},
                         { name: 'groups', why: 'Nesneyi gruba eklemek, kural sayısını azaltır. Ama grup içeriğini değiştirmek <b>o grubu kullanan tüm kuralları</b> etkiler — önce nerede kullanıldığını kontrol et.', label: 'Gruplar', type: 'text', optional: true, placeholder: 'GRP-INTERNAL', hint: 'Virgülle ayrılmış grup adları' },
-                        { name: 'comment', label: 'Açıklama', type: 'text', optional: true, placeholder: 'DMZ subnet', hint: 'Nesne yorumu' }
+                        { name: 'comment', why: "Nesne yorumu. Check Point'te nesne silmeden önce nerede kullanıldığına bakılır; iyi yazılmış bir yorum bu aramayı gereksiz kılar.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'DMZ subnet', hint: 'Nesne yorumu' }
                     ]
                 }
             ],
@@ -586,14 +586,14 @@ CheckPoint.serviceobj = {
                     title: 'Servis Nesnesi',
                     icon: 'fas fa-plug',
                     fields: [
-                        { name: 'name', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'SVC-APP-8443', hint: 'SmartConsole\'da görünecek servis nesne adı' },
+                        { name: 'name', why: "Nesne adı SmartConsole veritabanında benzersiz olmalı. Tutarlı isimlendirme (<code>SRV_WEB_01</code>) 500 nesneli bir kurulumda aranabilirliği belirler.", label: 'Nesne Adı', type: 'text', required: true, placeholder: 'SVC-APP-8443', hint: 'SmartConsole\'da görünecek servis nesne adı' },
                         { name: 'protocol', why: "Servis nesnesinin protokolü. TCP/UDP ayrımını yanlış yapmak en sık görülen 'kural çalışmıyor' sebebidir.", label: 'Protokol', type: 'select', options: [
                             { value: 'tcp', label: 'TCP', selected: true },
                             { value: 'udp', label: 'UDP' }
                         ]},
                         { name: 'port', why: 'Port veya aralık. Özel uygulamalarda dokümantasyondaki tüm portları eklemeyi unutma — eksik port kısmi çalışan bir servise yol açar.', label: 'Port', type: 'text', validate: 'port', required: true, placeholder: '8443', hint: 'TCP/UDP port numarası (1–65535)' },
                         { name: 'groups', why: 'Nesneyi gruba eklemek, kural sayısını azaltır. Ama grup içeriğini değiştirmek <b>o grubu kullanan tüm kuralları</b> etkiler — önce nerede kullanıldığını kontrol et.', label: 'Gruplar', type: 'text', optional: true, placeholder: 'GRP-WEB-SVCS', hint: 'Virgülle ayrılmış grup adları' },
-                        { name: 'comment', label: 'Açıklama', type: 'text', optional: true, placeholder: 'App HTTPS', hint: 'Servis nesnesinin kısa açıklaması' }
+                        { name: 'comment', why: "Nesne yorumu. Check Point'te nesne silmeden önce nerede kullanıldığına bakılır; iyi yazılmış bir yorum bu aramayı gereksiz kılar.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'App HTTPS', hint: 'Servis nesnesinin kısa açıklaması' }
                     ]
                 }
             ],
@@ -641,7 +641,7 @@ CheckPoint.clusterxl = {
                             { value: 'Load Sharing Multicast', label: 'Load Sharing Multicast' }
                         ], hint: 'ClusterXL çalışma modu', badge: { text: 'Yüksek Erişilebilirlik', cls: 'recommended' } },
                         { name: 'cluster_ip', why: "Sanal cluster IP'si — istemcilerin gördüğü adres budur. Üye IP'lerinden farklı olmalı ve aynı subnet'te bulunmalı.", label: 'Cluster IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'Sanal cluster IP adresi (VIP)' },
-                        { name: 'cluster_intf', label: 'Cluster Interface', type: 'text', required: true, placeholder: 'eth0', hint: 'Cluster trafiğini taşıyan fiziksel arayüz' },
+                        { name: 'cluster_intf', why: "Cluster IP'sinin bulunacağı arayüz. Bu arayüz iki üyede de <b>aynı isimde</b> olmalı, aksi halde ClusterXL topoloji uyuşmazlığı verir.", label: 'Cluster Interface', type: 'text', required: true, placeholder: 'eth0', hint: 'Cluster trafiğini taşıyan fiziksel arayüz' },
                         { name: 'sync_intf', why: "Senkronizasyon arayüzü üyeler arasında <b>doğrudan</b> (switch üzerinden değil) bağlanmalıdır. Sync kopması split-brain'e yol açar.", label: 'Sync Interface', type: 'text', required: true, placeholder: 'eth1', hint: 'State senkronizasyon trafiği için arayüz' }
                     ]
                 },
@@ -650,7 +650,7 @@ CheckPoint.clusterxl = {
                     icon: 'fas fa-users',
                     fields: [
                         { name: 'member1_ip', why: "Her üyenin kendi fiziksel IP'si. Cluster IP ile aynı subnet'te olmalı.", label: 'Member 1 IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Birinci üye gateway IP adresi' },
-                        { name: 'member2_ip', label: 'Member 2 IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'İkinci üye gateway IP adresi' }
+                        { name: 'member2_ip', why: "İkinci üyenin fiziksel IP'si. Cluster IP ile aynı subnet'te ve birinci üyeden farklı olmalıdır.", label: 'Member 2 IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'İkinci üye gateway IP adresi' }
                     ]
                 }
             ],
@@ -697,9 +697,9 @@ CheckPoint.vsx = {
                     fields: [
                         { name: 'vs_name', why: "VSX'te her Virtual System bağımsız bir firewall gibi davranır; ayrı policy ve ayrı routing tablosu tutar.", label: 'VS Adı', type: 'text', required: true, placeholder: 'VS-CUSTOMER1', hint: 'SmartConsole\'da görünecek virtual system adı' },
                         { name: 'vs_id', why: "VS ID benzersiz olmalı. Silinen bir VS'in ID'si yeniden kullanılabilir ama önce tam temizlik gerekir.", label: 'VS ID', type: 'text', required: true, placeholder: '1', hint: 'Virtual system benzersiz kimlik numarası (VSID)' },
-                        { name: 'vs_intf', label: 'VS Interface', type: 'text', required: true, placeholder: 'bond0.100', hint: 'Virtual system\'e atanacak arayüz (örn: bond0.100)' },
-                        { name: 'vs_ip', label: 'VS IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1', hint: 'Virtual system ana IP adresi' },
-                        { name: 'vs_mask', label: 'Mask Length (CIDR)', type: 'text', required: true, placeholder: '24', hint: 'Prefix uzunluğu (örn: 24 → /24)' }
+                        { name: 'vs_intf', why: "Virtual System'in kullanacağı arayüz. VSX'te arayüzler VS'ler arasında paylaşılabilir ama VLAN ile ayrılmaları gerekir.", label: 'VS Interface', type: 'text', required: true, placeholder: 'bond0.100', hint: 'Virtual system\'e atanacak arayüz (örn: bond0.100)' },
+                        { name: 'vs_ip', why: "VS'in arayüz IP'si. Her VS bağımsız routing tablosu tuttuğundan, farklı VS'lerde <b>aynı IP</b> kullanılabilir — bu VSX'in temel avantajıdır.", label: 'VS IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1', hint: 'Virtual system ana IP adresi' },
+                        { name: 'vs_mask', why: "CIDR uzunluğu. VS'ler arası trafik Virtual Router üzerinden geçer; doğrudan değil.", label: 'Mask Length (CIDR)', type: 'text', required: true, placeholder: '24', hint: 'Prefix uzunluğu (örn: 24 → /24)' }
                     ]
                 }
             ],
@@ -977,14 +977,14 @@ CheckPoint.httpsinspect = {
                     title: 'HTTPS Inspection Kuralı',
                     icon: 'fas fa-search',
                     fields: [
-                        { name: 'policy_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'HTTPS-INSPECT', hint: 'HTTPS inspection kural adı' },
+                        { name: 'policy_name', why: "HTTPS Inspection politikası. Oluşturmak yetmez, <b>policy install</b> yapılmadan gateway'de devreye girmez.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'HTTPS-INSPECT', hint: 'HTTPS inspection kural adı' },
                         { name: 'ca_cert', why: "HTTPS Inspection için gateway'in CA sertifikası <b>tüm istemcilere dağıtılmalıdır</b> (GPO ile). Dağıtılmazsa her sitede sertifika uyarısı çıkar.", label: 'CA Sertifikası', type: 'text', required: true, placeholder: 'CP-INTERNAL-CA', hint: 'HTTPS denetimi için kullanılacak CA sertifikası adı' },
                         { name: 'bypass_categories', why: 'Bankacılık ve sağlık gibi kategoriler yasal nedenlerle inspection dışında bırakılmalıdır. Ayrıca sertifika sabitleme (pinning) kullanan uygulamalar bypass edilmezse çalışmaz.', label: 'Bypass Kategoriler', type: 'text', required: true, placeholder: 'Finance,Health', hint: 'Denetimden muaf tutulacak uygulama kategorileri (virgülle ayrılmış)' },
                         { name: 'action', why: '<code>Accept</code> geçirir, <code>Drop</code> sessizce düşürür, <code>Reject</code> ise RST/ICMP döner. Drop kuralında <b>log açmazsan</b> neyin engellendiğini göremezsin.', label: 'Aksiyon', type: 'select', options: [
                             { value: 'Inspect', label: 'Inspect (Denetle)', selected: true },
                             { value: 'Bypass', label: 'Bypass (Atla)' }
                         ], hint: 'HTTPS trafiğine uygulanacak aksiyon' },
-                        { name: 'src_zone', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'trust', hint: 'Denetimin uygulanacağı kaynak güvenlik bölgesi' }
+                        { name: 'src_zone', why: "Kaynak zone. Check Point'te zone bazlı kural yazmak arayüz bazlıya göre daha esnektir ama topoloji doğru tanımlanmamışsa beklenmedik eşleşmeler olur.", label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'trust', hint: 'Denetimin uygulanacağı kaynak güvenlik bölgesi' }
                     ]
                 }
             ],
@@ -1080,24 +1080,24 @@ CheckPoint.snmp = {
                     title: 'SNMP v3 Kullanıcısı',
                     icon: 'fas fa-user-cog',
                     fields: [
-                        { name: 'username', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'snmp-v3-user', hint: 'SNMP v3 kullanıcı adı' },
+                        { name: 'username', why: "SNMPv3 kullanıcısı. v1/v2c community'lerinden farklı olarak kullanıcı bazlı yetki ve şifreleme sağlar.", label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'snmp-v3-user', hint: 'SNMP v3 kullanıcı adı' },
                         { name: 'auth_proto', why: "SNMPv3'te <code>MD5</code> ve <code>SHA1</code> zayıftır; mümkünse <code>SHA256</code> kullan.", label: 'Auth Protokol', type: 'select', options: [
                             { value: 'SHA', label: 'SHA (Önerilen)', selected: true },
                             { value: 'MD5', label: 'MD5 (Eski)' }
                         ], hint: 'SNMP kimlik doğrulama hash algoritması' },
-                        { name: 'auth_pass', label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123!', hint: 'Authentication şifresi (en az 8 karakter)' },
+                        { name: 'auth_pass', why: "Kimlik doğrulama parolası en az 8 karakter olmalı. Kısa parola SNMPv3'ü v2c seviyesine düşürür.", label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123!', hint: 'Authentication şifresi (en az 8 karakter)' },
                         { name: 'priv_proto', why: 'Şifreleme protokolü. <code>DES</code> kırılabilir; <code>AES</code> tercih edilmeli. authPriv seviyesi olmadan SNMP verisi açık geçer.', label: 'Priv Protokol', type: 'select', options: [
                             { value: 'AES', label: 'AES (Önerilen)', selected: true },
                             { value: 'DES', label: 'DES (Eski)' }
                         ], hint: 'SNMP şifreleme protokolü' },
-                        { name: 'priv_pass', label: 'Priv Şifresi', type: 'text', required: true, placeholder: 'PrivPass123!', hint: 'Privacy (şifreleme) şifresi (en az 8 karakter)' }
+                        { name: 'priv_pass', why: "Şifreleme parolası olmadan (authNoPriv) SNMP verisi ağda <b>açık</b> geçer; arayüz isimleri ve trafik sayaçları dinlenebilir.", label: 'Priv Şifresi', type: 'text', required: true, placeholder: 'PrivPass123!', hint: 'Privacy (şifreleme) şifresi (en az 8 karakter)' }
                     ]
                 },
                 {
                     title: 'Trap Hedefi',
                     icon: 'fas fa-bell',
                     fields: [
-                        { name: 'trap_target', label: 'Trap Hedef IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap mesajlarının gönderileceği NMS sunucusu IP adresi' }
+                        { name: 'trap_target', why: "Trap alıcısı. Tanımlanmazsa gateway arıza bildirmez; sorunları ancak kullanıcı şikayetiyle öğrenirsin.", label: 'Trap Hedef IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap mesajlarının gönderileceği NMS sunucusu IP adresi' }
                     ]
                 }
             ],

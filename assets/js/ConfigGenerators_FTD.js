@@ -17,23 +17,23 @@ CiscoFTD.bootstrap = {
                     title: 'Temel Kimlik',
                     icon: 'fas fa-tag',
                     fields: [
-                        { name: 'hostname', label: 'Hostname', type: 'text', required: true, placeholder: 'FTD-PRIMARY', hint: 'Cihaz hostname değeri' }
+                        { name: 'hostname', why: "Hostname, FMC üzerindeki cihaz listesinde ve tüm loglarda görünür. Birden çok FTD aynı adla kaydedilirse olay korelasyonu imkansızlaşır ve yanlış cihaza deploy riski doğar.", label: 'Hostname', type: 'text', required: true, placeholder: 'FTD-PRIMARY', hint: 'Cihaz hostname değeri' }
                     ]
                 },
                 {
                     title: 'Management Arayüzü',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'mgmt_ip', label: 'Management IP (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.45.45/24', hint: 'Management0/0 IP adresi ve prefix (CIDR)' },
-                        { name: 'mgmt_gw', label: 'Management Gateway', type: 'text', required: true, validate: 'ip', placeholder: '192.168.45.1', hint: 'Management ağı default gateway' }
+                        { name: 'mgmt_ip', why: "Management arayüzü veri arayüzlerinden tamamen ayrıdır ve FTD’nin FMC’ye ulaştığı tek yoldur. Bu adres yanlışsa cihaz kaydolamaz; kayıttan sonra değiştirmek FMC ile bağı koparır.", label: 'Management IP (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.45.45/24', hint: 'Management0/0 IP adresi ve prefix (CIDR)' },
+                        { name: 'mgmt_gw', why: "Yönetim ağı gateway’i yanlışsa FTD, FMC’ye <b>hiç</b> ulaşamaz ve <code>configure manager add</code> sessizce beklemede kalır. Aynı L2 segmentteyse gateway olarak <code>data-interfaces</code> değil gerçek router girilmelidir.", label: 'Management Gateway', type: 'text', required: true, validate: 'ip', placeholder: '192.168.45.1', hint: 'Management ağı default gateway' }
                     ]
                 },
                 {
                     title: 'DNS ve NTP',
                     icon: 'fas fa-clock',
                     fields: [
-                        { name: 'dns', label: 'DNS Server', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'DNS çözümleme için sunucu IP' },
-                        { name: 'ntp', label: 'NTP Server', type: 'text', optional: true, placeholder: 'pool.ntp.org', hint: 'Zaman senkronizasyonu için NTP sunucusu' }
+                        { name: 'dns', why: "DNS çözülmezse FMC’ye FQDN ile kayıt, lisans sunucusuna (Smart Licensing) erişim ve URL filtreleme güncellemeleri başarısız olur. Cihaz çalışır görünür ama lisansı süresi dolmuş sayılır.", label: 'DNS Server', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'DNS çözümleme için sunucu IP' },
+                        { name: 'ntp', why: "Saat kayması sertifika doğrulamasını ve FMC ile SSL tünelini bozar; kayıt <b>başarısız</b> olur. Ayrıca olay zaman damgaları kayarsa adli inceleme güvenilirliğini kaybeder.", label: 'NTP Server', type: 'text', optional: true, placeholder: 'pool.ntp.org', hint: 'Zaman senkronizasyonu için NTP sunucusu' }
                     ]
                 },
                 {
@@ -41,9 +41,9 @@ CiscoFTD.bootstrap = {
                     icon: 'fas fa-link',
                     info: 'FMC tarafında Device > Add Device adımı ile kaydı tamamlayın. Registration key her iki tarafta eşleşmeli.',
                     fields: [
-                        { name: 'fmc_ip', label: 'FMC IP', type: 'text', required: true, validate: 'ip', placeholder: '10.0.0.10', hint: 'Firepower Management Center IP adresi' },
-                        { name: 'reg_key', label: 'Registration Key', type: 'text', required: true, placeholder: 'cisco123', hint: 'FMC ile eşleşecek kayıt anahtarı' },
-                        { name: 'nat_id', label: 'NAT ID', type: 'text', optional: true, placeholder: '1234', hint: 'NAT arkasındaysa gerekli; FMC\'de de aynı değer girilmeli' }
+                        { name: 'fmc_ip', why: "FTD ile FMC arasındaki sftunnel <b>TCP/8305</b> üzerinden kurulur; arada firewall varsa bu port açılmalıdır. Yanlış IP girildiğinde kayıt komutu hata vermez, sadece hiç tamamlanmaz.", label: 'FMC IP', type: 'text', required: true, validate: 'ip', placeholder: '10.0.0.10', hint: 'Firepower Management Center IP adresi' },
+                        { name: 'reg_key', why: "Kayıt anahtarı FMC tarafında da birebir aynı girilmelidir; uyuşmazlıkta cihaz FMC listesinde <b>pending</b> durumunda takılı kalır. Tek kullanımlıktır, tekrar kayıt için yeniden girilmelidir.", label: 'Registration Key', type: 'text', required: true, placeholder: 'cisco123', hint: 'FMC ile eşleşecek kayıt anahtarı' },
+                        { name: 'nat_id', why: "FTD veya FMC NAT arkasındaysa NAT-ID zorunludur ve iki tarafta aynı olmalıdır. Eksik NAT-ID, kaydın hiçbir hata mesajı vermeden sonsuza kadar beklemesine yol açar.", label: 'NAT ID', type: 'text', optional: true, placeholder: '1234', hint: 'NAT arkasındaysa gerekli; FMC\'de de aynı değer girilmeli' }
                     ]
                 }
             ],
@@ -91,9 +91,9 @@ CiscoFTD.interface = {
                     title: 'Interface Tanımı',
                     icon: 'fas fa-plug',
                     fields: [
-                        { name: 'iface_name', label: 'Interface Adı', type: 'text', required: true, placeholder: 'GigabitEthernet0/0', hint: 'Fiziksel interface adı (ör: GigabitEthernet0/0)' },
-                        { name: 'nameif', label: 'Logical Name (nameif)', type: 'text', required: true, placeholder: 'outside', hint: 'Mantıksal interface adı' },
-                        { name: 'mode', label: 'Mode', type: 'select', options: [
+                        { name: 'iface_name', why: "Fiziksel arayüz adı yanlışsa yapılandırma başka bir porta uygulanır. FTD’de veri arayüzleri yalnızca FMC üzerinden yönetilmelidir; CLI’dan yapılan değişiklikler bir sonraki <b>deploy</b> ile ezilir.", label: 'Interface Adı', type: 'text', required: true, placeholder: 'GigabitEthernet0/0', hint: 'Fiziksel interface adı (ör: GigabitEthernet0/0)' },
+                        { name: 'nameif', why: "Mantıksal ad atanmadan arayüz trafiği geçirmez. FTD’de asıl kural eşleşmesi <b>security zone</b> üzerinden yapılır; nameif tek başına ACP kurallarında kullanılamaz.", label: 'Logical Name (nameif)', type: 'text', required: true, placeholder: 'outside', hint: 'Mantıksal interface adı' },
+                        { name: 'mode', why: "Routed ve transparent mod arasındaki geçiş cihazı yeniden başlatır ve mevcut yapılandırmanın büyük kısmını siler. Modu baştan doğru seçmek sonradan dönüşten çok daha ucuzdur.", label: 'Mode', type: 'select', options: [
                             { value: 'routed', label: 'routed', selected: true },
                             { value: 'passive', label: 'passive' }
                         ], hint: 'Interface çalışma modu' }
@@ -103,9 +103,9 @@ CiscoFTD.interface = {
                     title: 'IP Adresi',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'ip', label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Interface IPv4 adresi' },
-                        { name: 'mask', label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.252', hint: 'Subnet maskesi' },
-                        { name: 'mtu', label: 'MTU', type: 'text', optional: true, placeholder: '1500', hint: 'Maximum Transmission Unit (default: 1500)' }
+                        { name: 'ip', why: "Arayüz IP’si yanlışsa komşu cihazlar bu FTD’yi göremez. Değişiklik FMC’de yapılıp <b>deploy</b> edilmedikçe cihazda hiçbir etkisi olmaz.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Interface IPv4 adresi' },
+                        { name: 'mask', why: "Maske hatası, arayüzün doğrudan bağlı ağı yanlış hesaplamasına ve statik route’ların invalid kalmasına yol açar.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.252', hint: 'Subnet maskesi' },
+                        { name: 'mtu', why: "VPN veya VXLAN gibi kapsülleme varsa 1500 MTU fragmentasyona ve performans kaybına neden olur. MTU’yu bir tarafta düşürüp diğerinde bırakmak ise büyük paketlerin sessizce kaybolmasına yol açar.", label: 'MTU', type: 'text', optional: true, placeholder: '1500', hint: 'Maximum Transmission Unit (default: 1500)' }
                     ]
                 },
                 {
@@ -113,7 +113,7 @@ CiscoFTD.interface = {
                     icon: 'fas fa-shield-alt',
                     info: 'Security Zone ataması FMC arayüzünde Devices > Device Management > Interfaces > Edit adımından yapılır.',
                     fields: [
-                        { name: 'sec_zone', label: 'Security Zone', type: 'text', required: true, placeholder: 'OUTSIDE_ZONE', hint: 'FMC\'de tanımlı security zone adı' }
+                        { name: 'sec_zone', why: "FTD’de Access Control kuralları arayüz değil <b>security zone</b> üzerinden eşleşir. Arayüz bir zone’a atanmazsa onu kullanan hiçbir ACP kuralı çalışmaz ve trafik default action’a düşer.", label: 'Security Zone', type: 'text', required: true, placeholder: 'OUTSIDE_ZONE', hint: 'FMC\'de tanımlı security zone adı' }
                     ]
                 }
             ],
@@ -160,17 +160,17 @@ CiscoFTD.nat = {
                     title: 'NAT Nesne Tanımı',
                     icon: 'fas fa-cube',
                     fields: [
-                        { name: 'real_obj', label: 'Kaynak Nesne Adı', type: 'text', required: true, placeholder: 'OBJ_INTERNAL_NET', hint: 'FMC\'de tanımlanacak network nesnesi adı' },
-                        { name: 'real_ip', label: 'Real IP/Network', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Orijinal iç ağ adresi (CIDR)' },
-                        { name: 'mapped_ip', label: 'Mapped IP (NAT sonrası)', type: 'text', required: true, placeholder: '203.0.113.10', hint: 'Dışarıya görünen IP adresi' }
+                        { name: 'real_obj', why: "Nesne FMC’de önceden tanımlı olmalıdır; kural içinde ad uyuşmazlığı deploy sırasında hata verir. Nesneyi değiştirmek onu kullanan tüm kuralları aynı anda etkiler.", label: 'Kaynak Nesne Adı', type: 'text', required: true, placeholder: 'OBJ_INTERNAL_NET', hint: 'FMC\'de tanımlanacak network nesnesi adı' },
+                        { name: 'real_ip', why: "Gerçek (NAT öncesi) adres; FTD’de Access Control kuralları da NAT öncesi <b>gerçek</b> IP ile yazılır. Mapped adres kullanmak kuralın hiç eşleşmemesine yol açar.", label: 'Real IP/Network', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Orijinal iç ağ adresi (CIDR)' },
+                        { name: 'mapped_ip', why: "Dışarıya görünen adres; bu IP outside subnetinde değilse ISP tarafından route edilmeli ya da proxy-ARP ayarı kontrol edilmelidir. Aksi halde NAT tanımlı görünür ama trafik hiç gelmez.", label: 'Mapped IP (NAT sonrası)', type: 'text', required: true, placeholder: '203.0.113.10', hint: 'Dışarıya görünen IP adresi' }
                     ]
                 },
                 {
                     title: 'Zone Seçimi',
                     icon: 'fas fa-shield-alt',
                     fields: [
-                        { name: 'src_zone', label: 'Source Zone', type: 'text', required: true, placeholder: 'INSIDE_ZONE', hint: 'Kaynak güvenlik bölgesi' },
-                        { name: 'dst_zone', label: 'Destination Zone', type: 'text', required: true, placeholder: 'OUTSIDE_ZONE', hint: 'Hedef güvenlik bölgesi' }
+                        { name: 'src_zone', why: "NAT kuralı yalnızca bu zone çiftinde geçerlidir; zone yanlış seçilirse kural listede görünür ama hiç hit almaz. FMC’de <b>Manual NAT</b> kuralları Auto NAT’tan önce değerlendirilir.", label: 'Source Zone', type: 'text', required: true, placeholder: 'INSIDE_ZONE', hint: 'Kaynak güvenlik bölgesi' },
+                        { name: 'dst_zone', why: "Hedef zone yanlışsa NAT hiç tetiklenmez. Çıkış arayüzünün zone’u ile route tablosunun gösterdiği arayüz aynı olmalıdır, yoksa kural atlanır.", label: 'Destination Zone', type: 'text', required: true, placeholder: 'OUTSIDE_ZONE', hint: 'Hedef güvenlik bölgesi' }
                     ]
                 }
             ],
@@ -220,8 +220,8 @@ CiscoFTD.accessControl = {
                     title: 'Policy Tanımı',
                     icon: 'fas fa-folder',
                     fields: [
-                        { name: 'pol_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'CORP_ACP', hint: 'Access Control Policy için isim' },
-                        { name: 'default_action', label: 'Default Action', type: 'select', options: [
+                        { name: 'pol_name', why: "ACP adı, cihazlara atanırken kullanılır; yanlış politikayı yanlış cihaza atamak tüm trafik kurallarını bir anda değiştirir. Bir cihaza aynı anda yalnızca bir ACP atanabilir.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'CORP_ACP', hint: 'Access Control Policy için isim' },
+                        { name: 'default_action', why: "Default action, hiçbir kurala uymayan trafiğin kaderidir; <b>Block</b> güvenli ama yanlış yazılmış kurallarda tüm trafiği keser. <b>Trust</b> seçmek ise denetimsiz geçiş demektir.", label: 'Default Action', type: 'select', options: [
                             { value: 'Block', label: 'Block', selected: true },
                             { value: 'Allow', label: 'Allow' },
                             { value: 'Trust', label: 'Trust' }
@@ -232,22 +232,22 @@ CiscoFTD.accessControl = {
                     title: 'Erişim Kuralı',
                     icon: 'fas fa-list-alt',
                     fields: [
-                        { name: 'rule_name', label: 'Kural Adı', type: 'text', required: true, placeholder: 'ALLOW_INTERNAL_TO_INET', hint: 'Erişim kuralı için açıklayıcı isim' },
-                        { name: 'rule_action', label: 'Kural Aksiyonu', type: 'select', options: [
+                        { name: 'rule_name', why: "Kural adı olay loglarında görünür; anlamsız isimler olay incelemesini imkansız kılar. Kural adları FMC içinde benzersiz olmalıdır.", label: 'Kural Adı', type: 'text', required: true, placeholder: 'ALLOW_INTERNAL_TO_INET', hint: 'Erişim kuralı için açıklayıcı isim' },
+                        { name: 'rule_action', why: "<b>Trust</b> seçilen trafik IPS ve dosya denetiminden tamamen muaf olur — Allow ile arasındaki bu fark sık karıştırılır. <b>Monitor</b> ise trafiği durdurmaz, yalnızca loglar ve alttaki kurallara devam eder.", label: 'Kural Aksiyonu', type: 'select', options: [
                             { value: 'Allow', label: 'Allow', selected: true },
                             { value: 'Block', label: 'Block' },
                             { value: 'Trust', label: 'Trust' }
                         ], hint: 'Eşleşen trafiğe uygulanacak işlem' },
-                        { name: 'src_zone', label: 'Source Zone', type: 'text', required: true, placeholder: 'INSIDE_ZONE', hint: 'Kaynak güvenlik bölgesi' },
-                        { name: 'dst_zone', label: 'Destination Zone', type: 'text', required: true, placeholder: 'OUTSIDE_ZONE', hint: 'Hedef güvenlik bölgesi' }
+                        { name: 'src_zone', why: "ACP kuralı bu kaynak zone ile eşleşir; boş bırakmak kuralı <b>tüm</b> zone’lara uygular ve beklenenden çok daha geniş bir izin oluşturur.", label: 'Source Zone', type: 'text', required: true, placeholder: 'INSIDE_ZONE', hint: 'Kaynak güvenlik bölgesi' },
+                        { name: 'dst_zone', why: "Hedef zone boş bırakılan bir ACP kuralı beklenenden fazla trafiği kapsar. Kural sırası da kritiktir: üstteki bir kural eşleşirse alttakiler hiç değerlendirilmez.", label: 'Destination Zone', type: 'text', required: true, placeholder: 'OUTSIDE_ZONE', hint: 'Hedef güvenlik bölgesi' }
                     ]
                 },
                 {
                     title: 'Inspection Politikaları',
                     icon: 'fas fa-search',
                     fields: [
-                        { name: 'ips_policy', label: 'IPS Policy', type: 'text', optional: true, placeholder: 'Balanced_Security_Connectivity', hint: 'Intrusion Prevention System politikası' },
-                        { name: 'file_policy', label: 'File Policy', type: 'text', optional: true, placeholder: 'Block_Malware', hint: 'Dosya analizi/kötücül yazılım engelleme' }
+                        { name: 'ips_policy', why: "IPS politikası ACP kuralına bağlanmazsa Snort denetimi devreye girmez. Ayrıca IPS yalnızca <b>Allow</b> aksiyonlu kurallarda çalışır; Trust veya Block kurallarında hiç çalışmaz.", label: 'IPS Policy', type: 'text', optional: true, placeholder: 'Balanced_Security_Connectivity', hint: 'Intrusion Prevention System politikası' },
+                        { name: 'file_policy', why: "Dosya/malware politikası yalnızca Allow kurallarında uygulanır ve şifreli trafikte SSL decryption olmadan hiçbir dosyayı göremez. Ek denetim gecikme ve CPU maliyeti getirir.", label: 'File Policy', type: 'text', optional: true, placeholder: 'Block_Malware', hint: 'Dosya analizi/kötücül yazılım engelleme' }
                     ]
                 }
             ],
@@ -297,18 +297,18 @@ CiscoFTD.intrusionPolicy = {
                     title: 'IPS Policy Tanımı',
                     icon: 'fas fa-shield-alt',
                     fields: [
-                        { name: 'pol_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'CORP_IPS', hint: 'Intrusion policy için isim' },
-                        { name: 'base_policy', label: 'Base Policy', type: 'select', options: [
+                        { name: 'pol_name', why: "Intrusion policy adı ACP kuralları içinde referans verilir; politikayı ACP kuralına bağlamadığınız sürece IPS denetimi <b>hiç</b> çalışmaz.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'CORP_IPS', hint: 'Intrusion policy için isim' },
+                        { name: 'base_policy', why: "Base policy kural setinin sıkılığını belirler; <b>Security over Connectivity</b> daha çok yakalar ama false positive ile meşru trafiği de düşürebilir. Değişiklikten sonra bir süre pasif izlemek gerekir.", label: 'Base Policy', type: 'select', options: [
                             { value: 'Balanced Security and Connectivity', label: 'Balanced Security and Connectivity', selected: true },
                             { value: 'Security over Connectivity', label: 'Security over Connectivity' },
                             { value: 'Connectivity over Security', label: 'Connectivity over Security' },
                             { value: 'Maximum Detection', label: 'Maximum Detection' }
                         ], hint: 'Snort kural seti için temel profil' },
-                        { name: 'inline_mode', label: 'Inline Mode (Drop Rules)', type: 'select', options: [
+                        { name: 'inline_mode', why: "Inline (drop) kapalıyken IPS yalnızca uyarı üretir, hiçbir paketi engellemez — <b>IPS çalışmıyor</b> şikayetlerinin en yaygın nedeni budur. Açmadan önce false positive oranını ölçün.", label: 'Inline Mode (Drop Rules)', type: 'select', options: [
                             { value: 'yes', label: 'Evet (Drop Rules Aktif)', selected: true },
                             { value: 'no', label: 'Hayır (Detection Only)' }
                         ], hint: 'Inline modda saldırılar drop edilir; detection-only modda sadece alert üretilir' },
-                        { name: 'var_set', label: 'Variable Set', type: 'text', required: true, placeholder: 'Default-Set', hint: 'HOME_NET ve EXTERNAL_NET tanımlı variable set' }
+                        { name: 'var_set', why: "HOME_NET yanlış tanımlıysa Snort saldırı yönünü ters okur ve kritik imzalar hiç tetiklenmez. Varsayılan set çoğu ortamda iç ağınızı doğru tanımlamaz, özelleştirin.", label: 'Variable Set', type: 'text', required: true, placeholder: 'Default-Set', hint: 'HOME_NET ve EXTERNAL_NET tanımlı variable set' }
                     ]
                 }
             ],
@@ -359,8 +359,8 @@ CiscoFTD.sslPolicy = {
                     title: 'SSL Policy Tanımı',
                     icon: 'fas fa-lock',
                     fields: [
-                        { name: 'pol_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'CORP_SSL_INSPECT', hint: 'SSL inspection policy için isim' },
-                        { name: 'default_action', label: 'Default Action', type: 'select', options: [
+                        { name: 'pol_name', why: "SSL policy ACP’ye bağlanmadıkça şifreli trafik denetlenmez. Politikayı oluşturmak tek başına yeterli değildir.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'CORP_SSL_INSPECT', hint: 'SSL inspection policy için isim' },
+                        { name: 'default_action', why: "SSL politikasında varsayılan <b>Do Not Decrypt</b> olmalıdır; agresif bir varsayılan, sertifika pinning kullanan uygulamaların (bankacılık, mobil) tamamen kırılmasına yol açar.", label: 'Default Action', type: 'select', options: [
                             { value: 'Do not decrypt', label: 'Do not decrypt', selected: true },
                             { value: 'Decrypt - Resign', label: 'Decrypt - Resign' },
                             { value: 'Block', label: 'Block' }
@@ -371,8 +371,8 @@ CiscoFTD.sslPolicy = {
                     title: 'Sertifika Ayarları',
                     icon: 'fas fa-certificate',
                     fields: [
-                        { name: 'ca_cert', label: 'CA Sertifikası (Re-Sign)', type: 'text', required: true, placeholder: 'CORP_CA', hint: 'Decrypt-Resign için kullanılacak dahili CA sertifikası adı' },
-                        { name: 'exempt_cats', label: 'Muaf Kategoriler', type: 'text', optional: true, placeholder: 'Financial,Health,Government', hint: 'Şifre çözülmeyecek URL kategorileri (virgülle ayrılmış)' }
+                        { name: 'ca_cert', why: "Decrypt-Resign için kullanılan CA, tüm istemci cihazlarda <b>güvenilir</b> olarak yüklü olmalıdır; değilse kullanıcılar her sitede sertifika uyarısı alır. Bu CA’nın özel anahtarı ele geçerse tüm trafik okunabilir hale gelir.", label: 'CA Sertifikası (Re-Sign)', type: 'text', required: true, placeholder: 'CORP_CA', hint: 'Decrypt-Resign için kullanılacak dahili CA sertifikası adı' },
+                        { name: 'exempt_cats', why: "Bankacılık ve sağlık gibi kategorilerin şifresini çözmek çoğu ülkede yasal risk taşır; ayrıca sertifika pinning yapan uygulamalar decrypt edildiğinde tamamen çalışmaz. Muafiyet listesi hem uyumluluk hem işlevsellik için gereklidir.", label: 'Muaf Kategoriler', type: 'text', optional: true, placeholder: 'Financial,Health,Government', hint: 'Şifre çözülmeyecek URL kategorileri (virgülle ayrılmış)' }
                     ]
                 }
             ],
@@ -423,8 +423,8 @@ CiscoFTD.siteToSiteVpn = {
                     title: 'Topoloji Bilgileri',
                     icon: 'fas fa-project-diagram',
                     fields: [
-                        { name: 'topo_name', label: 'Topology Adı', type: 'text', required: true, placeholder: 'HQ_TO_BRANCH', hint: 'VPN topolojisi için isim' },
-                        { name: 'ike_ver', label: 'IKE Versiyonu', type: 'select', options: [
+                        { name: 'topo_name', why: "Topoloji adı FMC içinde benzersiz olmalı; yanlış topolojiyi düzenlemek çalışan bir tüneli anında düşürebilir.", label: 'Topology Adı', type: 'text', required: true, placeholder: 'HQ_TO_BRANCH', hint: 'VPN topolojisi için isim' },
+                        { name: 'ike_ver', why: "IKEv2 daha güvenli ve daha hızlı yeniden anahtarlama sağlar, ancak karşı uç yalnızca IKEv1 destekliyorsa tünel hiç kurulmaz. Versiyon iki tarafta aynı olmalıdır.", label: 'IKE Versiyonu', type: 'select', options: [
                             { value: 'IKEv2', label: 'IKEv2', selected: true },
                             { value: 'IKEv1', label: 'IKEv1' }
                         ], hint: 'IKEv2 önerilir (daha güvenli ve verimli)' }
@@ -434,17 +434,17 @@ CiscoFTD.siteToSiteVpn = {
                     title: 'Endpoint Bilgileri',
                     icon: 'fas fa-exchange-alt',
                     fields: [
-                        { name: 'local_ep', label: 'Local Endpoint (FTD Outside IP)', type: 'text', required: true, validate: 'ip', placeholder: '203.0.113.1', hint: 'Bu FTD cihazının dış IP adresi' },
-                        { name: 'remote_ep', label: 'Remote Endpoint (Peer IP)', type: 'text', required: true, validate: 'ip', placeholder: '198.51.100.1', hint: 'Uzak VPN peer IP adresi' },
-                        { name: 'local_net', label: 'Local Network', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.0/24', hint: 'Yerel korunan ağ (CIDR)' },
-                        { name: 'remote_net', label: 'Remote Network', type: 'text', validate: 'cidr', required: true, placeholder: '10.10.0.0/24', hint: 'Uzak korunan ağ (CIDR)' }
+                        { name: 'local_ep', why: "Yerel endpoint, FTD’nin dış arayüz IP’si olmalıdır. FTD NAT arkasındaysa karşı taraf gerçek dış IP’yi görecektir; bu durumda NAT-T ve UDP/4500 açık olmalıdır.", label: 'Local Endpoint (FTD Outside IP)', type: 'text', required: true, validate: 'ip', placeholder: '203.0.113.1', hint: 'Bu FTD cihazının dış IP adresi' },
+                        { name: 'remote_ep', why: "Peer IP yanlışsa IKE hiç başlamaz ve FMC olay günlüğünde yalnızca timeout görünür. Dinamik IP’li uçlar için peer IP yerine dinamik topoloji tipi seçilmelidir.", label: 'Remote Endpoint (Peer IP)', type: 'text', required: true, validate: 'ip', placeholder: '198.51.100.1', hint: 'Uzak VPN peer IP adresi' },
+                        { name: 'local_net', why: "Yerel ve uzak ağlar iki tarafta <b>ayna</b> tanımlanmalıdır; uyuşmazlık Phase-2’yi düşürür. Ayrıca bu trafiğin NAT’lanmaması için NAT exemption kuralı gerekir.", label: 'Local Network', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.0/24', hint: 'Yerel korunan ağ (CIDR)' },
+                        { name: 'remote_net', why: "Uzak ağ karşı tarafın yerel ağıyla birebir aynı maskede olmalıdır. Örtüşen (overlapping) ağlarda ayrıca çift NAT gerekir, aksi halde trafik yanlış yöne gider.", label: 'Remote Network', type: 'text', validate: 'cidr', required: true, placeholder: '10.10.0.0/24', hint: 'Uzak korunan ağ (CIDR)' }
                     ]
                 },
                 {
                     title: 'Kimlik Doğrulama',
                     icon: 'fas fa-key',
                     fields: [
-                        { name: 'psk', label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'VpnKey123!', hint: 'IKE kimlik doğrulama için paylaşılan gizli anahtar' }
+                        { name: 'psk', why: "PSK iki tarafta aynı olmalı; fark Phase-1’in tamamlanmamasına neden olur. FMC’de PSK’yi değiştirmek <b>deploy</b> edilene kadar cihazda etkili olmaz ve tünel eski anahtarla çalışmaya devam eder.", label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'VpnKey123!', hint: 'IKE kimlik doğrulama için paylaşılan gizli anahtar' }
                     ]
                 }
             ],
@@ -497,31 +497,31 @@ CiscoFTD.raVpn = {
                     title: 'RA-VPN Policy',
                     icon: 'fas fa-folder',
                     fields: [
-                        { name: 'pol_name', label: 'RA-VPN Policy Adı', type: 'text', required: true, placeholder: 'CORP_RA_VPN', hint: 'Remote Access VPN policy ismi' },
-                        { name: 'auth_method', label: 'Auth Method', type: 'select', options: [
+                        { name: 'pol_name', why: "RA-VPN policy adı; politika bir cihaza atanıp <b>deploy</b> edilmeden kullanıcılar bağlanamaz.", label: 'RA-VPN Policy Adı', type: 'text', required: true, placeholder: 'CORP_RA_VPN', hint: 'Remote Access VPN policy ismi' },
+                        { name: 'auth_method', why: "Sertifika tabanlı doğrulama AAA’dan daha güçlüdür ama PKI altyapısı gerektirir. AAA seçilip server group tanımlanmazsa hiçbir kullanıcı bağlanamaz.", label: 'Auth Method', type: 'select', options: [
                             { value: 'AAA', label: 'AAA (RADIUS/LDAP)', selected: true },
                             { value: 'Certificate', label: 'Certificate' },
                             { value: 'AAA+Certificate', label: 'AAA + Certificate' }
                         ], hint: 'VPN kullanıcı kimlik doğrulama yöntemi' },
-                        { name: 'aaa_grp', label: 'AAA Server Group', type: 'text', optional: true, placeholder: 'RADIUS_SERVERS', hint: 'AAA seçiliyse: FMC\'de tanımlı server group adı' }
+                        { name: 'aaa_grp', why: "Server group FMC’de önceden tanımlı olmalıdır; ad uyuşmazlığında deploy başarısız olur. Sunucu erişilemezse tüm uzak erişim aynı anda durur, yedek sunucu tanımlayın.", label: 'AAA Server Group', type: 'text', optional: true, placeholder: 'RADIUS_SERVERS', hint: 'AAA seçiliyse: FMC\'de tanımlı server group adı' }
                     ]
                 },
                 {
                     title: 'IP Pool',
                     icon: 'fas fa-list-ol',
                     fields: [
-                        { name: 'pool_name', label: 'Pool Adı', type: 'text', required: true, placeholder: 'VPN_POOL', hint: 'IP havuzu için isim' },
-                        { name: 'pool_start', label: 'Pool Başlangıç IP', type: 'text', validate: 'ip', required: true, placeholder: '172.16.100.1', hint: 'Havuz başlangıç adresi' },
-                        { name: 'pool_end', label: 'Pool Bitiş IP', type: 'text', validate: 'ip', required: true, placeholder: '172.16.100.254', hint: 'Havuz bitiş adresi' },
-                        { name: 'pool_mask', label: 'Pool Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Havuz subnet maskesi' }
+                        { name: 'pool_name', why: "Havuz adı grup politikasında referans verilir; uyuşmazlıkta kullanıcı doğrulanır ama IP alamayıp bağlantı yarıda kalır.", label: 'Pool Adı', type: 'text', required: true, placeholder: 'VPN_POOL', hint: 'IP havuzu için isim' },
+                        { name: 'pool_start', why: "Havuz aralığı iç ağlarla çakışmamalı ve iç yönlendirmede FTD’ye işaret etmelidir. Aksi halde VPN kullanıcıları bağlanır ama hiçbir iç kaynağa erişemez.", label: 'Pool Başlangıç IP', type: 'text', validate: 'ip', required: true, placeholder: '172.16.100.1', hint: 'Havuz başlangıç adresi' },
+                        { name: 'pool_end', why: "Havuz kapasitesi eşzamanlı kullanıcı sayısını karşılamıyorsa fazladan kullanıcılar adres bulunamadığı için reddedilir. Lisans limitini de ayrıca kontrol edin.", label: 'Pool Bitiş IP', type: 'text', validate: 'ip', required: true, placeholder: '172.16.100.254', hint: 'Havuz bitiş adresi' },
+                        { name: 'pool_mask', why: "Maske havuz subneti ile tutarlı olmalıdır; yanlış maske istemcinin iç ağa giden trafiğini yanlış yönlendirir ve kısmi erişim sorunları yaratır.", label: 'Pool Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Havuz subnet maskesi' }
                     ]
                 },
                 {
                     title: 'DNS ve Split Tunnel',
                     icon: 'fas fa-cut',
                     fields: [
-                        { name: 'dns', label: 'DNS Server', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'VPN bağlantısı için DNS sunucusu' },
-                        { name: 'split_acl', label: 'Split-Tunnel ACL', type: 'text', optional: true, placeholder: 'ACL_SPLIT_TUNNEL', hint: 'Boş bırakılırsa full tunnel uygulanır' }
+                        { name: 'dns', why: "Uzak erişim istemcisine DNS verilmezse iç kaynaklara isimle ulaşılamaz. Split-tunnel kullanıyorsanız split-DNS de tanımlanmalı, yoksa iç alan adları dış DNS sunucusuna sorulur.", label: 'DNS Server', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'VPN bağlantısı için DNS sunucusu' },
+                        { name: 'split_acl', why: "Boş bırakılırsa <b>full tunnel</b> uygulanır ve kullanıcının tüm internet trafiği FTD üzerinden geçerek bant genişliği ile hairpin NAT gerektirir. Split tunnel ise kullanıcı trafiğinin bir kısmını denetim dışına çıkarır.", label: 'Split-Tunnel ACL', type: 'text', optional: true, placeholder: 'ACL_SPLIT_TUNNEL', hint: 'Boş bırakılırsa full tunnel uygulanır' }
                     ]
                 }
             ],

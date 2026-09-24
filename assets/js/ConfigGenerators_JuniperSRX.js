@@ -17,8 +17,8 @@ JuniperSRX.zone = {
                     title: 'Zone Tanımı',
                     icon: 'fas fa-shield-alt',
                     fields: [
-                        { name: 'zone_name', label: 'Zone Adı', type: 'text', required: true, placeholder: 'trust', hint: 'Güvenlik zone adı (trust, untrust, dmz vb.)' },
-                        { name: 'interfaces', label: 'Interface\'ler', type: 'text', required: true, placeholder: 'ge-0/0/1.0, ge-0/0/2.0', hint: 'Virgülle ayrılmış interface listesi' }
+                        { name: 'zone_name', why: "SRX'te <b>her arayüz bir security zone'a ait olmalıdır</b>; zone'suz arayüzden geçen trafik policy bulunamadığı için sessizce düşer. Zone adı politikalarda birebir referans alınır, sonradan değiştirmek tüm politikaları kırar.", label: 'Zone Adı', type: 'text', required: true, placeholder: 'trust', hint: 'Güvenlik zone adı (trust, untrust, dmz vb.)' },
+                        { name: 'interfaces', why: "Arayüzü zone'a eklerken mutlaka <b>unit</b> ile yazın (<code>ge-0/0/1.0</code>); fiziksel adı yazmak eşleşmez. Bir arayüz aynı anda yalnızca tek bir zone'da bulunabilir.", label: 'Interface\'ler', type: 'text', required: true, placeholder: 'ge-0/0/1.0, ge-0/0/2.0', hint: 'Virgülle ayrılmış interface listesi' }
                     ]
                 },
                 {
@@ -26,11 +26,11 @@ JuniperSRX.zone = {
                     icon: 'fas fa-traffic-light',
                     info: 'Cihazın kendisine yönelik kabul edilecek trafik protokolleri. Untrust zone için minimumda tutun.',
                     fields: [
-                        { name: 'svc_ping', label: 'ping', type: 'checkbox', checked: true },
-                        { name: 'svc_ssh', label: 'ssh', type: 'checkbox', checked: true },
-                        { name: 'svc_https', label: 'https', type: 'checkbox', checked: false },
-                        { name: 'svc_ospf', label: 'ospf', type: 'checkbox', checked: false },
-                        { name: 'svc_bgp', label: 'bgp', type: 'checkbox', checked: false }
+                        { name: 'svc_ping', why: "<code>host-inbound-traffic</code> cihazın <b>kendisine</b> gelen trafiği yönetir ve security policy'lerden tamamen bağımsızdır. Ping açık değilse policy her şeye izin verse bile SRX kendi arayüz adresine yanıt vermez.", label: 'ping', type: 'checkbox', checked: true },
+                        { name: 'svc_ssh', why: "Yönetim erişimi zone bazında açılır. untrust zone'da SSH açmak cihazı internete maruz bırakır; trust zone'da açmayı unutmak ise commit sonrası kendinizi kilitlemenin en hızlı yoludur — <code>commit confirmed</code> ile deneyin.", label: 'ssh', type: 'checkbox', checked: true },
+                        { name: 'svc_https', why: "J-Web erişimi. Dış zone'da açık bırakmak yönetim arayüzünü internete açar; zorunluysa en azından kaynak IP kısıtlaması ekleyin.", label: 'https', type: 'checkbox', checked: false },
+                        { name: 'svc_ospf', why: "Routing protokolleri de host-inbound trafiktir: OSPF'i ilgili zone'da açmazsanız komşuluk hiç kurulmaz ve security policy log'larında buna dair tek bir iz bile görmezsiniz.", label: 'ospf', type: 'checkbox', checked: false },
+                        { name: 'svc_bgp', why: "BGP oturumu SRX'in kendisine gelen TCP 179'dur; zone'da açılmadıkça oturum Idle'da kalır. Policy'lerde sebep aramak zaman kaybıdır, sorun host-inbound-traffic'tedir.", label: 'bgp', type: 'checkbox', checked: false }
                     ]
                 }
             ],
@@ -76,25 +76,25 @@ JuniperSRX.policy = {
                     title: 'Policy Tanımı',
                     icon: 'fas fa-lock',
                     fields: [
-                        { name: 'pol_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'permit-outbound', hint: 'Açıklayıcı policy adı' },
-                        { name: 'from_zone', label: 'From Zone', type: 'text', required: true, placeholder: 'trust', hint: 'Kaynak güvenlik zone' },
-                        { name: 'to_zone', label: 'To Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Hedef güvenlik zone' }
+                        { name: 'pol_name', why: 'Politikalar <b>yazıldıkları sırayla</b> değerlendirilir ve yeni politika listenin sonuna eklenir; ad, sırayı yönetirken tek tutamağınızdır. Doğru konuma almak için <code>insert ... before ...</code> kullanın.', label: 'Policy Adı', type: 'text', required: true, placeholder: 'permit-outbound', hint: 'Açıklayıcı policy adı' },
+                        { name: 'from_zone', why: 'Politika bir zone çiftine aittir ve from/to, trafiğin <b>ilk paketinin</b> yönüdür. SRX stateful olduğu için dönüş trafiğine politika gerekmez, ama yönü ters yazmak politikayı tamamen işlevsiz bırakır.', label: 'From Zone', type: 'text', required: true, placeholder: 'trust', hint: 'Kaynak güvenlik zone' },
+                        { name: 'to_zone', why: 'Hedef zone politikanın kimliğinin parçasıdır; aynı ad farklı zone çiftinde bambaşka bir politikadır. Her zone çiftinin sonunda <b>varsayılan deny</b> vardır, yani açıkça izin vermediğiniz her şey kapalıdır.', label: 'To Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Hedef güvenlik zone' }
                     ]
                 },
                 {
                     title: 'Eşleşme Kriterleri',
                     icon: 'fas fa-filter',
                     fields: [
-                        { name: 'src_addr', label: 'Kaynak Adres', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.0/24', hint: '"any" veya CIDR formatında adres' },
-                        { name: 'dst_addr', label: 'Hedef Adres', type: 'text', validate: 'ip', required: true, placeholder: 'any', hint: '"any" veya CIDR formatında adres' },
-                        { name: 'app', label: 'Uygulama', type: 'text', required: true, placeholder: 'any', hint: '"any", "junos-https", "junos-http" vb.' }
+                        { name: 'src_addr', why: '<code>any</code> yerine address-book nesnesi kullanmak politikayı okunur ve denetlenebilir kılar. Geniş kaynak tanımı, ilk eşleşen kazandığı için aşağıdaki daha özel politikaların hiç değerlendirilmemesine yol açar.', label: 'Kaynak Adres', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.0/24', hint: '"any" veya CIDR formatında adres' },
+                        { name: 'dst_addr', why: "Politika, destination NAT'tan <b>sonraki</b> gerçek iç adrese göre yazılır; dışarıdan görünen genel IP'yi yazmak DNAT kurulumlarındaki en yaygın hatadır ve trafik deny'e takılır.", label: 'Hedef Adres', type: 'text', validate: 'ip', required: true, placeholder: 'any', hint: '"any" veya CIDR formatında adres' },
+                        { name: 'app', why: '<code>junos-</code> önekli hazır uygulamalar port ve ALG davranışını birlikte getirir. <code>any</code> seçmek portu tamamen serbest bırakır; özel portlar için ayrı bir application tanımlayın.', label: 'Uygulama', type: 'text', required: true, placeholder: 'any', hint: '"any", "junos-https", "junos-http" vb.' }
                     ]
                 },
                 {
                     title: 'Aksiyon ve Loglama',
                     icon: 'fas fa-clipboard-list',
                     fields: [
-                        { name: 'log', label: 'Log Modu', type: 'select', options: [
+                        { name: 'log', why: 'SRX varsayılan olarak izin verilen trafiği loglamaz. <b>session-close</b> bayt/süre verir, <b>session-init</b> ise engellenen ilk paketi görmek için gereklidir; log yoksa trafiğin neden düştüğünü asla göremezsiniz.', label: 'Log Modu', type: 'select', options: [
                             { value: 'session-close', label: 'Session Close', selected: true },
                             { value: 'session-init', label: 'Session Init' },
                             { value: 'none', label: 'Yok' }
@@ -155,19 +155,19 @@ JuniperSRX.nat = {
                     title: 'Rule Set Tanımı',
                     icon: 'fas fa-sitemap',
                     fields: [
-                        { name: 'ruleset_name', label: 'Rule Set Adı', type: 'text', required: true, placeholder: 'snat-trust-to-untrust', hint: 'NAT rule set adı' },
-                        { name: 'from_zone', label: 'From Zone / Interface', type: 'text', required: true, placeholder: 'trust', hint: 'Kaynak zone veya interface' },
-                        { name: 'to_zone', label: 'To Zone / Interface', type: 'text', required: true, placeholder: 'untrust', hint: 'Hedef zone veya interface' }
+                        { name: 'ruleset_name', why: 'Rule-set zone/interface bağlamıyla seçilir, kurallar ise set içinde sırayla değerlendirilir. Birden fazla set varken tutarsız isimlendirme hangisinin eşleştiğini bulmayı neredeyse imkânsızlaştırır.', label: 'Rule Set Adı', type: 'text', required: true, placeholder: 'snat-trust-to-untrust', hint: 'NAT rule set adı' },
+                        { name: 'from_zone', why: "NAT rule-set'in bağlamı. Trafiğin gerçekte hangi zone çiftinden geçtiğini yanlış varsaymak, NAT'ın hiç tetiklenmemesine ve paketlerin özel IP ile dışarı çıkıp dönememesine yol açar.", label: 'From Zone / Interface', type: 'text', required: true, placeholder: 'trust', hint: 'Kaynak zone veya interface' },
+                        { name: 'to_zone', why: "NAT eşleşmesi zone çiftine göre yapılır. Çok çıkışlı tasarımda route değişip trafik başka zone'dan çıkarsa bu rule-set devre dışı kalır ve NAT uygulanmaz.", label: 'To Zone / Interface', type: 'text', required: true, placeholder: 'untrust', hint: 'Hedef zone veya interface' }
                     ]
                 },
                 {
                     title: 'Rule Tanımı',
                     icon: 'fas fa-sliders-h',
                     fields: [
-                        { name: 'rule_name', label: 'Rule Adı', type: 'text', required: true, placeholder: 'rule1', hint: 'NAT kuralı adı' },
-                        { name: 'src_prefix', label: 'Kaynak Prefix', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Eşleşecek kaynak IP aralığı' },
-                        { name: 'dst_prefix', label: 'Hedef Prefix', type: 'text', optional: true, placeholder: '203.0.113.10/32', hint: 'Static/Destination NAT için hedef IP' },
-                        { name: 'xlat_addr', label: 'Translated Adres / Pool IP', type: 'text', optional: true, placeholder: '203.0.113.1', hint: 'Source NAT için pool IP; "interface" yazılırsa interface PAT kullanılır' }
+                        { name: 'rule_name', why: "Kurallar set içinde <b>sırayla</b> denenir ve ilk eşleşen uygulanır. Geniş bir kuralı üste koymak, altındaki istisnaları (örneğin VPN trafiğini NAT'tan muaf tutma kuralını) tamamen etkisizleştirir.", label: 'Rule Adı', type: 'text', required: true, placeholder: 'rule1', hint: 'NAT kuralı adı' },
+                        { name: 'src_prefix', why: "NAT'lanacak kaynak aralık. VPN üzerinden gidecek trafiği bu aralığın dışında tutmayı unutmak klasik hatadır: NAT'lanan paketler tünel policy'siyle eşleşmez, VPN Up görünse de trafik akmaz.", label: 'Kaynak Prefix', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Eşleşecek kaynak IP aralığı' },
+                        { name: 'dst_prefix', why: "Destination/static NAT'ta dışarıdan görünen adres. Bu adres SRX arayüzünde tanımlı değilse <b>proxy-arp</b> eklemeniz gerekir; aksi halde gelen paketlere kimse cevap vermez.", label: 'Hedef Prefix', type: 'text', optional: true, placeholder: '203.0.113.10/32', hint: 'Static/Destination NAT için hedef IP' },
+                        { name: 'xlat_addr', why: "<code>interface</code> yazmak arayüz adresiyle PAT yapar. Havuz IP'si kullanıyorsanız ve bu adres arayüzde tanımlı değilse <b>proxy-arp</b> şarttır, yoksa dönüş trafiği cihaza hiç ulaşmaz.", label: 'Translated Adres / Pool IP', type: 'text', optional: true, placeholder: '203.0.113.1', hint: 'Source NAT için pool IP; "interface" yazılırsa interface PAT kullanılır' }
                     ]
                 }
             ],
@@ -229,25 +229,25 @@ JuniperSRX.vpn = {
                     icon: 'fas fa-user-secret',
                     warn: 'Pre-Shared Key güvenli bir kanal üzerinden iletilmeli. Üretimde sertifika tabanlı doğrulama tercih edin.',
                     fields: [
-                        { name: 'vpn_name', label: 'VPN Adı', type: 'text', required: true, placeholder: 'VPN_BRANCH1', hint: 'Tünel için benzersiz tanımlayıcı' },
-                        { name: 'psk', label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'MyPreSharedKey123!', hint: 'En az 16 karakter, özel karakter içermeli' }
+                        { name: 'vpn_name', why: 'VPN adı IKE gateway, IPsec policy ve st0 bağlamalarını birbirine bağlar; sonradan değiştirmek tüm zinciri kırar. İki uçta adların aynı olması gerekmez, <b>parametrelerin</b> aynı olması gerekir.', label: 'VPN Adı', type: 'text', required: true, placeholder: 'VPN_BRANCH1', hint: 'Tünel için benzersiz tanımlayıcı' },
+                        { name: 'psk', why: "PSK iki uçta birebir aynı olmalıdır; görünmez boşluk veya kopyalama hatası en sık nedendir. Uyuşmazlık Phase 1'de başarısızlık olarak görünür ve log genellikle sadece no proposal chosen der.", label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'MyPreSharedKey123!', hint: 'En az 16 karakter, özel karakter içermeli' }
                     ]
                 },
                 {
                     title: 'Gateway Ayarları',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'local_gw', label: 'Local Gateway IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Bu cihazın WAN IP adresi' },
-                        { name: 'remote_gw', label: 'Remote Gateway IP', type: 'text', validate: 'ip', required: true, placeholder: '198.51.100.1', hint: 'Uzak tarafın WAN IP adresi' },
-                        { name: 'ext_iface', label: 'External Interface', type: 'text', required: true, placeholder: 'ge-0/0/0.0', hint: 'IKE paketlerinin çıkacağı WAN interface' }
+                        { name: 'local_gw', why: "Cihazın gerçek dış IP'si. SRX NAT arkasındaysa burada özel IP kullanılır ve <b>NAT-T</b> ile birlikte uygun local identity tanımlanmalıdır, aksi halde tünel hiç kurulmaz.", label: 'Local Gateway IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Bu cihazın WAN IP adresi' },
+                        { name: 'remote_gw', why: "Karşı tarafın gerçek dış IP'si. Karşı uç dinamik IP kullanıyorsa sabit gateway yerine dynamic identity gerekir; sabit varsaymak, IP değiştiğinde tünelin sessizce kurulamamasına yol açar.", label: 'Remote Gateway IP', type: 'text', validate: 'ip', required: true, placeholder: '198.51.100.1', hint: 'Uzak tarafın WAN IP adresi' },
+                        { name: 'ext_iface', why: "IKE paketlerinin çıkacağı arayüz. Bu arayüzün bulunduğu zone'da <b>host-inbound-traffic ike</b> açık olmalıdır, yoksa UDP 500 paketleri cihaza ulaşmadan düşer ve tünel asla Phase 1'e geçmez.", label: 'External Interface', type: 'text', required: true, placeholder: 'ge-0/0/0.0', hint: 'IKE paketlerinin çıkacağı WAN interface' }
                     ]
                 },
                 {
                     title: 'Tunnel Interface',
                     icon: 'fas fa-project-diagram',
                     fields: [
-                        { name: 'st0', label: 'St0 Interface', type: 'text', required: true, placeholder: 'st0.1', hint: 'Route-based VPN için secure tunnel interface' },
-                        { name: 'st0_ip', label: 'St0 IP / Prefix', type: 'text', required: true, placeholder: '10.255.0.1/30', hint: 'Tünel interface IP adresi' }
+                        { name: 'st0', why: "Route-based VPN'de st0 arayüzü bir <b>security zone'a atanmalı</b> ve trafiği taşıyan route'un next-hop'u olmalıdır. Zone ataması unutulduğunda tünel Up görünür ama tek paket geçmez — en sık görülen SRX VPN arızası budur.", label: 'St0 Interface', type: 'text', required: true, placeholder: 'st0.1', hint: 'Route-based VPN için secure tunnel interface' },
+                        { name: 'st0_ip', why: 'Numaralı st0 kullanıyorsanız iki uç aynı /30 içinde olmalıdır; unnumbered tasarımda ise belirleyici olan route tanımıdır. Bir ucun numaralı diğerinin numarasız olması yönlendirmeyi bozar.', label: 'St0 IP / Prefix', type: 'text', required: true, placeholder: '10.255.0.1/30', hint: 'Tünel interface IP adresi' }
                     ]
                 }
             ],
@@ -318,22 +318,22 @@ JuniperSRX.ha = {
                     icon: 'fas fa-server',
                     warn: 'Cluster ID komutu cihazı yeniden başlatır. Önce tüm ayarları kaydedin.',
                     fields: [
-                        { name: 'cluster_id', label: 'Cluster ID', type: 'text', required: true, placeholder: '1', hint: '1–15 arası, aynı cluster\'daki tüm cihazlarda aynı olmalı' }
+                        { name: 'cluster_id', why: "Cluster-ID iki düğümde aynı, aynı L2 alanındaki farklı cluster'larda farklı olmalıdır; çakışma sanal MAC çakışmasına ve ağ çapında kararsızlığa yol açar. Değiştirmek <b>reboot</b> gerektirir.", label: 'Cluster ID', type: 'text', required: true, placeholder: '1', hint: '1–15 arası, aynı cluster\'daki tüm cihazlarda aynı olmalı' }
                     ]
                 },
                 {
                     title: 'Link Arayüzleri',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'ctrl_iface', label: 'Control Link Interface', type: 'text', required: true, placeholder: 'ge-0/0/0', hint: 'Control plane haberleşmesi için dedicated interface' },
-                        { name: 'fab_iface', label: 'Fabric Link Interface', type: 'text', required: true, placeholder: 'ge-0/0/1', hint: 'Data plane senkronizasyonu için dedicated interface' }
+                        { name: 'ctrl_iface', why: "Control link düğümlerin birbirini görmesini sağlar; koparsa küme split-brain'e girip iki düğüm de primary olmaya çalışır. Switch üzerinden taşıyorsanız ayrı bir VLAN kullanın ve asla başka trafikle paylaşmayın.", label: 'Control Link Interface', type: 'text', required: true, placeholder: 'ge-0/0/0', hint: 'Control plane haberleşmesi için dedicated interface' },
+                        { name: 'fab_iface', why: 'Fabric link oturum (RTO) senkronizasyonunu taşır; yetersiz bant genişliği failover sırasında oturumların kopması demektir. Control ve fabric linkini aynı fiziksel yola koymak, tek kablo arızasında kümenin tamamını riske atar.', label: 'Fabric Link Interface', type: 'text', required: true, placeholder: 'ge-0/0/1', hint: 'Data plane senkronizasyonu için dedicated interface' }
                     ]
                 },
                 {
                     title: 'Yönetim',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'mgmt_ip', label: 'Management IP (fxp0)', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.0.1/24', hint: 'Out-of-band yönetim IP adresi' }
+                        { name: 'mgmt_ip', why: "<code>fxp0</code> her düğümde ayrı adres ister ve redundancy group'lardan bağımsız çalışır. Out-of-band yönetim adresi olmadan failover veya cluster sorunlarında cihaza erişecek ikinci bir yolunuz kalmaz.", label: 'Management IP (fxp0)', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.0.1/24', hint: 'Out-of-band yönetim IP adresi' }
                     ]
                 }
             ],
@@ -384,10 +384,10 @@ JuniperSRX.appfw = {
                     icon: 'fas fa-bug',
                     warn: 'UTM lisansı ve IDP imza güncellemesi gerektirir. "show security utm status" ile lisans durumunu kontrol edin.',
                     fields: [
-                        { name: 'utm_pol', label: 'UTM Policy Adı', type: 'text', required: true, placeholder: 'UTM_DEFAULT', hint: 'Oluşturulacak UTM policy adı' },
-                        { name: 'av_prof', label: 'Antivirus Profil Adı', type: 'text', optional: true, placeholder: 'AV_DEFAULT', hint: 'HTTP antivirus tarama profili; boş bırakılırsa eklenmez' },
-                        { name: 'wf_prof', label: 'Web Filter Profil Adı', type: 'text', optional: true, placeholder: 'WF_DEFAULT', hint: 'HTTP web filtreleme profili; boş bırakılırsa eklenmez' },
-                        { name: 'idp_pol', label: 'IDP Policy Adı', type: 'text', optional: true, placeholder: 'Recommended', hint: 'Intrusion Detection Policy; boş bırakılırsa eklenmez' }
+                        { name: 'utm_pol', why: "UTM policy tek başına çalışmaz; bir <b>security policy</b> altında <code>application-services</code> ile çağrılmalıdır. Sadece profil yazıp policy'ye bağlamamak, taramanın hiç çalışmadığını fark etmemek demektir.", label: 'UTM Policy Adı', type: 'text', required: true, placeholder: 'UTM_DEFAULT', hint: 'Oluşturulacak UTM policy adı' },
+                        { name: 'av_prof', why: 'Antivirus yalnızca lisans ve imza veritabanı güncelse çalışır. Lisans bittiğinde davranış fail-open/fail-close ayarına bağlıdır ve varsayılan genellikle trafiği denetimsiz geçirmektir.', label: 'Antivirus Profil Adı', type: 'text', optional: true, placeholder: 'AV_DEFAULT', hint: 'HTTP antivirus tarama profili; boş bırakılırsa eklenmez' },
+                        { name: 'wf_prof', why: 'Web filtreleme HTTPS trafiğinde yalnızca SNI/sertifika bilgisine bakar; SSL proxy açık değilse şifreli içerik denetlenemez. Bu sınırı bilmeden yazılan politikalar yanlış bir güven duygusu verir.', label: 'Web Filter Profil Adı', type: 'text', optional: true, placeholder: 'WF_DEFAULT', hint: 'HTTP web filtreleme profili; boş bırakılırsa eklenmez' },
+                        { name: 'idp_pol', why: "IDP yoğun CPU tüketir ve tüm politikalara uygulanması SRX throughput'unu ciddi düşürür. İmza veritabanı yüklenmeden policy'ye atıfta bulunmak commit hatası verir.", label: 'IDP Policy Adı', type: 'text', optional: true, placeholder: 'Recommended', hint: 'Intrusion Detection Policy; boş bırakılırsa eklenmez' }
                     ]
                 },
                 {
@@ -395,8 +395,8 @@ JuniperSRX.appfw = {
                     icon: 'fas fa-link',
                     info: 'UTM policy\'nin uygulanacağı mevcut security policy\'yi belirtin.',
                     fields: [
-                        { name: 'sec_pol', label: 'Security Policy Adı', type: 'text', required: true, placeholder: 'permit-outbound', hint: 'Mevcut security policy adı' },
-                        { name: 'zones', label: 'From / To Zone', type: 'text', required: true, placeholder: 'trust untrust', hint: 'Boşlukla ayrılmış: from-zone to-zone' }
+                        { name: 'sec_pol', why: "UTM/IDP'nin bağlanacağı mevcut politika. Adı yanlış yazmak commit hatası verir; daha sinsi olan ise yalnızca dar bir politikaya bağlayıp trafiğin çoğunu denetimsiz bırakmaktır.", label: 'Security Policy Adı', type: 'text', required: true, placeholder: 'permit-outbound', hint: 'Mevcut security policy adı' },
+                        { name: 'zones', why: 'Politikayı bulmak için zone çifti şarttır, çünkü aynı politika adı farklı zone çiftlerinde ayrı nesnelerdir. Yanlış çift verirseniz JunOS var olmayan bir politikayı düzenlemeye çalışır.', label: 'From / To Zone', type: 'text', required: true, placeholder: 'trust untrust', hint: 'Boşlukla ayrılmış: from-zone to-zone' }
                     ]
                 }
             ],
@@ -445,17 +445,17 @@ JuniperSRX.interface = {
                     title: 'Interface Tanımı',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'intf_name', label: 'Interface Adı', type: 'text', required: true, placeholder: 'ge-0/0/2', hint: 'ge-0/0/x, xe-0/0/x, ae0, st0.x formatında' },
-                        { name: 'unit', label: 'Unit', type: 'text', required: true, placeholder: '0', hint: 'Mantıksal alt interface numarası (genellikle 0)' },
-                        { name: 'ip_prefix', label: 'IP / Prefix', type: 'text', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi' }
+                        { name: 'intf_name', why: "Arayüz adı yuva/PIC/port düzenini taşır; <code>ae</code> ve <code>st0</code> mantıksal arayüzlerdir. Chassis cluster'da adlandırma kayar (<code>ge-0/0/1</code> yerine <code>ge-2/0/1</code>), eski adı kullanmak konfigi boşa düşürür.", label: 'Interface Adı', type: 'text', required: true, placeholder: 'ge-0/0/2', hint: 'ge-0/0/x, xe-0/0/x, ae0, st0.x formatında' },
+                        { name: 'unit', why: "Adres fiziksel arayüze değil logical unit'e yazılır ve VLAN tagging kapalıyken unit <b>0</b> olmalıdır. Tagging açmadan unit 100 tanımlamak commit'te hata verir.", label: 'Unit', type: 'text', required: true, placeholder: '0', hint: 'Mantıksal alt interface numarası (genellikle 0)' },
+                        { name: 'ip_prefix', why: "Maske yanlışsa (ör. /32) arayüz komşusuna ARP atamaz; link up görünür ama hiçbir şey çalışmaz. Aynı unit'e ikinci adres eklemek eskisini silmez — eskisini açıkça <code>delete</code> etmeniz gerekir.", label: 'IP / Prefix', type: 'text', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi' }
                     ]
                 },
                 {
                     title: 'Opsiyonel Ayarlar',
                     icon: 'fas fa-sliders-h',
                     fields: [
-                        { name: 'description', label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN Link — ISP1', hint: 'Interface açıklaması; dokümantasyon için önerilir' },
-                        { name: 'vlan_id', label: 'VLAN ID', type: 'text', validate: 'vlan', optional: true, placeholder: '100', hint: 'Trunk bağlantılarda 802.1Q VLAN etiketi' }
+                        { name: 'description', why: 'Trafiği etkilemez ama arıza anında hangi portun hangi devreye gittiğini söyleyen tek kaynaktır; <code>show interfaces descriptions</code> ile okunur ve yanlış kablo çekilmesini önler.', label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN Link — ISP1', hint: 'Interface açıklaması; dokümantasyon için önerilir' },
+                        { name: 'vlan_id', why: "802.1Q etiketi yalnızca arayüzde <code>vlan-tagging</code> açıkken kullanılabilir ve unit numarasını VLAN ID ile aynı tutmak yaygın kuraldır. Karşı switch trunk'ında izin verilmeyen bir VLAN yazmak sessiz kopma üretir.", label: 'VLAN ID', type: 'text', validate: 'vlan', optional: true, placeholder: '100', hint: 'Trunk bağlantılarda 802.1Q VLAN etiketi' }
                     ]
                 }
             ],
@@ -491,9 +491,9 @@ JuniperSRX.addrbook = {
                     title: 'Adres Tanımı',
                     icon: 'fas fa-address-book',
                     fields: [
-                        { name: 'book_name', label: 'Address Book Adı', type: 'text', required: true, placeholder: 'global', hint: '"global" tüm zone\'larda kullanılabilir; veya zone adı girin' },
-                        { name: 'addr_name', label: 'Address Adı', type: 'text', required: true, placeholder: 'SRV-WEB', hint: 'Politikalarda referans alınacak sembolik ad' },
-                        { name: 'prefix', label: 'IP Prefix', type: 'text', required: true, placeholder: '192.168.1.10/32', hint: 'CIDR formatında host veya ağ adresi' }
+                        { name: 'book_name', why: "<b>global</b> address book tüm zone'lardan erişilebilir; zone bazlı book ise yalnızca o zone'un politikalarında kullanılabilir. Yanlış book'a konan nesne politika yazarken bulunamaz ve commit hatası verir.", label: 'Address Book Adı', type: 'text', required: true, placeholder: 'global', hint: '"global" tüm zone\'larda kullanılabilir; veya zone adı girin' },
+                        { name: 'addr_name', why: "Politikalar adresi bu sembolik adla referanslar; adı değiştirmek onu kullanan tüm politikaları kırar. IP'yi ada gömmek (SRV-10-1-1-5) adres değiştiğinde yanıltıcı olur.", label: 'Address Adı', type: 'text', required: true, placeholder: 'SRV-WEB', hint: 'Politikalarda referans alınacak sembolik ad' },
+                        { name: 'prefix', why: "Host için <code>/32</code> kullanın. Yanlışlıkla <code>/24</code> yazmak, tek sunucuya açtığınızı sandığınız erişimi tüm subnet'e açar ve bunu denetimde fark etmek çok zordur.", label: 'IP Prefix', type: 'text', required: true, placeholder: '192.168.1.10/32', hint: 'CIDR formatında host veya ağ adresi' }
                     ]
                 },
                 {
@@ -501,7 +501,7 @@ JuniperSRX.addrbook = {
                     icon: 'fas fa-layer-group',
                     info: 'Birden fazla adresi tek isim altında gruplayarak politika yönetimini kolaylaştırın.',
                     fields: [
-                        { name: 'group_name', label: 'Group Adı', type: 'text', optional: true, placeholder: 'GRP-SERVERS', hint: 'Bu adresi ekleyeceğiniz address-set adı' }
+                        { name: 'group_name', why: 'Address-set, politikaları tek tek düzenlemeden kapsamı genişletmenizi sağlar — ama aynı nedenle sete yeni üye eklemek, o seti kullanan <b>tüm</b> politikalara sessizce erişim verir.', label: 'Group Adı', type: 'text', optional: true, placeholder: 'GRP-SERVERS', hint: 'Bu adresi ekleyeceğiniz address-set adı' }
                     ]
                 }
             ],
@@ -536,23 +536,23 @@ JuniperSRX.ospf = {
                     title: 'OSPF Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Loopback interface IP adresi önerilir' },
-                        { name: 'area', label: 'Area', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0; stub area için örn. 0.0.0.1' }
+                        { name: 'router_id', why: 'Router-ID cihazın protokol kimliğidir; çakışması komşuluğun kurulup sürekli kopmasına yol açar. Loopback verin — fiziksel arayüzden türetilen ID, o arayüz düştüğünde değişir ve tüm oturumları sıfırlar.', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Loopback interface IP adresi önerilir' },
+                        { name: 'area', why: "Backbone <code>0.0.0.0</code> olmalı ve tüm alanlar ona komşu olmalıdır. Linkin iki ucunun farklı area'da olması komşuluğun hiç kurulmamasına neden olur — link up görünür, komşu yoktur.", label: 'Area', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0; stub area için örn. 0.0.0.1' }
                     ]
                 },
                 {
                     title: 'Interface Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'intfs', label: 'Aktif Interface\'ler', type: 'text', required: true, placeholder: 'ge-0/0/1.0, ge-0/0/2.0', hint: 'Virgülle ayrılmış OSPF interface listesi' },
-                        { name: 'passive_intfs', label: 'Passive Interface\'ler', type: 'text', optional: true, placeholder: 'ge-0/0/3.0, lo0.0', hint: 'Sadece prefix duyurulur, komşu oluşturulmaz' }
+                        { name: 'intfs', why: "OSPF yalnızca listelenen arayüzlerde çalışır <b>ve</b> bu arayüzlerin zone'unda host-inbound-traffic ospf açık olmalıdır. İkisinden biri eksikse komşuluk kurulmaz; SRX'te en çok atlanan adım ikincisidir.", label: 'Aktif Interface\'ler', type: 'text', required: true, placeholder: 'ge-0/0/1.0, ge-0/0/2.0', hint: 'Virgülle ayrılmış OSPF interface listesi' },
+                        { name: 'passive_intfs', why: "Passive arayüz prefix'i duyurur ama komşuluk aramaz. Kullanıcı ve yönetim arayüzlerini passive yapmamak, güvenilmeyen tarafa OSPF paketi yaymak ve sahte komşu kabul etme riski almak demektir.", label: 'Passive Interface\'ler', type: 'text', optional: true, placeholder: 'ge-0/0/3.0, lo0.0', hint: 'Sadece prefix duyurulur, komşu oluşturulmaz' }
                     ]
                 },
                 {
                     title: 'Policy Ayarları',
                     icon: 'fas fa-filter',
                     fields: [
-                        { name: 'export_policy', label: 'Export Policy', type: 'text', optional: true, placeholder: 'OSPF-EXPORT', hint: 'OSPF\'e redistribute edilecek route\'lar için policy adı' }
+                        { name: 'export_policy', why: "OSPF'e redistribute yalnızca export policy ile olur; policy yoksa statik ve connected route'lar hiç duyurulmaz. Policy'yi fazla geniş yazmak ise default dahil her şeyi OSPF'e pompalar.", label: 'Export Policy', type: 'text', optional: true, placeholder: 'OSPF-EXPORT', hint: 'OSPF\'e redistribute edilecek route\'lar için policy adı' }
                     ]
                 }
             ],
@@ -595,25 +595,25 @@ JuniperSRX.bgp = {
                     title: 'BGP Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'local_as', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
+                        { name: 'local_as', why: 'Yerel AS numarası iBGP/eBGP ayrımını belirler. Karşı tarafın beklediği AS ile farklıysa OPEN mesajında bad peer AS hatası alınır ve oturum sürekli Active/Connect arasında dolanır.', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
+                        { name: 'router_id', why: 'Router-ID cihazın protokol kimliğidir; çakışması komşuluğun kurulup sürekli kopmasına yol açar. Loopback verin — fiziksel arayüzden türetilen ID, o arayüz düştüğünde değişir ve tüm oturumları sıfırlar.', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
                     ]
                 },
                 {
                     title: 'Peer Group Ayarları',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'group_name', label: 'Group Adı', type: 'text', required: true, placeholder: 'EBGP-PEERS', hint: 'BGP peer grubunun adı' },
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
-                        { name: 'peer_as', label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun Autonomous System numarası' }
+                        { name: 'group_name', why: "JunOS'ta BGP komşuları mutlaka bir grup altında tanımlanır ve tip/policy ayarları gruptan miras alınır. Farklı politikaya ihtiyacı olan peer'ı aynı gruba koymak ona da grubun export policy'sini uygular.", label: 'Group Adı', type: 'text', required: true, placeholder: 'EBGP-PEERS', hint: 'BGP peer grubunun adı' },
+                        { name: 'peer_ip', why: "BGP komşusunun adresi. Komşunun gördüğü kaynak adres ile burada yazdığınız birebir aynı olmalı; ayrıca bu trafik host-inbound olduğu için ilgili zone'da BGP açık değilse oturum Idle'da kalır.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
+                        { name: 'peer_as', why: "Komşunun AS numarası eBGP/iBGP davranışını belirler: aynı AS ise öğrenilen route'lar diğer iBGP komşulara duyurulmaz. Yanlış AS yazmak oturumu hiç kurdurmaz.", label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun Autonomous System numarası' }
                     ]
                 },
                 {
                     title: 'Policy Ayarları',
                     icon: 'fas fa-filter',
                     fields: [
-                        { name: 'import_policy', label: 'Import Policy', type: 'text', optional: true, placeholder: 'BGP-IMPORT', hint: 'Alınan route\'lar için filtreleme policy adı' },
-                        { name: 'export_policy', label: 'Export Policy', type: 'text', optional: true, placeholder: 'BGP-EXPORT', hint: 'Gönderilen route\'lar için filtreleme policy adı' }
+                        { name: 'import_policy', why: "Alınan route'ları filtrelemezseniz komşunun gönderdiği hatalı veya aşırı spesifik prefix'ler tablonuzu ele geçirir. Policy'yi sonradan eklediğinizde oturumun route refresh gerektirebileceğini unutmayın.", label: 'Import Policy', type: 'text', optional: true, placeholder: 'BGP-IMPORT', hint: 'Alınan route\'lar için filtreleme policy adı' },
+                        { name: 'export_policy', why: "eBGP'de export policy yoksa JunOS varsayılan olarak sadece BGP'den öğrendiklerini duyurur; statik/connected route'ların çıkması için açık policy gerekir. Filtresiz bırakmak ise sizi istemeden transit AS'e çevirir.", label: 'Export Policy', type: 'text', optional: true, placeholder: 'BGP-EXPORT', hint: 'Gönderilen route\'lar için filtreleme policy adı' }
                     ]
                 }
             ],
@@ -654,16 +654,16 @@ JuniperSRX.staticroute = {
                     title: 'Route Tanımı',
                     icon: 'fas fa-map-signs',
                     fields: [
-                        { name: 'dst', label: 'Destination (CIDR)', type: 'text', required: true, placeholder: '0.0.0.0/0', hint: 'Hedef ağ; 0.0.0.0/0 default route için' },
-                        { name: 'nexthop', label: 'Next-Hop', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.254', hint: 'Bir sonraki atlama IP adresi' }
+                        { name: 'dst', why: "<code>0.0.0.0/0</code> default route'tur ve daha spesifik her route onu ezer. Maskeyi yanlış yazmak (/24 yerine /16) beklenmedik trafiği bu route'a çeker ve teşhisi zor yönlendirme hataları üretir.", label: 'Destination (CIDR)', type: 'text', required: true, placeholder: '0.0.0.0/0', hint: 'Hedef ağ; 0.0.0.0/0 default route için' },
+                        { name: 'nexthop', why: "Next-hop doğrudan bağlı bir arayüzden erişilebilir olmalıdır; değilse route <code>show route</code> çıktısında <b>hidden</b> kalır ve hiç kullanılmaz. Next-hop düştüğünde route'un çekilmesi için BFD düşünün.", label: 'Next-Hop', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.254', hint: 'Bir sonraki atlama IP adresi' }
                     ]
                 },
                 {
                     title: 'Opsiyonel Ayarlar',
                     icon: 'fas fa-sliders-h',
                     fields: [
-                        { name: 'vr_name', label: 'Routing Instance Adı', type: 'text', optional: true, placeholder: 'VRF-MGMT', hint: 'Boş veya "default" → global; VRF adı → routing-instances altına eklenir' },
-                        { name: 'preference', label: 'Preference (AD)', type: 'text', optional: true, placeholder: '5', hint: 'Administrative distance; küçük değer daha tercih edilir' }
+                        { name: 'vr_name', why: "Routing instance tam izolasyon sağlar: global tablodaki route'lar oraya sızmaz. Yönetim arayüzünü yanlışlıkla bir VRF'e taşımak, commit anında erişiminizi kesmenin klasik yoludur.", label: 'Routing Instance Adı', type: 'text', optional: true, placeholder: 'VRF-MGMT', hint: 'Boş veya "default" → global; VRF adı → routing-instances altına eklenir' },
+                        { name: 'preference', why: "Düşük değer kazanır; yedek yolu gerçekten yedek yapmak için preference'ı yükseltmek şarttır. Eşit preference trafiği yük paylaşımına sokar ve stateful firewall'da asimetrik yönlendirme oturumları düşürür.", label: 'Preference (AD)', type: 'text', optional: true, placeholder: '5', hint: 'Administrative distance; küçük değer daha tercih edilir' }
                     ]
                 }
             ],
@@ -704,25 +704,25 @@ JuniperSRX.dhcp = {
                     title: 'Pool Tanımı',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'pool_name', label: 'Pool Adı', type: 'text', required: true, placeholder: 'POOL-LAN', hint: 'DHCP adres havuzu için tanımlayıcı ad' },
-                        { name: 'network', label: 'Network (CIDR)', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'DHCP scope network adresi' }
+                        { name: 'pool_name', why: "Havuz adı aktivasyondaki tek bağdır. JunOS'ta havuzu tanımlamak yetmez; ilgili arayüzde DHCP sunucunun etkinleştirilmesi gerekir, aksi halde havuz ayakta görünür ama OFFER çıkmaz.", label: 'Pool Adı', type: 'text', required: true, placeholder: 'POOL-LAN', hint: 'DHCP adres havuzu için tanımlayıcı ad' },
+                        { name: 'network', why: "Havuz ağı, dağıtım yapacak arayüzün subnet'iyle örtüşmelidir. Örtüşmezse SRX isteği hangi havuza eşleştireceğini bulamaz ve istemci hiçbir cevap alamaz.", label: 'Network (CIDR)', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'DHCP scope network adresi' }
                     ]
                 },
                 {
                     title: 'IP Aralığı',
                     icon: 'fas fa-sort-numeric-up',
                     fields: [
-                        { name: 'range_start', label: 'Range Başlangıç', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Dağıtılacak IP aralığının başlangıcı' },
-                        { name: 'range_end', label: 'Range Bitiş', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.200', hint: 'Dağıtılacak IP aralığının sonu' }
+                        { name: 'range_start', why: "Aralığı gateway, sunucu ve yazıcı gibi sabit adresleri kapsamayacak şekilde başlatın; gateway IP'sinin bir istemciye dağıtılması tüm VLAN'ı anında düşürür.", label: 'Range Başlangıç', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Dağıtılacak IP aralığının başlangıcı' },
+                        { name: 'range_end', why: 'Aralık genişliği eşzamanlı istemci sayısını sınırlar. Misafir ağlarda dar aralık ile uzun lease birlikte kullanılırsa cihazlar ayrıldıktan sonra havuz tükenir ve yeni kullanıcılar IP alamaz.', label: 'Range Bitiş', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.200', hint: 'Dağıtılacak IP aralığının sonu' }
                     ]
                 },
                 {
                     title: 'DHCP Seçenekleri',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'router', label: 'Gateway (Router)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'İstemcilere verilecek default gateway IP' },
-                        { name: 'dns', label: 'DNS Server', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'Birincil DNS sunucu IP adresi' },
-                        { name: 'lease', label: 'Lease Süresi (saniye)', type: 'text', required: true, placeholder: '86400', hint: '86400 = 1 gün; 3600 = 1 saat' }
+                        { name: 'router', why: "İstemcilere option 3 olarak gider ve genellikle SRX'in ilgili arayüz adresidir. Yanlış gateway vermek klasik <b>IP var ama internet yok</b> tablosunu üretir.", label: 'Gateway (Router)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'İstemcilere verilecek default gateway IP' },
+                        { name: 'dns', why: 'Option 6 ile iletilir. Ulaşılamayan bir DNS vermek en yanıltıcı arızadır: IP ile ping çalışır, isim çözümü çalışmaz ve kullanıcı sorunu ağa yıkar.', label: 'DNS Server', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'Birincil DNS sunucu IP adresi' },
+                        { name: 'lease', why: 'Kısa lease değişikliklere hızlı uyum sağlar ama DHCP yükünü artırır; misafir ağlarda uzun lease havuzu tüketir. Sunucu segmentlerinde lease yerine statik rezervasyon tercih edin.', label: 'Lease Süresi (saniye)', type: 'text', required: true, placeholder: '86400', hint: '86400 = 1 gün; 3600 = 1 saat' }
                     ]
                 }
             ],
@@ -763,16 +763,16 @@ JuniperSRX.screens = {
                     icon: 'fas fa-shield-virus',
                     warn: 'Threshold değerlerini ortama göre ayarlayın. Çok düşük değerler meşru trafiği engelleyebilir.',
                     fields: [
-                        { name: 'screen_name', label: 'Screen Adı', type: 'text', required: true, placeholder: 'DOS-SCREEN', hint: 'IDS screen profili için tanımlayıcı ad' }
+                        { name: 'screen_name', why: "Screen profili bir <b>zone'a uygulanmadıkça</b> hiçbir şey yapmaz. Tanımlayıp uygulamayı unutmak, DoS korumasının aktif sanıldığı ama hiç çalışmadığı en sık durumdur.", label: 'Screen Adı', type: 'text', required: true, placeholder: 'DOS-SCREEN', hint: 'IDS screen profili için tanımlayıcı ad' }
                     ]
                 },
                 {
                     title: 'Flood Threshold\'ları',
                     icon: 'fas fa-tachometer-alt',
                     fields: [
-                        { name: 'icmp_flood_threshold', label: 'ICMP Flood Threshold (pps)', type: 'text', required: true, placeholder: '1000', hint: 'Saniyedeki ICMP paketi sınırı' },
-                        { name: 'syn_flood_threshold', label: 'SYN Flood Threshold (pps)', type: 'text', required: true, placeholder: '10000', hint: 'Saniyedeki TCP SYN paketi sınırı' },
-                        { name: 'udp_flood_threshold', label: 'UDP Flood Threshold (pps)', type: 'text', required: true, placeholder: '5000', hint: 'Saniyedeki UDP paketi sınırı' }
+                        { name: 'icmp_flood_threshold', why: 'Eşiği gerçek trafiğin altına koymak meşru izleme (ping tabanlı monitoring) trafiğini keser ve sahte alarm yağmuru üretir. Önce mevcut pps değerlerini ölçün, sonra eşik belirleyin.', label: 'ICMP Flood Threshold (pps)', type: 'text', required: true, placeholder: '1000', hint: 'Saniyedeki ICMP paketi sınırı' },
+                        { name: 'syn_flood_threshold', why: 'Düşük ayarlanan SYN eşiği yoğun saatte gerçek kullanıcı bağlantılarını reddeder. Tek bir sayıya güvenmek yerine kaynak/hedef bazlı eşikleri ve zaman aşımını birlikte değerlendirin.', label: 'SYN Flood Threshold (pps)', type: 'text', required: true, placeholder: '10000', hint: 'Saniyedeki TCP SYN paketi sınırı' },
+                        { name: 'udp_flood_threshold', why: 'VoIP, DNS ve video gibi meşru UDP servisleri yüksek pps üretir. Eşiği bunları hesaba katmadan koymak sesi ve isim çözümünü kesip arızayı ağ genelinde bir soruna benzetir.', label: 'UDP Flood Threshold (pps)', type: 'text', required: true, placeholder: '5000', hint: 'Saniyedeki UDP paketi sınırı' }
                     ]
                 },
                 {
@@ -780,7 +780,7 @@ JuniperSRX.screens = {
                     icon: 'fas fa-map-marker-alt',
                     info: 'Screen genellikle untrust zone\'a uygulanır. Dışarıdan gelen saldırı vektörlerini engeller.',
                     fields: [
-                        { name: 'apply_zone', label: 'Apply Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Screen profili uygulanacak zone adı' }
+                        { name: 'apply_zone', why: "Screen genelde yalnızca <b>untrust</b> gibi dış zone'lara uygulanır. Trust zone'a agresif eşiklerle uygulamak kendi iç kullanıcılarınızı engeller ve kaynağı bulunması zor kesintiler üretir.", label: 'Apply Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Screen profili uygulanacak zone adı' }
                     ]
                 }
             ],
@@ -819,14 +819,14 @@ JuniperSRX.customapp = {
                     title: 'Uygulama Tanımı',
                     icon: 'fas fa-puzzle-piece',
                     fields: [
-                        { name: 'app_name', label: 'Application Adı', type: 'text', required: true, placeholder: 'APP-CUSTOM-8443', hint: 'Politikalarda referans alınacak uygulama adı' },
-                        { name: 'protocol', label: 'Protokol', type: 'select', options: [
+                        { name: 'app_name', why: 'Özel uygulama adı politikalarda referans alınır ve <code>junos-</code> önekli hazır adlarla çakışmamalıdır. Adı değiştirmek onu kullanan tüm politikaları kırar.', label: 'Application Adı', type: 'text', required: true, placeholder: 'APP-CUSTOM-8443', hint: 'Politikalarda referans alınacak uygulama adı' },
+                        { name: 'protocol', why: 'Protokol seçimi port eşleşmesini belirler. UDP servisini TCP olarak tanımlamak, politika izin veriyor görünse bile trafiğin sessizce düşmesine yol açar.', label: 'Protokol', type: 'select', options: [
                             { value: 'tcp', label: 'TCP', selected: true },
                             { value: 'udp', label: 'UDP' }
                         ]},
-                        { name: 'dst_port', label: 'Destination Port', type: 'text', validate: 'port', required: true, placeholder: '8443', hint: 'Tek port veya aralık (ör. 8080-8090)' },
-                        { name: 'inactivity_timeout', label: 'Inactivity Timeout (saniye)', type: 'text', required: true, placeholder: '3600', hint: 'Hareketsizlik sonrası oturum kapanma süresi' },
-                        { name: 'description', label: 'Açıklama', type: 'text', optional: true, placeholder: 'Custom HTTPS App', hint: 'Uygulama açıklaması; dokümantasyon için önerilir' }
+                        { name: 'dst_port', why: 'Yalnızca hedef port eşleşir, kaynak port serbesttir. Geniş aralık (ör. 1024-65535) yazmak, tek bir servise açtığınızı sandığınız kuralı neredeyse her şeye açar.', label: 'Destination Port', type: 'text', validate: 'port', required: true, placeholder: '8443', hint: 'Tek port veya aralık (ör. 8080-8090)' },
+                        { name: 'inactivity_timeout', why: 'Çok kısa zaman aşımı, uzun süre sessiz kalan SSH ve veritabanı bağlantılarını sessizce düşürür ve uygulama donmuş gibi görünür; çok uzun değer ise oturum tablosunu şişirir.', label: 'Inactivity Timeout (saniye)', type: 'text', required: true, placeholder: '3600', hint: 'Hareketsizlik sonrası oturum kapanma süresi' },
+                        { name: 'description', why: 'Özel uygulamalar zamanla birikir. Açıklama olmadan altı ay sonra bu portun neden açıldığı bilinmediği için kimse kuralı silmeye cesaret edemez ve kural seti şişip güvenlik açığına dönüşür.', label: 'Açıklama', type: 'text', optional: true, placeholder: 'Custom HTTPS App', hint: 'Uygulama açıklaması; dokümantasyon için önerilir' }
                     ]
                 }
             ],
@@ -864,19 +864,19 @@ JuniperSRX.alg = {
                     icon: 'fas fa-random',
                     info: 'SIP ALG VoIP sorunlarına yol açabilir. SIP proxy kullanıyorsanız devre dışı bırakmayı düşünün.',
                     fields: [
-                        { name: 'ftp_val', label: 'FTP ALG', type: 'select', options: [
+                        { name: 'ftp_val', why: 'FTP ALG veri kanalı için dinamik pinhole açar; kapatırsanız kontrol kanalı çalışsa bile aktif mod transferler başarısız olur. Açık bırakmak ise bilinen bir saldırı yüzeyidir.', label: 'FTP ALG', type: 'select', options: [
                             { value: 'enable', label: 'Etkin (enable)', selected: true },
                             { value: 'disable', label: 'Devre Dışı (disable)' }
                         ]},
-                        { name: 'sip_val', label: 'SIP ALG', type: 'select', options: [
+                        { name: 'sip_val', why: 'SIP ALG çoğu VoIP arızasının kaynağıdır: SIP başlıklarını yeniden yazarak tek yönlü ses veya kayıt sorunları üretebilir. Sağlayıcı SBC kullanıyorsa genellikle doğru olan onu <b>kapatmaktır</b>.', label: 'SIP ALG', type: 'select', options: [
                             { value: 'enable', label: 'Etkin (enable)', selected: true },
                             { value: 'disable', label: 'Devre Dışı (disable)' }
                         ]},
-                        { name: 'tftp_val', label: 'TFTP ALG', type: 'select', options: [
+                        { name: 'tftp_val', why: 'TFTP ALG dinamik dönüş portunu takip eder; kapalıyken cihaz imaj ve konfig yüklemeleri zaman aşımına uğrar. Gerçekten TFTP kullanmıyorsanız açık tutmayın.', label: 'TFTP ALG', type: 'select', options: [
                             { value: 'enable', label: 'Etkin (enable)', selected: true },
                             { value: 'disable', label: 'Devre Dışı (disable)' }
                         ]},
-                        { name: 'h323_val', label: 'H.323 ALG', type: 'select', options: [
+                        { name: 'h323_val', why: 'H.323 ALG eski video konferans sistemleri içindir. Modern SIP tabanlı ortamlarda açık bırakmak yalnızca gereksiz saldırı yüzeyi ve ek işlem yükü demektir.', label: 'H.323 ALG', type: 'select', options: [
                             { value: 'disable', label: 'Devre Dışı (disable)', selected: true },
                             { value: 'enable', label: 'Etkin (enable)' }
                         ]}
@@ -916,20 +916,20 @@ JuniperSRX.jflow = {
                     title: 'Flow Collector Ayarları',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'flow_version', label: 'Flow Versiyonu', type: 'select', options: [
+                        { name: 'flow_version', why: "v9 ve IPFIX şablon tabanlıdır; collector şablonu almadan akışları çözemez, bu yüzden collector'ın desteklediği sürümle eşleşmek şarttır. v5 sabit formatlıdır ve IPv6/MPLS alanlarını hiç taşıyamaz.", label: 'Flow Versiyonu', type: 'select', options: [
                             { value: '9', label: 'NetFlow v9', selected: true },
                             { value: 'ipfix', label: 'IPFIX' }
                         ]},
-                        { name: 'collector_ip', label: 'Collector IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.200', hint: 'NetFlow/IPFIX veri alacak sunucu IP' },
-                        { name: 'port', label: 'Collector Port', type: 'text', validate: 'port', required: true, placeholder: '2055', hint: 'UDP port; varsayılan 2055' }
+                        { name: 'collector_ip', why: "Collector adresi yönlendirilebilir olmalı ve akış paketlerinin kaynağı collector tarafında tanımlı olmalıdır. Erişilemeyen collector'a export sessizce başarısız olur, cihazda hata görmezsiniz.", label: 'Collector IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.200', hint: 'NetFlow/IPFIX veri alacak sunucu IP' },
+                        { name: 'port', why: "Collector'ın dinlediği UDP port ile birebir aynı olmalıdır; 2055 yaygındır ama IPFIX için sık sık 4739 kullanılır. Yanlış port tamamen sessiz bir arızadır.", label: 'Collector Port', type: 'text', validate: 'port', required: true, placeholder: '2055', hint: 'UDP port; varsayılan 2055' }
                     ]
                 },
                 {
                     title: 'Örnekleme Ayarları',
                     icon: 'fas fa-stopwatch',
                     fields: [
-                        { name: 'active_timeout', label: 'Active Timeout (saniye)', type: 'text', required: true, placeholder: '60', hint: 'Aktif akış ihracat aralığı' },
-                        { name: 'export_intf', label: 'Export Interface', type: 'text', required: true, placeholder: 'ge-0/0/0.0', hint: 'Örneklemenin etkinleştirileceği interface (unit dahil)' }
+                        { name: 'active_timeout', why: 'Uzun süren akışlar ancak bu aralıkta raporlanır; büyük değer grafiklerde gecikmeli ve sıçramalı veri üretir. Çok küçük değer ise export yükünü ve collector maliyetini artırır.', label: 'Active Timeout (saniye)', type: 'text', required: true, placeholder: '60', hint: 'Aktif akış ihracat aralığı' },
+                        { name: 'export_intf', why: "Örneklemenin arayüz üzerinde (unit dahil) etkinleştirilmesi gerekir; yön belirtilmezse beklediğiniz trafik hiç örneklenmez. SRX'te flow mode ile örnekleme etkileşimi platforma göre değişir, doğrulamadan kapasite varsaymayın.", label: 'Export Interface', type: 'text', required: true, placeholder: 'ge-0/0/0.0', hint: 'Örneklemenin etkinleştirileceği interface (unit dahil)' }
                     ]
                 }
             ],
@@ -970,25 +970,25 @@ JuniperSRX.snmp = {
                     icon: 'fas fa-user-shield',
                     warn: 'SNMP kimlik bilgilerini güvenli şekilde saklayın. MD5 ve DES zayıf şifreleme kullanır; SHA + AES128 tercih edin.',
                     fields: [
-                        { name: 'usm_user', label: 'USM Kullanıcı Adı', type: 'text', required: true, placeholder: 'snmp-v3', hint: 'SNMP v3 USM kullanıcı adı' },
-                        { name: 'auth_proto', label: 'Auth Protokolü', type: 'select', options: [
+                        { name: 'usm_user', why: 'SNMPv3 kullanıcı adı NMS tarafındaki tanımla birebir aynı olmalıdır. Uyuşmazlığı anlamlı bir hata olarak değil yalnızca zaman aşımı olarak görürsünüz — teşhisi bu yüzden zordur.', label: 'USM Kullanıcı Adı', type: 'text', required: true, placeholder: 'snmp-v3', hint: 'SNMP v3 USM kullanıcı adı' },
+                        { name: 'auth_proto', why: 'MD5 artık zayıf kabul edilir, mümkünse SHA seçin. Protokolü değiştirip NMS tarafını güncellemezseniz cihaz sessizce cevap vermez.', label: 'Auth Protokolü', type: 'select', options: [
                             { value: 'sha', label: 'SHA (önerilen)', selected: true },
                             { value: 'md5', label: 'MD5 (zayıf)' }
                         ]},
-                        { name: 'auth_pass', label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123!', hint: 'En az 8 karakter authentication şifresi' },
-                        { name: 'priv_proto', label: 'Privacy Protokolü', type: 'select', options: [
+                        { name: 'auth_pass', why: "Şifre konfigde hash'li görünse de yedeklerde taşınır. SNMP kullanıcısına yazma yetkisi gerekmedikçe yalnızca read-only view bağlayın.", label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123!', hint: 'En az 8 karakter authentication şifresi' },
+                        { name: 'priv_proto', why: 'Privacy kapalıysa SNMP verisi düz metin gider ve tüm topoloji bilgisi dinlenebilir. DES yerine AES tercih edin; desteklemeyen NMS güncellenmelidir.', label: 'Privacy Protokolü', type: 'select', options: [
                             { value: 'aes128', label: 'AES-128 (önerilen)', selected: true },
                             { value: 'des', label: 'DES (zayıf)' }
                         ]},
-                        { name: 'priv_pass', label: 'Privacy Şifresi', type: 'text', required: true, placeholder: 'PrivPass123!', hint: 'En az 8 karakter privacy şifresi' }
+                        { name: 'priv_pass', why: 'Auth şifresiyle aynı değeri kullanmak yaygın ama kötü bir alışkanlıktır: tek bir sızıntı hem doğrulamayı hem şifrelemeyi aynı anda çökertir.', label: 'Privacy Şifresi', type: 'text', required: true, placeholder: 'PrivPass123!', hint: 'En az 8 karakter privacy şifresi' }
                     ]
                 },
                 {
                     title: 'Trap Ayarları',
                     icon: 'fas fa-bell',
                     fields: [
-                        { name: 'trap_group', label: 'Trap Group Adı', type: 'text', required: true, placeholder: 'TRAP-SERVERS', hint: 'SNMP trap hedef grubu adı' },
-                        { name: 'target_ip', label: 'Target IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'Trap\'lerin gönderileceği NMS/SIEM IP adresi' }
+                        { name: 'trap_group', why: 'Trap group hem sürümü hem alıcıları belirler. <code>categories</code> eklemezseniz grup tanımlı görünür ama hiçbir trap gönderilmez — sessiz bir izleme kör noktası oluşur.', label: 'Trap Group Adı', type: 'text', required: true, placeholder: 'TRAP-SERVERS', hint: 'SNMP trap hedef grubu adı' },
+                        { name: 'target_ip', why: "Alıcı adres yönlendirilebilir olmalı ve trap'lerin çıktığı kaynak adres NMS/SIEM tarafında tanımlı olmalıdır; tanımadığı kaynaktan gelen trap'i NMS sessizce düşürür.", label: 'Target IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'Trap\'lerin gönderileceği NMS/SIEM IP adresi' }
                     ]
                 }
             ],
@@ -1028,16 +1028,16 @@ JuniperSRX.aaa = {
                     icon: 'fas fa-server',
                     warn: 'RADIUS secret güvenli kanaldan iletilmeli. Üretimde EAP-TLS gibi sertifika tabanlı yöntemler tercih edin.',
                     fields: [
-                        { name: 'server_ip', label: 'RADIUS Server IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.10', hint: 'Birincil RADIUS kimlik doğrulama sunucusu' },
-                        { name: 'secret', label: 'Shared Secret', type: 'text', required: true, placeholder: 'RadiusSecret123!', hint: 'RADIUS sunucuyla paylaşılan gizli anahtar' }
+                        { name: 'server_ip', why: "RADIUS sunucusuna SRX'in kendi kaynak adresinden ulaşılabilmeli ve sunucuda bu adres NAS olarak tanımlı olmalıdır. Tanımlı değilse istek sessizce düşer, cihazda yalnızca zaman aşımı görürsünüz.", label: 'RADIUS Server IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.10', hint: 'Birincil RADIUS kimlik doğrulama sunucusu' },
+                        { name: 'secret', why: 'Shared secret iki tarafta birebir aynı olmalıdır. Uyuşmazlık kendini <b>geçersiz şifre</b> gibi gösterir ve saatlerce yanlış yerde, kullanıcı hesaplarında aranır.', label: 'Shared Secret', type: 'text', required: true, placeholder: 'RadiusSecret123!', hint: 'RADIUS sunucuyla paylaşılan gizli anahtar' }
                     ]
                 },
                 {
                     title: 'Access Profile',
                     icon: 'fas fa-id-card',
                     fields: [
-                        { name: 'access_profile', label: 'Access Profile Adı', type: 'text', required: true, placeholder: 'MGMT-ACCESS', hint: 'Yönetim erişimi için access profile adı' },
-                        { name: 'auth_order', label: 'Authentication Order', type: 'select', options: [
+                        { name: 'access_profile', why: 'Profili tanımlamak yetmez; <code>system authentication-order</code> ile devreye alınmalıdır. Ayrıca RADIUS kullanıcılarının yerel bir template hesaba eşlenmesi gerekir, yoksa doğrulama geçer ama hiçbir yetki verilmez.', label: 'Access Profile Adı', type: 'text', required: true, placeholder: 'MGMT-ACCESS', hint: 'Yönetim erişimi için access profile adı' },
+                        { name: 'auth_order', why: 'Sıralamada <b>password</b> (yerel) mutlaka bulunmalıdır; sadece RADIUS bırakırsanız sunucu erişilemez olduğunda cihaza hiç giriş yapamazsınız. JunOS yerele ancak RADIUS <b>cevap vermediğinde</b> düşer — cevap verip reddederse düşmez.', label: 'Authentication Order', type: 'select', options: [
                             { value: 'radius local', label: 'RADIUS → Yerel (önerilen)', selected: true },
                             { value: 'local radius', label: 'Yerel → RADIUS' },
                             { value: 'radius', label: 'Sadece RADIUS' }

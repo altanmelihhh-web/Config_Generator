@@ -16,25 +16,25 @@ Arista.general = {
                     title: 'Cihaz Kimliği',
                     icon: 'fas fa-tag',
                     fields: [
-                        { name: 'hostname', label: 'Hostname', type: 'text', required: true, placeholder: 'ARISTA-SW1', hint: 'Cihazın hostname değeri' }
+                        { name: 'hostname', why: "Hostname EOS promptunda, syslog kayıtlarında ve CloudVision envanterinde görünür; <code>localhost</code> olarak bırakılan cihazlarda log korelasyonu ve CVP eşleştirmesi imkânsız hâle gelir.", label: 'Hostname', type: 'text', required: true, placeholder: 'ARISTA-SW1', hint: 'Cihazın hostname değeri' }
                     ]
                 },
                 {
                     title: 'VLAN ve IP',
                     icon: 'fas fa-layer-group',
                     fields: [
-                        { name: 'vlan', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'Yönetim veya birincil VLAN numarası' },
-                        { name: 'wan_ip', label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'SVI veya WAN arayüzüne atanacak IP' },
-                        { name: 'subnet', label: 'Subnet Mask', type: 'text', required: true, placeholder: '255.255.255.0', hint: 'Noktalı ondalık subnet mask' },
-                        { name: 'gw', label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.254', hint: 'Varsayılan ağ geçidi IP adresi' }
+                        { name: 'vlan', why: "LAN SVI bu VLAN üzerinde kurulur; karşı uçtaki trunk'ın <code>switchport trunk allowed vlan</code> listesinde bu ID yoksa port <b>up</b> görünür ama tek bir paket bile geçmez.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'Yönetim veya birincil VLAN numarası' },
+                        { name: 'wan_ip', why: "Bu adres alt cihazların gateway'i olur. Aynı adres başka bir cihazda da tanımlıysa duplicate address oluşur, ARP tablosu sürekli el değiştirir ve trafik aralıklarla kesilir.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'SVI veya WAN arayüzüne atanacak IP' },
+                        { name: 'subnet', why: "Maske karşı uçtakiyle <b>birebir</b> aynı olmalıdır; /24 yerine /25 gibi dar bir maske girilirse aynı fiziksel segmentteki bazı hostlar komşu değil uzak ağ sayılır ve erişilemez.", label: 'Subnet Mask', type: 'text', required: true, placeholder: '255.255.255.0', hint: 'Noktalı ondalık subnet mask' },
+                        { name: 'gw', why: "Varsayılan rota (<code>ip route 0.0.0.0/0</code>) bu adrese kurulur. Gateway SVI ile aynı subnet içinde değilse EOS rotayı kabul etmez ve cihaz dışarı çıkamaz.", label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.254', hint: 'Varsayılan ağ geçidi IP adresi' }
                     ]
                 },
                 {
                     title: 'Arayüzler',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', label: 'LAN Arayüzü (numara)', type: 'text', required: true, placeholder: '1', hint: 'Ethernet<N> — sadece numarayı girin, ör: 1' },
-                        { name: 'wan_iface', label: 'WAN Arayüzü', type: 'text', required: true, placeholder: 'Ethernet5', hint: 'Tam arayüz adı, ör: Ethernet5' }
+                        { name: 'iface', why: "Buradaki portlar access moda alınır. Yanlışlıkla uplink portu yazılırsa trunk access'e döner, VLAN'lar arası taşıma durur ve uzaktan yönetim bağlantısı anında kopar.", label: 'LAN Arayüzü (numara)', type: 'text', required: true, placeholder: '1', hint: 'Ethernet<N> — sadece numarayı girin, ör: 1' },
+                        { name: 'wan_iface', why: "Bu port <code>no switchport</code> ile L3 moda alınır; switchport olarak kalan bir arayüze IP atanamaz ve konfigürasyon sessizce etkisiz kalır.", label: 'WAN Arayüzü', type: 'text', required: true, placeholder: 'Ethernet5', hint: 'Tam arayüz adı, ör: Ethernet5' }
                     ]
                 }
             ],
@@ -76,8 +76,8 @@ Arista.vlan = {
                     title: 'VLAN Tanımı',
                     icon: 'fas fa-layer-group',
                     fields: [
-                        { name: 'vlan_id', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası' },
-                        { name: 'vlan_name', label: 'VLAN Adı', type: 'text', required: true, placeholder: 'SERVERS', hint: 'Açıklayıcı VLAN ismi' }
+                        { name: 'vlan_id', why: "VLAN ID switch zincirindeki tüm cihazlarda aynı olmalı; karşı tarafta tanımsızsa veya trunk'ta izinli değilse bağlantı <b>sessizce</b> çalışmaz. 1002-1005 aralığı rezervedir, kullanmayın.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası' },
+                        { name: 'vlan_name', why: "İsim yalnızca okunabilirlik içindir ama operasyonel olarak kritiktir: <code>show vlan</code> çıktısında anlamlı isim yoksa arızada hangi VLAN'ın ne olduğu bilinemez ve yanlış VLAN silinir.", label: 'VLAN Adı', type: 'text', required: true, placeholder: 'SERVERS', hint: 'Açıklayıcı VLAN ismi' }
                     ]
                 },
                 {
@@ -85,8 +85,8 @@ Arista.vlan = {
                     icon: 'fas fa-ethernet',
                     info: 'Access ve trunk portlar isteğe bağlıdır. Boş bırakılırsa sadece VLAN tanımı oluşturulur.',
                     fields: [
-                        { name: 'access_intf', label: 'Access Port', type: 'text', optional: true, placeholder: 'Ethernet1', hint: 'VLAN\'a access modda bağlanacak port' },
-                        { name: 'trunk_intf', label: 'Trunk Port', type: 'text', optional: true, placeholder: 'Ethernet2', hint: 'VLAN\'ı trunk\'a ekleyecek port' }
+                        { name: 'access_intf', why: "Access port tek VLAN taşır ve gelen etiketli çerçeveleri düşürür. Telefon veya AP gibi etiketli trafik üreten cihazlar access porta bağlanırsa trafikleri sessizce yok edilir.", label: 'Access Port', type: 'text', optional: true, placeholder: 'Ethernet1', hint: 'VLAN\'a access modda bağlanacak port' },
+                        { name: 'trunk_intf', why: "Trunk'ta <code>switchport trunk allowed vlan</code> ile listeyi daraltmak şarttır; <b>all</b> bırakmak broadcast alanını tüm VLAN'lara yayar ve bir VLAN'daki fırtına bütün switch'i etkiler.", label: 'Trunk Port', type: 'text', optional: true, placeholder: 'Ethernet2', hint: 'VLAN\'ı trunk\'a ekleyecek port' }
                     ]
                 }
             ],
@@ -128,10 +128,10 @@ Arista.interface = {
                     title: 'L3 Arayüz',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'intf_name', label: 'Arayüz Adı', type: 'text', required: true, placeholder: 'Ethernet3', hint: 'L3 moduna alınacak arayüz adı' },
-                        { name: 'ip_prefix', label: 'IP / Prefix (CIDR)', type: 'text', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi, ör: 10.0.0.1/30' },
-                        { name: 'description', label: 'Açıklama', type: 'text', required: true, placeholder: 'WAN-Uplink', hint: 'Arayüz açıklaması' },
-                        { name: 'mtu', label: 'MTU', type: 'text', optional: true, placeholder: '9000', hint: 'Jumbo frame için MTU değeri, ör: 9000' }
+                        { name: 'intf_name', why: "Arayüz adı EOS söz dizimine tam uymalı (<code>Ethernet1</code>, <code>Port-Channel10</code>); yanlış yazılırsa EOS komutu reddeder ve blok içindeki diğer satırlar da uygulanmadan atlanır.", label: 'Arayüz Adı', type: 'text', required: true, placeholder: 'Ethernet3', hint: 'L3 moduna alınacak arayüz adı' },
+                        { name: 'ip_prefix', why: "CIDR maskesi komşuyla aynı olmalı. Noktadan noktaya linklerde /31 adres israfını önler; /30 ile /31 karışırsa iki uç aynı subnet'te olmaz ve protokol komşuluğu hiç kurulmaz.", label: 'IP / Prefix (CIDR)', type: 'text', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi, ör: 10.0.0.1/30' },
+                        { name: 'description', why: "Açıklama arızada çoğu zaman tek bilgi kaynağıdır; boş bırakılan portlar zamanla <b>bilinmeyen</b> hâline gelir ve bir değişiklik sırasında çalışan bir link yanlışlıkla kapatılır.", label: 'Açıklama', type: 'text', required: true, placeholder: 'WAN-Uplink', hint: 'Arayüz açıklaması' },
+                        { name: 'mtu', why: "MTU her iki uçta aynı olmalı. VXLAN veya MPLS gibi kapsülleme varsa 9214 gibi jumbo değer şarttır; uyumsuz MTU'da ping çalışır ama büyük paketler (dosya transferi, TLS) sessizce takılır.", label: 'MTU', type: 'text', optional: true, placeholder: '9000', hint: 'Jumbo frame için MTU değeri, ör: 9000' }
                     ]
                 }
             ],
@@ -170,24 +170,24 @@ Arista.portchannel = {
                     title: 'Port-Channel',
                     icon: 'fas fa-link',
                     fields: [
-                        { name: 'po_number', label: 'Port-Channel Numarası', type: 'text', required: true, placeholder: '1', hint: 'Port-Channel<N> için numara, ör: 1' },
-                        { name: 'description', label: 'Açıklama', type: 'text', required: true, placeholder: 'UPLINK-LAG', hint: 'Port-Channel açıklaması' },
-                        { name: 'lacp_mode', label: 'LACP Modu', type: 'select', options: [
+                        { name: 'po_number', why: "Port-Channel numarası yereldir, ancak iki uçta aynı numarayı kullanmak operasyonu kolaylaştırır; MLAG kullanıyorsanız <b>aynı numaranın iki peer'da da aynı</b> olması zorunludur.", label: 'Port-Channel Numarası', type: 'text', required: true, placeholder: '1', hint: 'Port-Channel<N> için numara, ör: 1' },
+                        { name: 'description', why: "Bundle'ın hangi cihaza gittiği yazılmazsa üye port arızasında hangi uca bakılacağı bilinmez; <code>show interfaces status</code> çıktısı tek başına bunu söylemez.", label: 'Açıklama', type: 'text', required: true, placeholder: 'UPLINK-LAG', hint: 'Port-Channel açıklaması' },
+                        { name: 'lacp_mode', why: "<code>active</code> LACP müzakeresi başlatır, <code>on</code> ise müzakere olmadan statik bundle kurar. Bir uç <b>active</b> diğeri <b>on</b> ise bundle kurulmaz veya daha kötüsü döngü oluşur.", label: 'LACP Modu', type: 'select', options: [
                             { value: 'active', label: 'active', selected: true },
                             { value: 'passive', label: 'passive' }
                         ], hint: 'active: LACP paketleri gönderir; passive: bekler' },
-                        { name: 'mode', label: 'Switchport Modu', type: 'select', options: [
+                        { name: 'mode', why: "Switchport modu iki uçta aynı olmalı; bir taraf trunk diğeri access ise VLAN etiketleri düşer ve yalnızca native VLAN geçer. Bu da teşhisi en zor arıza tipi olan kısmi çalışmayı yaratır.", label: 'Switchport Modu', type: 'select', options: [
                             { value: 'trunk', label: 'trunk', selected: true },
                             { value: 'access', label: 'access' }
                         ]},
-                        { name: 'native_vlan', label: 'Native VLAN', type: 'text', validate: 'vlan', optional: true, placeholder: '1', hint: 'Trunk için native VLAN ID' }
+                        { name: 'native_vlan', why: "Native VLAN etiketsiz geçer. İki uçta farklı native VLAN varsa iki ayrı broadcast alanı birleşir (VLAN leak) ve STP uyarıları başlar; native'i kullanılmayan bir VLAN yapmak güvenlidir.", label: 'Native VLAN', type: 'text', validate: 'vlan', optional: true, placeholder: '1', hint: 'Trunk için native VLAN ID' }
                     ]
                 },
                 {
                     title: 'Üye Portlar',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'members', label: 'Üye Portlar', type: 'text', required: true, placeholder: 'Ethernet1,Ethernet2', hint: 'Virgülle ayrılmış port listesi, ör: Ethernet1,Ethernet2' }
+                        { name: 'members', why: "Üye portların hız ve duplex ayarları aynı olmalı; farklı hızdaki port bundle'a katılmaz, bu da yalnızca <code>show port-channel detail</code> çıktısında görünür ve kapasite sessizce yarılanır.", label: 'Üye Portlar', type: 'text', required: true, placeholder: 'Ethernet1,Ethernet2', hint: 'Virgülle ayrılmış port listesi, ör: Ethernet1,Ethernet2' }
                     ]
                 }
             ],
@@ -234,12 +234,12 @@ Arista.mlag = {
                     icon: 'fas fa-code-branch',
                     warn: 'Her iki switch\'te tutarlı domain-id ve peer-link konfigürasyonu gereklidir.',
                     fields: [
-                        { name: 'domain_id', label: 'Domain ID', type: 'text', required: true, placeholder: 'MLAG_DOMAIN', hint: 'MLAG peer\'ları arasında eşleşen domain adı' },
-                        { name: 'local_vlan', label: 'Peer-Link VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '4094', hint: 'MLAG peer iletişimi için özel VLAN (genellikle 4094)' },
-                        { name: 'local_ip', label: 'Local IP / Prefix (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '10.255.255.1/30', hint: 'Bu switch\'in peer-link SVI IP adresi' },
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.255.2', hint: 'Karşı switch\'in peer-link IP adresi' },
-                        { name: 'peer_link_po', label: 'Peer-Link Port-Channel', type: 'text', required: true, placeholder: 'Port-Channel100', hint: 'Peer-link olarak kullanılan Port-Channel arayüzü' },
-                        { name: 'reload_delay', label: 'Reload Delay (sn)', type: 'text', required: true, placeholder: '300', hint: 'Yeniden başlama sonrası MLAG\'ın aktif olması için bekleme süresi' }
+                        { name: 'domain_id', why: "MLAG <b>domain-id iki peer'da birebir aynı</b> olmak zorundadır; farklıysa MLAG hiç kurulmaz, portlar tek başına çalışır ve karşı taraf bundle'ı yarım görür.", label: 'Domain ID', type: 'text', required: true, placeholder: 'MLAG_DOMAIN', hint: 'MLAG peer\'ları arasında eşleşen domain adı' },
+                        { name: 'local_vlan', why: "Peer-link üzerindeki bu VLAN yalnızca MLAG kontrol trafiği içindir ve <code>trunk group MLAGPEER</code> ile izole edilmelidir; veri VLAN'ıyla karıştırılırsa kontrol trafiği tıkanır ve MLAG sürekli flap eder.", label: 'Peer-Link VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '4094', hint: 'MLAG peer iletişimi için özel VLAN (genellikle 4094)' },
+                        { name: 'local_ip', why: "Local IP, karşı peer'ın peer-address değeriyle çapraz eşleşmelidir. İki peer aynı adresi local olarak tanımlarsa MLAG <b>inactive</b> kalır ve tüm uplink'ler split-brain riskine girer.", label: 'Local IP / Prefix (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '10.255.255.1/30', hint: 'Bu switch\'in peer-link SVI IP adresi' },
+                        { name: 'peer_ip', why: "Peer-address karşı cihazın local IP'si olmalı ve bu adresler peer-link VLAN'ı üzerinden birbirine ulaşmalıdır; yanlış adreste MLAG <code>connecting</code> aşamasında sonsuza kadar takılır.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.255.2', hint: 'Karşı switch\'in peer-link IP adresi' },
+                        { name: 'peer_link_po', why: "Peer-link <b>mutlaka bir Port-Channel</b> olmalıdır; tek fiziksel port verilirse EOS yapılandırmayı kabul etmez, ayrıca o tek link koptuğunda split-brain oluşup iki switch de aktif davranır.", label: 'Peer-Link Port-Channel', type: 'text', required: true, placeholder: 'Port-Channel100', hint: 'Peer-link olarak kullanılan Port-Channel arayüzü' },
+                        { name: 'reload_delay', why: "Reboot sonrası switch'in MLAG yakınsamasını beklemeden portları açmasını engeller. Çok düşük verilirse cihaz hazır olmadan trafiği çeker ve her yeniden başlatma birkaç dakikalık kayıpla sonuçlanır.", label: 'Reload Delay (sn)', type: 'text', required: true, placeholder: '300', hint: 'Yeniden başlama sonrası MLAG\'ın aktif olması için bekleme süresi' }
                     ]
                 }
             ],
@@ -284,21 +284,21 @@ Arista.ospf = {
                     title: 'OSPF Genel',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'process_id', label: 'Process ID', type: 'text', required: true, placeholder: '1', hint: 'OSPF süreç numarası' },
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Genellikle Loopback0 IP adresi' },
-                        { name: 'area', label: 'Alan (Area)', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0' },
-                        { name: 'networks', label: 'Ağlar (virgülle, CIDR)', type: 'text', required: true, placeholder: '10.0.0.0/8,192.168.0.0/16', hint: 'OSPF\'e dahil edilecek ağlar, ör: 10.0.0.0/8,192.168.0.0/16' }
+                        { name: 'process_id', why: "Process ID yalnızca yereldir, komşuyla aynı olması <b>gerekmez</b>; ancak birden fazla process açmak istemeden rota bölünmesine yol açar, tek process ile çalışmak en güvenlisidir.", label: 'Process ID', type: 'text', required: true, placeholder: '1', hint: 'OSPF süreç numarası' },
+                        { name: 'router_id', why: "Router-ID tüm alan içinde benzersiz olmalıdır; çakışmada LSA'lar birbirini ezer, komşuluklar flap eder ve routing tablosu kararsızlaşır. Loopback adresi kullanmak en sağlam yöntemdir.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Genellikle Loopback0 IP adresi' },
+                        { name: 'area', why: "Area numarası linkin iki ucunda aynı olmalı; farklıysa hello paketleri reddedilir ve komşuluk <code>INIT</code> durumunda takılır. Area 0 omurgadır, diğer tüm alanlar ona değmek zorundadır.", label: 'Alan (Area)', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0' },
+                        { name: 'networks', why: "Buradaki prefix hangi arayüzlerin OSPF'e katılacağını belirler. Çok geniş yazmak (<code>0.0.0.0/0</code>) WAN veya yönetim portunu da OSPF'e sokar ve dışarıya komşuluk açmaya çalışır.", label: 'Ağlar (virgülle, CIDR)', type: 'text', required: true, placeholder: '10.0.0.0/8,192.168.0.0/16', hint: 'OSPF\'e dahil edilecek ağlar, ör: 10.0.0.0/8,192.168.0.0/16' }
                     ]
                 },
                 {
                     title: 'Pasif Arayüz',
                     icon: 'fas fa-ban',
                     fields: [
-                        { name: 'passive_default', label: 'Passive Default', type: 'select', options: [
+                        { name: 'passive_default', why: "Varsayılanı passive yapmak, komşuluğun yalnızca bilinçli seçtiğiniz arayüzlerde kurulmasını sağlar; kapalı bırakılırsa sunucu ve kullanıcı portlarından hello gönderilir, bu hem güvenlik hem CPU riskidir.", label: 'Passive Default', type: 'select', options: [
                             { value: 'yes', label: 'yes — tüm portlar pasif', selected: true },
                             { value: 'no', label: 'no — tüm portlar aktif' }
                         ], hint: 'yes: tüm portlar pasif olur, aktifler aşağıda belirtilir' },
-                        { name: 'active_intfs', label: 'Aktif Arayüzler', type: 'text', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'passive-default=yes ise OSPF komşusu kurulacak portlar' }
+                        { name: 'active_intfs', why: "Passive default açıkken komşuluk yalnızca burada listelenen arayüzlerde kurulur; uplink'i eklemeyi unutmak OSPF'in hiçbir rota öğrenememesine ve trafiğin varsayılan rotaya düşmesine neden olur.", label: 'Aktif Arayüzler', type: 'text', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'passive-default=yes ise OSPF komşusu kurulacak portlar' }
                     ]
                 }
             ],
@@ -342,24 +342,24 @@ Arista.bgp = {
                     title: 'BGP Genel',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'local_as', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID, genellikle Loopback IP' }
+                        { name: 'local_as', why: "Local AS, peer'ın <code>remote-as</code> değeriyle tam eşleşmeli; uyuşmazlıkta oturum <b>OpenSent</b> aşamasında sürekli resetlenir ve log'da AS mismatch mesajı döner.", label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
+                        { name: 'router_id', why: "BGP Router-ID AS içinde benzersiz olmalıdır; aynı ID'ye sahip iki cihaz peer olursa oturum kurulmaz. Fiziksel porttan bağımsız olması için loopback adresi tercih edin.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID, genellikle Loopback IP' }
                     ]
                 },
                 {
                     title: 'Komşu (Neighbor)',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'neighbor_ip', label: 'Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşusunun IP adresi' },
-                        { name: 'remote_as', label: 'Remote AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
-                        { name: 'neighbor_desc', label: 'Neighbor Açıklama', type: 'text', required: true, placeholder: 'PEER-AS65002', hint: 'Komşu açıklaması' }
+                        { name: 'neighbor_ip', why: "Neighbor adresi, karşı ucun paketleri <b>gerçekten gönderdiği</b> kaynak adres olmalı; farklı bir adresten gelirse EOS oturumu reddeder. Loopback peering yapıyorsanız <code>update-source</code> da gerekir.", label: 'Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşusunun IP adresi' },
+                        { name: 'remote_as', why: "Remote AS karşı tarafın local AS'i ile aynı olmalı. Ayrıca bu değer oturumun iBGP mi eBGP mi olduğunu belirler: eBGP'de TTL 1'dir, loopback peering için <code>ebgp-multihop</code> şart olur.", label: 'Remote AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
+                        { name: 'neighbor_desc', why: "Açıklama <code>show ip bgp summary</code> çıktısında peer'ın kim olduğunu gösterir; boş bırakılırsa arızada hangi operatörün veya DC'nin düştüğü yalnızca IP'den tahmin edilmeye çalışılır.", label: 'Neighbor Açıklama', type: 'text', required: true, placeholder: 'PEER-AS65002', hint: 'Komşu açıklaması' }
                     ]
                 },
                 {
                     title: 'Advertise',
                     icon: 'fas fa-broadcast-tower',
                     fields: [
-                        { name: 'networks', label: 'Ağlar (virgülle, CIDR)', type: 'text', optional: true, placeholder: '10.0.0.0/8,172.16.0.0/12', hint: 'BGP ile duyurulacak prefix\'ler' }
+                        { name: 'networks', why: "<code>network</code> ile duyurulan prefix'in routing tablosunda <b>birebir aynı maskeyle</b> bulunması gerekir; yoksa BGP onu hiç duyurmaz ve eksiklik sessizce fark edilmez.", label: 'Ağlar (virgülle, CIDR)', type: 'text', optional: true, placeholder: '10.0.0.0/8,172.16.0.0/12', hint: 'BGP ile duyurulacak prefix\'ler' }
                     ]
                 }
             ],
@@ -407,19 +407,19 @@ Arista.evpnvxlan = {
                     icon: 'fas fa-cloud',
                     warn: 'BGP EVPN için underlay routing (OSPF/ISIS) önceden yapılandırılmış olmalıdır.',
                     fields: [
-                        { name: 'local_as', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'BGP Autonomous System numarası' },
-                        { name: 'vtep_loopback', label: 'VTEP Loopback', type: 'text', required: true, placeholder: 'Loopback1', hint: 'VTEP kaynak loopback arayüzü' },
-                        { name: 'vtep_ip', label: 'VTEP IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.1.1', hint: 'Loopback1\'e atanacak /32 IP adresi' },
-                        { name: 'evpn_neighbor', label: 'EVPN Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'BGP EVPN komşusunun IP adresi (genellikle spine)' }
+                        { name: 'local_as', why: "EVPN omurgasında AS planı tutarlı olmalı; iBGP mi eBGP mi seçtiğiniz route-reflector ihtiyacını ve next-hop davranışını değiştirir, yanlış planda VTEP'ler birbirini öğrenemez.", label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'BGP Autonomous System numarası' },
+                        { name: 'vtep_loopback', why: "VXLAN kaynak arayüzü bir loopback olmalıdır; fiziksel port verilirse o port düştüğünde tüm overlay çöker. Bu loopback underlay'de <b>her VTEP'ten erişilebilir</b> olmalıdır.", label: 'VTEP Loopback', type: 'text', required: true, placeholder: 'Loopback1', hint: 'VTEP kaynak loopback arayüzü' },
+                        { name: 'vtep_ip', why: "VTEP IP, kapsüllenmiş paketlerin kaynak adresidir ve underlay routing ile tüm diğer VTEP'lere ulaşabilmelidir; underlay'de duyurulmayan bir VTEP IP'si tüneli tek yönlü ve kullanılamaz yapar.", label: 'VTEP IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.1.1', hint: 'Loopback1\'e atanacak /32 IP adresi' },
+                        { name: 'evpn_neighbor', why: "EVPN komşusu MAC/IP bilgisini dağıtan kontrol düzlemidir. Bu peering kurulmazsa VXLAN <b>flood-and-learn</b>'e düşer; trafik kısmen çalışır ama MAC tabloları şişer ve teşhis çok zorlaşır.", label: 'EVPN Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'BGP EVPN komşusunun IP adresi (genellikle spine)' }
                     ]
                 },
                 {
                     title: 'VLAN → VNI Eşleme',
                     icon: 'fas fa-exchange-alt',
                     fields: [
-                        { name: 'vlan_vni', label: 'VLAN:VNI Çiftleri', type: 'text', required: true, placeholder: '100:10100,200:10200', hint: 'Virgülle ayrılmış VLAN:VNI çiftleri, ör: 100:10100,200:10200' },
-                        { name: 'rd', label: 'Route Distinguisher (RD)', type: 'text', validate: 'rd', required: true, placeholder: '10.255.0.1:1', hint: 'BGP RD değeri, ör: <loopback-ip>:1' },
-                        { name: 'rt', label: 'Route Target (RT)', type: 'text', validate: 'rt', required: true, placeholder: '65001:100', hint: 'BGP RT değeri, ör: <AS>:<VNI>' }
+                        { name: 'vlan_vni', why: "VLAN-VNI eşleşmesi tüm VTEP'lerde <b>aynı</b> olmalıdır; bir cihazda VLAN 10 için VNI 10010, diğerinde 10100 ise trafik yanlış segmente taşınır veya hiç ulaşmaz. VXLAN'da en sık yapılan hata budur.", label: 'VLAN:VNI Çiftleri', type: 'text', required: true, placeholder: '100:10100,200:10200', hint: 'Virgülle ayrılmış VLAN:VNI çiftleri, ör: 100:10100,200:10200' },
+                        { name: 'rd', why: "Route Distinguisher her VTEP'te benzersiz olmalıdır (genelde <code>loopback:VNI</code>); aynı RD iki cihazda kullanılırsa EVPN rotaları birbirini ezer ve MAC'ler yanlış VTEP'i işaret eder.", label: 'Route Distinguisher (RD)', type: 'text', validate: 'rd', required: true, placeholder: '10.255.0.1:1', hint: 'BGP RD değeri, ör: <loopback-ip>:1' },
+                        { name: 'rt', why: "Route Target hangi VNI'nin hangi rotaları import edeceğini belirler ve aynı segmenti paylaşan tüm VTEP'lerde <b>aynı</b> olmalıdır; uyuşmazlıkta rotalar gelir ama import edilmez, tablo boş kalır.", label: 'Route Target (RT)', type: 'text', validate: 'rt', required: true, placeholder: '65001:100', hint: 'BGP RT değeri, ör: <AS>:<VNI>' }
                     ]
                 }
             ],
@@ -474,34 +474,34 @@ Arista.acl = {
                     title: 'ACL Tanımı',
                     icon: 'fas fa-list',
                     fields: [
-                        { name: 'acl_name', label: 'ACL Adı', type: 'text', required: true, placeholder: 'MGMT-ACCESS', hint: 'ACL\'in referans adı' }
+                        { name: 'acl_name', why: "ACL adı ile arayüzde uygulanan ad birebir aynı olmalı; EOS var olmayan bir ACL'in uygulanmasını kabul eder ve kural hiçbir zaman çalışmaz. Bu da yanlış bir güvenlik hissi yaratır.", label: 'ACL Adı', type: 'text', required: true, placeholder: 'MGMT-ACCESS', hint: 'ACL\'in referans adı' }
                     ]
                 },
                 {
                     title: 'Kural',
                     icon: 'fas fa-shield-alt',
                     fields: [
-                        { name: 'entry1_seq', label: 'Sequence No', type: 'text', required: true, placeholder: '10', hint: 'Kural sıra numarası (10, 20, 30, ...)' },
-                        { name: 'entry1_action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'entry1_seq', why: "Sequence numarası kuralların değerlendirme sırasını belirler ve <b>ilk eşleşen kural kazanır</b>. Aralıkları 10'ar bırakmak, sonradan kural eklerken tüm ACL'i yeniden yazmaktan kurtarır.", label: 'Sequence No', type: 'text', required: true, placeholder: '10', hint: 'Kural sıra numarası (10, 20, 30, ...)' },
+                        { name: 'entry1_action', why: "<code>permit</code> mi <code>deny</code> mi seçiminden önce sırayı düşünün: geniş bir permit'in altına yazılan deny hiçbir zaman çalışmaz, çünkü paket zaten üst kuralda eşleşip geçmiştir.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'permit', label: 'permit', selected: true },
                             { value: 'deny', label: 'deny' }
                         ]},
-                        { name: 'entry1_proto', label: 'Protokol', type: 'select', options: [
+                        { name: 'entry1_proto', why: "Protokol daraltması kuralın gerçekte ne yaptığını belirler; <code>ip</code> seçmek TCP, UDP ve ICMP'nin tamamını kapsar ve niyetinizden çok daha geniş bir izin ya da yasak oluşturabilir.", label: 'Protokol', type: 'select', options: [
                             { value: 'ip', label: 'ip', selected: true },
                             { value: 'tcp', label: 'tcp' },
                             { value: 'udp', label: 'udp' },
                             { value: 'icmp', label: 'icmp' }
                         ]},
-                        { name: 'entry1_src', label: 'Kaynak IP / Prefix', type: 'text', required: true, placeholder: '10.0.0.0/8', hint: 'Kaynak adres, ör: 10.0.0.0/8 veya any' },
-                        { name: 'entry1_dst', label: 'Hedef', type: 'text', optional: true, placeholder: 'any', hint: 'Hedef adres, boş bırakılırsa "any"' },
-                        { name: 'entry1_port', label: 'Port', type: 'text', optional: true, placeholder: '22', hint: 'TCP/UDP port numarası (sadece tcp/udp protokolünde geçerli)' }
+                        { name: 'entry1_src', why: "Kaynak prefix'i <code>any</code> bırakmak kuralın amacını bozar. Özellikle yönetim ACL'lerinde kaynak daraltması, cihazı internetten gelen brute-force denemelerine karşı koruyan tek katmandır.", label: 'Kaynak IP / Prefix', type: 'text', required: true, placeholder: '10.0.0.0/8', hint: 'Kaynak adres, ör: 10.0.0.0/8 veya any' },
+                        { name: 'entry1_dst', why: "Hedefi doğru daraltmak kuralın yalnızca ilgili sunucuya uygulanmasını sağlar; <code>any</code> yazmak aynı VLAN'daki diğer tüm servisleri de istemeden etkiler.", label: 'Hedef', type: 'text', optional: true, placeholder: 'any', hint: 'Hedef adres, boş bırakılırsa "any"' },
+                        { name: 'entry1_port', why: "Port belirtmeden yazılan kural tüm servisleri kapsar. Ayrıca port yalnızca <code>tcp</code> ve <code>udp</code> ile anlamlıdır; protokol <code>ip</code> seçilmişse port alanı yok sayılır.", label: 'Port', type: 'text', optional: true, placeholder: '22', hint: 'TCP/UDP port numarası (sadece tcp/udp protokolünde geçerli)' }
                     ]
                 },
                 {
                     title: 'Sonuç Kuralı',
                     icon: 'fas fa-ban',
                     fields: [
-                        { name: 'final_deny', label: 'Sona deny ip any any ekle', type: 'select', options: [
+                        { name: 'final_deny', why: "ACL'lerin sonunda zaten gizli bir deny vardır, ama açık yazmak sayaçları (<code>show ip access-lists</code>) görünür kılar; böylece neyin nerede durdurulduğunu tahmin etmek yerine ölçebilirsiniz.", label: 'Sona deny ip any any ekle', type: 'select', options: [
                             { value: 'yes', label: 'Evet (önerilen)', selected: true },
                             { value: 'no', label: 'Hayır' }
                         ], hint: 'Explicit deny kuralı tüm eşleşmeyen trafiği loglar' }
@@ -546,23 +546,23 @@ Arista.routemap = {
                     title: 'Prefix-List',
                     icon: 'fas fa-list-ol',
                     fields: [
-                        { name: 'pl_name', label: 'Prefix-List Adı', type: 'text', required: true, placeholder: 'PL-ALLOWED', hint: 'Prefix-list referans adı' },
-                        { name: 'prefix', label: 'Prefix', type: 'text', required: true, placeholder: '10.0.0.0/8 le 32', hint: 'Ör: 10.0.0.0/8 le 32 — /8\'den daha spesifik tüm prefixleri eşler' }
+                        { name: 'pl_name', why: "Prefix-list adı, route-map içinde <code>match ip address prefix-list</code> ile çağrılan adla aynı olmalı; isim uyuşmazsa match hiçbir zaman gerçekleşmez ve route-map beklenen filtrelemeyi yapmaz.", label: 'Prefix-List Adı', type: 'text', required: true, placeholder: 'PL-ALLOWED', hint: 'Prefix-list referans adı' },
+                        { name: 'prefix', why: "Prefix'i <code>le</code> veya <code>ge</code> olmadan yazmak yalnızca tam o maskeyle eşleşir; örneğin 10.0.0.0/8 girişi 10.1.0.0/16 rotasını <b>yakalamaz</b> ve filtre sessizce boş çalışır.", label: 'Prefix', type: 'text', required: true, placeholder: '10.0.0.0/8 le 32', hint: 'Ör: 10.0.0.0/8 le 32 — /8\'den daha spesifik tüm prefixleri eşler' }
                     ]
                 },
                 {
                     title: 'Route-Map',
                     icon: 'fas fa-map-signs',
                     fields: [
-                        { name: 'rm_name', label: 'Route-Map Adı', type: 'text', required: true, placeholder: 'RM-IN', hint: 'Route-map referans adı' },
-                        { name: 'rm_seq', label: 'Sequence No', type: 'text', required: true, placeholder: '10', hint: 'Route-map sıra numarası' },
-                        { name: 'rm_action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'rm_name', why: "Route-map adı BGP neighbor altında referans verilen adla aynı olmalı; EOS var olmayan bir route-map'in uygulanmasına izin verir ve bu durumda tüm rotalar filtresiz geçer.", label: 'Route-Map Adı', type: 'text', required: true, placeholder: 'RM-IN', hint: 'Route-map referans adı' },
+                        { name: 'rm_seq', why: "Route-map sequence'ları sırayla değerlendirilir ve ilk eşleşen uygulanıp çıkılır; ayrıca en sondaki örtük <code>deny</code> nedeniyle hiçbir sequence'a uymayan rotalar tamamen düşer.", label: 'Sequence No', type: 'text', required: true, placeholder: '10', hint: 'Route-map sıra numarası' },
+                        { name: 'rm_action', why: "Route-map'te <code>permit</code> hem izin hem <b>set uygula</b> demektir; <code>deny</code> seçilen sequence'ta set komutları çalışmaz ve rota tamamen atılır. Karıştırılırsa rotalar beklenmedik şekilde kaybolur.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'permit', label: 'permit', selected: true },
                             { value: 'deny', label: 'deny' }
                         ]},
-                        { name: 'set_localpref', label: 'set local-preference', type: 'text', optional: true, placeholder: '200', hint: 'BGP local-preference değeri; yüksek = tercihli' },
-                        { name: 'set_med', label: 'set metric (MED)', type: 'text', optional: true, placeholder: '100', hint: 'BGP MED değeri' },
-                        { name: 'set_community', label: 'set community', type: 'text', optional: true, placeholder: '65001:100', hint: 'BGP community değeri, ör: 65001:100' }
+                        { name: 'set_localpref', why: "Local-preference yalnızca AS <b>içinde</b> taşınır ve yüksek olan kazanır; çıkış yolu seçimini belirler. Tek taraflı ayarlanırsa trafik asimetrik olur ve yolda stateful firewall varsa oturumlar kopar.", label: 'set local-preference', type: 'text', optional: true, placeholder: '200', hint: 'BGP local-preference değeri; yüksek = tercihli' },
+                        { name: 'set_med', why: "MED komşu AS'e <b>bana buradan gel</b> önerisidir ve düşük olan tercih edilir; ancak karşı taraf MED'i dikkate almak zorunda değildir, bu yüzden tek başına güvenilmez bir trafik mühendisliği aracıdır.", label: 'set metric (MED)', type: 'text', optional: true, placeholder: '100', hint: 'BGP MED değeri' },
+                        { name: 'set_community', why: "Community, karşı taraftaki politikayı tetikleyen etikettir. Ayrıca <code>send-community</code> aktif değilse değer hiç gönderilmez ve karşı tarafta beklenen davranış oluşmaz.", label: 'set community', type: 'text', optional: true, placeholder: '65001:100', hint: 'BGP community değeri, ör: 65001:100' }
                     ]
                 }
             ],
@@ -603,23 +603,23 @@ Arista.qos = {
                     title: 'Class-Map',
                     icon: 'fas fa-filter',
                     fields: [
-                        { name: 'class_name', label: 'Class-Map Adı', type: 'text', required: true, placeholder: 'CM-VOICE', hint: 'Trafik sınıfının adı' },
-                        { name: 'match_dscp', label: 'Match DSCP', type: 'text', required: true, placeholder: 'ef', hint: 'DSCP değeri, ör: ef (voice), af41 (video), cs3 (signal)' }
+                        { name: 'class_name', why: "Class-map adı policy-map içinde çağrılan adla aynı olmalı; uyuşmazlıkta policy uygulanmış gibi görünür ama hiçbir paket sınıflandırılmaz ve QoS tamamen etkisiz kalır.", label: 'Class-Map Adı', type: 'text', required: true, placeholder: 'CM-VOICE', hint: 'Trafik sınıfının adı' },
+                        { name: 'match_dscp', why: "DSCP değeri uçtan uca güvenilmelidir; sınır portlarında trust ayarı yoksa işaretleme silinir ya da kullanıcı cihazı kendini EF olarak işaretleyip öncelikli kuyruğa sızar.", label: 'Match DSCP', type: 'text', required: true, placeholder: 'ef', hint: 'DSCP değeri, ör: ef (voice), af41 (video), cs3 (signal)' }
                     ]
                 },
                 {
                     title: 'Policy-Map',
                     icon: 'fas fa-tachometer-alt',
                     fields: [
-                        { name: 'policy_name', label: 'Policy-Map Adı', type: 'text', required: true, placeholder: 'PM-EGRESS', hint: 'Politika adı' },
-                        { name: 'bandwidth_pct', label: 'Bandwidth %', type: 'text', required: true, placeholder: '20', hint: 'Bu sınıfa ayrılacak bant genişliği yüzdesi' }
+                        { name: 'policy_name', why: "Policy-map sınıflandırma ile davranışı birleştirir; arayüze <code>service-policy</code> ile uygulanmadığı sürece tanımlı olması hiçbir şey yapmaz. En sık atlanan adım budur.", label: 'Policy-Map Adı', type: 'text', required: true, placeholder: 'PM-EGRESS', hint: 'Politika adı' },
+                        { name: 'bandwidth_pct', why: "Garanti edilen yüzde, tıkanıklık anında bu sınıfa ayrılan minimumdur. Toplam %100'ü aşarsa policy uygulanmaz; çok yüksek verilirse diğer trafik açlık çeker ve TCP retransmit patlar.", label: 'Bandwidth %', type: 'text', required: true, placeholder: '20', hint: 'Bu sınıfa ayrılacak bant genişliği yüzdesi' }
                     ]
                 },
                 {
                     title: 'Uygulama',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'apply_intf', label: 'Arayüz', type: 'text', optional: true, placeholder: 'Ethernet1', hint: 'Policy\'nin uygulanacağı arayüz (boş bırakılırsa sadece tanım oluşturulur)' }
+                        { name: 'apply_intf', why: "QoS genelde <b>çıkış</b> yönünde anlamlıdır, çünkü kuyruk darboğazın olduğu yerde oluşur; yanlış arayüze veya yanlış yöne uygulanan policy hiçbir sorunu çözmez ama çözüldü sanılır.", label: 'Arayüz', type: 'text', optional: true, placeholder: 'Ethernet1', hint: 'Policy\'nin uygulanacağı arayüz (boş bırakılırsa sadece tanım oluşturulur)' }
                     ]
                 }
             ],
@@ -662,11 +662,11 @@ Arista.stp = {
                     title: 'STP Genel',
                     icon: 'fas fa-sitemap',
                     fields: [
-                        { name: 'mode', label: 'STP Modu', type: 'select', options: [
+                        { name: 'mode', why: "STP modu tüm L2 alanında uyumlu olmalı; MST ile RPVST karışımı bölgelerde root seçimi beklenmedik şekilde değişir, VLAN bazlı trafik yanlış yoldan akar ve en kötü durumda döngü oluşur.", label: 'STP Modu', type: 'select', options: [
                             { value: 'mstp', label: 'mstp', selected: true },
                             { value: 'rapid-pvst', label: 'rapid-pvst' }
                         ], hint: 'mstp: IEEE 802.1s; rapid-pvst: her VLAN için ayrı instance' },
-                        { name: 'priority', label: 'Priority', type: 'text', required: true, placeholder: '4096', hint: 'Root bridge için düşük değer (4096 veya 8192 önerilir)' }
+                        { name: 'priority', why: "Root bridge'i <b>bilinçli</b> seçmek zorundasınız; varsayılan bırakılırsa en düşük MAC'e sahip rastgele bir erişim switch'i root olur ve tüm trafik yanlış yoldan dolaşır. Değer 4096'nın katı olmalıdır.", label: 'Priority', type: 'text', required: true, placeholder: '4096', hint: 'Root bridge için düşük değer (4096 veya 8192 önerilir)' }
                     ]
                 },
                 {
@@ -674,8 +674,8 @@ Arista.stp = {
                     icon: 'fas fa-shield-alt',
                     info: 'Uç cihazların (sunucu, PC) bağlandığı portlara uygulanır. BPDU Guard ile döngü koruması sağlanır.',
                     fields: [
-                        { name: 'portfast_intfs', label: 'PortFast Arayüzler', type: 'text', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'PortFast aktif edilecek edge portlar' },
-                        { name: 'bpduguard_intfs', label: 'BPDU Guard Arayüzler', type: 'text', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'BPDU Guard aktif edilecek portlar (genellikle PortFast portlarıyla aynı)' }
+                        { name: 'portfast_intfs', why: "PortFast yalnızca uç cihaz portlarında kullanılmalıdır; switch bağlı bir porta verilirse dinleme ve öğrenme aşaması atlandığı için <b>anında köprü döngüsü</b> oluşur ve ağ çöker.", label: 'PortFast Arayüzler', type: 'text', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'PortFast aktif edilecek edge portlar' },
+                        { name: 'bpduguard_intfs', why: "BPDU Guard, kullanıcı portuna takılan yetkisiz bir switch'in root'u ele geçirmesini engeller; PortFast'li her portta açılmalıdır, yoksa tek bir masaüstü switch tüm STP topolojisini bozabilir.", label: 'BPDU Guard Arayüzler', type: 'text', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'BPDU Guard aktif edilecek portlar (genellikle PortFast portlarıyla aynı)' }
                     ]
                 }
             ],
@@ -721,10 +721,10 @@ Arista.bfd = {
                     title: 'BFD Parametreleri',
                     icon: 'fas fa-heartbeat',
                     fields: [
-                        { name: 'intf_name', label: 'Arayüz Adı', type: 'text', required: true, placeholder: 'Ethernet1', hint: 'BFD aktif edilecek arayüz' },
-                        { name: 'min_tx', label: 'Min TX (ms)', type: 'text', required: true, placeholder: '300', hint: 'BFD paket gönderme aralığı (ms)' },
-                        { name: 'min_rx', label: 'Min RX (ms)', type: 'text', required: true, placeholder: '300', hint: 'Minimum BFD paket alma aralığı (ms)' },
-                        { name: 'multiplier', label: 'Multiplier', type: 'text', required: true, placeholder: '3', hint: 'Kaç paket kaybında link down sayılır; toplam süre: min_rx × multiplier' }
+                        { name: 'intf_name', why: "BFD, protokol hello zamanlayıcılarını beklemeden saniyenin altında arıza tespiti sağlar; ancak arayüz adı yanlışsa veya karşı uç BFD çalıştırmıyorsa oturum kurulmaz ve yakınsama yine saniyelerce sürer.", label: 'Arayüz Adı', type: 'text', required: true, placeholder: 'Ethernet1', hint: 'BFD aktif edilecek arayüz' },
+                        { name: 'min_tx', why: "Çok agresif TX aralığı (birkaç ms) yoğun CPU'lu veya sanal platformlarda <b>yanlış pozitif</b> link düşmelerine yol açar; her flap tüm routing tablosunun yeniden hesaplanması demektir.", label: 'Min TX (ms)', type: 'text', required: true, placeholder: '300', hint: 'BFD paket gönderme aralığı (ms)' },
+                        { name: 'min_rx', why: "Bu değer karşı ucun TX aralığıyla birlikte müzakere edilir; asimetrik ve aşırı düşük değerler kararsız oturumlara ve sürekli komşuluk flap'ine neden olur.", label: 'Min RX (ms)', type: 'text', required: true, placeholder: '300', hint: 'Minimum BFD paket alma aralığı (ms)' },
+                        { name: 'multiplier', why: "Arıza süresi yaklaşık <code>interval x multiplier</code> kadardır. 3'ün altına düşürmek tek bir kayıp pakette linki düşürür; çok yüksek vermek ise BFD kullanmanın amacını ortadan kaldırır.", label: 'Multiplier', type: 'text', required: true, placeholder: '3', hint: 'Kaç paket kaybında link down sayılır; toplam süre: min_rx × multiplier' }
                     ]
                 }
             ],
@@ -760,10 +760,10 @@ Arista.aaa = {
                     title: 'TACACS+ Sunucu',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'server_ip', label: 'Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.10', hint: 'TACACS+ sunucusunun IP adresi' },
-                        { name: 'key', label: 'Shared Key', type: 'text', required: true, placeholder: 'SecretKey123', hint: 'TACACS+ shared secret (cihaz ve sunucuda aynı olmalı)' },
-                        { name: 'timeout', label: 'Timeout (sn)', type: 'text', required: true, placeholder: '3', hint: 'TACACS+ yanıt timeout süresi (saniye)' },
-                        { name: 'group_name', label: 'Grup Adı', type: 'text', required: true, placeholder: 'TACACS-GROUP', hint: 'AAA server-group referans adı' }
+                        { name: 'server_ip', why: "AAA sunucusuna yönetim ağı üzerinden erişilebilir olmalı; erişilemezse ve yerel yedek kullanıcı tanımlı değilse <b>cihaza tamamen kilitlenirsiniz</b> ve çözüm konsol erişimi gerektirir.", label: 'Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.10', hint: 'TACACS+ sunucusunun IP adresi' },
+                        { name: 'key', why: "Shared key sunucu tarafıyla birebir aynı olmalı; yanlış key'de kimlik doğrulama sessizce başarısız olur ve log'da yalnızca genel bir reddedilme görünür, bu da teşhisi uzatır.", label: 'Shared Key', type: 'text', required: true, placeholder: 'SecretKey123', hint: 'TACACS+ shared secret (cihaz ve sunucuda aynı olmalı)' },
+                        { name: 'timeout', why: "Timeout çok uzunsa sunucu erişilemezken her login denemesi dakikalarca bekler; çok kısaysa yavaş yanıt veren sağlıklı bir sunucu bile başarısız sayılır ve kullanıcılar rastgele reddedilir.", label: 'Timeout (sn)', type: 'text', required: true, placeholder: '3', hint: 'TACACS+ yanıt timeout süresi (saniye)' },
+                        { name: 'group_name', why: "Grup adı <code>aaa authentication login</code> satırında referans verilen adla aynı olmalı; uyuşmazlıkta EOS gruba hiç başvurmaz ve yalnızca yerel kullanıcılar çalışır.", label: 'Grup Adı', type: 'text', required: true, placeholder: 'TACACS-GROUP', hint: 'AAA server-group referans adı' }
                     ]
                 }
             ],
@@ -810,7 +810,7 @@ Arista.snmp = {
                     icon: 'fas fa-chart-line',
                     showFor: ['v2c'],
                     fields: [
-                        { name: 'community', label: 'Community', type: 'text', required: true, placeholder: 'PUBLIC-RO', hint: 'Read-only community string' }
+                        { name: 'community', why: "SNMPv2c community açık metin gider ve şifre gibidir; <code>public</code> bırakmak cihazın tüm envanter ve topoloji bilgisini ağdaki herkese açar. Mümkünse v3 kullanın ve ACL ile sınırlayın.", label: 'Community', type: 'text', required: true, placeholder: 'PUBLIC-RO', hint: 'Read-only community string' }
                     ]
                 },
                 {
@@ -818,26 +818,26 @@ Arista.snmp = {
                     icon: 'fas fa-lock',
                     showFor: ['v3'],
                     fields: [
-                        { name: 'v3_username', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'snmpuser', hint: 'SNMPv3 kullanıcı adı' },
-                        { name: 'auth_proto', label: 'Auth Protokol', type: 'select', options: [
+                        { name: 'v3_username', why: "SNMPv3 kullanıcı adı NMS tarafındaki tanımla aynı olmalı; uyuşmazlıkta sorgular <b>yanıtsız</b> kalır ve izleme sisteminde cihaz down görünür, oysa cihaz sağlıklı çalışmaktadır.", label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'snmpuser', hint: 'SNMPv3 kullanıcı adı' },
+                        { name: 'auth_proto', why: "MD5 artık zayıf kabul edilir, SHA tercih edin. Ayrıca seçilen protokol NMS tarafındakiyle aynı olmalı; değilse authentication failure dışında hiçbir ipucu alamazsınız.", label: 'Auth Protokol', type: 'select', options: [
                             { value: 'md5', label: 'MD5' },
                             { value: 'sha', label: 'SHA', selected: true }
                         ]},
-                        { name: 'auth_password', label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123', hint: 'Auth şifresi (min 8 karakter)' },
-                        { name: 'priv_proto', label: 'Priv Protokol', type: 'select', options: [
+                        { name: 'auth_password', why: "Auth parolası en az 8 karakter olmalı ve NMS ile eşleşmelidir; zayıf parola SNMPv3'ün sağladığı bütünlüğü anlamsızlaştırır ve cihaz bilgisi dışarı sızabilir.", label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123', hint: 'Auth şifresi (min 8 karakter)' },
+                        { name: 'priv_proto', why: "Priv protokolü SNMP verisini şifreler; DES yerine AES seçin. Şifreleme kullanılmazsa v2c community'den daha iyi bir gizlilik sağlanmış olmaz.", label: 'Priv Protokol', type: 'select', options: [
                             { value: 'aes', label: 'AES', selected: true },
                             { value: 'des', label: 'DES' }
                         ]},
-                        { name: 'priv_password', label: 'Priv Şifresi', type: 'text', required: true, placeholder: 'PrivPass123', hint: 'Privacy şifresi (min 8 karakter)' }
+                        { name: 'priv_password', why: "Şifreleme parolası olmadan <code>priv</code> seviyesi çalışmaz ve SNMPv3 sessizce authNoPriv'e düşer; bu durumda tüm MIB verisi ağ üzerinde açık metin taşınır.", label: 'Priv Şifresi', type: 'text', required: true, placeholder: 'PrivPass123', hint: 'Privacy şifresi (min 8 karakter)' }
                     ]
                 },
                 {
                     title: 'Ortak Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'trap_host', label: 'Trap Host', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap alacak monitoring sunucusu' },
-                        { name: 'location', label: 'Konum', type: 'text', optional: true, placeholder: 'DC1-Rack-42', hint: 'Fiziksel konum bilgisi' },
-                        { name: 'contact', label: 'İletişim', type: 'text', optional: true, placeholder: 'noc@company.com', hint: 'NOC iletişim bilgisi' }
+                        { name: 'trap_host', why: "Trap hedefi yanlışsa cihaz arıza anında kimseye haber veremez; <b>izleme sistemindeki sessizlik</b> sağlıklı sanılır, oysa cihaz saatlerdir sorun bildirmeye çalışıyordur.", label: 'Trap Host', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap alacak monitoring sunucusu' },
+                        { name: 'location', why: "Konum bilgisi izleme sisteminde cihazı fiziksel olarak bulmayı sağlar; boş bırakılırsa saha ekibi arızada hangi kabine gideceğini bilemez ve müdahale süresi uzar.", label: 'Konum', type: 'text', optional: true, placeholder: 'DC1-Rack-42', hint: 'Fiziksel konum bilgisi' },
+                        { name: 'contact', why: "İletişim alanı cihazın sahibi olan ekibi gösterir; tanımsızsa değişiklik veya arıza anında kimin onay vereceği bilinemez ve işlem gereksiz yere bekler.", label: 'İletişim', type: 'text', optional: true, placeholder: 'noc@company.com', hint: 'NOC iletişim bilgisi' }
                     ]
                 }
             ],
@@ -887,14 +887,14 @@ Arista.mgmtacl = {
                     title: 'İzin Verilen Kaynaklar',
                     icon: 'fas fa-check-circle',
                     fields: [
-                        { name: 'permit_sources', label: 'Kaynak Prefix\'ler (virgülle, CIDR)', type: 'text', required: true, placeholder: '10.0.0.0/8,192.168.1.0/24', hint: 'Yönetim erişimine izin verilecek IP blokları' }
+                        { name: 'permit_sources', why: "Yönetim erişimini yalnızca güvenilen yönetim subnetlerine açın; <code>any</code> bırakmak SSH ve eAPI arayüzünü tüm ağa (WAN'a bağlıysa internete) açar ve sürekli brute-force denemesi alırsınız.", label: 'Kaynak Prefix\'ler (virgülle, CIDR)', type: 'text', required: true, placeholder: '10.0.0.0/8,192.168.1.0/24', hint: 'Yönetim erişimine izin verilecek IP blokları' }
                     ]
                 },
                 {
                     title: 'Servisler',
                     icon: 'fas fa-sliders-h',
                     fields: [
-                        { name: 'protocols', label: 'Protokoller (virgülle)', type: 'text', required: true, placeholder: 'ssh,https,api', hint: 'Desteklenen değerler: ssh, https, api' }
+                        { name: 'protocols', why: "Kullanılmayan protokolleri (telnet, http) kapatmak saldırı yüzeyini küçültür; eAPI açılacaksa <b>mutlaka HTTPS</b> ile ve kaynak kısıtlamasıyla açılmalı, aksi hâlde kimlik bilgileri açık metin gider.", label: 'Protokoller (virgülle)', type: 'text', required: true, placeholder: 'ssh,https,api', hint: 'Desteklenen değerler: ssh, https, api' }
                     ]
                 }
             ],
@@ -938,9 +938,9 @@ Arista.ntp = {
                     title: 'NTP Sunucular',
                     icon: 'fas fa-clock',
                     fields: [
-                        { name: 'servers', label: 'NTP Sunucular (virgülle)', type: 'text', required: true, placeholder: '10.0.0.1,10.0.0.2', hint: 'NTP sunucu IP adresleri, virgülle ayrılmış' },
-                        { name: 'source_intf', label: 'Kaynak Arayüz', type: 'text', optional: true, placeholder: 'Management1', hint: 'NTP paketlerinin çıkacağı arayüz' },
-                        { name: 'vrf', label: 'VRF', type: 'text', optional: true, placeholder: 'MGMT', hint: 'NTP trafiği için VRF adı (yönetim VRF\'i ise genellikle MGMT)' }
+                        { name: 'servers', why: "Saat kayması log korelasyonunu, sertifika doğrulamasını ve AAA/Kerberos'u bozar. En az iki sunucu girin; tek sunucu bozulursa cihaz yanlış saate <b>fark edilmeden</b> kilitlenir.", label: 'NTP Sunucular (virgülle)', type: 'text', required: true, placeholder: '10.0.0.1,10.0.0.2', hint: 'NTP sunucu IP adresleri, virgülle ayrılmış' },
+                        { name: 'source_intf', why: "Kaynak arayüz sabitlenmezse NTP paketleri rotaya göre değişen adreslerden çıkar; sunucu tarafındaki ACL bu adresleri tanımayıp paketleri düşürür ve senkronizasyon hiç kurulmaz.", label: 'Kaynak Arayüz', type: 'text', optional: true, placeholder: 'Management1', hint: 'NTP paketlerinin çıkacağı arayüz' },
+                        { name: 'vrf', why: "Yönetim trafiği ayrı bir VRF'teyse (<code>management</code>) VRF belirtilmediğinde paketler varsayılan tabloda dolaşır ve sunucuya hiç ulaşamaz; bu, out-of-band yönetimde sıkça atlanan bir ayrıntıdır.", label: 'VRF', type: 'text', optional: true, placeholder: 'MGMT', hint: 'NTP trafiği için VRF adı (yönetim VRF\'i ise genellikle MGMT)' }
                     ]
                 }
             ],
@@ -978,21 +978,21 @@ Arista.logging = {
                     title: 'Syslog Hedef',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'remote_host', label: 'Remote Host', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.200', hint: 'Syslog sunucusunun IP adresi' },
-                        { name: 'port', label: 'Port', type: 'text', validate: 'port', optional: true, placeholder: '514', hint: 'UDP port numarası (varsayılan 514)' },
-                        { name: 'facility', label: 'Facility', type: 'select', options: [
+                        { name: 'remote_host', why: "Uzak syslog olmadan cihaz yeniden başlatıldığında tüm kanıtlar kaybolur; arızanın kök nedenini bulabilmek için log'un <b>cihaz dışında</b> tutulması şarttır.", label: 'Remote Host', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.200', hint: 'Syslog sunucusunun IP adresi' },
+                        { name: 'port', why: "Standart dışı bir port seçilirse syslog sunucusunun o portu dinlediğini doğrulayın; ayrıca aradaki güvenlik duvarında ilgili UDP portu açık değilse log'lar sessizce kaybolur.", label: 'Port', type: 'text', validate: 'port', optional: true, placeholder: '514', hint: 'UDP port numarası (varsayılan 514)' },
+                        { name: 'facility', why: "Facility, syslog sunucusunda log'ların hangi dosyaya ve kurala düşeceğini belirler; yanlış seçim, log'ların yazılmış ama <b>aranan yerde görünmüyor</b> olmasına yol açar.", label: 'Facility', type: 'select', options: [
                             { value: 'local7', label: 'local7', selected: true },
                             { value: 'local6', label: 'local6' },
                             { value: 'local5', label: 'local5' },
                             { value: 'local4', label: 'local4' }
                         ], hint: 'Syslog facility değeri' },
-                        { name: 'level', label: 'Log Level', type: 'select', options: [
+                        { name: 'level', why: "Seviye çok ayrıntılı (debug) seçilirse sunucu ve WAN gereksiz trafikle dolar, önemli olaylar gürültüde kaybolur; çok dar seçilirse arıza öncesi uyarılar hiç kaydedilmez.", label: 'Log Level', type: 'select', options: [
                             { value: 'informational', label: 'informational', selected: true },
                             { value: 'debugging', label: 'debugging' },
                             { value: 'notifications', label: 'notifications' },
                             { value: 'warnings', label: 'warnings' }
                         ], hint: 'Bu seviye ve üzeri loglar gönderilir' },
-                        { name: 'source_intf', label: 'Kaynak Arayüz', type: 'text', optional: true, placeholder: 'Management1', hint: 'Syslog paketlerinin çıkacağı arayüz' }
+                        { name: 'source_intf', why: "Kaynak arayüz sabitlenmezse log'lar farklı kaynak IP'lerle gelir; syslog sunucusunda aynı cihaz birden fazla host gibi görünür, korelasyon ve ACL kuralları bozulur.", label: 'Kaynak Arayüz', type: 'text', optional: true, placeholder: 'Management1', hint: 'Syslog paketlerinin çıkacağı arayüz' }
                     ]
                 }
             ],

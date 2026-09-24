@@ -17,8 +17,8 @@ HuaweiCE.vlan = {
                     title: 'VLAN Kimliği',
                     icon: 'fas fa-id-card',
                     fields: [
-                        { name: 'vlan_id', label: 'VLAN ID', type: 'number', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası', min: 1, max: 4094 },
-                        { name: 'vlan_desc', label: 'VLAN Açıklama', type: 'text', optional: true, placeholder: 'DATA_VLAN', hint: 'VLAN için açıklayıcı isim (boşluksuz)' }
+                        { name: 'vlan_id', why: "CloudEngine üzerinde VLAN önce <code>vlan X</code> ile oluşturulmadan porta atanamaz. M-LAG veya stack ortamında VLAN her iki peer cihazda da tanımlı olmalıdır; tek tarafta eksik VLAN, yük paylaşımı sırasında trafiğin yarısının sessizce düşmesine yol açar.", label: 'VLAN ID', type: 'number', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası', min: 1, max: 4094 },
+                        { name: 'vlan_desc', why: "Açıklama boşluk içeremez ve <code>display vlan</code> çıktısındaki tek tanımlayıcıdır. Veri merkezinde yüzlerce VLAN arasında etiketsiz kalanlar, temizlik çalışmalarında yanlışlıkla silinen VLANlar haline gelir.", label: 'VLAN Açıklama', type: 'text', optional: true, placeholder: 'DATA_VLAN', hint: 'VLAN için açıklayıcı isim (boşluksuz)' }
                     ]
                 },
                 {
@@ -26,15 +26,15 @@ HuaweiCE.vlan = {
                     icon: 'fas fa-sitemap',
                     info: 'SVI tanımlanırsa Vlanif arayüzü oluşturulur ve inter-VLAN routing etkinleşir.',
                     fields: [
-                        { name: 'svi_ip', label: 'SVI IP / Mask', type: 'text', optional: true, placeholder: '10.1.100.1 255.255.255.0', hint: 'Örn: 10.1.100.1 255.255.255.0 — boş bırakılırsa SVI oluşturulmaz' }
+                        { name: 'svi_ip', why: "SVI (Vlanif) adresi bu VLAN için gateway görevi görür; M-LAG çiftinde aynı IPyi iki cihaza vermek yerine VRRP veya anycast gateway kullanılmalıdır, aksi halde ARP tablosu sürekli çakışır. Boş bırakılırsa VLAN sadece L2 kalır.", label: 'SVI IP / Mask', type: 'text', optional: true, placeholder: '10.1.100.1 255.255.255.0', hint: 'Örn: 10.1.100.1 255.255.255.0 — boş bırakılırsa SVI oluşturulmaz' }
                     ]
                 },
                 {
                     title: 'Port Atamaları',
                     icon: 'fas fa-plug',
                     fields: [
-                        { name: 'access_ports', label: 'Access Port(lar)', type: 'text', optional: true, placeholder: '10GE1/0/1, 10GE1/0/2', hint: 'Virgülle ayırın — bu VLAN\'a access modda bağlanacak portlar' },
-                        { name: 'trunk_ports', label: 'Trunk Port(lar)', type: 'text', optional: true, placeholder: '40GE1/0/1', hint: 'Virgülle ayırın — bu VLAN\'a trunk modda izin verilecek portlar' }
+                        { name: 'access_ports', why: "Access portta <code>port default vlan</code> ile PVID atanır. Port daha önce trunk yapıldıysa link-type değişimi izinli VLAN listesini sıfırlar; sunucu bağlantısında yanlış PVID trafiğin yanlış broadcast domainine düşmesine ve sorunun yalnızca DHCP seviyesinde görünmesine neden olur.", label: 'Access Port(lar)', type: 'text', optional: true, placeholder: '10GE1/0/1, 10GE1/0/2', hint: 'Virgülle ayırın — bu VLAN\'a access modda bağlanacak portlar' },
+                        { name: 'trunk_ports', why: "Trunk portta bu VLANa <code>port trunk allow-pass vlan</code> ile izin verilmezse tag işaretli trafik hatasız şekilde düşer. Ayrıca PVID VLANının da listeye dahil edilmesi gerekir, yoksa etiketsiz yönetim trafiği kaybolur.", label: 'Trunk Port(lar)', type: 'text', optional: true, placeholder: '40GE1/0/1', hint: 'Virgülle ayırın — bu VLAN\'a trunk modda izin verilecek portlar' }
                     ]
                 }
             ],
@@ -85,17 +85,17 @@ HuaweiCE.ospf = {
                     title: 'OSPF Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'proc_id', label: 'Process ID', type: 'text', required: true, placeholder: '1', hint: 'OSPF süreç numarası (1–65535)', tooltip: 'Aynı cihazda birden fazla OSPF süreci çalıştırılabilir' },
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'Genellikle Loopback0 IP adresi — benzersiz olmalı' },
-                        { name: 'area', label: 'Area', type: 'text', required: true, placeholder: '0', hint: 'Backbone için 0, diğer area\'lar için 0.0.0.X formatı' }
+                        { name: 'proc_id', why: "Process ID yereldir, komşuyla aynı olması gerekmez; ancak aynı cihazda birden fazla süreç varken network bildirimini yanlış sürece yazmak rotaların hiç duyurulmamasına yol açar. Underlay tasarımında VXLAN VTEP adresleri mutlaka bu sürece dahil edilmelidir.", label: 'Process ID', type: 'text', required: true, placeholder: '1', hint: 'OSPF süreç numarası (1–65535)', tooltip: 'Aynı cihazda birden fazla OSPF süreci çalıştırılabilir' },
+                        { name: 'router_id', why: "Router ID alan içinde benzersiz olmalı ve tercihen /32 Loopback olmalıdır. Çakışma komşuluğun kurulup sürekli düşmesine neden olur; değiştirildiğinde <code>reset ospf process</code> yapılmadan etkili olmaz ve bu reset anlık trafik kesintisi yaratır.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'Genellikle Loopback0 IP adresi — benzersiz olmalı' },
+                        { name: 'area', why: "Backbone alanı 0 olmalı ve tüm alanlar ona bağlanmalıdır. Spine-leaf underlay tasarımlarında genellikle tek alan (area 0) kullanılır; aynı link üzerindeki iki cihazın farklı area numarası kullanması komşuluğun hiç kurulmamasına yol açar.", label: 'Area', type: 'text', required: true, placeholder: '0', hint: 'Backbone için 0, diğer area\'lar için 0.0.0.X formatı' }
                     ]
                 },
                 {
                     title: 'Network ve Interface Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'networks', label: 'Network(ler)', type: 'text', required: true, placeholder: '10.1.0.0/24, 10.2.0.0/24', hint: 'CIDR formatında, virgülle ayırın — OSPF\'e dahil edilecek subnetler' },
-                        { name: 'lo_iface', label: 'Loopback (silent)', type: 'text', optional: true, placeholder: 'LoopBack0', hint: 'OSPF Hello paketi gönderilmeyecek interface — genellikle Loopback' }
+                        { name: 'networks', why: "CloudEngine üzerinde network satırı <b>wildcard maske</b> ile yazılır (<code>0.0.0.255</code>). VTEP Loopback adresi bu bildirime dahil edilmezse VXLAN tüneli hiç kurulmaz ve arıza EVPN sorunu sanılarak boş yere yanlış yerde aranır.", label: 'Network(ler)', type: 'text', required: true, placeholder: '10.1.0.0/24, 10.2.0.0/24', hint: 'CIDR formatında, virgülle ayırın — OSPF\'e dahil edilecek subnetler' },
+                        { name: 'lo_iface', why: "Loopback arayüzünde <code>silent-interface</code> kullanmak gereksiz Hello trafiğini engeller. Ancak yanlışlıkla bir underlay uplink arayüzünü silent yapmak o komşuluğu tamamen koparır ve fabric bir bacak kaybeder.", label: 'Loopback (silent)', type: 'text', optional: true, placeholder: 'LoopBack0', hint: 'OSPF Hello paketi gönderilmeyecek interface — genellikle Loopback' }
                     ]
                 }
             ],
@@ -132,18 +132,18 @@ HuaweiCE.bgp = {
                     title: 'BGP Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'local_as', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'BGP router-id — genellikle Loopback0 IP' }
+                        { name: 'local_as', why: "Yerel AS numarası komşunun <code>peer as-number</code> tanımıyla birebir eşleşmelidir; uyuşmazsa oturum asla Established olmaz. Spine-leaf eBGP tasarımlarında her leaf için farklı AS kullanmak yaygındır ve bu durumda AS-path döngü koruması dikkatle yönetilmelidir.", label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
+                        { name: 'router_id', why: "BGP Router ID benzersiz olmalıdır; çakışma oturumun kurulup düzenli aralıklarla düşmesine neden olur. Loopback kullanmak fiziksel link değişimlerinde ID kaymasını engeller.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'BGP router-id — genellikle Loopback0 IP' }
                     ]
                 },
                 {
                     title: 'Peer Ayarları',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
-                        { name: 'peer_as', label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
-                        { name: 'peer_group', label: 'Peer Group Adı', type: 'text', required: true, placeholder: 'EBGP_PEERS', hint: 'Peer grubuna verilecek isim — peer yönetimini kolaylaştırır' },
-                        { name: 'bgp_type', label: 'BGP Tipi', type: 'select', options: [
+                        { name: 'peer_ip', why: "Komşu adresine ulaşan bir underlay rotası olmalıdır; EVPN peering Loopback üzerinden yapılıyorsa eBGP için <code>peer ebgp-max-hop 2</code> ve <code>peer connect-interface LoopBack</code> gerekir. Bunlar olmadan oturum hiç kurulmaz.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
+                        { name: 'peer_as', why: "Karşı tarafın gerçek AS numarası yazılmalıdır; yanlış numara OPEN aşamasında reddedilir. Yerel AS ile aynıysa iBGP kuralları geçerli olur ve rotalar varsayılan olarak diğer iBGP komşularına aktarılmaz, bu yüzden route-reflector gerekir.", label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
+                        { name: 'peer_group', why: "Peer group tüm üyelere aynı politikayı uygular; gruba yapılan bir değişiklik farkında olmadan onlarca leaf switchi etkiler. EVPN peer grubunda <code>l2vpn-family evpn</code> altında ayrıca <code>peer enable</code> yapılmazsa oturum kurulur ama EVPN rotaları hiç taşınmaz.", label: 'Peer Group Adı', type: 'text', required: true, placeholder: 'EBGP_PEERS', hint: 'Peer grubuna verilecek isim — peer yönetimini kolaylaştırır' },
+                        { name: 'bgp_type', why: "iBGP ve eBGP davranışları farklıdır: iBGP rotaları diğer iBGP komşularına iletmez (route-reflector şarttır), eBGP ise next-hop değiştirir ve VXLAN tünel kurulumunu bozabilir. Yanlış tip seçimi oturumun sağlıklı görünüp rota taşımaması demektir.", label: 'BGP Tipi', type: 'select', options: [
                             { value: 'ebgp', label: 'eBGP — farklı AS ile peering', selected: true },
                             { value: 'ibgp', label: 'iBGP — aynı AS içi peering' }
                         ], hint: 'iBGP seçilirse connect-interface LoopBack0 eklenir' }
@@ -193,10 +193,10 @@ HuaweiCE.vxlan = {
                     icon: 'fas fa-server',
                     warn: 'VTEP Loopback IP\'si tüm leaf switch\'lerde benzersiz olmalı ve underlay routing ile erişilebilir olmalıdır.',
                     fields: [
-                        { name: 'vni', label: 'VNI', type: 'number', validate: 'vni', required: true, placeholder: '10100', hint: 'VXLAN Network Identifier — 1–16777215 arası', min: 1, max: 16777215 },
-                        { name: 'vlan_id', label: 'VLAN ID', type: 'number', validate: 'vlan', required: true, placeholder: '100', hint: 'VXLAN ile eşlenecek VLAN numarası', min: 1, max: 4094 },
-                        { name: 'vtep_lo', label: 'VTEP Loopback Interface', type: 'text', required: true, placeholder: 'LoopBack1', hint: 'VTEP kaynak IP\'si için kullanılacak Loopback arayüzü' },
-                        { name: 'vtep_ip', label: 'VTEP IP / Mask', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1 255.255.255.255', hint: 'VTEP Loopback IP adresi — /32 host route önerilir' }
+                        { name: 'vni', why: "VNI, VXLAN kapsüllemesinde L2 segmentini tanımlar ve <b>tüm VTEPlerde aynı</b> olmalıdır. Bir leaf üzerinde farklı VNI kullanmak, sunucuların aynı VLANda görünüp birbirini hiç görememesine yol açar; sorun kablolama hatası gibi teşhis edilir.", label: 'VNI', type: 'number', validate: 'vni', required: true, placeholder: '10100', hint: 'VXLAN Network Identifier — 1–16777215 arası', min: 1, max: 16777215 },
+                        { name: 'vlan_id', why: "VLAN, bridge-domain içinde <code>bind vlan</code> ile VNIya eşlenir. Bu eşleme yapılmazsa yerel VLAN trafiği tünele hiç girmez; port üzerinde ayrıca L2 alt arayüz veya VLAN-BD eşlemesi tanımlı olmalıdır.", label: 'VLAN ID', type: 'number', validate: 'vlan', required: true, placeholder: '100', hint: 'VXLAN ile eşlenecek VLAN numarası', min: 1, max: 4094 },
+                        { name: 'vtep_lo', why: "VTEP kaynak arayüzü mutlaka Loopback olmalıdır; fiziksel arayüz kullanmak o link düştüğünde tüm VXLAN tünellerinin topluca kopmasına neden olur. Loopback ayrıca underlay yönlendirme protokolüne duyurulmuş olmalıdır.", label: 'VTEP Loopback Interface', type: 'text', required: true, placeholder: 'LoopBack1', hint: 'VTEP kaynak IP\'si için kullanılacak Loopback arayüzü' },
+                        { name: 'vtep_ip', why: "VTEP adresi <b>/32</b> olmalı ve underlay üzerinden tüm diğer VTEPlere ulaşılabilir olmalıdır. Ulaşılamayan bir VTEP adresi EVPN rotalarının gelmesine ama tünelin kurulmamasına yol açar; <code>display vxlan tunnel</code> boş kalır.", label: 'VTEP IP / Mask', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1 255.255.255.255', hint: 'VTEP Loopback IP adresi — /32 host route önerilir' }
                     ]
                 },
                 {
@@ -204,9 +204,9 @@ HuaweiCE.vxlan = {
                     icon: 'fas fa-route',
                     info: 'BGP EVPN, MAC/IP route\'larını control plane üzerinden öğrenir — flood-and-learn yerine daha ölçeklenebilir.',
                     fields: [
-                        { name: 'bgp_as', label: 'BGP AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'EVPN BGP Autonomous System numarası' },
-                        { name: 'rd', label: 'Route Distinguisher', type: 'text', validate: 'rd', required: true, placeholder: '65001:100', hint: 'Örn: AS:VNI formatı — 65001:100' },
-                        { name: 'rt', label: 'Route Target', type: 'text', validate: 'rt', required: true, placeholder: '65001:100', hint: 'Import/export community değeri — genellikle RD ile aynı' }
+                        { name: 'bgp_as', why: "EVPN kontrol düzlemi BGP üzerinde çalışır; AS numarası tasarımla (iBGP route-reflector veya eBGP spine-leaf) tutarlı olmalıdır. Yanlış AS, oturumun hiç kurulmamasına veya kurulup EVPN adres ailesinin etkin olmamasına neden olur.", label: 'BGP AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'EVPN BGP Autonomous System numarası' },
+                        { name: 'rd', why: "RD her VTEP üzerinde benzersiz olmalıdır (genellikle <code>router-id:VNI</code>); iki leafte aynı RD kullanmak EVPN rotalarının birbirini bastırmasına ve MAC bilgilerinin kaybolmasına yol açar. RD sonradan değiştirilemez, instance yeniden kurulmalıdır.", label: 'Route Distinguisher', type: 'text', validate: 'rd', required: true, placeholder: '65001:100', hint: 'Örn: AS:VNI formatı — 65001:100' },
+                        { name: 'rt', why: "RT, hangi VTEPin hangi EVPN rotalarını içeri alacağını belirler ve import/export değerleri karşılıklı eşleşmelidir. Eşleşmezse BGP oturumu sağlıklı görünür, rotalar duyurulur ama hiçbir VTEP tablosuna düşmez; bu VXLAN arızalarının en sık sebebidir.", label: 'Route Target', type: 'text', validate: 'rt', required: true, placeholder: '65001:100', hint: 'Import/export community değeri — genellikle RD ile aynı' }
                     ]
                 }
             ],
@@ -267,24 +267,24 @@ HuaweiCE.lacp = {
                     title: 'Eth-Trunk Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'trunk_id', label: 'Eth-Trunk ID', type: 'number', required: true, placeholder: '1', hint: 'Eth-Trunk numarası (0–511)', min: 0, max: 511 },
-                        { name: 'lacp_mode', label: 'LACP Mod', type: 'select', options: [
+                        { name: 'trunk_id', why: "Eth-Trunk numarası yereldir ama iki uçta aynı tutmak sorun gidermeyi kolaylaştırır. Kullanımdaki bir ID seçmek mevcut trunkın üyelerini etkiler ve yedekli sunucu bağlantısını tek bacağa düşürür.", label: 'Eth-Trunk ID', type: 'number', required: true, placeholder: '1', hint: 'Eth-Trunk numarası (0–511)', min: 0, max: 511 },
+                        { name: 'lacp_mode', why: "Statik (manual) ve LACP modları uyumsuzdur; bir uç LACP diğer uç statik ise link fiziksel olarak kalkar fakat trafik döngüye girer veya kaybolur. Sunucu NIC teaming ayarı da bu modla uyumlu olmalıdır, yoksa sunucu ağ bağlantısı kararsız çalışır.", label: 'LACP Mod', type: 'select', options: [
                             { value: 'lacp-static', label: 'LACP Static (Active)', selected: true },
                             { value: 'manual load-balance', label: 'Manual / Static' }
                         ]},
-                        { name: 'members', label: 'Üye Interface(ler)', type: 'text', required: true, placeholder: '10GE1/0/1, 10GE1/0/2', hint: 'Virgülle ayırın — Eth-Trunk\'a eklenecek fiziksel portlar' }
+                        { name: 'members', why: "Üye arayüzler aynı hız ve dupleks değerinde olmalıdır; farklı hızdaki portlar trunka alınmaz. Üye eklerken portun mevcut VLAN yapılandırması silinir, bu yüzden önce trunka alıp sonra VLAN ayarlamak gerekir.", label: 'Üye Interface(ler)', type: 'text', required: true, placeholder: '10GE1/0/1, 10GE1/0/2', hint: 'Virgülle ayırın — Eth-Trunk\'a eklenecek fiziksel portlar' }
                     ]
                 },
                 {
                     title: 'Switchport Modu',
                     icon: 'fas fa-plug',
                     fields: [
-                        { name: 'sw_mode', label: 'Mod', type: 'select', options: [
+                        { name: 'sw_mode', why: "Trunk modunda izin verilen VLAN listesi, access modunda PVID belirleyicidir. Sunucu tarafı etiketli VLAN gönderirken switch tarafını access bırakmak, trafiğin hiç geçmemesine ve arızanın kablo sorunu sanılmasına yol açar.", label: 'Mod', type: 'select', options: [
                             { value: 'trunk', label: 'Trunk — çoklu VLAN', selected: true },
                             { value: 'access', label: 'Access — tek VLAN' },
                             { value: 'routed', label: 'Routed — Layer-3 (undo portswitch)' }
                         ]},
-                        { name: 'vlan_ip', label: 'VLAN / IP', type: 'text', optional: true, placeholder: '10 20 100 veya 10.1.1.1 255.255.255.252', hint: 'Trunk: izin verilen VLAN\'lar | Access: VLAN ID | Routed: IP/mask' }
+                        { name: 'vlan_ip', why: "Eth-Trunk L2 modda VLAN taşır, L3 modda (<code>undo portswitch</code>) IP alır; ikisi aynı anda olmaz. Mod değişimi mevcut yapılandırmayı sildiği için üretim trafiği anında kesilir.", label: 'VLAN / IP', type: 'text', optional: true, placeholder: '10 20 100 veya 10.1.1.1 255.255.255.252', hint: 'Trunk: izin verilen VLAN\'lar | Access: VLAN ID | Routed: IP/mask' }
                     ]
                 }
             ],
@@ -339,8 +339,8 @@ HuaweiCE.mlag = {
                     icon: 'fas fa-cog',
                     warn: 'M-LAG peer switch\'inde karşıt priority değeri ayarlanmalıdır. Primary: priority 150, Secondary: priority 100 gibi farklı değerler kullanın.',
                     fields: [
-                        { name: 'dfs_group_id', label: 'DFS Group ID', type: 'number', required: true, placeholder: '1', hint: 'DFS group numarası — genellikle 1', min: 1 },
-                        { name: 'priority', label: 'Priority', type: 'number', required: true, placeholder: '150', hint: 'Yüksek öncelik = primary switch. Önerilen: 150 (primary) / 100 (secondary)', min: 1, max: 254 }
+                        { name: 'dfs_group_id', why: "DFS group numarası M-LAG çiftinin her iki cihazında <b>aynı</b> olmalıdır; farklı numara M-LAG ilişkisinin hiç kurulmamasına ve her iki switchin bağımsız davranarak sunucu bağlantısını bölmesine yol açar.", label: 'DFS Group ID', type: 'number', required: true, placeholder: '1', hint: 'DFS group numarası — genellikle 1', min: 1 },
+                        { name: 'priority', why: "Yüksek öncelik primary rolü belirler. İki cihazda aynı öncelik bırakılırsa rol seçimi MAC adresine kalır ve yeniden başlatmalarda rol beklenmedik şekilde değişebilir; bu da yönetim ve sorun giderme sırasında kafa karışıklığı yaratır.", label: 'Priority', type: 'number', required: true, placeholder: '150', hint: 'Yüksek öncelik = primary switch. Önerilen: 150 (primary) / 100 (secondary)', min: 1, max: 254 }
                     ]
                 },
                 {
@@ -348,9 +348,9 @@ HuaweiCE.mlag = {
                     icon: 'fas fa-network-wired',
                     info: 'Peer link, iki M-LAG switch arasındaki kontrol ve veri trafiği için kullanılır. Yüksek bant genişliği önerilir.',
                     fields: [
-                        { name: 'peer_link_po', label: 'Peer Link Port-Channel', type: 'text', required: true, placeholder: 'Eth-Trunk1', hint: 'Peer link olarak kullanılacak Eth-Trunk arayüzü' },
-                        { name: 'local_ip', label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Bu switch\'in M-LAG peer iletişim IP adresi' },
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'Karşı switch\'in M-LAG IP adresi' }
+                        { name: 'peer_link_po', why: "Peer-link M-LAG çiftinin kontrol ve senkronizasyon yoludur ve mutlaka yedekli (çok üyeli Eth-Trunk) olmalıdır. Peer-link koparsa split-brain oluşur: iki cihaz da aktif davranır, aynı MAC adresleri iki yerden duyurulur ve ağ kullanılamaz hale gelir.", label: 'Peer Link Port-Channel', type: 'text', required: true, placeholder: 'Eth-Trunk1', hint: 'Peer link olarak kullanılacak Eth-Trunk arayüzü' },
+                        { name: 'local_ip', why: "Bu adres M-LAG keepalive (DAD) trafiği içindir ve peer-linkten <b>bağımsız</b> bir yol üzerinden gitmelidir. Aynı fiziksel yolu kullanırsa peer-link arızasında keepalive de kopar ve split-brain koruması devre dışı kalır.", label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Bu switch\'in M-LAG peer iletişim IP adresi' },
+                        { name: 'peer_ip', why: "Karşı cihazın keepalive adresi doğru olmalı ve arada filtre bulunmamalıdır. Yanlış adres M-LAG kurulmuş gibi görünmesine ama split-brain tespitinin hiç çalışmamasına yol açar; arıza ancak gerçek bir kesinti anında ortaya çıkar.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'Karşı switch\'in M-LAG IP adresi' }
                     ]
                 }
             ],
@@ -389,9 +389,9 @@ HuaweiCE.bfd = {
                     title: 'BFD Peer Ayarları',
                     icon: 'fas fa-exchange-alt',
                     fields: [
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BFD oturumu kurulacak karşı cihaz IP adresi' },
-                        { name: 'local_ip', label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Bu cihazın BFD source IP adresi' },
-                        { name: 'interface', label: 'Interface', type: 'text', required: true, placeholder: '40GE1/0/1', hint: 'BFD oturumunun bağlı olduğu fiziksel arayüz' }
+                        { name: 'peer_ip', why: "Karşı cihazda da eşleşen bir BFD oturumu tanımlanmalıdır; tek taraflı yapılandırma oturumu Down bırakır. BFD bir yönlendirme protokolüne bağlanmazsa arıza tespiti yapar ama hiçbir rotayı düşürmez, yani hiçbir işe yaramaz.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BFD oturumu kurulacak karşı cihaz IP adresi' },
+                        { name: 'local_ip', why: "Kaynak adres karşı tarafın peer olarak beklediği adresle aynı olmalıdır; aksi halde paketler ulaşır ama oturum eşleşmez. Çok yollu spine-leaf ortamında kaynağı sabitlemek oturumun rastgele kopmasını önler.", label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Bu cihazın BFD source IP adresi' },
+                        { name: 'interface', why: "Tek hop BFD oturumu belirli bir fiziksel arayüze bağlanır; Eth-Trunk üzerinde tanımlamak yalnızca tüm üyeler düştüğünde tespit yapar, tek üye arızasını yakalamaz. Üye bazlı tespit için her fiziksel arayüzde ayrı oturum gerekir.", label: 'Interface', type: 'text', required: true, placeholder: '40GE1/0/1', hint: 'BFD oturumunun bağlı olduğu fiziksel arayüz' }
                     ]
                 },
                 {
@@ -399,9 +399,9 @@ HuaweiCE.bfd = {
                     icon: 'fas fa-clock',
                     info: 'Varsayılan değerler (300ms × 3 = 900ms) çoğu senaryo için uygundur. Agresif timer\'lar CPU yükünü artırabilir.',
                     fields: [
-                        { name: 'min_tx', label: 'Min TX Interval (ms)', type: 'number', required: true, placeholder: '300', hint: 'BFD paketi gönderme aralığı (ms) — önerilen: 300', min: 100, max: 30000 },
-                        { name: 'min_rx', label: 'Min RX Interval (ms)', type: 'number', required: true, placeholder: '300', hint: 'BFD paketi alma aralığı (ms) — önerilen: 300', min: 100, max: 30000 },
-                        { name: 'detect_mult', label: 'Detect Multiplier', type: 'number', required: true, placeholder: '3', hint: 'Arıza tespiti için kaçırmaya izin verilen paket sayısı — önerilen: 3', min: 3, max: 50 }
+                        { name: 'min_tx', why: "Çok agresif aralıklar yüksek CPU yükü altında yanlış pozitif arıza tespitine yol açar ve sağlam linklerin sürekli açılıp kapanmasına (flapping) neden olur. Veri merkezinde 300 ms genellikle hız ile kararlılık arasında güvenli bir dengedir.", label: 'Min TX Interval (ms)', type: 'number', required: true, placeholder: '300', hint: 'BFD paketi gönderme aralığı (ms) — önerilen: 300', min: 100, max: 30000 },
+                        { name: 'min_rx', why: "İki uçtaki TX ve RX değerleri müzakere edilir ve yavaş olan taraf belirleyicidir; bir uçta yüksek değer bırakmak diğer uçtaki hızlı tespiti tamamen anlamsız kılar.", label: 'Min RX Interval (ms)', type: 'number', required: true, placeholder: '300', hint: 'BFD paketi alma aralığı (ms) — önerilen: 300', min: 100, max: 30000 },
+                        { name: 'detect_mult', why: "Tespit süresi kabaca <code>interval x multiplier</code> kadardır. Çok düşük değer mikro kesintilerde rotanın düşmesine, çok yüksek değer ise arızanın saniyelerce fark edilmemesine ve trafiğin kara deliğe akmasına neden olur.", label: 'Detect Multiplier', type: 'number', required: true, placeholder: '3', hint: 'Arıza tespiti için kaçırmaya izin verilen paket sayısı — önerilen: 3', min: 3, max: 50 }
                     ]
                 }
             ],
@@ -441,16 +441,16 @@ HuaweiCE.qos = {
                     title: 'Traffic Classifier',
                     icon: 'fas fa-filter',
                     fields: [
-                        { name: 'classifier_name', label: 'Classifier Adı', type: 'text', required: true, placeholder: 'CLS-REALTIME', hint: 'Trafik sınıflandırıcı adı — anlamlı isim kullanın' },
-                        { name: 'match_dscp', label: 'Match DSCP', type: 'text', required: true, placeholder: 'ef', hint: 'DSCP değeri: ef (VoIP), af41 (video), af21 (bulk data), cs6 (routing)' }
+                        { name: 'classifier_name', why: "MQC zinciri <b>classifier → behavior → policy</b> şeklindedir ve isimler policy içinde birebir referans verilir. Bir harflik fark zinciri koparır: policy kabul edilir ama hiçbir trafik sınıflandırılmaz ve QoS sessizce devre dışı kalır.", label: 'Classifier Adı', type: 'text', required: true, placeholder: 'CLS-REALTIME', hint: 'Trafik sınıflandırıcı adı — anlamlı isim kullanın' },
+                        { name: 'match_dscp', why: "DSCP işaretinin uçtan uca korunması gerekir; VXLAN kapsüllemesinde iç başlıktaki işaretin dış başlığa kopyalanmadığı durumlarda fabric içinde öncelik tamamen kaybolur. Sunucudan gelen işaret güvenilir değilse leaf üzerinde yeniden işaretlemek gerekir.", label: 'Match DSCP', type: 'text', required: true, placeholder: 'ef', hint: 'DSCP değeri: ef (VoIP), af41 (video), af21 (bulk data), cs6 (routing)' }
                     ]
                 },
                 {
                     title: 'Traffic Behavior',
                     icon: 'fas fa-tasks',
                     fields: [
-                        { name: 'behavior_name', label: 'Behavior Adı', type: 'text', required: true, placeholder: 'BEH-PQ', hint: 'Trafik davranış adı' },
-                        { name: 'queue_type', label: 'Queue Tipi', type: 'select', options: [
+                        { name: 'behavior_name', why: "Behavior tanımlanmadan policy içinde referans verilirse komut reddedilir. İçi boş bir behavior ise sınıflandırmayı çalıştırır ama trafiğe hiçbir şey yapmaz; yapılandırma doğru görünür, etkisi sıfırdır.", label: 'Behavior Adı', type: 'text', required: true, placeholder: 'BEH-PQ', hint: 'Trafik davranış adı' },
+                        { name: 'queue_type', why: "RDMA veya depolama trafiği taşıyan fabriclerde kuyruk tipi seçimi kritiktir: yanlış kuyruk PFC ile birlikte çalışmaz ve paket kaybı depolama performansını çökertir. Express kuyruğuna fazla trafik yönlendirmek diğer tüm sınıfları aç bırakır.", label: 'Queue Tipi', type: 'select', options: [
                             { value: 'llq', label: 'LLQ — Low Latency Queue (VoIP/video)', selected: true },
                             { value: 'pq', label: 'PQ — Priority Queue' },
                             { value: 'af', label: 'AF — Assured Forwarding' }
@@ -461,8 +461,8 @@ HuaweiCE.qos = {
                     title: 'Traffic Policy ve Uygulama',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'policy_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'POL-EDGE', hint: 'QoS policy adı — interface\'e uygulanacak' },
-                        { name: 'intf', label: 'Apply Interface', type: 'text', optional: true, placeholder: '40GE1/0/1', hint: 'Policy\'nin outbound yönde uygulanacağı arayüz — boş bırakılırsa uygulama satırı eklenmez' }
+                        { name: 'policy_name', why: "Policy yalnızca bir arayüze <code>traffic-policy ... inbound|outbound</code> ile uygulandığında etkindir. Uygulanmamış policy konfigürasyonda görünür ama hiçbir şey yapmaz; QoS sorunlarının en sık kök nedeni budur.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'POL-EDGE', hint: 'QoS policy adı — interface\'e uygulanacak' },
+                        { name: 'intf', why: "Yön kritiktir: darboğaz genellikle çıkış (outbound) yönündedir, inbound uygulanan shaping beklenen etkiyi vermez. Aynı arayüzde aynı yönde ikinci bir policy uygulanamaz, komut reddedilir.", label: 'Apply Interface', type: 'text', optional: true, placeholder: '40GE1/0/1', hint: 'Policy\'nin outbound yönde uygulanacağı arayüz — boş bırakılırsa uygulama satırı eklenmez' }
                     ]
                 }
             ],
@@ -503,8 +503,8 @@ HuaweiCE.snmpntp = {
                     icon: 'fas fa-eye',
                     warn: 'SNMP community string\'i tahmin edilmesi güç, benzersiz bir değer olmalıdır. PUBLIC veya PRIVATE kullanmayın.',
                     fields: [
-                        { name: 'community', label: 'SNMP Community (RO)', type: 'text', required: true, placeholder: 'NMS-RO-CE6870', hint: 'Read-only community string — NMS sistemiyle eşleşmeli' },
-                        { name: 'trap_host', label: 'Trap Host IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap\'larının gönderileceği NMS/monitoring sunucusu IP' }
+                        { name: 'community', why: "Community string düz metin taşınır; <code>public</code> gibi varsayılan değerler tüm fabric envanterinin okunabilmesi demektir. Mümkünse SNMPv3 kullanın, v2c kullanacaksanız mutlaka ACL ile kaynak IPyi sınırlayın.", label: 'SNMP Community (RO)', type: 'text', required: true, placeholder: 'NMS-RO-CE6870', hint: 'Read-only community string — NMS sistemiyle eşleşmeli' },
+                        { name: 'trap_host', why: "Trap hedefi yanlışsa cihaz arıza anında sessiz kalır. Hedefe giden yol, UDP 162 izni ve trap kaynak arayüzünün sabitlenmiş olması birlikte doğrulanmalıdır; aksi halde NMS bilinmeyen kaynaktan gelen trapleri yok sayar.", label: 'Trap Host IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap\'larının gönderileceği NMS/monitoring sunucusu IP' }
                     ]
                 },
                 {
@@ -512,8 +512,8 @@ HuaweiCE.snmpntp = {
                     icon: 'fas fa-clock',
                     info: 'Saat senkronizasyonu log korelasyonu ve sertifika doğrulaması için kritiktir. En az iki NTP sunucusu önerilir.',
                     fields: [
-                        { name: 'ntp_server', label: 'NTP Server', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Birincil NTP sunucusu IP adresi' },
-                        { name: 'ntp_server2', label: 'NTP Server 2', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.2', hint: 'İkincil NTP sunucusu — yedeklilik için önerilir' }
+                        { name: 'ntp_server', why: "Fabric genelinde saat senkronizasyonu olmadan leaf ve spine loglarını korele edemezsiniz ve VXLAN arıza analizinde olayların sırasını çıkaramazsınız. NTP trafiğinin (UDP 123) yönetim ağı üzerinden geçtiğini doğrulayın.", label: 'NTP Server', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Birincil NTP sunucusu IP adresi' },
+                        { name: 'ntp_server2', why: "Tek NTP kaynağı sessiz bir tek arıza noktasıdır; sunucu yanlış saat yayınlarsa tüm fabric onunla birlikte kayar ve sapma fark edilmez. İkinci kaynak bu hatayı görünür kılar.", label: 'NTP Server 2', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.2', hint: 'İkincil NTP sunucusu — yedeklilik için önerilir' }
                     ]
                 }
             ],
@@ -555,9 +555,9 @@ HuaweiCE.evpnsymirb = {
                     title: 'VLAN ve VNI Eşlemesi',
                     icon: 'fas fa-layer-group',
                     fields: [
-                        { name: 'vbdif_id', label: 'Vbdif ID', type: 'number', required: true, placeholder: '100', hint: 'Virtual Bridge-Domain Interface numarası — genellikle VLAN ID ile aynı' },
-                        { name: 'vlan_id', label: 'VLAN ID', type: 'number', required: true, placeholder: '100', hint: 'VXLAN ile eşlenecek VLAN numarası', min: 1, max: 4094 },
-                        { name: 'vni', label: 'VNI', type: 'number', required: true, placeholder: '10100', hint: 'VXLAN Network Identifier — 1–16777215 arası', min: 1, max: 16777215 }
+                        { name: 'vbdif_id', why: "Vbdif arayüzü bridge-domain için L3 gateway görevi görür ve BD numarasıyla eşleşmelidir. Yanlış numara, arayüzün hiçbir bridge-domain ile ilişkilendirilmemesine ve gateway trafiğinin sessizce düşmesine yol açar.", label: 'Vbdif ID', type: 'number', required: true, placeholder: '100', hint: 'Virtual Bridge-Domain Interface numarası — genellikle VLAN ID ile aynı' },
+                        { name: 'vlan_id', why: "VLAN, bridge-domain içinde <code>bind vlan</code> ile VNIya eşlenir; eşleme eksikse yerel trafik tünele hiç girmez. Symmetric IRB tasarımında bu VLAN tüm ilgili leaf cihazlarda tutarlı yapılandırılmalıdır.", label: 'VLAN ID', type: 'number', required: true, placeholder: '100', hint: 'VXLAN ile eşlenecek VLAN numarası', min: 1, max: 4094 },
+                        { name: 'vni', why: "Symmetric IRBde L2 VNI yanında ayrı bir <b>L3 VNI</b> gerekir ve L3 VNI tüm leaf cihazlarda aynı olmalıdır. İkisini karıştırmak, aynı subnet içinde iletişimin çalışıp subnetler arası yönlendirmenin hiç çalışmamasına neden olur.", label: 'VNI', type: 'number', required: true, placeholder: '10100', hint: 'VXLAN Network Identifier — 1–16777215 arası', min: 1, max: 16777215 }
                     ]
                 },
                 {
@@ -565,9 +565,9 @@ HuaweiCE.evpnsymirb = {
                     icon: 'fas fa-sitemap',
                     info: 'ARP Suppress, leaf switch\'lerin ARP flood\'unu EVPN üzerinden çözmesini sağlar — bandwidth tasarrufu yapar.',
                     fields: [
-                        { name: 'ip', label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1', hint: 'Distributed gateway IP adresi — tüm leaf\'lerde aynı olabilir (anycast)' },
-                        { name: 'mask', label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Alt ağ maskesi — Örn: 255.255.255.0' },
-                        { name: 'arp_suppress', label: 'ARP Suppress', type: 'select', options: [
+                        { name: 'ip', why: "Distributed anycast gateway adresi tüm leaf cihazlarda <b>aynı</b> olmalıdır; farklı IP vermek sunucu taşındığında gateway değişmesine ve oturumların kopmasına yol açar. Aynı MAC adresinin de paylaşılması gerekir.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1', hint: 'Distributed gateway IP adresi — tüm leaf\'lerde aynı olabilir (anycast)' },
+                        { name: 'mask', why: "Maske tüm leaf cihazlarda aynı olmalıdır; bir leafte farklı maske, sunucuların kendi subnetlerinin sınırını farklı algılamasına ve bazı hedeflere gateway üzerinden gitmeye çalışıp başarısız olmasına neden olur.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Alt ağ maskesi — Örn: 255.255.255.0' },
+                        { name: 'arp_suppress', why: "ARP suppression, EVPN MAC/IP rotalarını kullanarak yayın ARP trafiğini leafte sonlandırır ve fabric yayın yükünü ciddi azaltır. EVPN rotaları tam senkronize değilken açmak, bazı hostların ARP yanıtı alamayıp erişilemez görünmesine yol açabilir.", label: 'ARP Suppress', type: 'select', options: [
                             { value: 'enable', label: 'Enable — ARP flood suppress (önerilir)', selected: true },
                             { value: 'disable', label: 'Disable — normal ARP davranışı' }
                         ]}
@@ -577,7 +577,7 @@ HuaweiCE.evpnsymirb = {
                     title: 'EVPN Route Policy',
                     icon: 'fas fa-route',
                     fields: [
-                        { name: 'local_as', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'EVPN route-target hesabı için AS numarası' }
+                        { name: 'local_as', why: "AS numarası EVPN route-target değerlerinin otomatik hesabında kullanılır; leaf cihazlarda farklı AS varsa otomatik RT değerleri eşleşmez ve rotalar duyurulsa bile hiçbir VTEP tarafından içeri alınmaz. Bu durumda RT manuel tanımlanmalıdır.", label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'EVPN route-target hesabı için AS numarası' }
                     ]
                 }
             ],
@@ -631,9 +631,9 @@ HuaweiCE.routepolicy = {
                     title: 'Policy Tanımı',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'policy_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'POLICY-OUT', hint: 'Route policy adı — BGP neighbor\'a apply edilecek' },
-                        { name: 'seq', label: 'Node Sequence', type: 'number', required: true, placeholder: '10', hint: 'Node numarası — düşük numara önce işlenir, 10\'ar 10\'ar artırın', min: 1 },
-                        { name: 'mode', label: 'Mode', type: 'select', options: [
+                        { name: 'policy_name', why: "Route-policy bir BGP komşusuna veya import/export işlemine bağlanmazsa hiçbir etkisi olmaz. İsim uyuşmazlığında CloudEngine boş bir politika uygular ve bu pratikte <b>her şeyi reddetmek</b> anlamına gelir; fabric rotaları bir anda kaybolur.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'POLICY-OUT', hint: 'Route policy adı — BGP neighbor\'a apply edilecek' },
+                        { name: 'seq', why: "Node numaraları küçükten büyüğe işlenir ve ilk eşleşen kazanır. Araya ekleme yapabilmek için 10ar atlamalı numaralandırın; ayrıca sonunda tüm rotaları kapsayan bir permit düğümü yoksa eşleşmeyen tüm rotalar sessizce düşürülür.", label: 'Node Sequence', type: 'number', required: true, placeholder: '10', hint: 'Node numarası — düşük numara önce işlenir, 10\'ar 10\'ar artırın', min: 1 },
+                        { name: 'mode', why: "Permit düğümü eşleşen rotaya apply komutlarını uygular; deny düğümü rotayı tamamen atar ve apply satırları hiç çalışmaz. Deny düğümü altına apply yazmak sık yapılan ve tamamen etkisiz kalan bir hatadır.", label: 'Mode', type: 'select', options: [
                             { value: 'permit', label: 'permit — eşleşen route\'lara izin ver', selected: true },
                             { value: 'deny', label: 'deny — eşleşen route\'ları filtrele' }
                         ]}
@@ -643,15 +643,15 @@ HuaweiCE.routepolicy = {
                     title: 'Match Koşulları',
                     icon: 'fas fa-search',
                     fields: [
-                        { name: 'match_prefix', label: 'Match Prefix (CIDR)', type: 'text', optional: true, placeholder: '10.0.0.0/8', hint: 'Eşleştirilecek prefix — CIDR formatında. Boş bırakılırsa tüm route\'lar eşleşir' }
+                        { name: 'match_prefix', why: "Match satırı olmayan bir permit düğümü tüm rotalarla eşleşir; bunu politikanın başına koymak sonraki tüm düğümleri anlamsız kılar. Prefix eşlemesi için önce <code>ip ip-prefix</code> tanımı yapılmalıdır.", label: 'Match Prefix (CIDR)', type: 'text', optional: true, placeholder: '10.0.0.0/8', hint: 'Eşleştirilecek prefix — CIDR formatında. Boş bırakılırsa tüm route\'lar eşleşir' }
                     ]
                 },
                 {
                     title: 'Apply Aksiyonları',
                     icon: 'fas fa-edit',
                     fields: [
-                        { name: 'apply_community', label: 'Apply Community', type: 'text', optional: true, placeholder: '65001:200', hint: 'BGP community değeri — additive mod ile eklenir' },
-                        { name: 'apply_localpref', label: 'Apply Local Preference', type: 'number', optional: true, placeholder: '100', hint: 'BGP local-preference değeri — yüksek değer tercih edilir (varsayılan: 100)', min: 0, max: 4294967295 }
+                        { name: 'apply_community', why: "Community değerinin komşuya gitmesi için ayrıca <code>peer ... advertise-community</code> gerekir; aksi halde değer yerel kalır ve karşı taraftaki politikalar hiç tetiklenmez. Additive kullanılmazsa mevcut community değerleri silinir, EVPN route-target community değerleri de bu yolla bozulabilir.", label: 'Apply Community', type: 'text', optional: true, placeholder: '65001:200', hint: 'BGP community değeri — additive mod ile eklenir' },
+                        { name: 'apply_localpref', why: "Local-preference yalnızca AS içinde (iBGP) taşınır, eBGP komşusuna geçmez. Yüksek değer tercih edilir ve varsayılan 100dür; spine-leaf tasarımında bunu yanlış kullanmak trafiğin tek bir spine üzerinden akmasına ve yük dengelemenin kaybolmasına yol açar.", label: 'Apply Local Preference', type: 'number', optional: true, placeholder: '100', hint: 'BGP local-preference değeri — yüksek değer tercih edilir (varsayılan: 100)', min: 0, max: 4294967295 }
                     ]
                 }
             ],
