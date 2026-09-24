@@ -1008,3 +1008,18 @@
 }
 [data-theme="dark"] #config-generator-root .cg-rule i,
 [data-theme="dark"] #config-generator-root .cg-rule b { color: #6ee7b7; }
+
+/* ── Kategori katmanı (D0) ──────────────────────────────────────────────── */
+#config-generator-root .cg-cat-chips { margin-top: -4px; }
+#config-generator-root .cg-cat-chip { padding: 4px 11px; font-size: .78rem; }
+#config-generator-root .cg-cat-chip i { font-size: .72rem; opacity: .8; }
+#config-generator-root .cg-catgroup { margin-bottom: 14px; }
+#config-generator-root .cg-catgroup-hd {
+    display: flex; align-items: center; gap: 7px;
+    margin: 4px 0 8px; font-size: .78rem; font-weight: 700;
+    letter-spacing: .2px;
+    color: var(--text-tertiary, #6b7280);
+}
+#config-generator-root .cg-catgroup-hd i { color: var(--primary-color, #4F46E5); font-size: .75rem; }
+[data-theme="dark"] #config-generator-root .cg-catgroup-hd { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-catgroup-hd i { color: #a5b4fc; }
