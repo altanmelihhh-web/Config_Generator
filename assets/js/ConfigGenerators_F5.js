@@ -250,9 +250,9 @@ F5LTM.irule = {
                     title: 'Pool Seçimi Ayarları',
                     icon: 'fas fa-filter',
                     fields: [
-                        { name: 'hdr_name', why: "Header adı büyük/küçük harf duyarsızdır, ancak istemci bu başlığı hiç göndermezse koşul sessizce false döner ve trafik default pool'a gider. Güvenlik kararı istemci başlığına dayandırılıyorsa başlık dışarıdan sahte gönderilebileceği için önce temizlenmelidir.", label: 'Header Adı', type: 'text', optional: true, placeholder: 'X-Tenant', hint: 'Eşleştirilecek HTTP header adı.' },
-                        { name: 'hdr_val', why: "Değer karşılaştırması birebir yapılır; büyük/küçük harf veya boşluk farkı eşleşmeyi sessizce bozar. Beklenmeyen değerler için mutlaka bir varsayılan davranış tanımlanmalıdır.", label: 'Header Değeri', type: 'text', optional: true, placeholder: 'tenant-a', hint: 'Eşleşme koşulu değeri.' },
-                        { name: 'target_pool', why: "Hedef pool iRule çalıştığı anda mevcut değilse bağlantı düşer ve LTM log'una <code>no pool member available</code> yazılır. Pool seçimi iRule ile yapılsa bile VS'in default pool'u yedek olarak tanımlanmalıdır.", label: 'Hedef Pool', type: 'text', optional: true, placeholder: 'POOL_TENANT_A', hint: 'Eşleşme durumunda trafiğin gönderileceği pool.' }
+                        { name: 'hdr_name', why: "Header adı büyük/küçük harf duyarsızdır, ancak istemci bu başlığı hiç göndermezse koşul sessizce false döner ve trafik default pool'a gider. Güvenlik kararı istemci başlığına dayandırılıyorsa başlık dışarıdan sahte gönderilebileceği için önce temizlenmelidir.", label: 'Header Adı', type: 'text', requiredIf: { field: 'irule_type', in: ['pool_select'] }, placeholder: 'X-Tenant', hint: 'Eşleştirilecek HTTP header adı.' },
+                        { name: 'hdr_val', why: "Değer karşılaştırması birebir yapılır; büyük/küçük harf veya boşluk farkı eşleşmeyi sessizce bozar. Beklenmeyen değerler için mutlaka bir varsayılan davranış tanımlanmalıdır.", label: 'Header Değeri', type: 'text', requiredIf: { field: 'irule_type', in: ['pool_select'] }, placeholder: 'tenant-a', hint: 'Eşleşme koşulu değeri.' },
+                        { name: 'target_pool', why: "Hedef pool iRule çalıştığı anda mevcut değilse bağlantı düşer ve LTM log'una <code>no pool member available</code> yazılır. Pool seçimi iRule ile yapılsa bile VS'in default pool'u yedek olarak tanımlanmalıdır.", label: 'Hedef Pool', type: 'text', requiredIf: { field: 'irule_type', in: ['pool_select'] }, placeholder: 'POOL_TENANT_A', hint: 'Eşleşme durumunda trafiğin gönderileceği pool.' }
                     ]
                 }
             ],
@@ -768,7 +768,7 @@ F5LTM.vlanself = {
                     icon: 'fas fa-map-marker-alt',
                     fields: [
                         { name: 'self_ip', why: "Self IP BIG-IP'nin o VLAN'daki adresidir; olmadan bu VLAN'daki pool üyelerine erişilemez ve tüm monitor'lar down kalır. HA çiftinde ayrıca floating self IP tanımlanmazsa backend'in default gateway'i failover sonrası ölü cihazı gösterir.", label: 'Self IP Adresi', type: 'text', required: true, validate: 'ip', placeholder: '192.168.200.1', hint: 'BIG-IP\'nin bu VLAN\'daki IP adresi.' },
-                        { name: 'self_prefix', why: "Maske yanlış verilirse BIG-IP backend subnet'ini yerel saymaz ve trafiği default route'a gönderir; bu da asimetrik yönlendirme ve zaman aşımı üretir.", label: 'Subnet Mask', type: 'text', required: true, placeholder: '255.255.255.0', hint: 'Alt ağ maskesi (CIDR\'a otomatik çevrilir).' },
+                        { name: 'self_prefix', why: "Maske yanlış verilirse BIG-IP backend subnet'ini yerel saymaz ve trafiği default route'a gönderir; bu da asimetrik yönlendirme ve zaman aşımı üretir.", label: 'Subnet Mask', type: 'text', required: true, validate: 'netmask', placeholder: '255.255.255.0', hint: 'Alt ağ maskesi (CIDR\'a otomatik çevrilir).' },
                         { name: 'allow_service', why: "Self IP üzerinde <code>allow all</code> yönetim servislerini uygulama ağına açar ve saldırı yüzeyini büyütür; <code>allow none</code> ise ping ve bazı monitor'lar dahil her şeyi kapatarak sorun gidermeyi imkansız kılar. Yalnızca gerekli portlara izin vermek doğru yaklaşımdır.", label: 'Allow Service', type: 'select', options: [
                             { value: 'default', label: 'default' },
                             { value: 'all', label: 'all' },
@@ -781,11 +781,8 @@ F5LTM.vlanself = {
         }, (data) => {
             const { vlan_name, vlan_tag, interfaces: intfsRaw, self_ip, self_prefix, allow_service } = data;
             const intfs = intfsRaw.split(',').map(s => s.trim()).filter(Boolean);
-            const cidr = self_prefix.split('.').reduce((acc, octet) => {
-                let n = parseInt(octet, 10), bits = 0;
-                while (n > 0) { bits += (n & 1); n >>= 1; }
-                return acc + bits;
-            }, 0);
+            // Eskiden her oktetteki 1 bitlerini sayiyordu: '24' girilince /2 uretiyordu.
+            const cidr = cgMaskLen(self_prefix);
             let c = '# ========================================\n# F5 BIG-IP LTM — VLAN + Self IP\n# ========================================\n\n';
             c += 'tmsh create net vlan ' + vlan_name + ' tag ' + vlan_tag + ' interfaces replace-all-with {';
             intfs.forEach(i => { c += ' ' + i + ' { }'; });

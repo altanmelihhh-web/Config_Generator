@@ -122,7 +122,7 @@ function cgCpIfaceGen(data) {
     if (type === 'single') {
         const iface = cgEsc(data.iface || ''), ip = cgEsc(data.iface_ip || '');
         const parts = ip.split('/');
-        c += 'set interface ' + iface + ' ipv4-address ' + parts[0] + ' mask-length ' + (parts[1] || '30') + '\n';
+        c += 'set interface ' + iface + ' ipv4-address ' + parts[0] + ' mask-length ' + (parts[1] || '') + '\n';
         c += 'set interface ' + iface + ' state on\n';
         if (desc) c += 'set interface ' + iface + ' comments "' + desc + '"\n';
     } else {
@@ -134,7 +134,7 @@ function cgCpIfaceGen(data) {
         c += 'set bonding group ' + bondNum + ' mode 802_3ad\n';
         c += 'set bonding group ' + bondNum + ' interfaces add ' + m1 + '\n';
         c += 'set bonding group ' + bondNum + ' interfaces add ' + m2 + '\n';
-        c += 'set interface ' + bondId + ' ipv4-address ' + parts[0] + ' mask-length ' + (parts[1] || '30') + '\n';
+        c += 'set interface ' + bondId + ' ipv4-address ' + parts[0] + ' mask-length ' + (parts[1] || '') + '\n';
         c += 'set interface ' + bondId + ' state on\n';
         if (desc) c += 'set interface ' + bondId + ' comments "' + desc + '"\n';
     }
@@ -435,7 +435,7 @@ CheckPoint.vlanintf = {
                         { name: 'vlan_id', why: "802.1Q VLAN etiketi (1-4094). Karşı switch portu <b>trunk</b> modda ve bu VLAN'a izin veriyor olmalı, aksi halde tag'li trafik düşer.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası' },
                         { name: 'parent_bond', why: "VLAN alt arayüzünün bağlanacağı fiziksel veya bond arayüz. Gaia'da isim <code>bond0.100</code> biçiminde oluşur.", label: 'Parent Bond / Interface', type: 'text', required: true, placeholder: 'bond0', hint: 'VLAN\'ın oluşturulacağı üst arayüz (örn: bond0, eth1)' },
                         { name: 'ip', why: "Host nesnesinin IP'si. Aynı IP için ikinci bir nesne oluşturmak, kural analizinde yanlış eşleşmeye ve çelişkili politikalara yol açar.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1', hint: 'VLAN interface IP adresi' },
-                        { name: 'mask', why: "Ağ maskesi. Çok geniş tanımlamak kuralı istemeden komşu segmentlere de açar.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0)' },
+                        { name: 'mask', why: "Ağ maskesi. Çok geniş tanımlamak kuralı istemeden komşu segmentlere de açar.", label: 'Subnet Mask', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0)' },
                         { name: 'comment', why: "Nesne yorumu. Check Point'te nesne silmeden önce nerede kullanıldığına bakılır; iyi yazılmış bir yorum bu aramayı gereksiz kılar.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'Server VLAN', hint: 'Interface yorumu (comments)' }
                     ]
                 }
@@ -449,16 +449,9 @@ CheckPoint.vlanintf = {
 function cgCpVlanIntfGen(data) {
     const vlanId = cgEsc(data.vlan_id || ''), parentBond = cgEsc(data.parent_bond || '');
     const ip = cgEsc(data.ip || ''), mask = cgEsc(data.mask || ''), comment = cgEsc(data.comment || '');
-    const maskToCidr = {
-        '255.255.255.0': '24', '255.255.254.0': '23', '255.255.252.0': '22',
-        '255.255.248.0': '21', '255.255.240.0': '20', '255.255.224.0': '19',
-        '255.255.192.0': '18', '255.255.128.0': '17', '255.255.0.0': '16',
-        '255.254.0.0': '15', '255.252.0.0': '14', '255.248.0.0': '13',
-        '255.255.255.128': '25', '255.255.255.192': '26',
-        '255.255.255.224': '27', '255.255.255.240': '28',
-        '255.255.255.248': '29', '255.255.255.252': '30'
-    };
-    const cidr = maskToCidr[mask] || mask + ' # (CIDR cevirisi manuel yapilacak)';
+    // Tablo /13-/30 disini bilmiyordu ve bilinmeyen maskede komut satirinin ortasina
+    // '# ...' yorumu yaziyordu. cgMaskLen tum bitisik maskeleri cevirir.
+    const cidr = cgMaskLen(mask);
     const vlanIface = parentBond + '.' + vlanId;
     let c = '# ========================================\n# Check Point Gaia — VLAN Interface (clish)\n# ========================================\n\n';
     c += 'add interface ' + vlanIface + ' vlan-id ' + vlanId + '\n';
@@ -537,7 +530,7 @@ CheckPoint.netobj = {
                     fields: [
                         { name: 'name', why: "Nesne adı SmartConsole veritabanında benzersiz olmalı. Tutarlı isimlendirme (<code>SRV_WEB_01</code>) 500 nesneli bir kurulumda aranabilirliği belirler.", label: 'Nesne Adı', type: 'text', required: true, placeholder: 'NET-DMZ', hint: 'SmartConsole\'da görünecek nesne adı' },
                         { name: 'subnet', why: 'Ağ nesnesi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet', type: 'text', validate: 'subnet', required: true, placeholder: '192.168.2.0', hint: 'Ağ adresi (host bitleri sıfır olmalı)' },
-                        { name: 'mask', why: "Ağ maskesi. Çok geniş tanımlamak kuralı istemeden komşu segmentlere de açar.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0 → /24)' },
+                        { name: 'mask', why: "Ağ maskesi. Çok geniş tanımlamak kuralı istemeden komşu segmentlere de açar.", label: 'Subnet Mask', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0 → /24)' },
                         { name: 'color', why: "SmartConsole'da nesne rengi. Kurumsal renk şeması (ör. kırmızı=DMZ, yeşil=LAN) büyük kural listelerinde hata oranını gözle görülür azaltır.", label: 'Renk', type: 'select', options: [
                             { value: 'green', label: 'green', selected: true },
                             { value: 'blue', label: 'blue' },
@@ -558,16 +551,9 @@ function cgCpNetObjGen(data) {
     const name = cgEsc(data.name || ''), subnet = cgEsc(data.subnet || ''), mask = cgEsc(data.mask || '');
     const color = cgEsc(data.color || 'green'), groupsRaw = cgEsc(data.groups || ''), comment = cgEsc(data.comment || '');
     const groups = groupsRaw ? groupsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
-    const maskToCidr = {
-        '255.255.255.0': '24', '255.255.254.0': '23', '255.255.252.0': '22',
-        '255.255.248.0': '21', '255.255.240.0': '20', '255.255.224.0': '19',
-        '255.255.192.0': '18', '255.255.128.0': '17', '255.255.0.0': '16',
-        '255.254.0.0': '15', '255.252.0.0': '14', '255.248.0.0': '13',
-        '255.255.255.128': '25', '255.255.255.192': '26',
-        '255.255.255.224': '27', '255.255.255.240': '28',
-        '255.255.255.248': '29', '255.255.255.252': '30'
-    };
-    const cidr = maskToCidr[mask] || mask + ' # (CIDR cevirisi manuel yapilacak)';
+    // Tablo /13-/30 disini bilmiyordu ve bilinmeyen maskede komut satirinin ortasina
+    // '# ...' yorumu yaziyordu. cgMaskLen tum bitisik maskeleri cevirir.
+    const cidr = cgMaskLen(mask);
     let c = '# ========================================\n# Check Point — Network Object (mgmt_cli)\n# ========================================\n\n';
     c += 'mgmt_cli add network name "' + name + '" subnet "' + subnet + '" mask-length ' + cidr + ' color "' + color + '"';
     if (comment) c += ' comments "' + comment + '"';

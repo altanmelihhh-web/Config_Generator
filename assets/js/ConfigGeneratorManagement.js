@@ -10,10 +10,23 @@ function cgEsc(v) {
 // Canlı önizleme sırasında true olur: cgValidate alanları işaretler ama engellemez.
 let cgSoftMode = false;
 
+// Noktali ag maskesi -> prefix uzunlugu. Gecersiz veya bitisik olmayan maskede ''
+// dondurur: cagiran, yanlis bir sayi uydurmak yerine eksikligi gorunur kilar.
+function cgMaskLen(mask) {
+    const p = String(mask || '').trim().split('.');
+    if (p.length !== 4 || !p.every(o => /^\d{1,3}$/.test(o) && +o <= 255)) return '';
+    const bits = p.map(o => (+o).toString(2).padStart(8, '0')).join('');
+    return /^1*0*$/.test(bits) ? String(bits.indexOf('0') < 0 ? 32 : bits.indexOf('0')) : '';
+}
+
 const CG_VALIDATORS = {
     ip:       { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli bir IPv4 adresi girin (örn: 10.0.0.1)' },
     cidr:     { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/, msg: 'CIDR formatında girin (örn: 10.0.0.0/24)' },
     subnet:   { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli subnet mask girin (örn: 255.255.255.0)' },
+    // Bitisik ag maskesi (255.255.255.0 gibi). 'subnet' her noktali dortluyu kabul eder;
+    // prefix'e cevrilecek alanlarda bu kullanilir — 255.0.255.0 cevrilemez.
+    netmask:  { fn: v => cgMaskLen(String(v).trim()) !== '', msg: 'Geçerli ağ maskesi girin (örn: 255.255.255.0)' },
+    posint:   { fn: v => _cgInt(v, 1, 2147483647), msg: 'Pozitif tam sayı girin' },
     // Next-hop: IP adresi VEYA cikis arayuzu ('ip route 0.0.0.0 0.0.0.0 Gi0/0')
     nexthop:  { fn: v => { const t = String(v).trim(); return /^[\d.]+$/.test(t) ? CG_VALIDATORS.ip.re.test(t) : _cgIface(t); },
                 msg: 'Next-hop IP adresi veya çıkış arayüzü girin (örn: 192.168.1.1, GigabitEthernet0/0)' },
@@ -345,6 +358,8 @@ const CG_WHY = {
     ip:          _cgIpWhy,
     cidr:        _cgCidrWhy,
     subnet:      _cgIpWhy,
+    netmask:     t => _cgIpWhy(t) || (cgMaskLen(t) === '' ? 'maske bitişik değil — 1 bitleri soldan kesintisiz olmalı (örn: 255.255.240.0)' : ''),
+    posint:      t => _cgNumWhy(t, 1, 2147483647),
     nexthop:     t => (/^[\d.]+$/.test(t) ? _cgIpWhy(t) : _cgIfaceWhy(t)),
     wildcard:    _cgIpWhy,
     ip_cidr:     t => (t.indexOf('/') >= 0 ? _cgCidrWhy(t) : _cgIpWhy(t)),

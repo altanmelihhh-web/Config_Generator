@@ -405,7 +405,7 @@ HuaweiVRP.tacacs = {
                         { name: 'srv1', why: "Sunucuya cihazdan ulaşılamıyorsa ve yerel yedek hesap tanımlı değilse cihaza uzaktan hiç giriş yapamazsınız; konsol erişimi şart olur. Kaynak arayüz sabitlenmemişse sunucu isteği tanımadığı IP adresinden gelmiş sayıp reddeder.", label: 'Sunucu 1 IP', type: 'text', validate: 'ip', required: true, placeholder: '10.7.66.66', hint: 'Birincil HWTACACS sunucu IP adresi' },
                         { name: 'key1', why: "Paylaşılan anahtar sunucudaki kayıtla birebir aynı olmalıdır; bir karakter farkı kimlik doğrulamanın sessizce başarısız olmasına yol açar ve cihaz logunda genellikle sadece <code>reject</code> görünür. Anahtar VRP tarafında şifreli saklanır, sonradan okunamaz.", label: 'Sunucu 1 Shared Key', type: 'text', required: true, placeholder: 'TacacsKey123', hint: 'TACACS şifreli anahtar' },
                         { name: 'srv2', why: "Tek TACACS sunucusu tek arıza noktasıdır; sunucu bakıma girdiğinde tüm cihazlara erişim kesilir. İkinci sunucu tanımlamak bu riski ortadan kaldırır.", label: 'Sunucu 2 IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.7.66.67', hint: 'Yedek HWTACACS sunucu (opsiyonel)' },
-                        { name: 'key2', why: "Yedek sunucunun anahtarı çoğu zaman birinciyle aynı sanılıp yanlış girilir; hata ancak birincil sunucu düştüğünde, yani en kötü anda ortaya çıkar. Yedeğe geçişi önceden test edin.", label: 'Sunucu 2 Shared Key', type: 'text', optional: true, placeholder: 'TacacsKey123', hint: 'İkincil sunucu için paylaşılan anahtar' }
+                        { name: 'key2', why: "Yedek sunucunun anahtarı çoğu zaman birinciyle aynı sanılıp yanlış girilir; hata ancak birincil sunucu düştüğünde, yani en kötü anda ortaya çıkar. Yedeğe geçişi önceden test edin.", label: 'Sunucu 2 Shared Key', type: 'text', optional: true, placeholder: 'TacacsKey123', hint: 'VRP şablonda tek ortak anahtar kullanır; farklıysa uyarı verilir' }
                     ]
                 },
                 {
@@ -437,6 +437,7 @@ HuaweiVRP.tacacs = {
         }, (data) => {
             const srv1 = cgEsc(data.srv1 || ''), key1 = cgEsc(data.key1 || '');
             const srv2 = cgEsc(data.srv2 || ''), grp = cgEsc(data.grp_name || '');
+            const key2 = cgEsc(data.key2 || '');
             const domain = cgEsc(data.domain || ''), remdom = cgEsc(data.remove_domain || 'no');
             const vs = cgEsc(data.vty_start || ''), ve = cgEsc(data.vty_end || '');
             let c = '# ========================================\n# Huawei — TACACS+ Configuration\n# ========================================\n\n';
@@ -454,6 +455,10 @@ HuaweiVRP.tacacs = {
             c += ' hwtacacs-server accounting ' + srv1 + ' 49\n';
             if (srv2) c += ' hwtacacs-server accounting ' + srv2 + ' 49 secondary\n';
             c += ' hwtacacs-server shared-key cipher ' + key1 + '\n';
+            // VRP'de paylasilan anahtar SABLON duzeyindedir: iki sunucu da key1'i kullanir.
+            // key2 eskiden hic okunmuyordu; farkliysa bunu sessizce yutmak yerine bildir.
+            if (srv2 && key2 && key2 !== key1)
+                c = '# UYARI: yedek sunucu anahtarı birincilden farklı. VRP bu şablonda tek ortak anahtar (hwtacacs-server shared-key) kullanır;\n#        ' + srv2 + ' farklı anahtar istiyorsa ayrı bir HWTACACS şablonu tanımlayın.\n' + c;
             if (remdom === 'yes') c += ' undo hwtacacs-server user-name domain-included\n';
             c += 'quit\n\n';
             if (data.enable_local === 'yes') {
@@ -887,7 +892,7 @@ HuaweiVRP.interface = {
             const description = cgEsc(data.description || ''), shutdown = cgEsc(data.shutdown || 'undo shutdown');
             let c = '# ========================================\n# Huawei VRP — Interface / Loopback\n# ========================================\n\n';
             c += 'interface ' + intfName + '\n';
-            c += ' description ' + description + '\n';
+            if (description) c += ' description ' + description + '\n';
             c += ' ip address ' + ip + ' ' + mask + '\n';
             c += ' ' + shutdown + '\n';
             c += '#\n';

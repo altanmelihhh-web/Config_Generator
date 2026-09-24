@@ -1403,9 +1403,10 @@ function cgFgFswportGen(data) {
     const nativeVlan   = cgEsc(data.native_vlan || '');
     const allowedVlans = cgEsc(data.allowed_vlans || '').split(',').map(s => s.trim()).filter(Boolean);
     let c = '# ========================================\n# FortiGate — FortiSwitch Port Profile\n# ========================================\n\n';
+    if (!allowedVlans.length) c += '# UYARI: izinli VLAN listesi boş veya geçersiz — allowed-vlans satırı yazılmadı.\n';
     c += '# Not: FortiGate tarafından yönetilen FortiSwitch için uygulanır.\n\n';
     c += 'config switch-controller vlan-policy\n    edit "' + pname + '"\n';
-    c += '        set allowed-vlans ' + allowedVlans.join(' ') + '\n';
+    if (allowedVlans.length) c += '        set allowed-vlans ' + allowedVlans.join(' ') + '\n';
     if (nativeVlan) c += '        set untagged-vlans ' + nativeVlan + '\n';
     c += '    next\nend\n\n';
     c += '# Doğrulama:\n# show switch-controller vlan-policy "' + pname + '"\n';

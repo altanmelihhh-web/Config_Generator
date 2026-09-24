@@ -476,7 +476,7 @@ CiscoASA.mpfServicePolicy = {
                             { value: 'global', label: 'Global (tüm interface)', selected: true },
                             { value: 'interface', label: 'Belirli Interface' }
                         ]},
-                        { name: 'sp_iface', why: "Arayüz bazlı uygulama global politikayı o arayüzde tamamen devre dışı bırakır; yani mevcut varsayılan inspect’leri de kaybedersiniz. Gerekli inspect satırlarını yeni politikaya elle eklemelisiniz.", label: 'Interface (Nameif)', type: 'text', validate: 'iface', optional: true, placeholder: 'outside', hint: 'Belirli interface seçiliyse nameif girin' }
+                        { name: 'sp_iface', why: "Arayüz bazlı uygulama global politikayı o arayüzde tamamen devre dışı bırakır; yani mevcut varsayılan inspect’leri de kaybedersiniz. Gerekli inspect satırlarını yeni politikaya elle eklemelisiniz.", label: 'Interface (Nameif)', type: 'text', requiredIf: { field: 'sp_scope', in: ['interface'] }, placeholder: 'outside', hint: 'Belirli interface seçiliyse nameif girin' }
                     ]
                 }
             ],

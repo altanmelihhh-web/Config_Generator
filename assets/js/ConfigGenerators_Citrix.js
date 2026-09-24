@@ -553,8 +553,8 @@ CitrixADC.ratelimit = {
                     icon: 'fas fa-id-badge',
                     fields: [
                         { name: 'identifier_name', why: "Rate limit identifier tek başına engelleme yapmaz; bir responder policy ile birlikte kullanılmadığı sürece yalnızca sayaç tutar ve koruma sağladığı sanılır.", label: 'Identifier Adı', type: 'text', required: true, placeholder: 'RL-PER-CLIENT', hint: 'Rate limit kuralı adı' },
-                        { name: 'rate', why: "Eşik çok düşük tutulursa meşru kullanıcılar ve sağlık kontrolleri engellenir; çok yüksek tutulursa brute force ve scraping trafiği rahatça geçer. Değer gerçek trafik profili ölçülerek belirlenmelidir.", label: 'Rate (istek sayısı)', type: 'text', required: true, placeholder: '100', hint: 'Zaman dilimindeki maksimum istek sayısı' },
-                        { name: 'per_seconds', why: "Zaman penceresi kısa olursa ani ama meşru trafik dalgalanmaları (sayfa başına çoklu istek) yanlışlıkla limitlenir. ADC bu değeri milisaniyeye çevirir; çok geniş pencereler bellek tüketimini artırır.", label: 'Süre (saniye)', type: 'text', required: true, placeholder: '60', hint: 'Ölçüm penceresi (saniye) — milisaniyeye çevrilir' },
+                        { name: 'rate', why: "Eşik çok düşük tutulursa meşru kullanıcılar ve sağlık kontrolleri engellenir; çok yüksek tutulursa brute force ve scraping trafiği rahatça geçer. Değer gerçek trafik profili ölçülerek belirlenmelidir.", label: 'Rate (istek sayısı)', type: 'text', required: true, validate: 'posint', placeholder: '100', hint: 'Zaman dilimindeki maksimum istek sayısı' },
+                        { name: 'per_seconds', why: "Zaman penceresi kısa olursa ani ama meşru trafik dalgalanmaları (sayfa başına çoklu istek) yanlışlıkla limitlenir. ADC bu değeri milisaniyeye çevirir; çok geniş pencereler bellek tüketimini artırır.", label: 'Süre (saniye)', type: 'text', required: true, validate: 'posint', placeholder: '60', hint: 'Ölçüm penceresi (saniye) — milisaniyeye çevrilir' },
                         { name: 'mode', why: "Mode istemcinin nasıl tanımlanacağını belirler; IP bazlı sayım NAT veya proxy arkasındaki tüm kullanıcıları tek istemci sayar ve kurumsal ağları topluca engeller. SESSION veya URL bazlı sayım daha adil sonuç verir.", label: 'Mode', type: 'select', options: [
                             { value: 'CONNECTION', label: 'CONNECTION', selected: true },
                             { value: 'REQUEST_RATE', label: 'REQUEST_RATE' },
@@ -580,7 +580,7 @@ function cgNsRateLimitGen(data) {
     const perSeconds = cgEsc(data.per_seconds || '');
     const mode = cgEsc(data.mode || 'CONNECTION');
     const action = cgEsc(data.action || 'DROP');
-    const timeSliceMs = String(parseInt(perSeconds, 10) * 1000);
+    const timeSliceMs = /^\d+$/.test(perSeconds) ? String(parseInt(perSeconds, 10) * 1000) : '';
     let c = '# ========================================\n# Citrix ADC — Rate Limiting\n# ========================================\n\n';
     c += 'add ns limitIdentifier ' + identifierName + ' -threshold ' + rate + ' -timeSlice ' + timeSliceMs + ' -mode ' + mode + '\n';
     c += 'add ns limitSelector ' + identifierName + '-SEL "CLIENT.IP.SRC"\n';
