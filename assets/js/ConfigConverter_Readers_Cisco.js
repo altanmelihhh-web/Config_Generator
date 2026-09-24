@@ -459,10 +459,15 @@ function ccReadCiscoIOS(text) {
             inBgp = true;
 
         } else if (line.startsWith('ip access-list ')) {
-            // ip access-list extended|standard NAME
-            const am = line.match(/^ip access-list\s+(extended|standard)\s+(\S+)/);
+            // IOS   : ip access-list extended|standard NAME
+            // NX-OS  : ip access-list NAME          (extended/standard kelimesi YOKTUR)
+            // Tur kelimesini zorunlu tutmak, NX-OS'ta tum ACL'lerin basligiyla birlikte
+            // okunamamasina yol aciyordu (14 cihazda 155 ACL basligi, sifir ACL).
+            const am = line.match(/^ip access-list\s+(?:(extended|standard)\s+)?(\S+)/);
             if (am) {
-                const type = am[1], name = am[2];
+                // NX-OS'ta tur belirtilmez; govde 'seq action proto src dst' bicimindedir,
+                // yani extended semantigi gecerlidir.
+                const type = am[1] || 'extended', name = am[2];
                 let acl = ir.acls.find(a => a.name === name);
                 if (!acl) { acl = { name, type, entries: [] }; ir.acls.push(acl); }
                 else { acl.type = type; }
@@ -950,12 +955,32 @@ function ccReadCiscoNXOS(text) {
     for (const d of droppedLines) ir.unknowns.push(d);
 
     // NX-OS'a özgü: 'ip route X/prefix NH' (CIDR) — maske dönüşümü
+    //
+    // IOS formati 3 token'dir:  ip route NET MASK NEXTHOP
+    // NX-OS formati 2 token:    ip route NET/PREFIX NEXTHOP
+    // IOS parser'i NX-OS satirina uygulanınca nexthop 'mask' alanina duser ve
+    // burada prefix'ten turetilen maskeyle ezilirdi — 14 cihazda tum default
+    // route'lar nexthop'suz kaliyordu. Mask alanindaki degeri geri aliyoruz.
     ir.routes = ir.routes.map(r => {
         if (r.network && r.network.includes('/')) {
             const [net, prefix] = r.network.split('/');
-            return { ...r, network: net, mask: ccPrefixToMask(parseInt(prefix)) };
+            const _nh = r.nexthop || r.mask || '';
+            return { ...r, network: net, mask: ccPrefixToMask(parseInt(prefix)), nexthop: _nh };
         }
         return r;
+    });
+
+    // Ayni CIDR sorunu arayuzlerde de var: NX-OS 'ip address 10.0.0.1/24' yazar,
+    // IOS ise 'ip address 10.0.0.1 255.255.255.0'. Duzeltme yalnizca ir.routes'a
+    // uygulandigi icin tum SVI ve mgmt0 adresleri '10.0.0.1/24' string'i olarak,
+    // maske bos kaliyordu.
+    ir.interfaces = ir.interfaces.map(f => {
+        if (f && typeof f.ip === 'string' && f.ip.includes('/')) {
+            const [addr, prefix] = f.ip.split('/');
+            const _p = parseInt(prefix, 10);
+            if (!isNaN(_p)) return Object.assign({}, f, { ip: addr, mask: ccPrefixToMask(_p) });
+        }
+        return f;
     });
 
     // Meta override
