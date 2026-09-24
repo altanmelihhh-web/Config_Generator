@@ -100,7 +100,9 @@ function cgDia(spec) {
     const notes = (spec.notes || []).length
         ? `<ul class="cg-dia-notes">${spec.notes.map(n => `<li>${n}</li>`).join('')}</ul>`
         : '';
-    return `<div class="cg-dia-wrap">
+    // max-width = diyagramin dogal genisligi. Olmazsa tam genislikli kartlarda
+    // SVG orantili buyuyup metinleri devasa gosteriyor.
+    return `<div class="cg-dia-wrap" style="max-width:${w}px">
     <svg class="cg-dia" viewBox="0 0 ${w} ${h}" role="img"
          aria-label="${cgDiaEsc(spec.alt || spec.title || 'Ag topolojisi')}">
       <defs>

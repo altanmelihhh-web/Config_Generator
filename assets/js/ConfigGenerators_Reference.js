@@ -55,19 +55,26 @@ CgReference.bgp = {
       }))}
     </div>
     <div>
-      ${cgRefCard('iBGP + Route Reflector', 'fas fa-server', cgRefTopo(`
-        ┌─── RR ───┐
-        │  192.0.0.1│
-        └─┬──┬──┬──┘
-       iBGP│  │  │iBGP
-    ┌──────┘  │  └──────┐
-    ▼         ▼         ▼
-  PE1        PE2        PE3
-
-  • Full-mesh yerine RR kullanılır
-  • cluster-id, client/non-client ayrımı
-  • next-hop-self gerekebilir
-`))}
+      ${cgRefCard('iBGP + Route Reflector', 'fas fa-server', cgDia({
+        w: 480, h: 210, alt: 'Route reflector ile iBGP dağıtımı',
+        zones: [ { x: 10, y: 8, w: 460, h: 178, label: 'Tek AS içinde (iBGP)' } ],
+        nodes: [
+          { x: 240, y: 52,  kind: 'router', label: 'RR',  sub: '192.0.0.1' },
+          { x: 90,  y: 148, kind: 'router', label: 'PE1' },
+          { x: 240, y: 148, kind: 'router', label: 'PE2' },
+          { x: 390, y: 148, kind: 'router', label: 'PE3' }
+        ],
+        links: [
+          { x1: 210, y1: 75, x2: 110, y2: 125, arrow: true, label: 'iBGP' },
+          { x1: 240, y1: 75, x2: 240, y2: 125, arrow: true },
+          { x1: 270, y1: 75, x2: 370, y2: 125, arrow: true, label: 'iBGP' }
+        ],
+        notes: [
+          'Full-mesh yerine RR: n(n-1)/2 oturum yerine n oturum',
+          '<code>cluster-id</code> ve client / non-client ayrımı önemli',
+          '<code>next-hop-self</code> gerekebilir'
+        ]
+      }))}
     </div>
   </div>
 
@@ -87,23 +94,33 @@ CgReference.bgp = {
         </ol>`)}
     </div>
     <div>
-      ${cgRefCard('BGP State Machine', 'fas fa-project-diagram', cgRefTopo(`
-  Idle ──► Connect ──► Active
-            │
-            ▼
-         OpenSent
-            │
-            ▼
-         OpenConfirm
-            │
-            ▼
-         Established ✓
-
-  Sorun: BGP stuck in Active
-  → Peer IP veya AS numarası hatalı
-  → TCP 179 engelli (firewall/ACL)
-  → Authentication mismatch
-`))}
+      ${cgRefCard('BGP State Machine', 'fas fa-project-diagram', cgDia({
+        w: 480, h: 250, alt: 'BGP oturum kurulum durumları',
+        nodes: [
+          { x: 70,  y: 34,  w: 96, h: 34, kind: 'cloud',  label: 'Idle' },
+          { x: 240, y: 34,  w: 96, h: 34, kind: 'cloud',  label: 'Connect' },
+          { x: 410, y: 34,  w: 96, h: 34, kind: 'cloud',  label: 'Active' },
+          { x: 240, y: 104, w: 130, h: 34, kind: 'router', label: 'OpenSent' },
+          { x: 240, y: 158, w: 130, h: 34, kind: 'router', label: 'OpenConfirm' },
+          { x: 240, y: 212, w: 150, h: 34, kind: 'server', label: 'Established' }
+        ],
+        links: [
+          { x1: 118, y1: 34,  x2: 192, y2: 34,  arrow: true },
+          { x1: 288, y1: 34,  x2: 362, y2: 34,  arrow: true },
+          { x1: 410, y1: 51,  x2: 410, y2: 78, arrow: false, dash: true },
+          { x1: 410, y1: 78,  x2: 305, y2: 78, arrow: false, dash: true },
+          { x1: 305, y1: 78,  x2: 305, y2: 40, arrow: true,  dash: true, label: 'retry' },
+          { x1: 240, y1: 51,  x2: 240, y2: 87,  arrow: true },
+          { x1: 240, y1: 121, x2: 240, y2: 141, arrow: true },
+          { x1: 240, y1: 175, x2: 240, y2: 195, arrow: true }
+        ],
+        notes: [
+          '<strong>Active durumunda takılıyorsa</strong> oturum kurulamıyor demektir:',
+          'Peer IP veya AS numarası hatalı',
+          'TCP <code>179</code> engelli (firewall / ACL)',
+          'Authentication (MD5 / TCP-AO) uyuşmazlığı'
+        ]
+      }))}
     </div>
   </div>
 
@@ -130,29 +147,31 @@ CgReference.ospf = {
   <div class="cg-ref-title"><i class="fas fa-project-diagram"></i> OSPF — Open Shortest Path First</div>
   <p class="cg-ref-intro">OSPF, link-state tabanlı bir IGP'dir. Dijkstra algoritması (SPF) ile en kısa yolu hesaplar. Hiyerarşik tasarım için Area kavramını kullanır.</p>
 
-  ${cgRefCard('OSPF Alan Hiyerarşisi', 'fas fa-layer-group', cgRefTopo(`
-                ┌─────────────────────────────┐
-                │      Area 0 (Backbone)       │
-                │   ┌────┐     ┌────┐          │
-                │   │ R1 ├─────┤ R2 │          │
-                │   └──┬─┘     └─┬──┘          │
-                └──────┼─────────┼─────────────┘
-                       │ ABR     │ ABR
-          ┌────────────┘         └────────────┐
-          │                                   │
-  ┌───────┴──────┐                   ┌────────┴─────┐
-  │   Area 1     │                   │   Area 2     │
-  │   (Normal)   │                   │   (Stub)     │
-  │  ┌───┐       │                   │  ┌───┐       │
-  │  │R3 │       │                   │  │R4 │       │
-  │  └───┘       │                   │  └───┘       │
-  └──────────────┘                   └──────────────┘
-
-  ABR  = Area Border Router (iki area'ya bağlı)
-  ASBR = AS Boundary Router (dış rota redistribution)
-  DR   = Designated Router (multi-access ağlarda)
-  BDR  = Backup Designated Router
-`))}
+  ${cgRefCard('OSPF Alan Hiyerarşisi', 'fas fa-layer-group', cgDia({
+    w: 520, h: 240, alt: 'OSPF alan hiyerarşisi ve ABR konumları',
+    zones: [
+      { x: 130, y: 8,   w: 260, h: 86,  label: 'Area 0 — Backbone' },
+      { x: 20,  y: 140, w: 210, h: 88,  label: 'Area 1 (Normal)' },
+      { x: 290, y: 140, w: 210, h: 88,  label: 'Area 2 (Stub)' }
+    ],
+    nodes: [
+      { x: 205, y: 58,  kind: 'router', label: 'R1' },
+      { x: 315, y: 58,  kind: 'router', label: 'R2' },
+      { x: 125, y: 192, kind: 'router', label: 'R3' },
+      { x: 395, y: 192, kind: 'router', label: 'R4' }
+    ],
+    links: [
+      { x1: 257, y1: 58,  x2: 263, y2: 58 },
+      { x1: 185, y1: 81,  x2: 125, y2: 169, label: 'ABR', lx: 138, ly: 128 },
+      { x1: 335, y1: 81,  x2: 395, y2: 169, label: 'ABR', lx: 382, ly: 128 }
+    ],
+    notes: [
+      '<strong>ABR</strong> — Area Border Router: iki alana birden bağlı',
+      '<strong>ASBR</strong> — AS Boundary Router: dış rotaları redistribute eder',
+      '<strong>DR / BDR</strong> — çok erişimli ağlarda komşuluk sayısını azaltır',
+      'Her alan Area 0\'a bağlanmalıdır; olmuyorsa <code>virtual-link</code> gerekir'
+    ]
+  }))}
 
   <div class="cg-ref-cols">
     <div>
@@ -203,24 +222,33 @@ CgReference.mpls_vpn = {
   <div class="cg-ref-title"><i class="fas fa-tags"></i> MPLS L3VPN — Layer 3 Virtual Private Network</div>
   <p class="cg-ref-intro">MPLS L3VPN, servis sağlayıcıların aynı fiziksel altyapı üzerinde izole müşteri ağları sunmasını sağlar. VRF (Virtual Routing and Forwarding) ile her müşteriye özel routing tablosu oluşturulur.</p>
 
-  ${cgRefCard('PE–P–CE Topoloji', 'fas fa-network-wired', cgRefTopo(`
-  Müşteri A                                          Müşteri A
-  Site 1                                             Site 2
-  ┌──────┐   CE-PE         MPLS Core        PE-CE   ┌──────┐
-  │  CE1 ├──────┤PE1├──────────────────────┤PE2├────┤  CE2 │
-  └──────┘      │   LABEL  ┌──────┐  LABEL  │       └──────┘
-  10.1.1.0/24   │  STACK   │  P   │  STACK  │       10.2.2.0/24
-  VRF: CUST_A   │   ══════►│Router│══════►  │       VRF: CUST_A
-                │          └──────┘          │
-  ┌──────┐   CE-PE                      PE-CE   ┌──────┐
-  │  CE3 ├──────┤PE1│                   ┤PE2├────┤  CE4 │
-  └──────┘      │                            │       └──────┘
-  VRF: CUST_B   │                            │       VRF: CUST_B
-
-  PE  = Provider Edge  (VRF, MP-BGP, label imposition)
-  P   = Provider Core  (label switching only, no VRF)
-  CE  = Customer Edge  (PE'ye bağlı müşteri cihazı)
-`))}
+  ${cgRefCard('PE–P–CE Topoloji', 'fas fa-network-wired', cgDia({
+    w: 560, h: 220, alt: 'MPLS L3VPN PE P CE topolojisi',
+    zones: [ { x: 150, y: 44, w: 260, h: 104, label: 'MPLS Core (etiket anahtarlama)' } ],
+    nodes: [
+      { x: 60,  y: 78,  w: 84, kind: 'router', label: 'CE1', sub: '10.1.1.0/24' },
+      { x: 500, y: 78,  w: 84, kind: 'router', label: 'CE2', sub: '10.2.2.0/24' },
+      { x: 60,  y: 168, w: 84, kind: 'router', label: 'CE3' },
+      { x: 500, y: 168, w: 84, kind: 'router', label: 'CE4' },
+      { x: 195, y: 122, w: 78, kind: 'switch', label: 'PE1' },
+      { x: 365, y: 122, w: 78, kind: 'switch', label: 'PE2' },
+      { x: 280, y: 92,  w: 78, kind: 'cloud',  label: 'P' }
+    ],
+    links: [
+      { x1: 102, y1: 78,  x2: 156, y2: 114 },
+      { x1: 102, y1: 168, x2: 156, y2: 130 },
+      { x1: 458, y1: 78,  x2: 404, y2: 114 },
+      { x1: 458, y1: 168, x2: 404, y2: 130 },
+      { x1: 234, y1: 114, x2: 241, y2: 98 },
+      { x1: 319, y1: 98,  x2: 326, y2: 114 }
+    ],
+    texts: [ { x: 280, y: 200, text: 'CE tarafı VRF ile ayrılır — CUST_A ve CUST_B birbirini görmez' } ],
+    notes: [
+      '<strong>PE</strong> — Provider Edge: VRF tutar, MP-BGP konuşur, etiketi ekler',
+      '<strong>P</strong> — Provider Core: yalnızca etiket anahtarlar, VRF bilmez',
+      '<strong>CE</strong> — Customer Edge: müşteri cihazı, MPLS\'ten habersizdir'
+    ]
+  }))}
 
   <div class="cg-ref-cols">
     <div>
@@ -236,23 +264,24 @@ CgReference.mpls_vpn = {
       ))}
     </div>
     <div>
-      ${cgRefCard('Etiket (Label) Yığını', 'fas fa-layer-group', cgRefTopo(`
-  ┌──────────────────────────┐
-  │  Ethernet Header         │
-  ├──────────────────────────┤
-  │  Outer Label (LSP)  ◄── P router'lar bu etikete bakar
-  ├──────────────────────────┤
-  │  Inner Label (VPN)  ◄── PE router bu etiketle VRF seçer
-  ├──────────────────────────┤
-  │  IP Header (müşteri)     │
-  ├──────────────────────────┤
-  │  Payload                 │
-  └──────────────────────────┘
-
-  Penultimate Hop Popping (PHP):
-  Son P router, dış etiketi söker → PE
-  sadece iç (VPN) etiketiyle gelir.
-`))}
+      ${cgRefCard('Etiket (Label) Yığını', 'fas fa-layer-group', cgDia({
+        w: 420, h: 210, alt: 'MPLS etiket yığını katmanları',
+        nodes: [
+          { x: 150, y: 24,  w: 240, h: 30, kind: 'cloud',  label: 'Ethernet Header' },
+          { x: 150, y: 62,  w: 240, h: 30, kind: 'router', label: 'Outer Label (LSP)' },
+          { x: 150, y: 100, w: 240, h: 30, kind: 'switch', label: 'Inner Label (VPN)' },
+          { x: 150, y: 138, w: 240, h: 30, kind: 'server', label: 'IP Header (müşteri)' },
+          { x: 150, y: 176, w: 240, h: 30, kind: 'cloud',  label: 'Payload' }
+        ],
+        texts: [
+          { x: 280, y: 66,  text: '← P router bu etikete bakar',  anchor: 'start' },
+          { x: 280, y: 104, text: '← PE bununla VRF seçer',       anchor: 'start' }
+        ],
+        notes: [
+          '<strong>PHP (Penultimate Hop Popping):</strong> son P router dış etiketi söker,',
+          'PE yalnızca iç (VPN) etiketiyle alır — PE\'de bir arama işlemi azalır'
+        ]
+      }))}
     </div>
   </div>
 
@@ -280,42 +309,49 @@ CgReference.ha = {
 
   <div class="cg-ref-cols">
     <div>
-      ${cgRefCard('Active / Passive (A/P)', 'fas fa-sync-alt', cgRefTopo(`
-        İnternete
-           │
-    ┌──────┴──────┐
-    │  Virtual IP  │  (VIP = Trafik adresi)
-    └──────┬──────┘
-           │
-    ┌──────┴──────┐   Heartbeat   ┌─────────────┐
-    │  FW-1       ├───────────────┤  FW-2       │
-    │  ACTIVE ✓   │               │  STANDBY    │
-    │  Config Sync│               │  (bekliyor) │
-    └──────┬──────┘               └─────────────┘
-           │
-      İç Ağa
-
-  Avantaj: Basit, session sync
-  Dezavantaj: Standby kaynak kullanmıyor
-`))}
+      ${cgRefCard('Active / Passive (A/P)', 'fas fa-sync-alt', cgDia({
+        w: 460, h: 250, alt: 'Aktif pasif firewall kumesi',
+        nodes: [
+          { x: 230, y: 24,  w: 110, h: 32, kind: 'cloud',    label: 'İnternet' },
+          { x: 230, y: 84,  w: 150, h: 34, kind: 'lb',       label: 'Virtual IP (VIP)' },
+          { x: 120, y: 160, w: 130, h: 46, kind: 'firewall', label: 'FW-1', sub: 'ACTIVE' },
+          { x: 340, y: 160, w: 130, h: 46, kind: 'firewall', label: 'FW-2', sub: 'STANDBY' },
+          { x: 120, y: 226, w: 110, h: 30, kind: 'cloud',    label: 'İç Ağ' }
+        ],
+        links: [
+          { x1: 230, y1: 40,  x2: 230, y2: 67 },
+          { x1: 200, y1: 101, x2: 140, y2: 137 },
+          { x1: 185, y1: 160, x2: 275, y2: 160, dash: true, label: 'heartbeat' },
+          { x1: 120, y1: 183, x2: 120, y2: 211 }
+        ],
+        notes: [
+          'VIP her zaman aktif üyededir; devralma sırasında IP yer değiştirir',
+          '<strong>Avantaj:</strong> basit, oturum senkronizasyonu kolay',
+          '<strong>Dezavantaj:</strong> standby cihaz kaynak üretmez'
+        ]
+      }))}
     </div>
     <div>
-      ${cgRefCard('Active / Active (A/A)', 'fas fa-balance-scale', cgRefTopo(`
-        İnternete
-           │
-    ┌──────┴──────┐
-    │  Load Balancer│
-    └──────┬──────┘
-    ┌──────┴──────┐
-    │             │
-  FW-1          FW-2
-  ACTIVE        ACTIVE
-  (Flow 1-N)   (Flow N+1-M)
-
-  Avantaj: Her iki cihaz trafik taşır
-  Dikkat: Asimetrik routing sorunu
-  → Stateful session sync şart
-`))}
+      ${cgRefCard('Active / Active (A/A)', 'fas fa-balance-scale', cgDia({
+        w: 460, h: 240, alt: 'Aktif aktif firewall kumesi',
+        nodes: [
+          { x: 230, y: 24,  w: 110, h: 32, kind: 'cloud',    label: 'İnternet' },
+          { x: 230, y: 86,  w: 160, h: 34, kind: 'lb',       label: 'Load Balancer' },
+          { x: 120, y: 164, w: 130, h: 46, kind: 'firewall', label: 'FW-1', sub: 'Akış 1..N' },
+          { x: 340, y: 164, w: 130, h: 46, kind: 'firewall', label: 'FW-2', sub: 'Akış N+1..M' }
+        ],
+        links: [
+          { x1: 230, y1: 40,  x2: 230, y2: 69 },
+          { x1: 200, y1: 103, x2: 140, y2: 141 },
+          { x1: 260, y1: 103, x2: 320, y2: 141 },
+          { x1: 185, y1: 164, x2: 275, y2: 164, dash: true, label: 'session sync' }
+        ],
+        notes: [
+          '<strong>Avantaj:</strong> her iki cihaz da trafik taşır',
+          '<strong>Dikkat:</strong> asimetrik yönlendirme — gidiş ve dönüş farklı cihazdan geçerse oturum düşer',
+          'Stateful oturum senkronizasyonu <strong>şarttır</strong>'
+        ]
+      }))}
     </div>
   </div>
 
@@ -363,33 +399,44 @@ CgReference.nat = {
 
   <div class="cg-ref-cols">
     <div>
-      ${cgRefCard('Source NAT (SNAT / Masquerade)', 'fas fa-sign-out-alt', cgRefTopo(`
-  İç Ağ              Firewall/Router          İnternet
-  ┌──────┐    Kaynak   ┌─────────┐   Kaynak   ┌──────┐
-  │Client│  10.1.1.5   │   NAT   │  203.0.113 │Server│
-  │      ├────────────►│         ├────────────►│      │
-  │      │ →dst:8.8.8.8│  Pool   │ →dst:8.8.8.8│      │
-  └──────┘             └─────────┘             └──────┘
-
-  SNAT türleri:
-  • Dynamic NAT    — Pool'dan IP atanır
-  • PAT/Overload   — Tek IP, farklı port (en yaygın)
-  • Interface NAT  — WAN interface IP'si kullanılır
-`))}
+      ${cgRefCard('Source NAT (SNAT / Masquerade)', 'fas fa-sign-out-alt', cgDia({
+        w: 500, h: 150, alt: 'Kaynak NAT akisi',
+        nodes: [
+          { x: 60,  y: 62, w: 96,  kind: 'server', label: 'Client', sub: '10.1.1.5' },
+          { x: 250, y: 62, w: 120, kind: 'firewall', label: 'NAT', sub: '203.0.113.1' },
+          { x: 440, y: 62, w: 96,  kind: 'cloud',  label: 'Server', sub: '8.8.8.8' }
+        ],
+        links: [
+          { x1: 108, y1: 62, x2: 190, y2: 62, arrow: true, label: 'src 10.1.1.5' },
+          { x1: 310, y1: 62, x2: 392, y2: 62, arrow: true, label: 'src 203.0.113.1' }
+        ],
+        texts: [ { x: 250, y: 130, text: 'Kaynak adres değişir, hedef aynı kalır' } ],
+        notes: [
+          '<strong>Dynamic NAT</strong> — havuzdan IP atanır, 1:1',
+          '<strong>PAT / Overload</strong> — tek IP, farklı portlar (en yaygın)',
+          '<strong>Interface NAT</strong> — WAN arayüzünün IP\'si kullanılır'
+        ]
+      }))}
     </div>
     <div>
-      ${cgRefCard('Destination NAT (DNAT / Port Forward)', 'fas fa-sign-in-alt', cgRefTopo(`
-  İnternet              Firewall/Router        İç Ağ
-  ┌──────┐   Hedef:     ┌─────────┐  Hedef:   ┌──────┐
-  │Kullan│ 203.0.113:80 │   DNAT  │ 10.1.1.10 │  Web │
-  │  ıcı ├────────────►│         ├────────────►│Server│
-  └──────┘             └─────────┘  :8080      └──────┘
-
-  Kullanım:
-  • Web sunucu yayınlama
-  • Port yönlendirme (port forward)
-  • Load balancing (birden fazla hedef)
-`))}
+      ${cgRefCard('Destination NAT (DNAT / Port Forward)', 'fas fa-sign-in-alt', cgDia({
+        w: 500, h: 150, alt: 'Hedef NAT akisi',
+        nodes: [
+          { x: 60,  y: 62, w: 96,  kind: 'cloud',    label: 'Kullanıcı' },
+          { x: 250, y: 62, w: 120, kind: 'firewall', label: 'DNAT' },
+          { x: 440, y: 62, w: 96,  kind: 'server',   label: 'Web', sub: '10.1.1.10' }
+        ],
+        links: [
+          { x1: 108, y1: 62, x2: 190, y2: 62, arrow: true, label: 'dst 203.0.113.5:80' },
+          { x1: 310, y1: 62, x2: 392, y2: 62, arrow: true, label: 'dst 10.1.1.10:8080' }
+        ],
+        texts: [ { x: 250, y: 130, text: 'Hedef adres (ve gerekirse port) değişir' } ],
+        notes: [
+          'Web sunucu yayınlama (publishing)',
+          'Port yönlendirme — dış port ile iç port farklı olabilir',
+          'Birden fazla hedefe dağıtımda basit yük dengeleme'
+        ]
+      }))}
     </div>
   </div>
 
@@ -421,21 +468,24 @@ CgReference.ipsec = {
 
   <div class="cg-ref-cols">
     <div>
-      ${cgRefCard('Tunnel vs Transport Modu', 'fas fa-layer-group', cgRefTopo(`
-  TUNNEL MODU (Site-to-Site VPN):
-  ┌─────┬─────────────────────────────┐
-  │New  │ ESP │  Orig IP  │  Payload  │
-  │IP   │     │  Header   │           │
-  └─────┴─────────────────────────────┘
-  ← Yeni IP header eklenir (tunnel endpoint'leri)
-
-  TRANSPORT MODU (Host-to-Host):
-  ┌─────────────┬──────────────────────┐
-  │  IP Header  │ ESP │    Payload     │
-  │  (değişmez) │     │                │
-  └─────────────┴──────────────────────┘
-  ← Orijinal IP header korunur
-`))}
+      ${cgRefCard('Tunnel vs Transport Modu', 'fas fa-layer-group', cgDia({
+        w: 460, h: 190, alt: 'IPsec tunnel ve transport modu paket yapisi',
+        nodes: [
+          { x: 52,  y: 42,  w: 76,  h: 32, kind: 'firewall', label: 'Yeni IP' },
+          { x: 132, y: 42,  w: 62,  h: 32, kind: 'router',   label: 'ESP' },
+          { x: 236, y: 42,  w: 116, h: 32, kind: 'switch',   label: 'Orijinal IP' },
+          { x: 372, y: 42,  w: 116, h: 32, kind: 'cloud',    label: 'Payload' },
+          { x: 92,  y: 128, w: 156, h: 32, kind: 'switch',   label: 'Orijinal IP' },
+          { x: 206, y: 128, w: 62,  h: 32, kind: 'router',   label: 'ESP' },
+          { x: 350, y: 128, w: 152, h: 32, kind: 'cloud',    label: 'Payload' }
+        ],
+        texts: [
+          { x: 20,  y: 20,  text: 'TUNNEL — Site-to-Site', anchor: 'start', cls: 'cg-dia-zonelabel' },
+          { x: 20,  y: 106, text: 'TRANSPORT — Host-to-Host', anchor: 'start', cls: 'cg-dia-zonelabel' },
+          { x: 230, y: 86,  text: 'Yeni IP başlığı eklenir (tünel uç noktaları)' },
+          { x: 230, y: 172, text: 'Orijinal IP başlığı korunur' }
+        ]
+      }))}
     </div>
     <div>
       ${cgRefCard('IKE Faz Karşılaştırması', 'fas fa-handshake', cgRefTable(
@@ -451,24 +501,32 @@ CgReference.ipsec = {
     </div>
   </div>
 
-  ${cgRefCard('Tipik Site-to-Site IPsec Kurulumu', 'fas fa-network-wired', cgRefTopo(`
-  Site A                                              Site B
-  ┌──────────┐    Phase 1: IKE SA    ┌──────────┐
-  │  FW/R    │ ◄────────────────────►│  FW/R    │
-  │203.0.113.1│                      │198.51.100.1│
-  │          │    Phase 2: IPsec SA  │          │
-  │          │ ◄────────────────────►│          │
-  └────┬─────┘                      └─────┬────┘
-       │                                   │
-  10.1.0.0/24                        10.2.0.0/24
-
-  Kontrol Listesi:
-  ✓ Her iki tarafta aynı encryption/hash/DH group
-  ✓ Pre-shared key tam eşleşmeli
-  ✓ UDP 500 ve 4500 (NAT-T) açık olmalı
-  ✓ Proxy ID / Traffic Selector eşleşmeli
-  ✓ Yaşam süresi (lifetime) uyumlu olmalı
-`))}
+  ${cgRefCard('Tipik Site-to-Site IPsec Kurulumu', 'fas fa-network-wired', cgDia({
+    w: 520, h: 210, alt: 'Site to site IPsec tunel kurulumu',
+    zones: [
+      { x: 10,  y: 30, w: 170, h: 150, label: 'Site A' },
+      { x: 340, y: 30, w: 170, h: 150, label: 'Site B' }
+    ],
+    nodes: [
+      { x: 95,  y: 86,  w: 120, kind: 'firewall', label: 'FW / R', sub: '203.0.113.1' },
+      { x: 425, y: 86,  w: 120, kind: 'firewall', label: 'FW / R', sub: '198.51.100.1' },
+      { x: 95,  y: 152, w: 120, h: 30, kind: 'cloud', label: '10.1.0.0/24' },
+      { x: 425, y: 152, w: 120, h: 30, kind: 'cloud', label: '10.2.0.0/24' }
+    ],
+    links: [
+      { x1: 157, y1: 72,  x2: 363, y2: 72,  arrow: true, label: 'Phase 1 — IKE SA' },
+      { x1: 157, y1: 102, x2: 363, y2: 102, arrow: true, label: 'Phase 2 — IPsec SA' },
+      { x1: 95,  y1: 109, x2: 95,  y2: 137 },
+      { x1: 425, y1: 109, x2: 425, y2: 137 }
+    ],
+    notes: [
+      'Her iki tarafta <strong>aynı</strong> şifreleme / hash / DH grubu',
+      'Pre-shared key tam eşleşmeli',
+      '<code>UDP 500</code> ve NAT arkasındaysa <code>UDP 4500</code> (NAT-T) açık olmalı',
+      'Proxy ID / Traffic Selector eşleşmeli',
+      'Lifetime uyumlu olmalı — uyumsuzsa tünel periyodik olarak düşer'
+    ]
+  }))}
 
   <div class="cg-ref-verify">
     <div class="cg-ref-verify-title">Doğrulama Komutları</div>
@@ -493,43 +551,53 @@ CgReference.vxlan = {
   <div class="cg-ref-title"><i class="fas fa-network-wired"></i> VXLAN / EVPN — Modern Data Center Fabric</div>
   <p class="cg-ref-intro">VXLAN (Virtual Extensible LAN), Layer 2 ağları UDP tüneller içinde taşıyarak veri merkezi fabric'i üzerinde overlay ağlar oluşturur. EVPN, BGP tabanlı kontrol düzlemidir.</p>
 
-  ${cgRefCard('VXLAN Topoloji: Spine-Leaf', 'fas fa-sitemap', cgRefTopo(`
-                ┌──────────┐    ┌──────────┐
-                │  Spine 1 │    │  Spine 2 │  (IP Underlay: OSPF/eBGP)
-                └────┬─┬───┘    └───┬─┬────┘
-                   ╱   ╲          ╱   ╲
-                 ╱       ╲      ╱       ╲
-         ┌──────┐          ┌──────┐          ┌──────┐
-         │Leaf 1│  VXLAN   │Leaf 2│  VXLAN   │Leaf 3│
-         │VTEP  │◄────────►│VTEP  │◄────────►│VTEP  │
-         └──┬───┘  Tunnel  └──┬───┘  Tunnel  └──┬───┘
-            │                 │                  │
-         Server A           Server B           Server C
-         VNI: 10100         VNI: 10100         VNI: 10200
-
-  VTEP  = VXLAN Tunnel Endpoint (tüneli başlatan/sonlandıran)
-  VNI   = VXLAN Network Identifier (24-bit, ~16M segment)
-  Spine = Sadece IP routing, VTEP değil
-`))}
+  ${cgRefCard('VXLAN Topoloji: Spine-Leaf', 'fas fa-sitemap', cgDia({
+    w: 560, h: 260, alt: 'Spine leaf VXLAN topolojisi',
+    zones: [ { x: 10, y: 6, w: 540, h: 86, label: 'IP Underlay — OSPF / eBGP' } ],
+    nodes: [
+      { x: 190, y: 58,  w: 110, kind: 'switch', label: 'Spine 1' },
+      { x: 380, y: 58,  w: 110, kind: 'switch', label: 'Spine 2' },
+      { x: 90,  y: 148, w: 104, kind: 'router', label: 'Leaf 1', sub: 'VTEP' },
+      { x: 285, y: 148, w: 104, kind: 'router', label: 'Leaf 2', sub: 'VTEP' },
+      { x: 480, y: 148, w: 104, kind: 'router', label: 'Leaf 3', sub: 'VTEP' },
+      { x: 90,  y: 224, w: 104, h: 32, kind: 'server', label: 'VNI 10100' },
+      { x: 285, y: 224, w: 104, h: 32, kind: 'server', label: 'VNI 10100' },
+      { x: 480, y: 224, w: 104, h: 32, kind: 'cloud',  label: 'VNI 10200' }
+    ],
+    links: [
+      { x1: 160, y1: 81, x2: 110, y2: 125 }, { x1: 210, y1: 81, x2: 275, y2: 125 },
+      { x1: 355, y1: 81, x2: 305, y2: 125 }, { x1: 405, y1: 81, x2: 465, y2: 125 },
+      { x1: 142, y1: 148, x2: 233, y2: 148, dash: true, label: 'VXLAN' },
+      { x1: 337, y1: 148, x2: 428, y2: 148, dash: true, label: 'VXLAN' },
+      { x1: 90,  y1: 171, x2: 90,  y2: 208 },
+      { x1: 285, y1: 171, x2: 285, y2: 208 },
+      { x1: 480, y1: 171, x2: 480, y2: 208 }
+    ],
+    notes: [
+      '<strong>VTEP</strong> — tüneli başlatan / sonlandıran uç; yalnızca leaf katmanında',
+      '<strong>VNI</strong> — 24 bit segment kimliği (~16M segment)',
+      'Spine yalnızca IP yönlendirir, VTEP değildir — aynı VNI\'deki leaf\'ler L2 komşu gibi davranır'
+    ]
+  }))}
 
   <div class="cg-ref-cols">
     <div>
-      ${cgRefCard('VXLAN Frame Yapısı', 'fas fa-layer-group', cgRefTopo(`
-  ┌──────────────────────────────────────────┐
-  │  Outer Ethernet Header                   │
-  ├──────────────────────────────────────────┤
-  │  Outer IP Header (VTEP src → dst)        │
-  ├──────────────────────────────────────────┤
-  │  Outer UDP Header (dport: 4789)          │
-  ├──────────────────────────────────────────┤
-  │  VXLAN Header (VNI: 24-bit)              │
-  ├──────────────────────────────────────────┤
-  │  Inner Ethernet Header (orijinal frame)  │
-  ├──────────────────────────────────────────┤
-  │  Inner IP + Payload                      │
-  └──────────────────────────────────────────┘
-  Overhead: ~50 byte → MTU en az 1550 önerilir
-`))}
+      ${cgRefCard('VXLAN Frame Yapısı', 'fas fa-layer-group', cgDia({
+        w: 430, h: 236, alt: 'VXLAN kapsulleme katmanlari',
+        nodes: [
+          { x: 160, y: 22,  w: 280, h: 30, kind: 'cloud',    label: 'Outer Ethernet' },
+          { x: 160, y: 58,  w: 280, h: 30, kind: 'firewall', label: 'Outer IP — VTEP src → dst' },
+          { x: 160, y: 94,  w: 280, h: 30, kind: 'router',   label: 'Outer UDP — dport 4789' },
+          { x: 160, y: 130, w: 280, h: 30, kind: 'switch',   label: 'VXLAN Header — VNI 24 bit' },
+          { x: 160, y: 166, w: 280, h: 30, kind: 'server',   label: 'Inner Ethernet (orijinal)' },
+          { x: 160, y: 202, w: 280, h: 30, kind: 'cloud',    label: 'Inner IP + Payload' }
+        ],
+        texts: [ { x: 355, y: 134, text: '← kapsülleme', anchor: 'start' } ],
+        notes: [
+          'Ek yük yaklaşık <strong>50 bayt</strong>',
+          'Underlay MTU en az <code>1550</code> olmalı — aksi halde parçalanma veya kayıp'
+        ]
+      }))}
     </div>
     <div>
       ${cgRefCard('EVPN Route Tipleri', 'fas fa-table', cgRefTable(
@@ -559,25 +627,34 @@ CgReference.lb = {
   <div class="cg-ref-title"><i class="fas fa-balance-scale"></i> Load Balancer — Yük Dengeleme Mimarisi</div>
   <p class="cg-ref-intro">Load Balancer, gelen trafiği birden fazla sunucuya dağıtarak hem yük dengeleme hem de yüksek erişilebilirlik sağlar. F5 BIG-IP ve Citrix ADC kurumsal dünyada en yaygın kullanılan ürünlerdir.</p>
 
-  ${cgRefCard('Temel Bileşenler', 'fas fa-sitemap', cgRefTopo(`
-       İstemciler
-           │
-    VIP: 10.1.1.100:443   ← Virtual Server (VS)
-           │
-    ┌──────┴──────┐
-    │  LB Engine  │ ← Persistence, Health Check, SSL Offload
-    └──────┬──────┘
-           │  Pool: POOL_APP_HTTPS
-    ┌──────┼──────┬──────┐
-    │      │      │      │
-  Node1  Node2  Node3  Node4   ← Pool Members (Real Servers)
-  :8080  :8080  :8080  :8080
-
-  VIP  = Virtual IP (istemcinin bağlandığı adres)
-  Pool = Gerçek sunucu grubu
-  Node = Sunucunun IP adresi (yalniz IP)
-  Pool Member = Node + port (ornek 10.0.0.5:8080)
-`))}
+  ${cgRefCard('Temel Bileşenler', 'fas fa-sitemap', cgDia({
+    w: 520, h: 300, alt: 'Load balancer bilesenleri',
+    nodes: [
+      { x: 260, y: 24,  w: 130, h: 32, kind: 'cloud',  label: 'İstemciler' },
+      { x: 260, y: 82,  w: 210, h: 40, kind: 'lb',     label: 'Virtual Server', sub: 'VIP 10.1.1.100:443' },
+      { x: 260, y: 152, w: 230, h: 40, kind: 'router', label: 'LB Engine', sub: 'persistence · health · SSL' },
+      { x: 260, y: 214, w: 190, h: 30, kind: 'switch', label: 'Pool: POOL_APP_HTTPS' },
+      { x: 70,  y: 274, w: 96, h: 30, kind: 'server', label: ':8080' },
+      { x: 197, y: 274, w: 96, h: 30, kind: 'server', label: ':8080' },
+      { x: 324, y: 274, w: 96, h: 30, kind: 'server', label: ':8080' },
+      { x: 451, y: 274, w: 96, h: 30, kind: 'server', label: ':8080' }
+    ],
+    links: [
+      { x1: 260, y1: 40,  x2: 260, y2: 62 },
+      { x1: 260, y1: 102, x2: 260, y2: 132 },
+      { x1: 260, y1: 172, x2: 260, y2: 199 },
+      { x1: 220, y1: 229, x2: 70,  y2: 259 },
+      { x1: 245, y1: 229, x2: 197, y2: 259 },
+      { x1: 275, y1: 229, x2: 324, y2: 259 },
+      { x1: 300, y1: 229, x2: 451, y2: 259 }
+    ],
+    notes: [
+      '<strong>VIP</strong> — istemcinin bağlandığı sanal adres',
+      '<strong>Pool</strong> — gerçek sunucu grubu',
+      '<strong>Node</strong> — sunucunun <em>yalnızca IP</em> adresi',
+      '<strong>Pool Member</strong> — Node + port (örn. <code>10.0.0.5:8080</code>)'
+    ]
+  }))}
 
   <div class="cg-ref-cols">
     <div>
@@ -606,21 +683,38 @@ CgReference.lb = {
     </div>
   </div>
 
-  ${cgRefCard('SSL Offload vs SSL Passthrough vs SSL Re-encryption', 'fas fa-lock', cgRefTopo(`
-  SSL OFFLOAD (en yaygın):
-  Client ──HTTPS──► LB (decrypt) ──HTTP──► Server
-  Avantaj: Sunucu CPU yükü azalır, L7 inspection mümkün
-
-  SSL PASSTHROUGH:
-  Client ──HTTPS──► LB (L4 only) ──HTTPS──► Server
-  Avantaj: End-to-end şifreleme, LB içeriği göremez
-  Dezavantaj: Cookie/header manipulation imkansız
-
-  SSL RE-ENCRYPTION (SSL Bridging):
-  Client ──HTTPS──► LB (decrypt + inspect) ──HTTPS──► Server
-  Avantaj: Hem inspection hem şifreleme
-  Dezavantaj: İki SSL handshake = daha yüksek gecikme
-`))}
+  ${cgRefCard('SSL Offload vs Passthrough vs Re-encryption', 'fas fa-lock', cgDia({
+    w: 540, h: 250, alt: 'Uc SSL sonlandirma yontemi',
+    nodes: [
+      { x: 60,  y: 40,  w: 88, h: 30, kind: 'cloud',  label: 'Client' },
+      { x: 270, y: 40,  w: 130, h: 30, kind: 'lb',    label: 'LB — decrypt' },
+      { x: 480, y: 40,  w: 88, h: 30, kind: 'server', label: 'Server' },
+      { x: 60,  y: 122, w: 88, h: 30, kind: 'cloud',  label: 'Client' },
+      { x: 270, y: 122, w: 130, h: 30, kind: 'router', label: 'LB — L4 only' },
+      { x: 480, y: 122, w: 88, h: 30, kind: 'server', label: 'Server' },
+      { x: 60,  y: 204, w: 88, h: 30, kind: 'cloud',  label: 'Client' },
+      { x: 270, y: 204, w: 150, h: 30, kind: 'firewall', label: 'LB — decrypt+inspect' },
+      { x: 480, y: 204, w: 88, h: 30, kind: 'server', label: 'Server' }
+    ],
+    links: [
+      { x1: 104, y1: 40,  x2: 205, y2: 40,  arrow: true, label: 'HTTPS' },
+      { x1: 335, y1: 40,  x2: 436, y2: 40,  arrow: true, label: 'HTTP' },
+      { x1: 104, y1: 122, x2: 205, y2: 122, arrow: true, label: 'HTTPS' },
+      { x1: 335, y1: 122, x2: 436, y2: 122, arrow: true, label: 'HTTPS' },
+      { x1: 104, y1: 204, x2: 195, y2: 204, arrow: true, label: 'HTTPS' },
+      { x1: 345, y1: 204, x2: 436, y2: 204, arrow: true, label: 'HTTPS' }
+    ],
+    texts: [
+      { x: 20, y: 20,  text: 'OFFLOAD',       anchor: 'start', cls: 'cg-dia-zonelabel' },
+      { x: 20, y: 102, text: 'PASSTHROUGH',   anchor: 'start', cls: 'cg-dia-zonelabel' },
+      { x: 20, y: 184, text: 'RE-ENCRYPTION', anchor: 'start', cls: 'cg-dia-zonelabel' }
+    ],
+    notes: [
+      '<strong>Offload</strong> — sunucu CPU yükü azalır, L7 inceleme mümkün. En yaygın.',
+      '<strong>Passthrough</strong> — uçtan uca şifreleme; LB içeriği göremez, cookie/header değiştiremez',
+      '<strong>Re-encryption</strong> — hem inceleme hem şifreleme; iki TLS el sıkışması, gecikme artar'
+    ]
+  }))}
 </div>`;
     }
 };

@@ -127,7 +127,7 @@
 /* ─── Referans diyagramlari (SVG) ─────────────────────────────────────────
    Renkler degisken uzerinden; acik/koyu tema otomatik. Sabit renk KULLANMA —
    ASCII bloklarindaki kontrast hatasinin nedeni buydu. */
-#config-generator-root .cg-dia-wrap { margin: 0; }
+#config-generator-root .cg-dia-wrap { margin: 0 auto; }
 #config-generator-root .cg-dia { width: 100%; height: auto; display: block;
   --dia-bg: var(--card-bg, #fff); --dia-link: var(--text-tertiary, #94A3B8);
   --dia-zone: var(--text-tertiary, #94A3B8); }
