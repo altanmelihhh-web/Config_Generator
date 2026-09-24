@@ -35,17 +35,24 @@ CgReference.bgp = {
 
   <div class="cg-ref-cols">
     <div>
-      ${cgRefCard('eBGP Topoloji', 'fas fa-globe', cgRefTopo(`
-  AS 65001                AS 65002
-  ┌──────────┐   eBGP   ┌──────────┐
-  │   R1     ├──────────┤   R2     │
-  │10.0.0.1  │          │10.0.0.2  │
-  └──────────┘          └──────────┘
-
-  • TTL=1 (doğrudan bağlı peer)
-  • ebgp-multihop ile loopback peer
-  • next-hop değişir
-`))}
+      ${cgRefCard('eBGP Topoloji', 'fas fa-globe', cgDia({
+        w: 480, h: 176, alt: 'İki otonom sistem arasında eBGP komşuluğu',
+        zones: [
+          { x: 10,  y: 30, w: 190, h: 104, label: 'AS 65001' },
+          { x: 280, y: 30, w: 190, h: 104, label: 'AS 65002' }
+        ],
+        nodes: [
+          { x: 105, y: 90, kind: 'router', label: 'R1', sub: '10.0.0.1' },
+          { x: 375, y: 90, kind: 'router', label: 'R2', sub: '10.0.0.2' }
+        ],
+        links: [ { x1: 157, y1: 90, x2: 323, y2: 90, label: 'eBGP' } ],
+        texts: [ { x: 240, y: 160, text: 'AS sınırını geçen tek BGP türü' } ],
+        notes: [
+          '<code>TTL=1</code> — varsayılan olarak yalnızca doğrudan bağlı peer',
+          'Loopback üzerinden peer için <code>ebgp-multihop</code> gerekir',
+          'Next-hop her AS geçişinde değişir'
+        ]
+      }))}
     </div>
     <div>
       ${cgRefCard('iBGP + Route Reflector', 'fas fa-server', cgRefTopo(`
@@ -466,7 +473,7 @@ CgReference.ipsec = {
   <div class="cg-ref-verify">
     <div class="cg-ref-verify-title">Doğrulama Komutları</div>
     <div class="cg-ref-cmds-grid">
-      ${cgRefCmds('Cisco IOS', ['show crypto ike sa', 'show crypto ipsec sa', 'debug crypto ike', 'debug crypto ipsec'])}
+      ${cgRefCmds('Cisco IOS', ['show crypto isakmp sa', 'show crypto ikev2 sa', 'show crypto ipsec sa', 'show crypto session', 'debug crypto isakmp', 'debug crypto ipsec'])}
       ${cgRefCmds('FortiGate', ['diagnose vpn ike status', 'diagnose vpn tunnel list', 'get vpn ipsec tunnel summary'])}
       ${cgRefCmds('Juniper SRX', ['show security ike security-associations', 'show security ipsec security-associations', 'clear security ike security-associations all'])}
     </div>
@@ -568,7 +575,8 @@ CgReference.lb = {
 
   VIP  = Virtual IP (istemcinin bağlandığı adres)
   Pool = Gerçek sunucu grubu
-  Node = Tek bir sunucu + port (pool member)
+  Node = Sunucunun IP adresi (yalniz IP)
+  Pool Member = Node + port (ornek 10.0.0.5:8080)
 `))}
 
   <div class="cg-ref-cols">
