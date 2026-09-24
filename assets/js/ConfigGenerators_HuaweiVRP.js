@@ -667,7 +667,13 @@ HuaweiVRP.security = {
             }
             if (data.bpdu_enable) {
                 const iface = cgEsc(data.bpdu_iface || '');
-                if (iface) c += '# BPDU Guard\ninterface ' + iface + '\n stp bpdu-protection enable\nquit\n\n';
+                // VRP: BPDU korumasi GLOBAL komuttur ('stp bpdu-protection', 'enable' eki yok) ve
+                // yalniz edge portlari korur; portlar edged-port yapilir.
+                if (iface) {
+                    c += '# BPDU Guard\nstp bpdu-protection\n';
+                    cgExpandIfList(iface).forEach(i => { c += 'interface ' + i + '\n stp edged-port enable\nquit\n'; });
+                    c += '\n';
+                }
             }
             if (c.endsWith('[Huawei] system-view\n\n')) c += '# En az bir güvenlik özelliği etkinleştirin.\n';
             return c;
@@ -1057,7 +1063,7 @@ HuaweiVRP.mstp = {
         }, (data) => {
             const mode = cgEsc(data.mode || 'mstp'), priority = cgEsc(data.priority || ''), instance = cgEsc(data.instance || '');
             const vlanMap = cgHwVlanList(cgEsc(data.vlan_map || ''));
-            const portfastIntfs = cgEsc(data.portfast_intfs || '').split(',').map(s => s.trim()).filter(Boolean);
+            const portfastIntfs = cgExpandIfList(cgEsc(data.portfast_intfs || ''));   // VRP aralik kabul etmez, tek tek acilir
             let c = '# ========================================\n# Huawei VRP — MSTP / STP\n# ========================================\n\n';
             c += 'stp mode ' + mode + '\n';
             c += 'stp instance ' + instance + ' priority ' + priority + '\n';
@@ -1507,6 +1513,656 @@ HuaweiVRP.ipv6 = {
             c += (raSend === 'enable') ? ' undo ipv6 nd ra halt\n' : ' ipv6 nd ra halt\n';
             c += '#\n';
             c += '\n# Doğrulama:\n# display ipv6 interface ' + intfName + '\n# display ipv6 routing-table\n';
+            return c;
+        });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Ek araçlar (Agent R). Hedef platform: S serisi kampüs switch'leri, VRP V200.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Virgülle ayrılmış arayüz listesi → [{ name, range }]. VRP arayüz görünümüne
+// 'Gi0/0/1-4' gibi aralık girilemez; aralık olanlar üreteçte UYARI'ya çevrilir.
+function _hwvrpIfList(s) {
+    return String(s || '').split(',').map(x => x.trim()).filter(Boolean)
+        .map(x => ({ name: cgEsc(x), range: /\d\s*-\s*\d/.test(x) }));
+}
+
+// '10,20,30-32' → ['10','20','30','31','32']; 128'den fazla VLAN'da null.
+function _hwvrpVlanExpand(s) {
+    const out = [];
+    for (const p of String(s || '').replace(/\s+to\s+/gi, '-').split(/[,\s]+/).filter(Boolean)) {
+        const m = p.match(/^(\d+)-(\d+)$/);
+        if (m) { for (let v = +m[1]; v <= +m[2]; v++) { out.push(String(v)); if (out.length > 128) return null; } }
+        else if (/^\d+$/.test(p)) out.push(p);
+    }
+    return out.length > 128 ? null : out;
+}
+
+// ── Huawei VRP: Syslog (info-center) ─────────────────────────────────────────
+// Sözdizimi: canlı config (1 cihaz: info-center loghost / info-center source default channel N log level)
+//            + https://support.huawei.com/enterprise/en/doc/EDOC1000178167/89b6f3b4/configuring-the-device-to-output-logs-to-a-log-host
+//            + https://support.huawei.com/enterprise/en/doc/EDOC1100064353/783fcf36/info-center-loghost-source
+HuaweiVRP.syslog = {
+    label: 'Syslog (info-center)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-file-alt',
+                title: 'Syslog / info-center (Huawei VRP)',
+                desc: 'Logları uzak syslog sunucusuna gönderir: <code>info-center loghost</code>, kaynak arayüz, facility ve log host kanalının (channel 2) seviye filtresi.'
+            },
+            sections: [
+                {
+                    title: 'Log Sunucuları',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'loghost1', label: 'Log Host 1', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.50', hint: 'Syslog sunucusunun IPv4 adresi (UDP 514)', why: "Log host tanımlanmazsa loglar yalnızca cihazın küçük log tamponunda kalır ve yeniden başlatmada kaybolur. Bir güvenlik olayı veya arıza sonrası kök neden analizi yapmanın tek yolu merkezi syslog kaydıdır." },
+                        { name: 'loghost2', label: 'Log Host 2', type: 'text', validate: 'ip', placeholder: '192.0.2.51', hint: 'İkinci (yedek) syslog sunucusu', why: "VRP en fazla 8 log host destekler ve her birine aynı logu ayrı ayrı gönderir. Tek sunucu bakımdayken üretilen loglar geri getirilemez; ikinci hedef bu boşluğu kapatır." },
+                        { name: 'vpn', label: 'VPN Instance', type: 'text', placeholder: 'MGMT', hint: 'Log sunucusuna VRF üzerinden gidiliyorsa VPN instance adı', why: "Yönetim ağı bir VPN instance içindeyse ve bu belirtilmezse cihaz sunucuyu global tabloda arar; rota bulamaz ve loglar hatasız şekilde hiç gönderilmez." },
+                        { name: 'facility', label: 'Facility', type: 'select', options: [
+                            { value: '', label: 'Varsayılan (local7)', selected: true },
+                            { value: 'local0', label: 'local0' }, { value: 'local1', label: 'local1' },
+                            { value: 'local2', label: 'local2' }, { value: 'local3', label: 'local3' },
+                            { value: 'local4', label: 'local4' }, { value: 'local5', label: 'local5' },
+                            { value: 'local6', label: 'local6' }
+                        ], hint: 'Syslog sunucusunda ayrıştırma için kullanılan facility', why: "Syslog sunucusu gelen logları genellikle facility değerine göre dosyalara ayırır. Sunucu kuralı local4 beklerken cihaz local7 gönderirse loglar gelir ama yanlış dosyaya düşer ve kimse görmez." }
+                    ]
+                },
+                {
+                    title: 'Kaynak ve Seviye',
+                    icon: 'fas fa-filter',
+                    fields: [
+                        { name: 'src_if', label: 'Kaynak Arayüz', type: 'text', validate: 'iface', placeholder: 'Vlanif10', hint: 'info-center loghost source — logların kaynak IP\'si bu arayüzden alınır', why: "Kaynak sabitlenmezse log paketi çıkış arayüzünün IP'si ile gider; rota değiştiğinde syslog sunucusu cihazı farklı bir IP'den görür ve kaynak IP'ye göre yazılmış filtre veya firewall kuralı logları düşürür." },
+                        { name: 'level', label: 'Log Host Seviyesi (channel 2)', type: 'select', options: [
+                            { value: '', label: 'Değiştirme (cihaz varsayılanı)', selected: true },
+                            { value: 'informational', label: 'informational (6)' },
+                            { value: 'notification', label: 'notification (5)' },
+                            { value: 'warning', label: 'warning (4)' },
+                            { value: 'error', label: 'error (3)' },
+                            { value: 'debugging', label: 'debugging (7)' }
+                        ], hint: 'info-center source default channel 2 log level ...', why: "Channel 2 varsayılan olarak log host kanalıdır. Seviyeyi <b>debugging</b> yapmak sunucuyu gereksiz mesajla doldurur; <b>error</b> gibi yüksek bir seviye ise arayüz düşme ve oturum açma gibi önemli <b>informational</b> olayları sessizce eler." }
+                    ]
+                }
+            ],
+            submit: 'Syslog Konfigürasyonu Oluştur'
+        }, (data) => {
+            const h1 = cgEsc(data.loghost1 || ''), h2 = cgEsc(data.loghost2 || ''), vpn = cgEsc(data.vpn || '');
+            const fac = cgEsc(data.facility || ''), src = cgEsc(data.src_if || ''), lvl = cgEsc(data.level || '');
+            const opts = (vpn ? ' vpn-instance ' + vpn : '') + (fac ? ' facility ' + fac : '');
+            let c = '# ========================================\n# Huawei VRP — Syslog (info-center)\n# ========================================\n\n';
+            c += 'system-view\n';
+            if (lvl) c += 'info-center source default channel 2 log level ' + lvl + '\n';
+            if (src) c += 'info-center loghost source ' + src + '\n';
+            c += 'info-center loghost ' + h1 + opts + '\n';
+            if (h2) c += 'info-center loghost ' + h2 + opts + '\n';
+            c += '#\n';
+            c += '\n# Doğrulama:\n# display info-center\n# display logbuffer\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei VRP: LLDP ─────────────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100127035/8def618c/lldp-configuration-commands
+//            (lldp enable, lldp message-transmission interval / hold-multiplier, arayüzde undo lldp enable)
+HuaweiVRP.lldp = {
+    label: 'LLDP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'LLDP (Huawei VRP)',
+                desc: 'Komşu keşfi için LLDP\'yi global açar, gönderim aralığı/TTL çarpanını ayarlar ve istenmeyen portlarda (ör. internet, müşteri portu) kapatır.'
+            },
+            sections: [
+                {
+                    title: 'Global LLDP',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'interval', label: 'Gönderim Aralığı (sn)', type: 'text', min: 5, max: 32768, placeholder: '30', hint: 'lldp message-transmission interval (varsayılan 30)', why: "Aralık kısaldıkça topoloji değişikliği NMS'te daha hızlı görünür ama her portta CPU'ya giden LLDP paketi artar. Değer, gecikme (delay) değerinin en az 4 katı olmalıdır; aksi halde komut reddedilir." },
+                        { name: 'hold', label: 'Hold Çarpanı', type: 'text', min: 2, max: 10, placeholder: '4', hint: 'lldp message-transmission hold-multiplier (TTL = aralık × çarpan)', why: "Komşu bilgisi TTL süresince tutulur. Çarpan çok küçükse tek bir kayıp paket komşunun tablodan düşmesine ve NMS'te sahte 'bağlantı koptu' alarmına yol açar." }
+                    ]
+                },
+                {
+                    title: 'LLDP Kapatılacak Portlar',
+                    icon: 'fas fa-ban',
+                    fields: [
+                        { name: 'disable_ifs', label: 'Portlar', type: 'text', validate: 'iface_range', placeholder: 'GigabitEthernet0/0/24', hint: 'Virgülle ayırın; bu portlarda undo lldp enable uygulanır', why: "LLDP cihaz adı, model, yazılım sürümü ve yönetim IP'sini düz metin yayınlar. Operatör, müşteri veya internet yönlü portlarda açık bırakmak altyapı bilgisini dışarı sızdırır." }
+                    ]
+                }
+            ],
+            submit: 'LLDP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const iv = cgEsc(data.interval || ''), hold = cgEsc(data.hold || '');
+            const ifs = _hwvrpIfList(data.disable_ifs);
+            let c = '# ========================================\n# Huawei VRP — LLDP\n# ========================================\n\n';
+            c += 'system-view\nlldp enable\n';
+            if (iv) c += 'lldp message-transmission interval ' + iv + '\n';
+            if (hold) c += 'lldp message-transmission hold-multiplier ' + hold + '\n';
+            c += '#\n';
+            ifs.forEach(i => {
+                if (i.range) { c += '# UYARI: aralık girilemez, portları tek tek yazın: ' + i.name + '\n'; return; }
+                c += 'interface ' + i.name + '\n undo lldp enable\n quit\n';
+            });
+            c += '\n# Doğrulama:\n# display lldp neighbor brief\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei VRP: Static Route ─────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100127035/ac7caed7/ip-route-static
+//            https://support.huawei.com/enterprise/en/doc/EDOC1100176877/8d51b4f2/ip-route-static-vpn-instance
+//            (preference, track bfd-session / track nqa, description); canlı config (1 cihaz: ip route-static D M NH)
+HuaweiVRP.staticroute = {
+    label: 'Static Route',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Static Route (Huawei VRP)',
+                desc: '<code>ip route-static</code> — hedef ağ, next-hop veya çıkış arayüzü, preference (floating route), VPN instance ve isteğe bağlı BFD/NQA takibi.'
+            },
+            sections: [
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-map-signs',
+                    fields: [
+                        { name: 'dest', label: 'Hedef Ağ', type: 'text', validate: 'ip', required: true, placeholder: '10.20.0.0', hint: 'Default route için 0.0.0.0', why: "Hedef ağın host bitleri sıfır olmalıdır; VRP maskeyle hizalı olmayan adresi kabul eder ama maskeyle keserek kaydeder, sonuçta tabloda beklediğinizden farklı bir önek görürsünüz." },
+                        { name: 'mask', label: 'Maske', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.0.0', hint: 'Noktalı maske (örn: 255.255.255.0)', why: "Maske bir bit fazla/eksik olursa rota ya komşu ağları da yutar ya da hedefin yarısını kapsamaz; longest-match nedeniyle sorun yalnızca bazı adreslerde görünür." },
+                        { name: 'nexthop', label: 'Next-hop IP', type: 'text', validate: 'ip', requiredIf: { field: 'out_if', in: [''] }, placeholder: '192.0.2.1', hint: 'Çıkış arayüzü boşsa zorunlu', why: "Next-hop doğrudan bağlı bir subnette değilse VRP rotayı yinelemeli (recursive) çözmeye çalışır; çözülemezse rota tabloya girer ama <b>inactive</b> kalır ve trafik hiç akmaz." },
+                        { name: 'out_if', label: 'Çıkış Arayüzü', type: 'text', validate: 'iface', placeholder: 'Vlanif100', hint: 'Opsiyonel; next-hop ile birlikte yazılırsa ikisi de kullanılır', why: "Ethernet (broadcast) arayüzünde yalnızca çıkış arayüzü yazmak her hedef için ARP sorgusu üretir ve karşı tarafta proxy-ARP yoksa trafik düşer. Ethernet'te arayüzle birlikte next-hop da verin." },
+                        { name: 'vpn', label: 'VPN Instance', type: 'text', placeholder: 'VRF-A', hint: 'Rota bir VPN instance tablosuna eklenecekse', why: "VPN instance belirtilmezse rota global tabloya eklenir; VRF içindeki trafik bu rotayı hiç görmez ve sorun 'rota var ama çalışmıyor' şeklinde yanıltıcı görünür." }
+                    ]
+                },
+                {
+                    title: 'Öncelik ve Takip',
+                    icon: 'fas fa-heartbeat',
+                    fields: [
+                        { name: 'pref', label: 'Preference', type: 'text', min: 1, max: 255, placeholder: '60', hint: 'Varsayılan 60; yedek (floating) rota için daha büyük değer', why: "VRP'de düşük preference kazanır. Yedek hat rotasına ana rotadan <b>büyük</b> değer verilmezse iki rota eşit maliyetli olur ve trafik yedek hatta da bölünür." },
+                        { name: 'track', label: 'Takip', type: 'select', options: [
+                            { value: '', label: 'Yok', selected: true },
+                            { value: 'bfd', label: 'BFD oturumu (track bfd-session)' },
+                            { value: 'nqa', label: 'NQA testi (track nqa)' }
+                        ], hint: 'Next-hop ulaşılamaz olduğunda rotayı geri çeker', why: "Arada bir L2 switch varken karşı uç çökerse yerel port up kalır ve statik rota aktif kalmaya devam eder; trafik kara deliğe gider. BFD veya NQA takibi rotayı gerçekten ulaşılabilirliğe bağlar." },
+                        { name: 'bfd_name', label: 'BFD Oturum Adı', type: 'text', requiredIf: { field: 'track', in: ['bfd'] }, placeholder: 'BFD-WAN1', hint: 'Önceden tanımlı statik BFD oturumu (BFD aracı)', why: "Takip edilen BFD oturumu cihazda tanımlı değilse rota hiç aktif olmaz. Ayrıca track bfd-session parametresini yalnızca belirli S modelleri destekler; komut reddedilirse modelinizin dokümanını kontrol edin." },
+                        { name: 'nqa_admin', label: 'NQA Admin Adı', type: 'text', requiredIf: { field: 'track', in: ['nqa'] }, placeholder: 'nqa-adm', hint: 'nqa test-instance <admin> <test>', why: "NQA test örneği (ICMP) önceden oluşturulmuş ve <code>start now</code> ile başlatılmış olmalıdır; başlatılmamış test 'başarısız' sayılır ve rota hemen geri çekilir." },
+                        { name: 'nqa_test', label: 'NQA Test Adı', type: 'text', requiredIf: { field: 'track', in: ['nqa'] }, placeholder: 'icmp1', hint: 'NQA test adı', why: "Admin ve test adı birlikte tek bir test örneğini tanımlar; ikisinden biri yanlışsa komut kabul edilse bile takip hiçbir teste bağlanmaz." },
+                        { name: 'desc', label: 'Açıklama', type: 'text', placeholder: 'ISP1-yedek', hint: 'description (en fazla 35 karakter)', why: "Açıklamasız statik rotalar yıllar içinde kimin neden eklediği bilinmeyen kalıntılara dönüşür; temizlik sırasında hâlâ kullanılan bir rota silinir." }
+                    ]
+                }
+            ],
+            submit: 'Static Route Oluştur'
+        }, (data) => {
+            const dest = cgEsc(data.dest || ''), mask = cgEsc(data.mask || ''), nh = cgEsc(data.nexthop || '');
+            const oif = cgEsc(data.out_if || ''), vpn = cgEsc(data.vpn || ''), pref = cgEsc(data.pref || '');
+            const track = data.track || '', bfd = cgEsc(data.bfd_name || ''), na = cgEsc(data.nqa_admin || ''), nt = cgEsc(data.nqa_test || '');
+            const desc = cgEsc(data.desc || '');
+            let c = '# ========================================\n# Huawei VRP — Static Route\n# ========================================\n\n';
+            if (!nh && !oif) return c + '# UYARI: next-hop IP veya çıkış arayüzünden en az biri gerekli.\n';
+            let r = 'ip route-static ' + (vpn ? 'vpn-instance ' + vpn + ' ' : '') + dest + ' ' + mask;
+            r += (oif ? ' ' + oif : '') + (nh ? ' ' + nh : '');
+            if (pref) r += ' preference ' + pref;
+            if (track === 'bfd' && bfd) r += ' track bfd-session ' + bfd;
+            if (track === 'nqa' && na && nt) r += ' track nqa ' + na + ' ' + nt;
+            if (desc) r += ' description ' + desc;
+            c += 'system-view\n' + r + '\n#\n';
+            c += '\n# Doğrulama:\n# display ip routing-table ' + (vpn ? 'vpn-instance ' + vpn + ' ' : '') + dest + '\n# display ip routing-table protocol static\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei VRP: VRRP ─────────────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100126875/4737a341/example-for-configuring-a-vrrp-group-in-redundancy-mode
+//            https://support.huawei.com/enterprise/en/doc/EDOC1000178165/3f68ca6c/vrrp-configuration-commands
+//            (vrrp vrid N virtual-ip / priority / preempt-mode timer delay / track interface ... reduced / authentication-mode md5)
+HuaweiVRP.vrrp = {
+    label: 'VRRP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'VRRP (Huawei VRP)',
+                desc: 'İki L3 switch arasında yedekli sanal gateway. Vlanif üzerinde VRRP grubu, öncelik, preemption gecikmesi, uplink takibi ve MD5 doğrulama.'
+            },
+            sections: [
+                {
+                    title: 'Arayüz ve Grup',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'iface', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Vlanif10', hint: 'VRRP çalışacak L3 arayüz (genelde Vlanif)', why: "VRRP grubu yalnızca IP adresi olan bir L3 arayüzde çalışır. Sanal IP bu arayüzün subnetinde değilse komut reddedilir." },
+                        { name: 'if_ip', label: 'Arayüz IP / Maske', type: 'text', validate: 'ip_mask', placeholder: '10.1.10.2 255.255.255.0', hint: 'Opsiyonel — arayüzde IP zaten varsa boş bırakın', why: "Her cihazın arayüz IP'si farklı, sanal IP ise iki cihazda aynı olmalıdır. Arayüz IP'sini sanal IP ile aynı vermek (IP owner) o cihazı önceliğe bakmadan kalıcı master yapar." },
+                        { name: 'vrid', label: 'VRID', type: 'text', required: true, min: 1, max: 255, placeholder: '1', hint: '1-255; iki cihazda aynı', why: "VRID, sanal MAC adresini (00-00-5E-00-01-<VRID>) belirler. Aynı VLAN'da başka bir VRRP grubu aynı VRID'i kullanırsa iki grup birbirinin master'ını görür ve gateway MAC'i sürekli yer değiştirir." },
+                        { name: 'vip', label: 'Sanal IP', type: 'text', validate: 'ip', required: true, placeholder: '10.1.10.1', hint: 'İstemcilerin default gateway adresi', why: "Sanal IP iki cihazda birebir aynı olmalıdır. Farklı yazılırsa her iki cihaz da kendini master sanar (split-brain) ve istemciler DHCP'den aldıkları gateway'e göre rastgele birine gider." }
+                    ]
+                },
+                {
+                    title: 'Öncelik ve Preemption',
+                    icon: 'fas fa-sort-amount-up',
+                    fields: [
+                        { name: 'priority', label: 'Öncelik', type: 'text', min: 1, max: 254, placeholder: '120', hint: 'Varsayılan 100; master olacak cihaza daha yüksek değer', why: "İki cihaz eşit öncelikteyse master'ı arayüz IP'si büyük olan belirler; tasarımda hangi cihazın master olduğu tesadüfe kalır ve STP root ile gateway farklı cihazlara düşerek trafik gereksiz yere ara link üzerinden akar." },
+                        { name: 'preempt_delay', label: 'Preemption Gecikmesi (sn)', type: 'text', min: 0, max: 3600, placeholder: '20', hint: 'vrrp vrid N preempt-mode timer delay', why: "Yeniden açılan master, yönlendirme protokolleri yakınsamadan gateway rolünü geri alırsa trafik birkaç saniye kara deliğe düşer. Gecikme, cihazın önce rotalarını öğrenmesine zaman tanır." },
+                        { name: 'track_if', label: 'Takip Edilen Uplink', type: 'text', validate: 'iface', placeholder: 'GigabitEthernet0/0/24', hint: 'Uplink düşerse öncelik düşürülür', why: "Uplink'i kopan master, gateway olmaya devam ederse istemci trafiği önce ona gelir, sonra ara link üzerinden diğer cihaza aktarılır ya da tamamen düşer. Uplink takibi rolün yedek cihaza geçmesini sağlar." },
+                        { name: 'reduced', label: 'Öncelik Düşüşü', type: 'text', min: 1, max: 255, placeholder: '30', hint: 'Uplink düşünce öncelikten çıkarılacak değer', why: "Düşüş miktarı, master'ın yeni önceliğini yedek cihazın önceliğinin <b>altına</b> indirmelidir (örn: 120 − 30 = 90 < 100). Yetersiz değer takibi işlevsiz bırakır." }
+                    ]
+                },
+                {
+                    title: 'Doğrulama (Kimlik)',
+                    icon: 'fas fa-key',
+                    fields: [
+                        { name: 'md5_key', label: 'MD5 Anahtarı', type: 'text', placeholder: 'Vrrp-Key-01', hint: 'vrrp vrid N authentication-mode md5', why: "Doğrulama olmadan aynı VLAN'a bağlanan herhangi bir cihaz yüksek öncelikli VRRP paketi göndererek gateway rolünü ele geçirebilir. Anahtar iki cihazda aynı olmalıdır; farklıysa ikisi de master olur." }
+                    ]
+                }
+            ],
+            submit: 'VRRP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const iface = cgEsc(data.iface || ''), ifip = cgEsc(data.if_ip || ''), vrid = cgEsc(data.vrid || ''), vip = cgEsc(data.vip || '');
+            const prio = cgEsc(data.priority || ''), pd = cgEsc(data.preempt_delay || ''), tif = cgEsc(data.track_if || '');
+            const red = cgEsc(data.reduced || ''), key = cgEsc(data.md5_key || '');
+            let c = '# ========================================\n# Huawei VRP — VRRP\n# ========================================\n\n';
+            c += 'system-view\ninterface ' + iface + '\n';
+            if (ifip) c += ' ip address ' + ifip + '\n';
+            c += ' vrrp vrid ' + vrid + ' virtual-ip ' + vip + '\n';
+            if (prio) c += ' vrrp vrid ' + vrid + ' priority ' + prio + '\n';
+            if (pd) c += ' vrrp vrid ' + vrid + ' preempt-mode timer delay ' + pd + '\n';
+            if (tif) c += ' vrrp vrid ' + vrid + ' track interface ' + tif + (red ? ' reduced ' + red : '') + '\n';
+            if (key) c += ' vrrp vrid ' + vrid + ' authentication-mode md5 ' + key + '\n';
+            c += ' quit\n#\n';
+            c += '\n# Doğrulama:\n# display vrrp brief\n# display vrrp\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei VRP: Port Mirroring ───────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1000178174/4be883cd/example-for-configuring-local-mn-port-mirroring
+//            https://support.huawei.com/enterprise/en/doc/DOC1000047414/ef00aa8/port-mirroring-to-observe-port
+//            (observe-port N interface X; port-mirroring to observe-port N { inbound | outbound | both })
+HuaweiVRP.mirror = {
+    label: 'Port Mirroring',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'Port Mirroring (Huawei VRP)',
+                desc: 'Yerel port yansıtma: bir veya birden fazla portun trafiğini IDS, sniffer veya analizöre bağlı gözlem portuna (observe-port) kopyalar.'
+            },
+            sections: [
+                {
+                    title: 'Gözlem Portu',
+                    icon: 'fas fa-eye',
+                    fields: [
+                        { name: 'obs_idx', label: 'Observe-port Numarası', type: 'text', required: true, min: 1, max: 8, placeholder: '1', hint: 'observe-port indeksi', why: "Aynı indeksi farklı bir arayüze yeniden atamak önceki gözlem portunu değiştirir ve o indekse bağlı tüm yansıtmaları yeni porta taşır; mevcut bir analiz oturumu fark edilmeden bozulur." },
+                        { name: 'obs_if', label: 'Gözlem Portu', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/24', hint: 'Analizörün bağlı olduğu port', why: "Gözlem portu normal veri trafiği taşımamalıdır; kopyalanan trafik bu portun bant genişliğini doldurur. Kaynak portların toplam trafiği gözlem portunun hızını aşarsa kopyaların bir kısmı sessizce düşer." }
+                    ]
+                },
+                {
+                    title: 'Yansıtılacak Portlar',
+                    icon: 'fas fa-exchange-alt',
+                    fields: [
+                        { name: 'src_ifs', label: 'Kaynak Port(lar)', type: 'text', validate: 'iface_range', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Virgülle ayırın (örn: GigabitEthernet0/0/1, GigabitEthernet0/0/2)', why: "Gözlem portunun kendisini kaynak olarak eklemek döngü yaratır. Uplink gibi yoğun bir portu <b>both</b> yönde yansıtmak trafiği ikiye katlar ve gözlem portunu hızla doyurur." },
+                        { name: 'dir', label: 'Yön', type: 'select', options: [
+                            { value: 'inbound', label: 'inbound — gelen', selected: true },
+                            { value: 'outbound', label: 'outbound — giden' },
+                            { value: 'both', label: 'both — iki yön' }
+                        ], hint: 'Hangi yöndeki trafiğin kopyalanacağı', why: "Yalnızca gelen trafik yansıtılırsa analizör cevap paketlerini görmez; TCP oturum analizi yarım kalır. <b>both</b> tam görünürlük verir ama bant genişliği ihtiyacını iki katına çıkarır. Bazı modeller outbound yansıtmayı desteklemez." }
+                    ]
+                }
+            ],
+            submit: 'Port Mirroring Oluştur'
+        }, (data) => {
+            const idx = cgEsc(data.obs_idx || ''), oif = cgEsc(data.obs_if || ''), dir = cgEsc(data.dir || 'inbound');
+            const srcs = _hwvrpIfList(data.src_ifs);
+            let c = '# ========================================\n# Huawei VRP — Port Mirroring\n# ========================================\n\n';
+            c += 'system-view\nobserve-port ' + idx + ' interface ' + oif + '\n#\n';
+            srcs.forEach(i => {
+                if (i.range) { c += '# UYARI: aralık girilemez, portları tek tek yazın: ' + i.name + '\n'; return; }
+                c += 'interface ' + i.name + '\n port-mirroring to observe-port ' + idx + ' ' + dir + '\n quit\n';
+            });
+            c += '#\n\n# Doğrulama:\n# display observe-port\n# display port-mirroring\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei VRP: Storm Control / Traffic Suppression ──────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1000178165/49f3d8a/traffic-suppression-and-storm-control-configuration-commands
+//            https://support.huawei.com/enterprise/en/doc/EDOC1000178177/f10aa989/example-for-configuring-storm-control
+//            (broadcast/multicast/unicast-suppression { percent | packets N }; storm-control X min-rate A max-rate B;
+//             storm-control action { block | error-down }; storm-control enable log)
+HuaweiVRP.storm = {
+    label: 'Storm Control',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-bolt',
+                title: 'Storm Control / Traffic Suppression (Huawei VRP)',
+                desc: 'Broadcast, bilinmeyen multicast ve bilinmeyen unicast fırtınalarını port bazında sınırlar. Traffic suppression aşan paketi atar; storm control eşik aşılınca portu bloklar veya error-down yapar.'
+            },
+            configTypes: [
+                { id: 'pct', label: 'Suppression (%)', icon: 'fas fa-percent', desc: 'Bant genişliği yüzdesiyle sınırla', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'pps', label: 'Suppression (pps)', icon: 'fas fa-tachometer-alt', desc: 'Saniyedeki paket sayısıyla sınırla' },
+                { id: 'storm', label: 'Storm Control', icon: 'fas fa-bolt', desc: 'Eşik aşılınca block / error-down' }
+            ],
+            sections: [
+                {
+                    title: 'Arayüz',
+                    icon: 'fas fa-ethernet',
+                    fields: [
+                        { name: 'ifs', label: 'Arayüz(ler)', type: 'text', validate: 'iface_range', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Virgülle ayırın; erişim portlarına uygulanır', why: "Fırtına genellikle erişim portundaki bir döngü veya arızalı NIC'ten başlar. Sınırı yalnızca uplink'e koymak fırtınanın switch içinde diğer erişim portlarına yayılmasını engellemez." }
+                    ]
+                },
+                {
+                    title: 'Suppression (yüzde)',
+                    icon: 'fas fa-percent',
+                    showFor: ['pct'],
+                    fields: [
+                        { name: 'bc_pct', label: 'Broadcast %', type: 'text', min: 0, max: 100, requiredIf: { field: '_cgtype', in: ['pct'] }, placeholder: '5', hint: 'broadcast-suppression (varsayılan %10)', why: "Normal bir erişim portunda broadcast (ARP, DHCP) trafiği bant genişliğinin %1'ini nadiren aşar. Çok düşük değer ise yoğun ARP anlarında meşru paketleri de atar ve bağlantı kopmaları sanki rastgeleymiş gibi görünür." },
+                        { name: 'mc_pct', label: 'Multicast %', type: 'text', min: 0, max: 100, placeholder: '5', hint: 'multicast-suppression', why: "Multicast bastırma IPTV veya yazılım dağıtımı gibi meşru multicast akışlarını da keser; bu servislerin geçtiği portlarda değeri trafik profiline göre seçin." },
+                        { name: 'uc_pct', label: 'Bilinmeyen Unicast %', type: 'text', min: 0, max: 100, placeholder: '5', hint: 'unicast-suppression', why: "MAC tablosu taşması veya asimetrik yönlendirmede bilinmeyen unicast flood edilir. Sınır, bu durumun tüm VLAN'ı doldurmasını engeller." }
+                    ]
+                },
+                {
+                    title: 'Suppression (pps)',
+                    icon: 'fas fa-tachometer-alt',
+                    showFor: ['pps'],
+                    fields: [
+                        { name: 'bc_pps', label: 'Broadcast pps', type: 'text', validate: 'posint', requiredIf: { field: '_cgtype', in: ['pps'] }, placeholder: '1000', hint: 'broadcast-suppression packets', why: "Paket sayısı bazlı sınır port hızından bağımsızdır; 1G ve 10G portlarda aynı eşik aynı korumayı verir. Yüzde bazlı sınırda ise 10G porttaki %5, erişim switch'inin CPU'sunu bunaltacak kadar yüksektir." },
+                        { name: 'mc_pps', label: 'Multicast pps', type: 'text', validate: 'posint', placeholder: '1000', hint: 'multicast-suppression packets', why: "Multicast yoğun bir segmentte (ör. kamera VLAN'ı) eşik düşük tutulursa görüntü akışları kesilir." },
+                        { name: 'uc_pps', label: 'Bilinmeyen Unicast pps', type: 'text', validate: 'posint', placeholder: '1000', hint: 'unicast-suppression packets', why: "Bilinmeyen unicast flood'u normalde kısa sürelidir; sürekli yüksekse MAC tablosunda yaşlanma veya asimetrik yol sorunu vardır — sınır semptomu hafifletir, nedeni ayrıca araştırın." }
+                    ]
+                },
+                {
+                    title: 'Storm Control (pps)',
+                    icon: 'fas fa-bolt',
+                    showFor: ['storm'],
+                    warn: 'Storm control ile traffic suppression aynı pakette aynı anda kullanılmamalıdır; birini seçin.',
+                    fields: [
+                        { name: 'sc_type', label: 'Paket Tipi', type: 'select', options: [
+                            { value: 'broadcast', label: 'broadcast', selected: true },
+                            { value: 'multicast', label: 'multicast' },
+                            { value: 'unicast', label: 'unicast (bilinmeyen)' }
+                        ], hint: 'Eşiğin uygulanacağı paket tipi', why: "Storm control her paket tipi için ayrı eşik tutar. Döngü kaynaklı fırtınalarda ilk yükselen broadcast trafiğidir; önce broadcast için eşik tanımlamak en yüksek faydayı sağlar." },
+                        { name: 'sc_min', label: 'Alt Eşik (pps)', type: 'text', validate: 'posint', requiredIf: { field: '_cgtype', in: ['storm'] }, placeholder: '1000', hint: 'min-rate — bloklanan port bu değerin altına inince açılır', why: "Alt eşik üst eşiğe çok yakınsa port sürekli blok/açık arasında gidip gelir (flapping). Aralarında belirgin fark bırakın." },
+                        { name: 'sc_max', label: 'Üst Eşik (pps)', type: 'text', validate: 'posint', requiredIf: { field: '_cgtype', in: ['storm'] }, placeholder: '2000', hint: 'max-rate — aşılınca eylem uygulanır', why: "Üst eşik, portun normal tepe trafiğinin üzerinde olmalıdır; aksi halde sabah oturum açma saatlerindeki meşru ARP/DHCP patlaması portu kapatır." },
+                        { name: 'sc_action', label: 'Eylem', type: 'select', options: [
+                            { value: 'block', label: 'block — eşik altına inince kendiliğinden açılır', selected: true },
+                            { value: 'error-down', label: 'error-down — port kapanır' }
+                        ], hint: 'storm-control action', why: "<b>error-down</b> portu tamamen kapatır ve otomatik kurtarma tanımlı değilse elle <code>shutdown</code>/<code>undo shutdown</code> gerekir; uzaktaki bir şubede bu, saha ziyareti demektir. <b>block</b> yalnızca o tipteki paketleri geçici olarak durdurur." },
+                        { name: 'sc_log', label: 'Olayı logla (storm-control enable log)', type: 'checkbox', checked: true, why: "Log olmadan port bloklandığında kullanıcı yalnızca 'ağ gitti geldi' der; hangi portta fırtına olduğunu bulmak için log kaydı tek ipucudur." }
+                    ]
+                }
+            ],
+            submit: 'Storm Control Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'pct', ifs = _hwvrpIfList(data.ifs);
+            let body = '';
+            if (t === 'pct') {
+                const bc = cgEsc(data.bc_pct || ''), mc = cgEsc(data.mc_pct || ''), uc = cgEsc(data.uc_pct || '');
+                if (bc) body += ' broadcast-suppression ' + bc + '\n';
+                if (mc) body += ' multicast-suppression ' + mc + '\n';
+                if (uc) body += ' unicast-suppression ' + uc + '\n';
+            } else if (t === 'pps') {
+                const bc = cgEsc(data.bc_pps || ''), mc = cgEsc(data.mc_pps || ''), uc = cgEsc(data.uc_pps || '');
+                if (bc) body += ' broadcast-suppression packets ' + bc + '\n';
+                if (mc) body += ' multicast-suppression packets ' + mc + '\n';
+                if (uc) body += ' unicast-suppression packets ' + uc + '\n';
+            } else {
+                const ty = cgEsc(data.sc_type || 'broadcast'), mn = cgEsc(data.sc_min || ''), mx = cgEsc(data.sc_max || '');
+                const act = cgEsc(data.sc_action || 'block');
+                if (mn && mx) {
+                    if (+mn >= +mx) body += ' # UYARI: alt eşik üst eşikten küçük olmalı\n';
+                    body += ' storm-control ' + ty + ' min-rate ' + mn + ' max-rate ' + mx + '\n';
+                    body += ' storm-control action ' + act + '\n';
+                    if (data.sc_log) body += ' storm-control enable log\n';
+                }
+            }
+            let c = '# ========================================\n# Huawei VRP — Storm Control / Traffic Suppression\n# ========================================\n\n';
+            if (!body) return c + '# UYARI: en az bir eşik değeri girin.\n';
+            c += 'system-view\n';
+            const plain = [];
+            ifs.forEach(i => {
+                if (i.range) { c += '# UYARI: aralık girilemez, portları tek tek yazın: ' + i.name + '\n'; return; }
+                plain.push(i.name);
+                c += 'interface ' + i.name + '\n' + body + ' quit\n';
+            });
+            c += '#\n\n# Doğrulama:\n';
+            if (t === 'storm') c += '# display storm-control\n';
+            else plain.forEach(n => { c += '# display flow-suppression interface ' + n + '\n'; });
+            return c;
+        });
+    }
+};
+
+// ── Huawei VRP: VTY / User-interface ─────────────────────────────────────────
+// Sözdizimi: canlı config (1 cihaz: user-interface maximum-vty, user-interface vty 0 4, acl N inbound,
+//            authentication-mode aaa, user privilege level, idle-timeout M S, protocol inbound ssh,
+//            stelnet server enable, acl number 2xxx / rule N permit source A W / rule N deny)
+HuaweiVRP.vty = {
+    label: 'VTY / Yönetim Erişimi',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-terminal',
+                title: 'VTY / User-interface (Huawei VRP)',
+                desc: 'Uzaktan yönetim hatlarını sertleştirir: yalnız SSH, AAA doğrulama, yönetim ağına ACL kısıtı, oturum zaman aşımı ve VTY sayısı. Yerel kullanıcıyı <b>SSH / User</b> aracıyla oluşturun.'
+            },
+            sections: [
+                {
+                    title: 'VTY Hatları',
+                    icon: 'fas fa-list-ol',
+                    fields: [
+                        { name: 'vty_last', label: 'Son VTY Numarası', type: 'text', required: true, min: 0, max: 14, placeholder: '4', hint: 'user-interface vty 0 <N> (varsayılan 0-4)', why: "Ayarlar yalnızca bu aralıktaki hatlara uygulanır. maximum-vty artırılıp aralık genişletilmezse fazladan açılan hatlar eski (ör. telnet açık, ACL'siz) ayarlarla kalır ve saldırgan o hatlara düşer." },
+                        { name: 'max_vty', label: 'Maksimum VTY', type: 'text', min: 0, max: 15, placeholder: '5', hint: 'user-interface maximum-vty', why: "Eşzamanlı oturum sayısını sınırlar. Çok düşük değer, arıza anında ikinci bir yöneticinin cihaza bağlanamamasına yol açar; çok yüksek değer kaba kuvvet denemelerine daha fazla paralel hat açar." },
+                        { name: 'level', label: 'Kullanıcı Seviyesi', type: 'text', min: 0, max: 15, placeholder: '3', hint: 'user privilege level (AAA kullanıcısında seviye tanımlıysa o geçerlidir)', why: "Seviye 3 yönetici (manage) seviyesidir. Hat seviyesi yerel kullanıcıya seviye atanmamışsa devreye girer; burada 15 vermek seviyesiz tanımlanmış her kullanıcıyı tam yetkili yapar." }
+                    ]
+                },
+                {
+                    title: 'Güvenlik',
+                    icon: 'fas fa-shield-alt',
+                    fields: [
+                        { name: 'idle_min', label: 'Zaman Aşımı (dakika)', type: 'text', min: 0, max: 35791, placeholder: '10', hint: 'idle-timeout <dk> 0', why: "Açık bırakılan yönetim oturumu, kilitlenmemiş bir PC'den cihaza doğrudan erişim demektir. <b>0</b> zaman aşımını tamamen kapatır; bunu üretimde kullanmayın." },
+                        { name: 'acl_num', label: 'Yönetim ACL Numarası', type: 'text', min: 2000, max: 2999, placeholder: '2000', hint: 'Temel ACL (2000-2999); acl N inbound olarak VTY\'ye bağlanır', why: "ACL olmadan cihazın herhangi bir IP'sine SSH ile ulaşabilen herkes giriş ekranını görür ve parola denemesi yapabilir. Yönetimi yalnızca atlama sunucusu / NOC ağından kabul etmek saldırı yüzeyini ciddi daraltır." },
+                        { name: 'acl_src', label: 'İzinli Yönetim Ağı', type: 'text', validate: 'ip', placeholder: '10.0.0.0', hint: 'ACL oluşturulacaksa izin verilen ağ adresi', why: "Kendi bağlı olduğunuz ağı listeye eklemeyi unutursanız ACL uygulandığı anda mevcut oturum dışında cihaza bir daha bağlanamazsınız. Uygulamadan önce kaynak IP'nizin bu ağda olduğunu doğrulayın." },
+                        { name: 'acl_wc', label: 'Wildcard', type: 'text', validate: 'wildcard', placeholder: '0.0.0.255', hint: 'Ters maske (0.0.0.255 = /24, 0 = tek host)', why: "Huawei ACL'de ters maske kullanılır; 255.255.255.0 yazmak /24 değil neredeyse tüm adresleri eşleştirir ve kısıtı anlamsız hale getirir." },
+                        { name: 'stelnet', label: 'stelnet server enable ekle', type: 'checkbox', checked: true, why: "VTY'de yalnızca SSH'a izin verilip SSH sunucusu etkin değilse hiçbir uzak protokol çalışmaz ve cihaz yalnızca konsoldan erişilebilir kalır." },
+                        { name: 'con_aaa', label: 'Konsolda da AAA kullan', type: 'checkbox', checked: false, why: "Konsol varsayılan olarak ayrı bir parolayla korunur; AAA'ya bağlamak konsol girişlerini de kullanıcı bazlı kayıt altına alır. Ancak AAA'da çalışan bir yerel kullanıcı yoksa konsoldan da kilitlenirsiniz." }
+                    ]
+                }
+            ],
+            submit: 'VTY Konfigürasyonu Oluştur'
+        }, (data) => {
+            const last = cgEsc(data.vty_last || ''), maxv = cgEsc(data.max_vty || ''), lvl = cgEsc(data.level || '');
+            const idle = cgEsc(data.idle_min || ''), acl = cgEsc(data.acl_num || ''), src = cgEsc(data.acl_src || ''), wc = cgEsc(data.acl_wc || '');
+            let c = '# ========================================\n# Huawei VRP — VTY / User-interface\n# ========================================\n\n';
+            c += 'system-view\n';
+            if (data.stelnet) c += 'stelnet server enable\n';
+            if (acl && src) {
+                c += 'acl number ' + acl + '\n';
+                c += ' rule 5 permit source ' + src + ' ' + (wc || '0') + '\n';
+                c += ' rule 100 deny\n quit\n';
+            }
+            if (maxv) c += 'user-interface maximum-vty ' + maxv + '\n';
+            c += 'user-interface vty 0 ' + last + '\n';
+            if (acl) c += ' acl ' + acl + ' inbound\n';
+            c += ' authentication-mode aaa\n';
+            if (lvl) c += ' user privilege level ' + lvl + '\n';
+            if (idle) c += ' idle-timeout ' + idle + ' 0\n';
+            c += ' protocol inbound ssh\n quit\n';
+            if (data.con_aaa) c += 'user-interface con 0\n authentication-mode aaa\n quit\n';
+            c += '#\n';
+            if (acl && !src) c += '# UYARI: ACL ' + acl + ' cihazda tanımlı değilse VTY kısıtı uygulanmaz.\n';
+            c += '\n# Doğrulama:\n# display user-interface\n# display ssh server status\n';
+            if (acl) c += '# display acl ' + acl + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei VRP: iStack ───────────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1000178165/3689aaf8/stack-configuration-commands
+//            https://support.huawei.com/enterprise/en/doc/EDOC1000069608/c770df84/example-for-setting-up-a-stack-using-service-ports-v200r003-and-later-versions
+//            (stack slot N priority P, stack slot N renumber M, interface stack-port N/1, port interface X enable)
+HuaweiVRP.stack = {
+    label: 'iStack',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-layer-group',
+                title: 'iStack (Huawei VRP V200)',
+                desc: 'Servis portlarıyla yığın (stack) kurulumu — üye önceliği, stack ID ve mantıksal stack-port\'lara fiziksel port atama. Her üye için ayrı çalıştırın.'
+            },
+            sections: [
+                {
+                    title: 'Üye',
+                    icon: 'fas fa-server',
+                    warn: 'Bu araç S serisi V200 sözdizimini üretir. V600 (CloudEngine S) yazılımında stack yapılandırması <code>stack</code> görünümü altında yapılır ve komutlar farklıdır.',
+                    fields: [
+                        { name: 'slot', label: 'Mevcut Stack ID', type: 'text', required: true, min: 0, max: 8, placeholder: '0', hint: 'Tek başına çalışan switch için 0', why: "Komutlar cihazın <b>şu anki</b> stack ID'si ile yazılır. Yanlış ID girilirse komut başka bir üyeye uygulanır veya 'slot yok' hatası verir." },
+                        { name: 'priority', label: 'Öncelik', type: 'text', min: 1, max: 255, placeholder: '200', hint: 'Varsayılan 100; master olacak üyeye en yüksek değer', why: "Master seçimi önce önceliğe bakar. Tüm üyeler varsayılan 100'de kalırsa master'ı MAC adresi belirler; yeniden başlatma sonrası beklenmedik bir üye master olur ve yönetim IP'si ile config o cihazdan yönetilir." },
+                        { name: 'renumber', label: 'Yeni Stack ID', type: 'text', min: 0, max: 8, placeholder: '1', hint: 'Opsiyonel — ikinci/üçüncü üye için benzersiz ID', why: "İki üye aynı stack ID ile birleşemez; çakışan üye yığına katılmaz. Yeni ID ancak <code>save</code> ve yeniden başlatma sonrası geçerli olur ve port adları (Gi<b>1</b>/0/1) bu ID'ye göre değişir." }
+                    ]
+                },
+                {
+                    title: 'Stack Portları',
+                    icon: 'fas fa-link',
+                    info: 'Bir üyenin stack-port N/1\'i komşu üyenin stack-port N/2\'sine bağlanır (zincir veya halka).',
+                    fields: [
+                        { name: 'sp1_ifs', label: 'stack-port <ID>/1 Portları', type: 'text', validate: 'iface_range', required: true, placeholder: 'XGigabitEthernet0/0/3', hint: 'Virgülle ayırın', why: "Stack kablosu bağlı olan fiziksel port, mantıksal stack-port'a eklenmeden stack kurulmaz. Portu eklemek o porttaki mevcut servis konfigürasyonunu siler; üzerinde VLAN/IP olan bir portu seçmeyin." },
+                        { name: 'sp2_ifs', label: 'stack-port <ID>/2 Portları', type: 'text', validate: 'iface_range', placeholder: 'XGigabitEthernet0/0/4', hint: 'Halka topoloji için ikinci stack-port', why: "Tek stack-port ile kurulan zincirde ortadaki bağlantı koparsa yığın ikiye bölünür (split) ve iki master oluşur. İkinci stack-port ile halka kurmak tek bağlantı arızasında yığını ayakta tutar." }
+                    ]
+                }
+            ],
+            submit: 'iStack Konfigürasyonu Oluştur'
+        }, (data) => {
+            const slot = cgEsc(data.slot || ''), prio = cgEsc(data.priority || ''), ren = cgEsc(data.renumber || '');
+            const sp = [[1, _hwvrpIfList(data.sp1_ifs)], [2, _hwvrpIfList(data.sp2_ifs)]];
+            let c = '# ========================================\n# Huawei VRP — iStack (V200)\n# ========================================\n\n';
+            c += 'system-view\n';
+            if (prio) c += 'stack slot ' + slot + ' priority ' + prio + '\n';
+            sp.forEach(([n, list]) => {
+                if (!list.length) return;
+                c += 'interface stack-port ' + slot + '/' + n + '\n';
+                list.forEach(i => {
+                    if (i.range) { c += ' # UYARI: aralık girilemez, portları tek tek yazın: ' + i.name + '\n'; return; }
+                    c += ' port interface ' + i.name + ' enable\n';
+                });
+                c += ' quit\n';
+            });
+            if (ren && ren !== slot) c += 'stack slot ' + slot + ' renumber ' + ren + '\n';
+            c += '#\n# Not: port interface ... enable onay (Y) ister. Yeni stack ID save + reboot sonrası geçerli olur.\n';
+            c += '\n# Doğrulama:\n# display stack\n# display stack configuration\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei VRP: IGMP Snooping ────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1000178169/d4cb9072/configuring-basic-vlan-based-igmp-snooping-functions
+//            https://support.huawei.com/enterprise/en/doc/EDOC1000178165/992007f/vlan-based-igmp-snooping-configuration-commands
+//            (igmp-snooping enable [global + vlan], igmp-snooping version, igmp-snooping querier enable)
+HuaweiVRP.igmpsnoop = {
+    label: 'IGMP Snooping',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-broadcast-tower',
+                title: 'IGMP Snooping (Huawei VRP)',
+                desc: 'Multicast trafiğini yalnızca üye portlara iletir (IPTV, kamera, yazılım dağıtımı). Global + VLAN bazında etkinleştirme, sürüm ve querier.'
+            },
+            sections: [
+                {
+                    title: 'VLAN Ayarları',
+                    icon: 'fas fa-layer-group',
+                    fields: [
+                        { name: 'vlans', label: 'VLAN(lar)', type: 'text', validate: 'vlan_list', required: true, placeholder: '10,20', hint: 'Virgül veya aralık (en fazla 128 VLAN)', why: "Global açmak tek başına yetmez; snooping yalnızca VLAN içinde de etkinleştirildiğinde çalışır. Etkin olmayan VLAN'da multicast broadcast gibi tüm portlara flood edilir." },
+                        { name: 'version', label: 'IGMP Sürümü', type: 'select', options: [
+                            { value: '', label: 'Varsayılan (v2)', selected: true },
+                            { value: '1', label: 'v1' },
+                            { value: '3', label: 'v3 (SSM)' }
+                        ], hint: 'igmp-snooping version', why: "Varsayılan olarak switch IGMPv1/v2 mesajlarını işler, IGMPv3 raporlarını işlemez. Kaynağa özel (SSM) multicast kullanan istemciler v3 rapor gönderir; sürüm v3 yapılmazsa bu istemciler akışı hiç alamaz." },
+                        { name: 'querier', label: 'Querier etkinleştir', type: 'checkbox', checked: false, why: "VLAN'da multicast router (PIM) yoksa kimse IGMP sorgusu göndermez; üyelik kayıtları zaman aşımına uğrar ve akış birkaç dakika sonra kesilir. Router olmayan L2 segmentlerde bir switch querier olmalıdır — ama VLAN başına yalnızca bir tane." }
+                    ]
+                }
+            ],
+            submit: 'IGMP Snooping Oluştur'
+        }, (data) => {
+            const vl = _hwvrpVlanExpand(data.vlans), ver = cgEsc(data.version || '');
+            let c = '# ========================================\n# Huawei VRP — IGMP Snooping\n# ========================================\n\n';
+            if (!vl || !vl.length) return c + '# UYARI: 1-128 VLAN girin.\n';
+            c += 'system-view\nigmp-snooping enable\n';
+            vl.forEach(v => {
+                const id = cgEsc(v);
+                c += 'vlan ' + id + '\n igmp-snooping enable\n';
+                if (ver) c += ' igmp-snooping version ' + ver + '\n';
+                if (data.querier) c += ' igmp-snooping querier enable\n';
+                c += ' quit\n';
+            });
+            c += '#\n\n# Doğrulama:\n# display igmp-snooping port-info\n# display igmp-snooping router-port vlan ' + cgEsc(vl[0]) + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei VRP: STP Port Koruması ────────────────────────────────────────────
+// Mevcut 'mstp' aracı mod/priority/instance/edged-port'u kapsar; bu araç yalnız koruma özelliklerini ekler.
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1000178168/eb3f0a3b/configuring-bpdu-protection-on-a-switch
+//            https://support.huawei.com/enterprise/en/doc/EDOC1000178168/5316b17/configuring-root-protection-on-an-interface
+//            https://support.huawei.com/enterprise/en/doc/EDOC1000178168/1866ae9a/configuring-loop-protection-on-a-port
+//            (stp bpdu-protection [global], stp edged-port enable, stp root-protection, stp loop-protection,
+//             error-down auto-recovery cause bpdu-protection interval N)
+HuaweiVRP.stpguard = {
+    label: 'STP Port Koruması',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-shield-alt',
+                title: 'STP Port Koruması (Huawei VRP)',
+                desc: 'Edge port + BPDU koruması (erişim portları), root koruması (aşağı yönlü portlar), loop koruması (root/alternate portlar) ve BPDU korumasından otomatik kurtarma.'
+            },
+            sections: [
+                {
+                    title: 'Erişim Portları (Edge + BPDU Protection)',
+                    icon: 'fas fa-user',
+                    fields: [
+                        { name: 'edge_ifs', label: 'Edge Port(lar)', type: 'text', validate: 'iface_range', placeholder: 'GigabitEthernet0/0/1', hint: 'Virgülle ayırın; stp edged-port enable', why: "Edge port, bağlandığı anda forwarding'e geçer; PC'lerin DHCP zaman aşımına düşmesini önler. Switch'e giden bir portu edge yapmak ise geçici döngü riski yaratır." },
+                        { name: 'bpdu_prot', label: 'BPDU Protection (global)', type: 'checkbox', checked: true, why: "BPDU protection global bir komuttur ve yalnızca edge portlara etki eder: edge porta BPDU gelirse port error-down olur. Böylece kullanıcının masasına taktığı bir switch STP topolojisini değiştiremez." },
+                        { name: 'recovery', label: 'Otomatik Kurtarma (sn)', type: 'text', min: 30, max: 86400, placeholder: '300', hint: 'error-down auto-recovery cause bpdu-protection interval', why: "Kurtarma tanımlanmazsa BPDU protection ile kapanan port elle <code>shutdown</code>/<code>undo shutdown</code> yapılana kadar kapalı kalır. Çok kısa aralık ise döngü kaynağı hâlâ takılıyken portun sürekli açılıp kapanmasına yol açar." }
+                    ]
+                },
+                {
+                    title: 'Omurga Portları',
+                    icon: 'fas fa-sitemap',
+                    info: 'Root protection ve loop protection aynı portta birlikte kullanılamaz.',
+                    fields: [
+                        { name: 'root_ifs', label: 'Root Protection Port(lar)', type: 'text', validate: 'iface_range', placeholder: 'GigabitEthernet0/0/10', hint: 'Root bridge\'de aşağı yönlü (designated) portlar', why: "Aşağıdaki bir switch'e yanlışlıkla düşük priority verilirse root rolünü ele geçirir ve tüm trafik o cihaz üzerinden dolaşır. Root protection bu portlardan gelen üstün BPDU'yu yok sayıp portu bloklar." },
+                        { name: 'loop_ifs', label: 'Loop Protection Port(lar)', type: 'text', validate: 'iface_range', placeholder: 'GigabitEthernet0/0/24', hint: 'Root ve alternate (uplink) portlar', why: "Tek yönlü fiber arızasında port BPDU alamaz, alternate port yanlışlıkla forwarding'e geçer ve döngü oluşur. Loop protection BPDU kesilince portu forwarding'e almak yerine bloklu tutar." }
+                    ]
+                }
+            ],
+            submit: 'STP Korumasını Oluştur'
+        }, (data) => {
+            const edge = _hwvrpIfList(data.edge_ifs), root = _hwvrpIfList(data.root_ifs), loop = _hwvrpIfList(data.loop_ifs);
+            const rec = cgEsc(data.recovery || '');
+            let c = '# ========================================\n# Huawei VRP — STP Port Koruması\n# ========================================\n\n';
+            if (!edge.length && !root.length && !loop.length && !data.bpdu_prot) return c + '# UYARI: en az bir koruma seçin.\n';
+            c += 'system-view\n';
+            if (data.bpdu_prot) c += 'stp bpdu-protection\n';
+            if (data.bpdu_prot && rec) c += 'error-down auto-recovery cause bpdu-protection interval ' + rec + '\n';
+            const rootNames = new Set(root.map(i => i.name));
+            const put = (list, cmd) => list.forEach(i => {
+                if (i.range) { c += '# UYARI: aralık girilemez, portları tek tek yazın: ' + i.name + '\n'; return; }
+                if (cmd === 'stp loop-protection' && rootNames.has(i.name)) { c += '# UYARI: ' + i.name + ' root protection ile çakışıyor, loop protection atlandı\n'; return; }
+                c += 'interface ' + i.name + '\n ' + cmd + '\n quit\n';
+            });
+            put(edge, 'stp edged-port enable');
+            put(root, 'stp root-protection');
+            put(loop, 'stp loop-protection');
+            if (!data.bpdu_prot && edge.length) c += '# UYARI: BPDU protection kapalı — edge porta takılan switch topolojiyi etkileyebilir.\n';
+            c += '#\n\n# Doğrulama:\n# display stp brief\n';
             return c;
         });
     }

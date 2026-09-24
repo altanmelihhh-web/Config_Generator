@@ -914,10 +914,12 @@ function cgAristaMgmtaclGen(data) {
     });
     c += '   999 deny ip any any log\n!\n';
     if (protocols.includes('https') || protocols.includes('api')) {
-        c += 'management api http-commands\n   no shutdown\n   ip access-list MGMT-ACCESS\n!\n';
+        // Sozdizimi: AVD management-api-http.j2 — ACL, vrf alt modunda 'ip access-group' (ip access-list DEGIL)
+        c += 'management api http-commands\n   no shutdown\n   vrf default\n      no shutdown\n      ip access-group MGMT-ACCESS\n!\n';
     }
     if (protocols.includes('ssh')) {
-        c += 'management ssh\n   ip access-list MGMT-ACCESS\n!\n';
+        // Sozdizimi: AVD management-ssh.j2 — 'ip access-group <ACL> in'
+        c += 'management ssh\n   ip access-group MGMT-ACCESS in\n!\n';
     }
     c += '\n! Doğrulama:\n! show management api http-commands\n! show management ssh\n';
     return c;
@@ -1013,5 +1015,899 @@ function cgAristaLoggingGen(data) {
     if (sourceIntf) c += 'logging source-interface ' + sourceIntf + '\n';
     c += 'logging on\n!\n';
     c += '\n! Doğrulama:\n! show logging\n! show logging host\n';
+    return c;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Agent U eklemeleri — sözdizimi kaynakları her aracın başında.
+// Ortak yardımcı: virgül/boşluk ayrılmış arayüz listesini parçalara böler.
+// EOS 'interface Ethernet1-4' aralık biçimini kabul eder; her parça ayrı blok olur.
+function cgAristaIfList(s) {
+    return String(s || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+}
+
+// ── Arista: Static Route ─────────────────────────────────────────────────────
+// Sözdizimi: https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/static-routes.j2
+//            (ip route [vrf V] PREFIX [INTF] [NEXTHOP [track bfd]] [DISTANCE] [tag N] [name S])
+Arista.staticroute = {
+    label: 'Static Route',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Arista EOS — Static Route',
+                desc: 'Tek bir statik rota: next-hop IP, çıkış arayüzü veya Null0 (discard). Opsiyonel VRF, administrative distance, tag, isim ve BFD takibi.'
+            },
+            configTypes: [
+                { id: 'nh', label: 'Next-Hop IP', icon: 'fas fa-arrow-right', desc: 'Rota bir komşu IP üzerinden', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'intf_nh', label: 'Arayüz + Next-Hop', icon: 'fas fa-ethernet', desc: 'Çıkış arayüzü ve next-hop birlikte' },
+                { id: 'null0', label: 'Null0 (Discard)', icon: 'fas fa-ban', desc: 'Özet/aggregate prefix için kara delik rotası' }
+            ],
+            sections: [
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'prefix', why: "Hedef ağ CIDR ile yazılır; host bitleri dolu bir prefix (10.1.1.5/24) girilirse EOS onu ağ adresine yuvarlar ve beklediğinizden farklı bir rota görürsünüz.", label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.20.0.0/16', hint: 'Hedef ağ, CIDR biçiminde' },
+                        { name: 'vrf', why: "VRF belirtilmezse rota varsayılan tabloya girer; hedef ağ bir müşteri/servis VRF'indeyse trafik yanlış tabloda aranır ve düşer.", label: 'VRF', type: 'text', placeholder: 'PROD', hint: 'Boş = default VRF' }
+                    ]
+                },
+                {
+                    title: 'Next-Hop',
+                    icon: 'fas fa-arrow-right',
+                    showFor: ['nh', 'intf_nh'],
+                    fields: [
+                        { name: 'nexthop', why: "Next-hop doğrudan bağlı bir subnet içinde olmalı; değilse EOS rotayı özyinelemeli çözmeye çalışır ve çözemezse rota tabloya hiç girmez.", label: 'Next-Hop IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', hint: 'Komşu router IP adresi' },
+                        { name: 'out_intf', why: "Arayüz + next-hop birlikte verildiğinde rota yalnızca o arayüz up iken geçerlidir; yanlış arayüz yazılırsa rota hiç kurulmaz.", label: 'Çıkış Arayüzü', type: 'text', validate: 'iface', requiredIf: { field: '_cgtype', in: ['intf_nh'] }, placeholder: 'Ethernet1', hint: 'Yalnız Arayüz + Next-Hop tipinde kullanılır' },
+                        { name: 'track_bfd', why: "BFD takibi açıkken next-hop'a BFD oturumu düşerse rota milisaniyeler içinde çekilir; kapalıyken arayüz up kaldığı sürece ölü bir next-hop'a trafik gönderilmeye devam eder. Karşı uçta BFD açık olmalı.", label: 'BFD ile takip et (track bfd)', type: 'checkbox', checked: false, hint: 'Karşı uçta BFD etkin olmalı' }
+                    ]
+                },
+                {
+                    title: 'Opsiyonel Nitelikler',
+                    icon: 'fas fa-sliders-h',
+                    fields: [
+                        { name: 'distance', why: "Administrative distance statik rotanın dinamik protokollere göre önceliğini belirler; yedek (floating) statik rota için OSPF/BGP'den yüksek bir değer verin, yoksa dinamik rota hiç kullanılmaz.", label: 'Administrative Distance', type: 'text', min: 1, max: 255, placeholder: '200', hint: '1-255; floating static için yüksek değer' },
+                        { name: 'tag', why: "Tag, rotayı redistribute ederken route-map ile seçmeyi sağlar; tag olmadan hangi statiklerin dağıtılacağını filtrelemek zorlaşır.", label: 'Tag', type: 'text', validate: 'posint', placeholder: '100', hint: 'Route-map eşleştirmesi için etiket' },
+                        { name: 'rname', why: "İsim yalnızca açıklayıcıdır ama <code>show ip route</code> çıktısında rotanın neden var olduğunu anlatır; boşluk içeremez.", label: 'Rota Adı', type: 'text', placeholder: 'TO-DC2', hint: 'Boşluksuz açıklayıcı ad' }
+                    ]
+                }
+            ],
+            submit: 'Static Route Oluştur'
+        }, (data) => cgAristaStaticRouteGen(data));
+    }
+};
+function cgAristaStaticRouteGen(data) {
+    const ty = data._cgtype || 'nh';
+    const prefix = cgEsc(data.prefix || ''), vrf = cgEsc(data.vrf || '');
+    const nh = cgEsc(data.nexthop || ''), intf = cgEsc(data.out_intf || '');
+    const dist = cgEsc(data.distance || ''), tag = cgEsc(data.tag || ''), name = cgEsc(data.rname || '');
+    let c = '! ========================================\n! Arista EOS — Static Route\n! ========================================\n\n';
+    let r = 'ip route';
+    if (vrf) r += ' vrf ' + vrf;
+    r += ' ' + prefix;
+    if (ty === 'null0') {
+        r += ' Null0';
+    } else {
+        if (ty === 'intf_nh' && intf) r += ' ' + intf;
+        r += ' ' + nh;
+        if (data.track_bfd) r += ' track bfd';
+    }
+    if (dist) r += ' ' + dist;
+    if (tag) r += ' tag ' + tag;
+    if (name) r += ' name ' + name;
+    c += r + '\n!\n';
+    if (ty !== 'null0' && data.track_bfd) c += '! NOT: track bfd için karşı uçta da BFD etkin olmalı.\n';
+    c += '\n! Doğrulama:\n! show ip route' + (vrf ? ' vrf ' + vrf : '') + ' ' + prefix + '\n! show ip route' + (vrf ? ' vrf ' + vrf : '') + ' static\n';
+    if (ty !== 'null0' && data.track_bfd) c += '! show bfd peers\n';
+    return c;
+}
+
+// ── Arista: LLDP ─────────────────────────────────────────────────────────────
+// Sözdizimi: https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/lldp.j2
+//            arayüz: ethernet-interfaces.j2 (no lldp transmit / no lldp receive)
+//            TLV adları: python-avd/pyavd/_eos_cli_config_gen/schema/schema_fragments/lldp.schema.yml
+Arista.lldp = {
+    label: 'LLDP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'Arista EOS — LLDP',
+                desc: 'LLDP global ayarları (zamanlayıcılar, yönetim adresi, TLV) ve belirli arayüzlerde LLDP gönderme/almanın kapatılması. EOS\'ta LLDP varsayılan olarak açıktır.'
+            },
+            sections: [
+                {
+                    title: 'Global',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'run', why: "LLDP kapatılırsa topoloji keşfi, CloudVision bağlantı haritası ve IP telefon/AP otomatik VLAN ataması (LLDP-MED) çalışmaz. Yalnızca güvenlik politikası gerektiriyorsa kapatın.", label: 'LLDP Durumu', type: 'select', options: [
+                            { value: 'on', label: 'Açık (varsayılan)', selected: true },
+                            { value: 'off', label: 'Tamamen kapat (no lldp run)' }
+                        ]},
+                        { name: 'timer', why: "Gönderim aralığı çok kısaysa CPU ve kontrol trafiği artar; çok uzunsa topoloji değişiklikleri geç fark edilir. Hold-time bu değerin katı olmalıdır.", label: 'Timer (sn)', type: 'text', validate: 'posint', placeholder: '30', hint: 'LLDP paket gönderim aralığı' },
+                        { name: 'holdtime', why: "Hold-time, komşunun bilgisinin ne kadar süre tutulacağıdır; timer'dan küçük verilirse komşular her döngüde silinip yeniden eklenir ve log'lar dolar.", label: 'Hold-time (sn)', type: 'text', validate: 'posint', placeholder: '120', hint: 'Komşu bilgisinin tutulma süresi' },
+                        { name: 'reinit', why: "Bir port LLDP'de kapatılıp açıldığında yeniden başlatma öncesi beklenen süredir; genelde varsayılan yeterlidir.", label: 'Timer Reinitialization (sn)', type: 'text', min: 1, max: 10, placeholder: '2', hint: '1-10 saniye' },
+                        { name: 'mgmt_addr', why: "Yönetim adresi TLV'si komşulara hangi arayüzün IP'sini bildireceğinizi belirler; boşsa NMS keşfi yanlış (erişilemeyen) bir adrese yönelebilir.", label: 'Yönetim Adresi Arayüzü', type: 'text', validate: 'iface', placeholder: 'Management1', hint: 'lldp management-address <arayüz>' },
+                        { name: 'no_sysdesc', why: "System-description TLV'si EOS sürümünü ve platformu açık metin olarak yayınlar; güvenilmeyen bir segmente bakan portlarda saldırgana sürüm bilgisi verir.", label: 'System-description TLV gönderme', type: 'checkbox', checked: false, hint: 'no lldp tlv transmit system-description' }
+                    ]
+                },
+                {
+                    title: 'Arayüz Bazında Kapatma',
+                    icon: 'fas fa-ethernet',
+                    info: 'Boş bırakılırsa arayüz ayarı yapılmaz. Internet/ISS veya müşteri tarafına bakan portlarda LLDP gönderimini kapatmak iyi bir uygulamadır.',
+                    fields: [
+                        { name: 'ifaces', why: "Dışa bakan portlarda LLDP açık kalırsa cihaz adı, model ve yönetim IP'si karşı tarafa sızar. Omurga linklerinde ise kapatmak topoloji görünürlüğünü bozar.", label: 'Arayüzler', type: 'text', validate: 'iface_range', placeholder: 'Ethernet47-48', hint: 'Virgülle liste veya aralık: Ethernet1,Ethernet5-8' },
+                        { name: 'if_dir', why: "Yalnızca gönderimi kapatmak bilgi sızıntısını önler ama komşuyu görmeye devam edersiniz; her ikisini kapatmak portu LLDP açısından tamamen körleştirir.", label: 'Kapatılacak Yön', type: 'select', options: [
+                            { value: 'tx', label: 'Yalnız gönderme (no lldp transmit)', selected: true },
+                            { value: 'rx', label: 'Yalnız alma (no lldp receive)' },
+                            { value: 'both', label: 'Her ikisi' }
+                        ]}
+                    ]
+                }
+            ],
+            submit: 'LLDP Konfigürasyonu Oluştur'
+        }, (data) => cgAristaLldpGen(data));
+    }
+};
+function cgAristaLldpGen(data) {
+    const timer = cgEsc(data.timer || ''), hold = cgEsc(data.holdtime || ''), reinit = cgEsc(data.reinit || '');
+    const mgmt = cgEsc(data.mgmt_addr || ''), dir = data.if_dir || 'tx';
+    const ifs = cgAristaIfList(cgEsc(data.ifaces || ''));
+    let c = '! ========================================\n! Arista EOS — LLDP\n! ========================================\n\n';
+    if (data.run === 'off') {
+        c += 'no lldp run\n!\n';
+    } else {
+        if (timer) c += 'lldp timer ' + timer + '\n';
+        if (hold) c += 'lldp hold-time ' + hold + '\n';
+        if (reinit) c += 'lldp timer reinitialization ' + reinit + '\n';
+        if (data.no_sysdesc) c += 'no lldp tlv transmit system-description\n';
+        if (mgmt) c += 'lldp management-address ' + mgmt + '\n';
+        if (!(timer || hold || reinit || data.no_sysdesc || mgmt || ifs.length)) c += '! Değişiklik yok: LLDP varsayılan ayarlarla açık kalır.\n';
+        c += '!\n';
+        ifs.forEach(i => {
+            c += 'interface ' + i + '\n';
+            if (dir === 'tx' || dir === 'both') c += '   no lldp transmit\n';
+            if (dir === 'rx' || dir === 'both') c += '   no lldp receive\n';
+            c += '!\n';
+        });
+    }
+    c += '\n! Doğrulama:\n! show lldp\n! show lldp neighbors\n! show lldp local-info\n';
+    return c;
+}
+
+// ── Arista: VRRP / VARP ──────────────────────────────────────────────────────
+// Sözdizimi: https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/vlan-interfaces.j2
+//            (vrrp N ipv4 / priority-level / advertisement interval / preempt delay minimum / no vrrp N preempt /
+//             peer authentication text|ietf-md5 key-string / ipv4 version; ip virtual-router address)
+//            https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/ip-virtual-router-mac-address.j2
+Arista.vrrp = {
+    label: 'VRRP / VARP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'Arista EOS — VRRP / VARP (First-Hop Redundancy)',
+                desc: '<b>VRRP</b>: standart aktif/yedek gateway. <b>VARP</b>: Arista\'ya özgü aktif/aktif anycast gateway — MLAG çiftinde her iki switch aynı sanal IP/MAC ile trafiği yerel olarak yönlendirir.'
+            },
+            configTypes: [
+                { id: 'vrrp', label: 'VRRP', icon: 'fas fa-clone', desc: 'Aktif/yedek, çok üreticili uyumlu', badge: { text: 'Standart', cls: 'recommended' } },
+                { id: 'varp', label: 'VARP', icon: 'fas fa-network-wired', desc: 'Aktif/aktif (MLAG), yalnız Arista' }
+            ],
+            sections: [
+                {
+                    title: 'SVI',
+                    icon: 'fas fa-ethernet',
+                    fields: [
+                        { name: 'svi', why: "Gateway yedekliliği L3 arayüz (genellikle <code>Vlan</code> SVI) üzerinde kurulur; VLAN L2'de tanımlı değilse SVI up olmaz ve sanal IP hiç yanıt vermez.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Vlan10', hint: 'Genellikle Vlan<N>' },
+                        { name: 'svi_ip', why: "Her switch'in SVI'sinde kendine ait, sanal adresle aynı subnet'te benzersiz bir IP olmalı; iki switch'te aynı gerçek IP verilirse duplicate address oluşur.", label: 'Bu Cihazın Gerçek IP/Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.10.10.2/24', hint: 'Her switch\'te farklı olmalı' }
+                    ]
+                },
+                {
+                    title: 'VRRP',
+                    icon: 'fas fa-clone',
+                    showFor: ['vrrp'],
+                    fields: [
+                        { name: 'vrid', why: "VRID aynı segmentteki tüm VRRP üyelerinde aynı, farklı gruplarda farklı olmalı; VRID sanal MAC'i (00:00:5e:00:01:VRID) belirler ve çakışma MAC flapping'e yol açar.", label: 'VRID', type: 'text', min: 1, max: 255, required: true, placeholder: '10', hint: '1-255' },
+                        { name: 'vip', why: "Hostların default gateway'i bu adres olur; gerçek SVI IP'leriyle aynı subnet'te olmalı, yoksa VRRP grubu kurulmaz.", label: 'Sanal IP', type: 'text', validate: 'ip', required: true, placeholder: '10.10.10.1', hint: 'Hostların gateway adresi' },
+                        { name: 'prio', why: "Yüksek öncelik master olur (varsayılan 100). İki cihazda aynı öncelik varsa yüksek IP kazanır — bu da planlanmamış bir master seçimine yol açabilir.", label: 'Priority', type: 'text', min: 1, max: 254, placeholder: '110', hint: '1-254; master için yüksek değer' },
+                        { name: 'adv', why: "Duyuru aralığı tüm grup üyelerinde aynı olmalı; uyumsuzsa yedek cihaz master'ı ölü sanıp devralır ve iki master (split-brain) oluşur.", label: 'Advertisement Interval (sn)', type: 'text', min: 1, max: 255, placeholder: '1', hint: 'Grup üyelerinde aynı olmalı' },
+                        { name: 'preempt', why: "Preempt açıkken yüksek öncelikli cihaz geri geldiğinde master rolünü geri alır; açılış sırasında routing henüz yakınsamamışsa kısa bir kara delik oluşabilir, bu yüzden gecikme önerilir.", label: 'Preempt', type: 'select', options: [
+                            { value: 'default', label: 'Varsayılan (açık) — satır yazma', selected: true },
+                            { value: 'off', label: 'Kapat (no vrrp N preempt)' }
+                        ]},
+                        { name: 'preempt_delay', why: "Reload sonrası cihaz routing tablosu dolmadan master olursa trafiği düşürür; preempt gecikmesi bu pencereyi kapatır.", label: 'Preempt Delay Minimum (sn)', type: 'text', validate: 'posint', placeholder: '30', hint: 'Yalnız preempt açıkken kullanılır' },
+                        { name: 'auth', why: "Kimlik doğrulama sahte VRRP duyurularıyla master rolünün ele geçirilmesini zorlaştırır; tüm üyelerde aynı mod ve anahtar olmalı, değilse grup bölünür.", label: 'Peer Authentication', type: 'select', options: [
+                            { value: 'none', label: 'Yok', selected: true },
+                            { value: 'md5', label: 'ietf-md5' },
+                            { value: 'text', label: 'text (açık metin)' }
+                        ]},
+                        { name: 'auth_key', why: "Anahtar grup üyelerinde birebir aynı olmalı; text modunda anahtar paket içinde açık gider, yalnız yanlış yapılandırmaya karşı korur.", label: 'Auth Anahtarı', type: 'text', requiredIf: { field: 'auth', in: ['md5', 'text'] }, placeholder: 'VrrpKey1', hint: 'Grup üyelerinde aynı' },
+                        { name: 'ver', why: "VRRPv3 (RFC 5798) milisaniye mertebesi aralık ve IPv6 destekler; karşı üretici yalnız v2 destekliyorsa v3 seçmek grubu böler.", label: 'VRRP IPv4 Sürümü', type: 'select', options: [
+                            { value: '', label: 'Varsayılan — satır yazma', selected: true },
+                            { value: '3', label: '3' },
+                            { value: '2', label: '2' }
+                        ]}
+                    ]
+                },
+                {
+                    title: 'VARP',
+                    icon: 'fas fa-network-wired',
+                    showFor: ['varp'],
+                    info: 'VARP\'ta sanal MAC global tanımlanır ve MLAG çiftindeki iki switch\'te <b>aynı</b> olmalıdır.',
+                    fields: [
+                        { name: 'varp_mac', why: "Sanal router MAC'i MLAG çiftinin her iki üyesinde aynı olmalı; farklıysa hostların ARP önbelleği hangi switch'e düştüğüne göre değişir ve trafik aralıklı kesilir.", label: 'Virtual-Router MAC', type: 'text', validate: 'mac', required: true, placeholder: '00:1c:73:00:00:99', hint: 'Unicast, yerel yönetimli bir MAC seçin' },
+                        { name: 'varp_ip', why: "Hostların gateway'i bu adrestir ve iki switch'te aynı yazılır; SVI'nin gerçek IP'siyle aynı subnet'te olmalıdır.", label: 'Virtual-Router Adresi', type: 'text', validate: 'ip', required: true, placeholder: '10.10.10.1', hint: 'ip virtual-router address' }
+                    ]
+                }
+            ],
+            submit: 'Gateway Yedekliliği Oluştur'
+        }, (data) => cgAristaVrrpGen(data));
+    }
+};
+function cgAristaVrrpGen(data) {
+    const ty = data._cgtype || 'vrrp';
+    const svi = cgEsc(data.svi || ''), sviIp = cgEsc(data.svi_ip || '');
+    let c = '! ========================================\n! Arista EOS — ' + (ty === 'varp' ? 'VARP' : 'VRRP') + '\n! ========================================\n\n';
+    if (ty === 'varp') {
+        const mac = cgEsc(data.varp_mac || ''), vip = cgEsc(data.varp_ip || '');
+        c += 'ip virtual-router mac-address ' + mac + '\n!\n';
+        c += 'interface ' + svi + '\n   ip address ' + sviIp + '\n   ip virtual-router address ' + vip + '\n!\n';
+        c += '! NOT: Aynı MAC ve sanal adres MLAG eşinde de yazılmalı; gerçek IP her switch\'te farklı olmalı.\n';
+        c += '\n! Doğrulama:\n! show ip virtual-router\n! show interfaces ' + svi + '\n';
+        return c;
+    }
+    const id = cgEsc(data.vrid || ''), vip = cgEsc(data.vip || ''), prio = cgEsc(data.prio || ''), adv = cgEsc(data.adv || '');
+    const pdelay = cgEsc(data.preempt_delay || ''), auth = data.auth || 'none', key = cgEsc(data.auth_key || ''), ver = cgEsc(data.ver || '');
+    c += 'interface ' + svi + '\n   ip address ' + sviIp + '\n';
+    if (prio) c += '   vrrp ' + id + ' priority-level ' + prio + '\n';
+    if (adv) c += '   vrrp ' + id + ' advertisement interval ' + adv + '\n';
+    if (data.preempt === 'off') c += '   no vrrp ' + id + ' preempt\n';
+    else if (pdelay) c += '   vrrp ' + id + ' preempt delay minimum ' + pdelay + '\n';
+    if (auth === 'md5' && key) c += '   vrrp ' + id + ' peer authentication ietf-md5 key-string ' + key + '\n';
+    if (auth === 'text' && key) c += '   vrrp ' + id + ' peer authentication text ' + key + '\n';
+    c += '   vrrp ' + id + ' ipv4 ' + vip + '\n';
+    if (ver) c += '   vrrp ' + id + ' ipv4 version ' + ver + '\n';
+    c += '!\n';
+    c += '\n! Doğrulama:\n! show vrrp\n! show vrrp brief\n';
+    return c;
+}
+
+// ── Arista: Port Mirroring (Monitor Session) ─────────────────────────────────
+// Sözdizimi: https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/monitor-sessions.j2
+//            (monitor session NAME source IF [rx|tx|both] / monitor session NAME destination IF)
+Arista.monitor = {
+    label: 'Port Mirroring (SPAN)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-copy',
+                title: 'Arista EOS — Port Mirroring (Monitor Session)',
+                desc: 'Kaynak port(lar)daki trafiğin bir kopyasını analiz cihazının bağlı olduğu hedef porta gönderir (IDS, paket yakalama, NPM).'
+            },
+            sections: [
+                {
+                    title: 'Oturum',
+                    icon: 'fas fa-copy',
+                    fields: [
+                        { name: 'sess', why: "Oturum adı kaynak ve hedef satırlarını bağlar; iki farklı oturuma aynı hedef port verilirse EOS ikincisini reddeder veya hedef bir oturumdan düşer.", label: 'Oturum Adı', type: 'text', required: true, placeholder: 'SPAN1', hint: 'Boşluksuz ad' },
+                        { name: 'src', why: "Kaynak portların toplam trafiği hedef portun hızını aşarsa kopyalar sessizce düşer ve analiz eksik kalır; ör. iki 10G porttan 1G hedefe yansıtma kayıplıdır.", label: 'Kaynak Arayüz(ler)', type: 'text', validate: 'iface_range', required: true, placeholder: 'Ethernet1-2', hint: 'Virgülle liste veya aralık' },
+                        { name: 'dir', why: "Her iki yön seçildiğinde kopya trafik ikiye katlanır; yalnız gelen (rx) veya giden (tx) trafik gerekiyorsa yönü daraltmak hedef portu rahatlatır.", label: 'Yön', type: 'select', options: [
+                            { value: 'both', label: 'both (her iki yön)', selected: true },
+                            { value: 'rx', label: 'rx (gelen)' },
+                            { value: 'tx', label: 'tx (giden)' }
+                        ]},
+                        { name: 'dst', why: "Hedef port monitor oturumuna alındığında normal switching'den çıkar ve üzerindeki mevcut bağlantı kesilir; kullanıcı veya uplink portu yazmak kesintiye yol açar.", label: 'Hedef Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Ethernet48', hint: 'Analiz cihazının bağlı olduğu port' }
+                    ]
+                }
+            ],
+            submit: 'Monitor Session Oluştur'
+        }, (data) => cgAristaMonitorGen(data));
+    }
+};
+function cgAristaMonitorGen(data) {
+    const s = cgEsc(data.sess || ''), dir = cgEsc(data.dir || 'both'), dst = cgEsc(data.dst || '');
+    const srcs = cgAristaIfList(cgEsc(data.src || ''));
+    let c = '! ========================================\n! Arista EOS — Port Mirroring\n! ========================================\n\n';
+    srcs.forEach(x => { c += 'monitor session ' + s + ' source ' + x + ' ' + dir + '\n'; });
+    c += 'monitor session ' + s + ' destination ' + dst + '\n!\n';
+    c += '! UYARI: Hedef port (' + dst + ') normal switching\'den çıkar; üzerindeki bağlantı kesilir.\n';
+    c += '\n! Doğrulama:\n! show monitor session ' + s + '\n! show interfaces ' + dst + ' counters\n';
+    return c;
+}
+
+// ── Arista: sFlow ────────────────────────────────────────────────────────────
+// Sözdizimi: https://www.arista.com/en/um-eos/eos-sflow
+//            https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/sflow.j2
+Arista.sflow = {
+    label: 'sFlow',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-stream',
+                title: 'Arista EOS — sFlow',
+                desc: 'Örneklenmiş paket ve arayüz sayaçlarını sFlow collector\'a gönderir (trafik analizi, top-talker, DDoS tespiti). sFlow çalışınca tüm Ethernet/Port-Channel arayüzleri varsayılan olarak örneklenir.'
+            },
+            sections: [
+                {
+                    title: 'Collector',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'coll', why: "Collector erişilemezse örnekler sessizce kaybolur; cihaz tarafında hata görünmez. Collector'ın bu cihazın kaynak IP'sini kabul ettiğinden emin olun.", label: 'Collector IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.50', hint: 'sFlow collector adresi' },
+                        { name: 'cport', why: "Varsayılan UDP 6343'tür; collector farklı bir portu dinliyorsa buraya yazın, aksi hâlde paketler karşıda reddedilir.", label: 'UDP Port', type: 'text', validate: 'port', placeholder: '6343', hint: 'Boş = 6343' },
+                        { name: 'svrf', why: "Collector yönetim VRF'i üzerinden erişiliyorsa VRF belirtilmeli; belirtilmezse paketler default tabloda yönlendirilir ve collector'a ulaşmaz.", label: 'VRF', type: 'text', placeholder: 'MGMT', hint: 'Boş = default VRF' },
+                        { name: 'ssrc', why: "Kaynak arayüz sabitlenmezse sFlow datagramlarındaki agent adresi değişebilir; collector aynı cihazı birden fazla ajan olarak görür.", label: 'Kaynak Arayüz', type: 'text', validate: 'iface', placeholder: 'Loopback0', hint: 'sflow [vrf V] source-interface' }
+                    ]
+                },
+                {
+                    title: 'Örnekleme',
+                    icon: 'fas fa-percentage',
+                    fields: [
+                        { name: 'rate', why: "Örnekleme oranı 1/N'dir; N küçüldükçe CPU yükü artar. EOS 16384 altındaki oranlar için <code>dangerous</code> anahtarını ister — bu araç o yüzden 16384 altını kabul etmez.", label: 'Sample Rate (1/N)', type: 'text', min: 16384, max: 16777215, placeholder: '16384', hint: 'Boş = EOS varsayılanı (1048576)' },
+                        { name: 'poll', why: "Sayaç yoklama aralığı arayüz istatistiklerinin collector'a ne sıklıkla gideceğini belirler; 0 sayaç örneklemeyi kapatır.", label: 'Polling Interval (sn)', type: 'text', min: 0, max: 3600, placeholder: '10', hint: '0-3600; varsayılan 2' },
+                        { name: 'noif', why: "Uplink'ler gibi zaten başka bir yerde örneklenen portlarda sFlow'u kapatmak çift sayımı önler.", label: 'sFlow Kapatılacak Arayüzler', type: 'text', validate: 'iface_range', placeholder: 'Ethernet49-50', hint: 'no sflow enable' }
+                    ]
+                }
+            ],
+            submit: 'sFlow Oluştur'
+        }, (data) => cgAristaSflowGen(data));
+    }
+};
+function cgAristaSflowGen(data) {
+    const coll = cgEsc(data.coll || ''), port = cgEsc(data.cport || ''), vrf = cgEsc(data.svrf || ''), src = cgEsc(data.ssrc || '');
+    const rate = cgEsc(data.rate || ''), poll = cgEsc(data.poll || '');
+    const noif = cgAristaIfList(cgEsc(data.noif || ''));
+    let c = '! ========================================\n! Arista EOS — sFlow\n! ========================================\n\n';
+    if (rate) c += 'sflow sample ' + rate + '\n';
+    if (poll) c += 'sflow polling-interval ' + poll + '\n';
+    if (vrf) {
+        c += 'sflow vrf ' + vrf + ' destination ' + coll + (port ? ' ' + port : '') + '\n';
+        if (src) c += 'sflow vrf ' + vrf + ' source-interface ' + src + '\n';
+    } else {
+        c += 'sflow destination ' + coll + (port ? ' ' + port : '') + '\n';
+        if (src) c += 'sflow source-interface ' + src + '\n';
+    }
+    c += 'sflow run\n!\n';
+    noif.forEach(i => { c += 'interface ' + i + '\n   no sflow enable\n!\n'; });
+    c += '\n! Doğrulama:\n! show sflow\n! show sflow interfaces\n';
+    return c;
+}
+
+// ── Arista: VRF ──────────────────────────────────────────────────────────────
+// Sözdizimi: https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/vrfs.j2
+//            ip-routing-vrfs.j2 (ip routing vrf V), ethernet-interfaces.j2 / vlan-interfaces.j2 (vrf V + ip address)
+Arista.vrf = {
+    label: 'VRF',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-layer-group',
+                title: 'Arista EOS — VRF',
+                desc: 'VRF oluşturma, VRF içinde IPv4 routing\'i açma ve bir L3 arayüzü VRF\'e bağlama. EVPN/BGP ile kullanılacaksa RD de verilebilir.'
+            },
+            sections: [
+                {
+                    title: 'VRF Tanımı',
+                    icon: 'fas fa-layer-group',
+                    fields: [
+                        { name: 'vname', why: "VRF adı büyük/küçük harfe duyarlıdır ve BGP, statik rota, NTP gibi tüm referanslarda aynı yazılmalı; farklı yazım yeni, boş bir VRF anlamına gelir.", label: 'VRF Adı', type: 'text', required: true, placeholder: 'PROD', hint: 'Boşluksuz' },
+                        { name: 'vdesc', why: "Açıklama VRF'in hangi servise/müşteriye ait olduğunu belgeler; çok sayıda VRF olan cihazlarda yanlış VRF'te değişiklik yapma riskini azaltır.", label: 'Açıklama', type: 'text', placeholder: 'Production', hint: 'VRF açıklaması' },
+                        { name: 'vrd', why: "RD, aynı prefix'in farklı VRF'lerde BGP tarafından ayırt edilmesini sağlar; yalnızca MP-BGP/EVPN kullanılıyorsa gerekir ve her VRF için benzersiz olmalıdır.", label: 'Route Distinguisher', type: 'text', validate: 'rd', placeholder: '65000:100', hint: 'Yalnız BGP/EVPN için' },
+                        { name: 'vrouting', why: "EOS'ta VRF içinde routing ayrıca açılmazsa arayüzler IP alır ama VRF'ler arası/uzak ağlara yönlendirme yapılmaz; statik ve dinamik rotalar çalışmaz.", label: 'ip routing vrf', type: 'checkbox', checked: true, hint: 'VRF içinde IPv4 yönlendirmeyi aç' }
+                    ]
+                },
+                {
+                    title: 'Arayüz Ataması',
+                    icon: 'fas fa-ethernet',
+                    info: 'Opsiyonel. Arayüz VRF\'e alındığında <b>mevcut IP adresi silinir</b>; bu yüzden IP adresi <code>vrf</code> satırından sonra yeniden yazılır.',
+                    fields: [
+                        { name: 'vif', why: "Arayüz VRF'e taşındığında üzerindeki IP ve komşuluklar (OSPF/BGP) düşer; yönetim bağlantınız bu arayüzden geçiyorsa oturum kopar.", label: 'Arayüz', type: 'text', validate: 'iface', placeholder: 'Vlan100', hint: 'Ethernet/Port-Channel ise no switchport eklenir' },
+                        { name: 'vip', why: "VRF'e alındıktan sonra IP yeniden verilmezse arayüz IP'siz kalır; bu alan boşsa yalnızca VRF ataması yapılır.", label: 'IP / Prefix', type: 'text', validate: 'cidr', placeholder: '10.100.0.1/24', hint: 'Arayüz verilmediyse yok sayılır' }
+                    ]
+                }
+            ],
+            submit: 'VRF Oluştur'
+        }, (data) => cgAristaVrfGen(data));
+    }
+};
+function cgAristaVrfGen(data) {
+    const n = cgEsc(data.vname || ''), d = cgEsc(data.vdesc || ''), rd = cgEsc(data.vrd || '');
+    const iface = cgEsc(data.vif || ''), ip = cgEsc(data.vip || '');
+    let c = '! ========================================\n! Arista EOS — VRF\n! ========================================\n\n';
+    c += 'vrf instance ' + n + '\n';
+    if (d) c += '   description ' + d + '\n';
+    if (rd) c += '   rd ' + rd + '\n';
+    c += '!\n';
+    if (data.vrouting) c += 'ip routing vrf ' + n + '\n!\n';
+    if (iface) {
+        c += 'interface ' + iface + '\n';
+        if (/^(ethernet|port-channel)/i.test(iface)) c += '   no switchport\n';
+        c += '   vrf ' + n + '\n';
+        if (ip) c += '   ip address ' + ip + '\n';
+        c += '!\n';
+    }
+    c += '\n! Doğrulama:\n! show vrf ' + n + '\n! show ip route vrf ' + n + '\n';
+    if (iface) c += '! show ip interface brief vrf ' + n + '\n';
+    return c;
+}
+
+// ── Arista: Yerel Kullanıcı & Rol ────────────────────────────────────────────
+// Sözdizimi: https://www.arista.com/en/um-eos/eos-user-security (username ... secret 0|sha512, role, network-admin/operator)
+//            https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/local-users.j2
+//            https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/roles.j2
+//            RBAC etkinleştirme: aaa authorization commands all default local (EOS User Security)
+Arista.localuser = {
+    label: 'Yerel Kullanıcı & Rol',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-cog',
+                title: 'Arista EOS — Yerel Kullanıcı & Rol (RBAC)',
+                desc: 'Yerel kullanıcı hesabı, yetki seviyesi, rol ve SSH anahtarı. İsteğe bağlı olarak basit bir özel rol tanımlanır. AAA sunucusu çöktüğünde erişimin yedeği yerel kullanıcıdır.',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            sections: [
+                {
+                    title: 'Kullanıcı',
+                    icon: 'fas fa-user',
+                    fields: [
+                        { name: 'uname', why: "Varsayılan <code>admin</code> hesabı her EOS'ta vardır ve saldırganların ilk denediği addır; kişiye özel bir hesap açıp admin'i kapatmak denetim izini de netleştirir.", label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netadmin', hint: 'Boşluksuz' },
+                        { name: 'priv', why: "Privilege 15 enable moduna doğrudan girer. Yerel EXEC yetkilendirmesinde başlangıç seviyesini belirler; operatör hesaplarına 15 vermek gereksiz yetki demektir.", label: 'Privilege', type: 'text', min: 0, max: 15, required: true, placeholder: '15', hint: '0-15' },
+                        { name: 'urole', why: "Rol, kullanıcının hangi komutları çalıştırabileceğini belirler; ancak <code>aaa authorization commands all default local</code> yoksa rol uygulanmaz ve kullanıcı privilege'ına göre her şeyi yapabilir.", label: 'Rol', type: 'select', options: [
+                            { value: 'network-operator', label: 'network-operator (salt okunur)', selected: true },
+                            { value: 'network-admin', label: 'network-admin (tam yetki)' },
+                            { value: 'custom', label: 'Özel rol (aşağıda tanımla)' }
+                        ]},
+                        { name: 'ptype', why: "Açık metin parola EOS'ta kaydedilirken hash'lenir ama bu çıktıyı paylaşırsanız parola görünür; sha512 hash vermek daha güvenlidir. nopassword yalnızca SSH anahtarlı hesaplar içindir.", label: 'Parola Biçimi', type: 'select', options: [
+                            { value: 'clear', label: 'Açık metin (secret 0)', selected: true },
+                            { value: 'sha512', label: 'SHA-512 hash (secret sha512)' },
+                            { value: 'none', label: 'Parolasız (nopassword) — yalnız SSH anahtarı' }
+                        ]},
+                        { name: 'upass', why: "Zayıf parolalı bir yerel hesap, AAA sunucusu erişilemezken tüm cihazın anahtarıdır. SHA-512 seçildiyse buraya <b>hash</b> girin (başka bir EOS'ta aynı kullanıcı adıyla üretilmiş).", label: 'Parola / Hash', type: 'text', requiredIf: { field: 'ptype', in: ['clear', 'sha512'] }, placeholder: 'Str0ngP@ss!', hint: 'Seçilen biçime göre açık metin veya hash' },
+                        { name: 'sshkey', why: "Anahtarlı giriş parola tahminini imkânsız kılar; nopassword seçildiyse bu alan boşsa kullanıcı hiç giriş yapamaz.", label: 'SSH Public Key', type: 'text', requiredIf: { field: 'ptype', in: ['none'] }, placeholder: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyOnly user@host', hint: 'Tek satır OpenSSH public key' }
+                    ]
+                },
+                {
+                    title: 'Özel Rol',
+                    icon: 'fas fa-user-tag',
+                    info: 'Yalnızca "Özel rol" seçildiğinde kullanılır. Komutlar düzenli ifade (regex) ile eşlenir; kurallar sıra numarasına göre değerlendirilir.',
+                    fields: [
+                        { name: 'rname', why: "Rol adı <code>username ... role</code> satırıyla aynı olmalı; tanımsız bir rol atanırsa kullanıcı beklenmedik biçimde reddedilir.", label: 'Rol Adı', type: 'text', requiredIf: { field: 'urole', in: ['custom'] }, placeholder: 'NOC-RO', hint: 'Boşluksuz' },
+                        { name: 'rmode', why: "Mod, kuralın hangi CLI bağlamında geçerli olduğunu belirler; <code>exec</code> yalnız exec komutlarını, <code>config-all</code> tüm config alt modlarını kapsar.", label: 'İzin Modu', type: 'select', options: [
+                            { value: 'exec', label: 'exec', selected: true },
+                            { value: 'config', label: 'config' },
+                            { value: 'config-all', label: 'config-all' }
+                        ]},
+                        { name: 'rpermit', why: "Çok geniş bir regex (<code>.*</code>) rolü network-admin'e eşitler; yalnız gereken komut kalıbını yazın.", label: 'İzin Verilen Komut (regex)', type: 'text', requiredIf: { field: 'urole', in: ['custom'] }, placeholder: 'show.*', hint: '10 permit mode <mod> command <regex>' },
+                        { name: 'rdeny', why: "Açık bir deny kuralı, izin kuralının istemeden kapsadığı tehlikeli komutları (ör. reload) engellemek için kullanılır; permit'ten önce değerlendirilmesi için düşük sıra numarası alır.", label: 'Yasaklanan Komut (regex)', type: 'text', placeholder: 'reload.*', hint: '5 deny mode exec command <regex>' }
+                    ]
+                },
+                {
+                    title: 'RBAC Etkinleştirme',
+                    icon: 'fas fa-shield-alt',
+                    warn: 'TACACS+ kullanıyorsanız bu satırı buradan eklemeyin; AAA / TACACS+ aracı zaten <code>aaa authorization commands all default group ... local</code> yazar. İki satır birbirini ezer.',
+                    fields: [
+                        { name: 'rbac', why: "Bu satır olmadan roller yalnızca kayıttır ve uygulanmaz. Açıldığında yanlış rol atanmış hesaplar komut çalıştıramaz; önce konsol erişiminizin olduğundan emin olun.", label: 'aaa authorization commands all default local', type: 'checkbox', checked: false, hint: 'Yerel rol denetimini aç' }
+                    ]
+                }
+            ],
+            submit: 'Kullanıcı Oluştur'
+        }, (data) => cgAristaLocalUserGen(data));
+    }
+};
+function cgAristaLocalUserGen(data) {
+    const u = cgEsc(data.uname || ''), priv = cgEsc(data.priv || ''), ptype = data.ptype || 'clear';
+    const pass = cgEsc(data.upass || ''), key = cgEsc(data.sshkey || '');
+    const custom = data.urole === 'custom';
+    const rname = cgEsc(data.rname || ''), rmode = cgEsc(data.rmode || 'exec'), rp = cgEsc(data.rpermit || ''), rd = cgEsc(data.rdeny || '');
+    const role = custom ? rname : cgEsc(data.urole || 'network-operator');
+    let c = '! ========================================\n! Arista EOS — Yerel Kullanıcı & Rol\n! ========================================\n\n';
+    if (custom && rname) {
+        c += 'role ' + rname + '\n';
+        if (rd) c += '   5 deny mode exec command ' + rd + '\n';
+        if (rp) c += '   10 permit mode ' + rmode + ' command ' + rp + '\n';
+        c += '!\n';
+    }
+    let l = 'username ' + u + ' privilege ' + priv;
+    if (role) l += ' role ' + role;
+    if (ptype === 'clear' && pass) l += ' secret 0 ' + pass;
+    else if (ptype === 'sha512' && pass) l += ' secret sha512 ' + pass;
+    else if (ptype === 'none') l += ' nopassword';
+    c += l + '\n';
+    if (key) c += 'username ' + u + ' ssh-key ' + key + '\n';
+    c += '!\n';
+    if (data.rbac) c += 'aaa authorization commands all default local\n!\n';
+    if (ptype === 'none' && !key) c += '! UYARI: Parolasız hesapta SSH anahtarı yok; bu kullanıcı giriş yapamaz.\n';
+    c += '\n! Doğrulama:\n! show users accounts\n! show users roles\n! show running-config section username\n';
+    return c;
+}
+
+// ── Arista: Sistem (Hostname, DNS, Banner) ───────────────────────────────────
+// Sözdizimi: https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/hostname.j2
+//            dns-domain.j2 (dns domain), ip-name-server.j2 (ip name-server vrf V ADDR),
+//            ip-domain-lookup.j2 (ip domain lookup [vrf V] source-interface IF), banners.j2 (banner login|motd ... EOF)
+Arista.system = {
+    label: 'Sistem (Hostname/DNS/Banner)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-id-card',
+                title: 'Arista EOS — Hostname, DNS ve Banner',
+                desc: 'Cihaz adı, DNS alan adı ve name-server\'lar, DNS sorgu kaynak arayüzü ile login/MOTD banner\'ları.'
+            },
+            sections: [
+                {
+                    title: 'Kimlik',
+                    icon: 'fas fa-tag',
+                    fields: [
+                        { name: 'hn', why: "Hostname prompt'ta, syslog'da ve SSH host anahtarı üretiminde kullanılır; <code>localhost</code> kalan cihazlarda log korelasyonu ve CloudVision eşleştirmesi bozulur.", label: 'Hostname', type: 'text', validate: 'hostname', required: true, placeholder: 'LEAF-SW1', hint: 'Harf, rakam, tire' },
+                        { name: 'dom', why: "Alan adı FQDN oluşturur ve kısa adların çözümlenmesinde eklenir; sertifika ve SSH known_hosts eşleşmeleri FQDN'e dayanır.", label: 'DNS Alan Adı', type: 'text', placeholder: 'example.net', hint: 'dns domain' }
+                    ]
+                },
+                {
+                    title: 'DNS Sunucuları',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'ns1', why: "DNS yoksa NTP/syslog/AAA sunucuları ad ile yazıldığında çözülemez ve servisler sessizce çalışmaz. İki sunucu verin; biri düşerse ikincisi kullanılır.", label: 'Name-Server 1', type: 'text', validate: 'ip', placeholder: '10.0.0.53', hint: 'Birincil DNS' },
+                        { name: 'ns2', why: "Tek DNS sunucusu tek hata noktasıdır; ikinci sunucu farklı bir lokasyonda olmalı.", label: 'Name-Server 2', type: 'text', validate: 'ip', placeholder: '10.0.1.53', hint: 'İkincil DNS' },
+                        { name: 'nsvrf', why: "DNS sunucusuna yönetim VRF'inden erişiliyorsa VRF doğru verilmeli; default VRF'te aranan sunucuya paket hiç ulaşmaz.", label: 'DNS VRF', type: 'text', placeholder: 'MGMT', hint: 'Boş = default' },
+                        { name: 'nssrc', why: "Kaynak arayüz sabitlenmezse DNS sorguları rotaya göre değişen IP'lerden çıkar; DNS sunucusundaki ACL bunları reddedebilir.", label: 'DNS Kaynak Arayüzü', type: 'text', validate: 'iface', placeholder: 'Management1', hint: 'ip domain lookup source-interface' }
+                    ]
+                },
+                {
+                    title: 'Banner',
+                    icon: 'fas fa-flag',
+                    info: 'Her satır olduğu gibi yazılır; EOS banner metnini <code>EOF</code> satırıyla bitirir, bu yüzden metin içinde tek başına <code>EOF</code> satırı olamaz (otomatik atılır).',
+                    fields: [
+                        { name: 'blogin', why: "Login banner yetkisiz erişim uyarısıdır; birçok hukuk sisteminde uyarı yoksa izinsiz girişin kovuşturulması zorlaşır. Banner'da cihaz modeli, sürüm veya kurum içi bilgi vermeyin.", label: 'Login Banner', type: 'textarea', rows: 4, placeholder: 'Yetkisiz erisim yasaktir.\nTum islemler kayit altindadir.', hint: 'Giriş öncesi gösterilir' },
+                        { name: 'bmotd', why: "MOTD girişten sonra gösterilir; bakım penceresi, sorumlu ekip gibi operasyonel notlar için uygundur.", label: 'MOTD Banner', type: 'textarea', rows: 3, placeholder: 'Bakim: her Pazar 02:00-04:00', hint: 'Giriş sonrası gösterilir' }
+                    ]
+                }
+            ],
+            submit: 'Sistem Ayarlarını Oluştur'
+        }, (data) => cgAristaSystemGen(data));
+    }
+};
+function cgAristaBannerBody(s) {
+    return String(s || '').split(/\r?\n/).map(l => l.replace(/\s+$/, '')).filter(l => l.trim() !== 'EOF');
+}
+function cgAristaSystemGen(data) {
+    const hn = cgEsc(data.hn || ''), dom = cgEsc(data.dom || '');
+    const ns = [cgEsc(data.ns1 || ''), cgEsc(data.ns2 || '')].filter(Boolean);
+    const vrf = cgEsc(data.nsvrf || ''), src = cgEsc(data.nssrc || '');
+    const bl = cgAristaBannerBody(cgEsc(data.blogin || '')), bm = cgAristaBannerBody(cgEsc(data.bmotd || ''));
+    let c = '! ========================================\n! Arista EOS — Hostname, DNS, Banner\n! ========================================\n\n';
+    c += 'hostname ' + hn + '\n';
+    if (dom) c += 'dns domain ' + dom + '\n';
+    ns.forEach(n => { c += 'ip name-server vrf ' + (vrf || 'default') + ' ' + n + '\n'; });
+    if (src) c += 'ip domain lookup' + (vrf ? ' vrf ' + vrf : '') + ' source-interface ' + src + '\n';
+    c += '!\n';
+    if (bl.some(l => l.trim())) c += 'banner login\n' + bl.join('\n') + '\nEOF\n!\n';
+    if (bm.some(l => l.trim())) c += 'banner motd\n' + bm.join('\n') + '\nEOF\n!\n';
+    c += '\n! Doğrulama:\n! show hostname\n! show ip name-server\n! show running-config section banner\n';
+    return c;
+}
+
+// ── Arista: SSH Sertleştirme ─────────────────────────────────────────────────
+// Sözdizimi: https://www.arista.com/en/um-eos/eos-session-management-commands (cipher/key-exchange/mac değer listeleri,
+//            idle-timeout 0-86400 dk, connection limit/per-host, authentication protocol)
+//            https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/management-ssh.j2
+Arista.sshharden = {
+    label: 'SSH Sertleştirme',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-terminal',
+                title: 'Arista EOS — SSH Sertleştirme',
+                desc: '<code>management ssh</code> altında boşta kalma zaman aşımı, bağlantı sınırları, kimlik doğrulama yöntemleri ve zayıf algoritmaların (CBC, SHA-1, group1) dışlanması.',
+                badge: { text: 'Güvenlik', cls: 'security' }
+            },
+            sections: [
+                {
+                    title: 'Oturum',
+                    icon: 'fas fa-clock',
+                    fields: [
+                        { name: 'idle', why: "Zaman aşımı yoksa açık bırakılan bir terminal günlerce yetkili oturum olarak kalır; 0 zaman aşımını kapatır.", label: 'Idle-timeout (dakika)', type: 'text', min: 0, max: 86400, required: true, placeholder: '15', hint: '0 = kapalı' },
+                        { name: 'climit', why: "Toplam oturum sınırı, brute-force veya kaçak script'lerin tüm VTY'leri doldurup meşru yöneticiyi dışarıda bırakmasını önler.", label: 'Connection Limit', type: 'text', min: 1, max: 100, placeholder: '10', hint: '1-100' },
+                        { name: 'phost', why: "Tek kaynaktan açılabilecek oturum sayısını sınırlamak, tek bir istemcinin tüm kapasiteyi tüketmesini engeller.", label: 'Connection Per-Host', type: 'text', min: 1, max: 20, placeholder: '3', hint: '1-20' },
+                        { name: 'authp', why: "Yalnız public-key izin vermek parola tahmini saldırılarını tamamen keser, ancak anahtarı olmayan yöneticiler (ve AAA parolası kullananlar) giremez.", label: 'Kimlik Doğrulama Yöntemleri', type: 'select', options: [
+                            { value: '', label: 'Değiştirme (EOS varsayılanı)', selected: true },
+                            { value: 'public-key password', label: 'public-key + password' },
+                            { value: 'public-key', label: 'Yalnız public-key' }
+                        ]}
+                    ]
+                },
+                {
+                    title: 'Algoritmalar',
+                    icon: 'fas fa-lock',
+                    warn: 'Sıkı algoritma listesi eski SSH istemcilerini (eski PuTTY, eski otomasyon kütüphaneleri) dışarıda bırakabilir. Değişiklikten önce ikinci bir oturum açık tutun.',
+                    fields: [
+                        { name: 'ciph', why: "CBC modlu şifreler ve arcfour/3des zayıf kabul edilir; CTR modlu AES tüm güncel istemcilerde desteklenir.", label: 'Cipher', type: 'select', options: [
+                            { value: '', label: 'Değiştirme (EOS varsayılanı)' },
+                            { value: 'aes256-ctr aes192-ctr aes128-ctr', label: 'Yalnız AES-CTR', selected: true }
+                        ]},
+                        { name: 'kex', why: "diffie-hellman-group1-sha1 ve SHA-1 tabanlı değişimler kırılabilir kabul edilir; eğri tabanlı ve group14/16-sha2 yöntemleri önerilir.", label: 'Key-Exchange', type: 'select', options: [
+                            { value: '', label: 'Değiştirme (EOS varsayılanı)' },
+                            { value: 'curve25519-sha256 ecdh-sha2-nistp384 ecdh-sha2-nistp256 diffie-hellman-group16-sha512 diffie-hellman-group14-sha256', label: 'Güçlü (curve25519, ECDH, DH14/16-SHA2)', selected: true }
+                        ]},
+                        { name: 'macs', why: "hmac-md5 ve hmac-sha1 bütünlük koruması için artık önerilmez; SHA-2 tabanlı MAC'ler yeterlidir.", label: 'MAC', type: 'select', options: [
+                            { value: '', label: 'Değiştirme (EOS varsayılanı)' },
+                            { value: 'hmac-sha2-512 hmac-sha2-256', label: 'Yalnız HMAC-SHA2', selected: true }
+                        ]}
+                    ]
+                }
+            ],
+            submit: 'SSH Ayarlarını Oluştur'
+        }, (data) => cgAristaSshHardenGen(data));
+    }
+};
+function cgAristaSshHardenGen(data) {
+    const idle = cgEsc(data.idle || ''), lim = cgEsc(data.climit || ''), ph = cgEsc(data.phost || '');
+    const authp = cgEsc(data.authp || ''), ciph = cgEsc(data.ciph || ''), kex = cgEsc(data.kex || ''), macs = cgEsc(data.macs || '');
+    let c = '! ========================================\n! Arista EOS — SSH Sertleştirme\n! ========================================\n\n';
+    c += '! UYARI: Uygulamadan önce ikinci bir SSH/konsol oturumu açık tutun.\n';
+    c += 'management ssh\n';
+    c += '   idle-timeout ' + idle + '\n';
+    if (authp) c += '   authentication protocol ' + authp + '\n';
+    if (ciph) c += '   cipher ' + ciph + '\n';
+    if (kex) c += '   key-exchange ' + kex + '\n';
+    if (macs) c += '   mac ' + macs + '\n';
+    if (lim) c += '   connection limit ' + lim + '\n';
+    if (ph) c += '   connection per-host ' + ph + '\n';
+    c += '!\n';
+    c += '\n! Doğrulama:\n! show management ssh\n! show running-config section management ssh\n';
+    return c;
+}
+
+// ── Arista: Management API (eAPI) ────────────────────────────────────────────
+// Sözdizimi: https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/management-api-http.j2
+//            https://www.arista.com/en/um-eos/eos-session-management-commands (protocol http|https, shutdown, vrf)
+Arista.eapi = {
+    label: 'Management API (eAPI)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-plug',
+                title: 'Arista EOS — Management API (eAPI)',
+                desc: 'JSON-RPC tabanlı eAPI\'yi yalnız HTTPS üzerinden açar (Ansible, AVD, CloudVision dışı otomasyon için) veya tamamen kapatır. Kaynak kısıtlaması için önce bir IP access-list tanımlayın (ACL / Management ACL aracı).'
+            },
+            configTypes: [
+                { id: 'on', label: 'Etkinleştir (HTTPS)', icon: 'fas fa-lock', desc: 'Yalnız HTTPS, isteğe bağlı VRF ve ACL', badge: { text: 'Güvenli', cls: 'security' } },
+                { id: 'off', label: 'Kapat', icon: 'fas fa-power-off', desc: 'eAPI kullanılmıyorsa saldırı yüzeyini kaldır' }
+            ],
+            sections: [
+                {
+                    title: 'eAPI',
+                    icon: 'fas fa-plug',
+                    showFor: ['on'],
+                    fields: [
+                        { name: 'avrf', why: "eAPI hangi VRF'te dinleyecekse orada <code>no shutdown</code> edilmeli; yönetim VRF'i kullanılıyorsa default VRF'te açmak API'yi veri düzlemine açar.", label: 'VRF', type: 'text', placeholder: 'MGMT', hint: 'Boş = default VRF' },
+                        { name: 'aacl', why: "ACL olmadan eAPI, VRF'e erişebilen herkese açıktır ve kimlik bilgisi deneme hedefi olur. ACL önceden <code>ip access-list</code> ile tanımlanmış olmalı.", label: 'IP Access-List (VRF altında)', type: 'text', requiredIf: { field: '_cgtype', in: ['on'] }, placeholder: 'MGMT-ACCESS', hint: 'Önceden tanımlı standart/genişletilmiş ACL adı' }
+                    ]
+                }
+            ],
+            submit: 'eAPI Konfigürasyonu Oluştur'
+        }, (data) => cgAristaEapiGen(data));
+    }
+};
+function cgAristaEapiGen(data) {
+    const ty = data._cgtype || 'on';
+    let c = '! ========================================\n! Arista EOS — Management API (eAPI)\n! ========================================\n\n';
+    if (ty === 'off') {
+        c += 'management api http-commands\n   shutdown\n!\n';
+        c += '\n! Doğrulama:\n! show management api http-commands\n';
+        return c;
+    }
+    const vrf = cgEsc(data.avrf || ''), acl = cgEsc(data.aacl || '');
+    c += 'management api http-commands\n';
+    c += '   protocol https\n';
+    c += '   no protocol http\n';
+    c += '   no shutdown\n';
+    c += '   !\n   vrf ' + (vrf || 'default') + '\n      no shutdown\n';
+    if (acl) c += '      ip access-group ' + acl + '\n';
+    c += '!\n';
+    if (!acl) c += '! UYARI: ACL verilmedi — eAPI bu VRF\'te her kaynaktan erişilebilir.\n';
+    c += '\n! Doğrulama:\n! show management api http-commands\n! show management http-server\n';
+    return c;
+}
+
+// ── Arista: Storm Control ────────────────────────────────────────────────────
+// Sözdizimi: https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/ethernet-interfaces.j2
+//            (storm-control broadcast|multicast|unknown-unicast|all level [pps] N; logging event storm-control discards)
+Arista.storm = {
+    label: 'Storm Control',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-bolt',
+                title: 'Arista EOS — Storm Control',
+                desc: 'Erişim portlarında broadcast, multicast ve bilinmeyen unicast trafiğine eşik koyar; bir döngü veya arızalı NIC\'in tüm VLAN\'ı çökertmesini sınırlar.'
+            },
+            configTypes: [
+                { id: 'pct', label: 'Yüzde (%)', icon: 'fas fa-percentage', desc: 'Port bant genişliğinin yüzdesi', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'pps', label: 'Paket/sn (pps)', icon: 'fas fa-tachometer-alt', desc: 'Mutlak paket hızı' }
+            ],
+            sections: [
+                {
+                    title: 'Arayüzler',
+                    icon: 'fas fa-ethernet',
+                    fields: [
+                        { name: 'sifs', why: "Storm control genellikle erişim (host) portlarına uygulanır; uplink veya MLAG peer-link'e düşük eşik koymak meşru yayın trafiğini (ARP, DHCP) keserek tüm segmenti etkiler.", label: 'Arayüzler', type: 'text', validate: 'iface_range', required: true, placeholder: 'Ethernet1-24', hint: 'Virgülle liste veya aralık' },
+                        { name: 'slog', why: "Discard log'u eşik aşıldığında syslog kaydı üretir; kapalıyken storm control sessizce paket düşürür ve arıza kaynağı bulunamaz.", label: 'Discard olaylarını logla', type: 'checkbox', checked: true, hint: 'logging event storm-control discards' }
+                    ]
+                },
+                {
+                    title: 'Eşikler (%)',
+                    icon: 'fas fa-percentage',
+                    showFor: ['pct'],
+                    fields: [
+                        { name: 'bc_pct', why: "Broadcast eşiği çok düşükse ARP/DHCP yoğun anlarda meşru trafik düşer; tipik erişim portu değeri %1-5'tir.", label: 'Broadcast', type: 'text', min: 1, max: 100, required: true, placeholder: '5', hint: 'Tam sayı yüzde' },
+                        { name: 'mc_pct', why: "Multicast eşiği IPTV/yayın akışı olan portlarda akışı kesebilir; bu portlarda boş bırakın veya yüksek tutun.", label: 'Multicast', type: 'text', min: 1, max: 100, placeholder: '10', hint: 'Boş = uygulanmaz' },
+                        { name: 'uu_pct', why: "Bilinmeyen unicast taşması MAC tablosu dolduğunda veya asimetrik yönlendirmede görülür; eşik bu flood'u sınırlar.", label: 'Unknown-Unicast', type: 'text', min: 1, max: 100, placeholder: '5', hint: 'Boş = uygulanmaz' }
+                    ]
+                },
+                {
+                    title: 'Eşikler (pps)',
+                    icon: 'fas fa-tachometer-alt',
+                    showFor: ['pps'],
+                    fields: [
+                        { name: 'bc_pps', why: "pps eşiği port hızından bağımsızdır; 1G ve 10G portlarda aynı koruma seviyesini verir. Çok düşük değer meşru ARP patlamalarını keser.", label: 'Broadcast (pps)', type: 'text', validate: 'posint', required: true, placeholder: '1000', hint: 'Saniyedeki paket' },
+                        { name: 'mc_pps', why: "Multicast akışları yüksek pps üretir; IPTV/yayın portlarında boş bırakın.", label: 'Multicast (pps)', type: 'text', validate: 'posint', placeholder: '5000', hint: 'Boş = uygulanmaz' },
+                        { name: 'uu_pps', why: "Bilinmeyen unicast flood'unu mutlak hızla sınırlar.", label: 'Unknown-Unicast (pps)', type: 'text', validate: 'posint', placeholder: '1000', hint: 'Boş = uygulanmaz' }
+                    ]
+                }
+            ],
+            submit: 'Storm Control Oluştur'
+        }, (data) => cgAristaStormGen(data));
+    }
+};
+function cgAristaStormGen(data) {
+    const pps = (data._cgtype || 'pct') === 'pps';
+    const unit = pps ? 'level pps ' : 'level ';
+    const bc = cgEsc((pps ? data.bc_pps : data.bc_pct) || ''), mc = cgEsc((pps ? data.mc_pps : data.mc_pct) || ''), uu = cgEsc((pps ? data.uu_pps : data.uu_pct) || '');
+    const ifs = cgAristaIfList(cgEsc(data.sifs || ''));
+    let c = '! ========================================\n! Arista EOS — Storm Control\n! ========================================\n\n';
+    ifs.forEach(i => {
+        c += 'interface ' + i + '\n';
+        if (bc) c += '   storm-control broadcast ' + unit + bc + '\n';
+        if (mc) c += '   storm-control multicast ' + unit + mc + '\n';
+        if (uu) c += '   storm-control unknown-unicast ' + unit + uu + '\n';
+        if (data.slog) c += '   logging event storm-control discards\n';
+        c += '!\n';
+    });
+    c += '\n! Doğrulama:\n! show storm-control\n';
+    return c;
+}
+
+// ── Arista: IGMP Snooping ────────────────────────────────────────────────────
+// Sözdizimi: https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/ip-igmp-snooping.j2
+Arista.igmpsnoop = {
+    label: 'IGMP Snooping',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-broadcast-tower',
+                title: 'Arista EOS — IGMP Snooping',
+                desc: 'VLAN bazında IGMP snooping, querier ve fast-leave. EOS\'ta IGMP snooping global olarak varsayılan açıktır; multicast router (PIM) olmayan L2 segmentlerde querier gerekir.'
+            },
+            sections: [
+                {
+                    title: 'VLAN',
+                    icon: 'fas fa-layer-group',
+                    fields: [
+                        { name: 'ivlan', why: "Snooping bu VLAN'da kapalıysa multicast akışlar broadcast gibi tüm portlara taşar; IPTV/kamera trafiği erişim portlarını doldurur.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1-4094' },
+                        { name: 'iquer', why: "Segmentte multicast router yoksa querier olmadan üyelik raporları yenilenmez; snooping tablosu zaman aşımıyla boşalır ve akışlar birkaç dakika sonra kesilir.", label: 'Querier', type: 'checkbox', checked: false, hint: 'Segmentte PIM router yoksa açın' },
+                        { name: 'iqaddr', why: "Querier sorgularının kaynak adresidir; VLAN subnet'inde kullanılmayan bir IP olmalı. Birden fazla querier varsa en düşük IP kazanır.", label: 'Querier Adresi', type: 'text', validate: 'ip', requiredIf: { field: 'iquer', checked: true }, placeholder: '10.100.0.2', hint: 'VLAN subnet\'inden' },
+                        { name: 'iqver', why: "Querier sürümü hostların IGMP sürümüyle uyumlu olmalı; SSM (kaynağa özgü) akışlar IGMPv3 gerektirir.", label: 'Querier Sürümü', type: 'select', options: [
+                            { value: '', label: 'Varsayılan — satır yazma', selected: true },
+                            { value: '2', label: '2' },
+                            { value: '3', label: '3' }
+                        ]},
+                        { name: 'ifl', why: "Fast-leave, leave mesajı gelir gelmez portu gruptan çıkarır; port başına tek alıcı varsa kanal değişimini hızlandırır, ancak aynı porta bağlı birden fazla alıcı varsa diğerlerinin akışını keser.", label: 'Fast-Leave', type: 'select', options: [
+                            { value: '', label: 'Varsayılan — satır yazma', selected: true },
+                            { value: 'on', label: 'Aç' },
+                            { value: 'off', label: 'Kapat' }
+                        ]},
+                        { name: 'imax', why: "Grup sınırı, tek bir VLAN'daki aşırı join isteklerinin snooping tablosunu doldurmasını önler.", label: 'Max Groups', type: 'text', validate: 'posint', placeholder: '256', hint: 'Boş = sınırsız' }
+                    ]
+                }
+            ],
+            submit: 'IGMP Snooping Oluştur'
+        }, (data) => cgAristaIgmpSnoopGen(data));
+    }
+};
+function cgAristaIgmpSnoopGen(data) {
+    const v = cgEsc(data.ivlan || ''), qa = cgEsc(data.iqaddr || ''), qv = cgEsc(data.iqver || ''), mx = cgEsc(data.imax || '');
+    let c = '! ========================================\n! Arista EOS — IGMP Snooping\n! ========================================\n\n';
+    c += 'ip igmp snooping vlan ' + v + '\n';
+    if (data.iquer) {
+        c += 'ip igmp snooping vlan ' + v + ' querier\n';
+        if (qa) c += 'ip igmp snooping vlan ' + v + ' querier address ' + qa + '\n';
+        if (qv) c += 'ip igmp snooping vlan ' + v + ' querier version ' + qv + '\n';
+    }
+    if (mx) c += 'ip igmp snooping vlan ' + v + ' max-groups ' + mx + '\n';
+    if (data.ifl === 'on') c += 'ip igmp snooping vlan ' + v + ' fast-leave\n';
+    if (data.ifl === 'off') c += 'no ip igmp snooping vlan ' + v + ' fast-leave\n';
+    c += '!\n';
+    c += '\n! Doğrulama:\n! show ip igmp snooping vlan ' + v + '\n! show ip igmp snooping groups vlan ' + v + '\n';
+    if (data.iquer) c += '! show ip igmp snooping querier\n';
+    return c;
+}
+
+// ── Arista: Event Handler ────────────────────────────────────────────────────
+// Sözdizimi: https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/event-handlers.j2
+//            (event-handler NAME / trigger on-intf IF operstatus | trigger on-logging + regex / action bash CMD | action log / delay N)
+Arista.eventhandler = {
+    label: 'Event Handler',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-bolt',
+                title: 'Arista EOS — Event Handler',
+                desc: 'Bir arayüzün durum değişiminde veya belirli bir syslog mesajında otomatik eylem (bash komutu veya log) çalıştırır. Yalnız basit tek satırlık eylemler desteklenir.'
+            },
+            configTypes: [
+                { id: 'intf', label: 'Arayüz Durumu', icon: 'fas fa-ethernet', desc: 'trigger on-intf ... operstatus', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'log', label: 'Syslog Mesajı', icon: 'fas fa-file-alt', desc: 'trigger on-logging + regex' }
+            ],
+            sections: [
+                {
+                    title: 'Handler',
+                    icon: 'fas fa-bolt',
+                    fields: [
+                        { name: 'ehname', why: "Handler adı <code>show event-handler</code> çıktısında görünür; aynı adla ikinci tanım öncekini ezer.", label: 'Handler Adı', type: 'text', required: true, placeholder: 'UPLINK-WATCH', hint: 'Boşluksuz' }
+                    ]
+                },
+                {
+                    title: 'Tetikleyici: Arayüz',
+                    icon: 'fas fa-ethernet',
+                    showFor: ['intf'],
+                    fields: [
+                        { name: 'ehif', why: "Tetikleyici yalnız bu arayüzün operasyonel durum (up/down) değişiminde çalışır; flap eden bir portta eylem art arda tetiklenir, delay bu yüzden önemlidir.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Ethernet49', hint: 'İzlenecek arayüz' }
+                    ]
+                },
+                {
+                    title: 'Tetikleyici: Syslog',
+                    icon: 'fas fa-file-alt',
+                    showFor: ['log'],
+                    fields: [
+                        { name: 'ehregex', why: "Regex çok genişse (ör. <code>.*</code>) her log satırı eylemi tetikler ve CPU'yu yorar; özgün bir mesaj anahtarı kullanın.", label: 'Log Regex', type: 'text', required: true, placeholder: 'LINEPROTO-5-UPDOWN', hint: 'Eşleşecek syslog kalıbı' },
+                        { name: 'ehpoll', why: "Yoklama aralığı log'un ne sıklıkla taranacağıdır; kısa aralık tepkiyi hızlandırır ama CPU kullanımını artırır.", label: 'Poll Interval (sn)', type: 'text', validate: 'posint', placeholder: '10', hint: 'Boş = EOS varsayılanı' }
+                    ]
+                },
+                {
+                    title: 'Eylem',
+                    icon: 'fas fa-play',
+                    fields: [
+                        { name: 'ehact', why: "Bash eylemi root yetkisiyle çalışır; hatalı bir komut (ör. arayüz kapatma) tetikleyiciyle döngüye girip cihazı erişilemez yapabilir. Önce <code>action log</code> ile deneyin.", label: 'Eylem', type: 'select', options: [
+                            { value: 'log', label: 'action log (yalnız kaydet)', selected: true },
+                            { value: 'bash', label: 'action bash (komut çalıştır)' }
+                        ]},
+                        { name: 'ehcmd', why: "Komut tek satır olmalıdır; EOS CLI komutu çalıştırmak için <code>FastCli -p 15 -c '...'</code> kalıbı kullanılır. Komutu önce elle test edin.", label: 'Bash Komutu', type: 'text', requiredIf: { field: 'ehact', in: ['bash'] }, placeholder: 'logger -t EVH uplink-degisti', hint: 'Tek satır' },
+                        { name: 'ehdelay', why: "Gecikme, tetikleyiciden sonra eylemin kaç saniye bekleyeceğidir; flap eden bir arayüzde eylemin art arda çalışmasını önler.", label: 'Delay (sn)', type: 'text', min: 0, max: 3600, placeholder: '10', hint: 'Boş = EOS varsayılanı' }
+                    ]
+                }
+            ],
+            submit: 'Event Handler Oluştur'
+        }, (data) => cgAristaEventHandlerGen(data));
+    }
+};
+function cgAristaEventHandlerGen(data) {
+    const ty = data._cgtype || 'intf';
+    const n = cgEsc(data.ehname || ''), iface = cgEsc(data.ehif || ''), rx = cgEsc(data.ehregex || ''), poll = cgEsc(data.ehpoll || '');
+    const act = data.ehact || 'log', cmd = cgEsc(data.ehcmd || ''), delay = cgEsc(data.ehdelay || '');
+    let c = '! ========================================\n! Arista EOS — Event Handler\n! ========================================\n\n';
+    c += 'event-handler ' + n + '\n';
+    if (act === 'log') c += '   action log\n';
+    if (ty === 'log') {
+        c += '   trigger on-logging\n';
+        if (poll) c += '      poll interval ' + poll + '\n';
+        c += '      regex ' + rx + '\n';
+    } else {
+        c += '   trigger on-intf ' + iface + ' operstatus\n';
+    }
+    if (act === 'bash' && cmd) c += '   action bash ' + cmd + '\n';
+    if (delay) c += '   delay ' + delay + '\n';
+    c += '!\n';
+    c += '\n! Doğrulama:\n! show event-handler ' + n + '\n';
     return c;
 }

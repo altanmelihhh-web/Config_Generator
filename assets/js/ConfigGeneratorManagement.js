@@ -26,6 +26,20 @@ function cgHwVlanList(s) {
         .map(p => p.replace(/^(\d+)-(\d+)$/, '$1 to $2')).join(' ');
 }
 
+// Arayuz listesi/araligini tek tek arayuzlere acar: 'Gi0/0/1-3, Gi0/0/8' ->
+// ['Gi0/0/1','Gi0/0/2','Gi0/0/3','Gi0/0/8']. Aralik soz dizimi olmayan platformlarda
+// (Huawei VRP 'interface X' tek arayuz ister) kullanilir. 'Gi0/0/1-0/0/3' bicimi de desteklenir.
+function cgExpandIfList(s) {
+    const out = [];
+    String(s || '').split(/[,\s]+/).filter(Boolean).forEach(p => {
+        const m = p.match(/^(.*?)(\d+)-(?:[\d/.:]*?[/:.])?(\d+)$/);
+        if (m && /\D$/.test(m[1]) && +m[3] >= +m[2] && +m[3] - +m[2] < 256) {
+            for (let i = +m[2]; i <= +m[3]; i++) out.push(m[1] + i);
+        } else out.push(p);
+    });
+    return out;
+}
+
 const CG_VALIDATORS = {
     ip:       { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli bir IPv4 adresi girin (örn: 10.0.0.1)' },
     cidr:     { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/, msg: 'CIDR formatında girin (örn: 10.0.0.0/24)' },
@@ -1183,6 +1197,16 @@ const CG_REGISTRY = {
             { id: 'routepolicy', cat: 'routing', label: 'Route Policy',         gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.routepolicy },
             { id: 'ipsec',       cat: 'vpn', label: 'IPSec VPN IKEv2',      gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.ipsec },
             { id: 'ipv6',        cat: 'iface', label: 'IPv6 Interface',       gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.ipv6 },
+            { id: 'syslog', cat: 'mgmt', label: 'Syslog (info-center)', gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.syslog },
+            { id: 'lldp', cat: 'mgmt', label: 'LLDP', gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.lldp },
+            { id: 'staticroute', cat: 'routing', label: 'Static Route', gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.staticroute },
+            { id: 'vrrp', cat: 'ha', label: 'VRRP', gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.vrrp },
+            { id: 'mirror', cat: 'mgmt', label: 'Port Mirroring', gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.mirror },
+            { id: 'storm', cat: 'l2', label: 'Storm Control', gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.storm },
+            { id: 'vty', cat: 'aaa', label: 'VTY / Yönetim Erişimi', gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.vty },
+            { id: 'stack', cat: 'ha', label: 'iStack', gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.stack },
+            { id: 'igmpsnoop', cat: 'l2', label: 'IGMP Snooping', gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.igmpsnoop },
+            { id: 'stpguard', cat: 'l2', label: 'STP Port Koruması', gen: () => typeof HuaweiVRP !== 'undefined' && HuaweiVRP.stpguard },
         ]
     },
     'juniper': {
@@ -1277,6 +1301,19 @@ const CG_REGISTRY = {
             { id: 'mgmtacl',     cat: 'aaa', label: 'Management ACL',         gen: () => typeof Arista !== 'undefined' && Arista.mgmtacl },
             { id: 'ntp',         cat: 'mgmt', label: 'NTP',                    gen: () => typeof Arista !== 'undefined' && Arista.ntp },
             { id: 'logging',     cat: 'mgmt', label: 'Logging / Syslog',       gen: () => typeof Arista !== 'undefined' && Arista.logging },
+            { id: 'staticroute', cat: 'routing', label: 'Static Route', gen: () => typeof Arista !== 'undefined' && Arista.staticroute },
+            { id: 'lldp', cat: 'l2', label: 'LLDP', gen: () => typeof Arista !== 'undefined' && Arista.lldp },
+            { id: 'vrrp', cat: 'ha', label: 'VRRP / VARP', gen: () => typeof Arista !== 'undefined' && Arista.vrrp },
+            { id: 'monitor', cat: 'mgmt', label: 'Port Mirroring (SPAN)', gen: () => typeof Arista !== 'undefined' && Arista.monitor },
+            { id: 'sflow', cat: 'mgmt', label: 'sFlow', gen: () => typeof Arista !== 'undefined' && Arista.sflow },
+            { id: 'vrf', cat: 'routing', label: 'VRF', gen: () => typeof Arista !== 'undefined' && Arista.vrf },
+            { id: 'localuser', cat: 'aaa', label: 'Yerel Kullanıcı & Rol', gen: () => typeof Arista !== 'undefined' && Arista.localuser },
+            { id: 'system', cat: 'base', label: 'Sistem (Hostname/DNS/Banner)', gen: () => typeof Arista !== 'undefined' && Arista.system },
+            { id: 'sshharden', cat: 'mgmt', label: 'SSH Sertleştirme', gen: () => typeof Arista !== 'undefined' && Arista.sshharden },
+            { id: 'eapi', cat: 'mgmt', label: 'Management API (eAPI)', gen: () => typeof Arista !== 'undefined' && Arista.eapi },
+            { id: 'storm', cat: 'l2', label: 'Storm Control', gen: () => typeof Arista !== 'undefined' && Arista.storm },
+            { id: 'igmpsnoop', cat: 'l2', label: 'IGMP Snooping', gen: () => typeof Arista !== 'undefined' && Arista.igmpsnoop },
+            { id: 'eventhandler', cat: 'mgmt', label: 'Event Handler', gen: () => typeof Arista !== 'undefined' && Arista.eventhandler },
         ]
     },
     'mikrotik': {
@@ -1477,6 +1514,15 @@ const CG_REGISTRY = {
             { id: 'snmpntp',     cat: 'mgmt', label: 'SNMP + NTP',           gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.snmpntp },
             { id: 'evpnsymirb',  cat: 'overlay', label: 'EVPN Symmetric IRB',   gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.evpnsymirb },
             { id: 'routepolicy', cat: 'routing', label: 'Route Policy',         gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.routepolicy },
+            { id: 'staticroute', cat: 'routing', label: 'Static Route', gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.staticroute },
+            { id: 'syslog', cat: 'mgmt', label: 'Syslog (info-center)', gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.syslog },
+            { id: 'lldp', cat: 'mgmt', label: 'LLDP', gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.lldp },
+            { id: 'vrrp', cat: 'ha', label: 'VRRP', gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.vrrp },
+            { id: 'localuser', cat: 'aaa', label: 'Local User + SSH', gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.localuser },
+            { id: 'acl', cat: 'secpol', label: 'ACL', gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.acl },
+            { id: 'stp', cat: 'l2', label: 'STP / Edge Port', gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.stp },
+            { id: 'interface', cat: 'iface', label: 'Interface (L2/L3)', gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.interface },
+            { id: 'mirror', cat: 'mgmt', label: 'Port Mirroring', gen: () => typeof HuaweiCE !== 'undefined' && HuaweiCE.mirror },
         ]
     },
     'referans': {

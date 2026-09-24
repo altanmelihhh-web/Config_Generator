@@ -19,6 +19,7 @@ CiscoIOS.vlan = {
             configTypes: [
                 { id: 'basic', label: 'Tek Port VLAN', icon: 'fas fa-ethernet', desc: 'Tek interface\'e VLAN ata — access veya trunk modu', badge: { text: 'En Yaygın', cls: 'recommended' } },
                 { id: 'batch', label: 'Toplu VLAN', icon: 'fas fa-layer-group', desc: 'Birden fazla VLAN\'ı tek seferde oluştur', badge: { text: 'Toplu', cls: 'common' } },
+                { id: 'unused', label: 'Kullanılmayan Portlar', icon: 'fas fa-power-off', desc: 'Boştaki portları park VLAN\'ına al ve kapat', badge: { text: 'Güvenlik', cls: 'security' } },
                 { id: 'svi', label: 'SVI Arayüzü', icon: 'fas fa-sitemap', desc: 'Layer-3 VLAN arayüzü — inter-VLAN routing', badge: { text: 'Gelişmiş', cls: 'advanced' } }
             ],
             sections: [
@@ -33,12 +34,15 @@ CiscoIOS.vlan = {
                     title: 'Interface Ayarları', icon: 'fas fa-plug', showFor: ['basic'],
                     fields: [
                         { name: 'interface', why: 'Access port tek VLAN taşır. <code>switchport mode access</code> açıkça yazılmazsa port DTP ile kendiliğinden trunk olabilir — güvenlik riski.', label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/1', hint: 'VLAN\'ın atanacağı fiziksel port. Gi0/1 kısa gösterimi de kullanılabilir.', tooltip: 'GigabitEthernet0/1, FastEthernet0/1 veya kısa gösterim Gi0/1 kullanılabilir.' },
+                        { name: 'port_desc', why: 'Açıklamasız port, arıza anında hangi cihazın bağlı olduğunu kablo takibi yapmadan bilmeyi imkânsız kılar.', label: 'Port Açıklaması', type: 'text', placeholder: 'PC-Muhasebe-01', hint: 'description — boş = yazılmaz' },
                         { name: 'sw_mode', label: 'Switchport Mode', type: 'select', options: [
                             { value: 'access', label: 'Access — Tek VLAN (son kullanıcı portu)', selected: true },
                             { value: 'trunk', label: 'Trunk — Çoklu VLAN (switch/router arası)' }
                         ], hint: 'Access: bilgisayar/yazıcı gibi son cihazlar. Trunk: iki switch veya switch-router arası bağlantı.' },
                         { name: 'access_vlan', why: 'Porttan gelen etiketsiz trafik bu VLAN\'a ait sayılır.', label: 'Access VLAN', type: 'text', validate: 'vlan', requiredIf: { field: 'sw_mode', in: ['access'] }, placeholder: '10', hint: 'Yalnızca Access modunda kullanılır' },
+                        { name: 'voice_vlan', why: 'IP telefon ses trafiğini ayrı VLAN\'da etiketli taşır, PC aynı portta data VLAN\'ında kalır. QoS ve güvenlik ayrımı bu sayede yapılır.', label: 'Voice VLAN', type: 'text', validate: 'vlan', placeholder: '20', hint: 'Yalnız Access modunda — IP telefon portları için' },
                         { name: 'allowed_vlans', why: 'Boş bırakılırsa trunk tüm VLAN\'ları taşır. Daraltmak hem broadcast\'i hem saldırı yüzeyini azaltır.', label: 'Allowed VLANs', type: 'text', validate: 'vlan_list', placeholder: '10,20,30-40', hint: 'Yalnızca Trunk modunda kullanılır — boş = tüm VLAN\'lar' },
+                        { name: 'nonegotiate', why: 'DTP pazarlığını kapatır; karşı uçtaki bir cihazın portu kendiliğinden trunk\'a çevirmesini (VLAN hopping) engeller.', label: 'switchport nonegotiate (yalnızca Trunk)', type: 'checkbox' },
                         { name: 'portfast', label: 'PortFast etkinleştir (yalnızca Access)', type: 'checkbox', tooltip: 'STP bekleme süresini atlayarak portu hızlı aktif eder. SADECE son kullanıcı portlarında kullanın — switch-switch bağlantısında döngüye neden olur.' },
                         { name: 'save_config', label: 'write memory ekle (konfigürasyonu NVRAM\'e kalıcı kaydet)', type: 'checkbox', checked: true }
                     ]
@@ -49,6 +53,15 @@ CiscoIOS.vlan = {
                     fields: [
                         { name: 'batch_vlans', label: 'VLAN ID Listesi', type: 'text', validate: 'vlan_list', required: true, placeholder: '10,20,30-40,100', hint: 'Her ID ayrı bir vlan bloğu olarak yazılır' },
                         { name: 'batch_prefix', label: 'İsim Öneki', type: 'text', placeholder: 'DATA_VLAN_', hint: 'VLAN ID otomatik eklenir: DATA_VLAN_10, DATA_VLAN_20...' }
+                    ]
+                },
+                {
+                    title: 'Kullanılmayan Portlar', icon: 'fas fa-power-off', showFor: ['unused'],
+                    info: 'Boştaki portlar kapalı ve kullanılmayan bir "park" VLAN\'ında tutulur; biri kablo taksa bile ağa erişemez.',
+                    fields: [
+                        { name: 'unused_ports', label: 'Portlar', type: 'text', validate: 'iface_range', required: true, placeholder: 'GigabitEthernet1/0/40-48', hint: 'Aralık veya virgülle liste' },
+                        { name: 'park_vlan', why: 'Park VLAN\'ının hiçbir trunk\'ta izinli olmaması ve SVI\'sinin olmaması gerekir.', label: 'Park VLAN', type: 'text', validate: 'vlan', placeholder: '999', hint: 'Boş = VLAN ataması yapılmaz, yalnız kapatılır' },
+                        { name: 'unused_desc', label: 'Açıklama', type: 'text', placeholder: 'KULLANILMIYOR', hint: 'description' }
                     ]
                 },
                 {
@@ -76,13 +89,16 @@ function cgVlanGenerate(data) {
         config += 'vlan ' + vlanId + '\n';
         if (vlanName) config += ' name ' + vlanName.replace(/\s+/g,'_') + '\n';
         config += '!\ninterface ' + iface + '\n';
+        if (fv('port_desc')) config += ' description ' + fv('port_desc') + '\n';
         if (mode === 'access') {
             config += ' switchport mode access\n switchport access vlan ' + fv('access_vlan') + '\n';
+            if (fv('voice_vlan')) config += ' switchport voice vlan ' + fv('voice_vlan') + '\n';
             if (data.portfast) config += ' spanning-tree portfast\n';
         } else {
             const allowed = fv('allowed_vlans');
             config += ' switchport mode trunk\n switchport trunk encapsulation dot1q\n';
             if (allowed) config += ' switchport trunk allowed vlan ' + allowed + '\n';
+            if (data.nonegotiate) config += ' switchport nonegotiate\n';
             config += '! Not: native VLAN 1 güvenlik riski — trunk\'ta farklı bir native VLAN kullanın.\n';
         }
         config += ' no shutdown\n!\n';
@@ -97,6 +113,14 @@ function cgVlanGenerate(data) {
             else config += 'vlan ' + p + '\n' + (prefix ? ' name ' + prefix + p + '\n' : '') + '!\n';
         });
         config += '\n! Doğrulama: show vlan brief\n';
+    } else if (type === 'unused') {
+        // 'Gi1/0/40-48, Gi1/0/50' -> interface range 'Gi1/0/40 - 48 , Gi1/0/50'
+        const rng = fv('unused_ports').split(/[,\s]+/).filter(Boolean).map(p => p.replace(/^(.*\D)(\d+)-(\d+)$/, '$1$2 - $3')).join(' , ');
+        config += 'interface range ' + rng + '\n';
+        if (fv('unused_desc')) config += ' description ' + fv('unused_desc') + '\n';
+        if (fv('park_vlan')) config += ' switchport mode access\n switchport access vlan ' + fv('park_vlan') + '\n';
+        config += ' shutdown\n!\n';
+        config += '\n! Doğrulama:\n! show interfaces status disabled\n';
     } else if (type === 'svi') {
         const sviId = fv('svi_vlan'), sviIp = fv('svi_ip'), sviMask = fv('svi_mask'), sviDesc = fv('svi_desc');
         // Aynı VLAN/SVI kuralı Dönüştürücü sekmesiyle paylaşılıyor (bkz. ConfigConverter_IR.js ccBuildCiscoVlanBlock)
@@ -363,7 +387,7 @@ CiscoIOS.ospf = {
                         { name: 'pid', why: 'Process ID <b>yereldir</b>, komşuyla aynı olmak zorunda değildir. Area numarası ve alan tipi ise eşleşmelidir.', label: 'Process ID', type: 'number', required: true, value: '1', min: 1, max: 65535, hint: 'Lokal anlamlı — farklı router\'larda aynı olmak zorunda değil' },
                         { name: 'rid', why: "Router ID benzersiz olmalı; genelde Loopback IP verilir çünkü Loopback hiç 'down' olmaz. Değiştirmek OSPF sürecinin yeniden başlamasını gerektirir.", label: 'Router ID', type: 'text', validate: 'ip', placeholder: '1.1.1.1', hint: 'Opsiyonel — boş bırakılırsa en yüksek IP otomatik seçilir', optional: true },
                         { name: 'net', why: "OSPF <code>network</code> komutu hangi <b>arayüzlerin</b> OSPF'e katılacağını seçer, hangi ağın duyurulacağını değil. Ayrıca wildcard maske ister; normal maske yazmak komutu kabul ettirir ama arayüz sürece dahil olmaz.", label: 'Network', type: 'text', required: true, validate: 'ip', placeholder: '192.168.0.0', hint: 'OSPF\'e dahil edilecek ağ adresi' },
-                        { name: 'wild', why: "OSPF network komutu da wildcard maske alır. <code>0.0.0.0 255.255.255.255</code> tüm arayüzleri dahil eder — istemeden WAN'da OSPF konuşmaya başlayabilirsin.", label: 'Wildcard Mask', type: 'text', placeholder: '0.0.0.255', hint: 'Boş bırakılırsa 0.0.0.255 kullanılır' },
+                        { name: 'wild', why: "OSPF network komutu da wildcard maske alır. <code>0.0.0.0 255.255.255.255</code> tüm arayüzleri dahil eder — istemeden WAN'da OSPF konuşmaya başlayabilirsin.", label: 'Wildcard Mask', type: 'text', required: true, validate: 'wildcard', placeholder: '0.0.0.255', hint: 'OSPF\'e katılacak ağın wildcard maskesi (/24 = 0.0.0.255)' },
                         { name: 'area', why: "Backbone alanı <code>0</code>'dır ve diğer tüm alanlar ona bitişik olmalıdır. Komşular arasında alan numarası eşleşmezse komşuluk kurulmaz.", label: 'Area', type: 'text', value: '0', hint: 'Backbone için 0, diğer area\'lar için 1, 2... vb.' },
                         { name: 'passive', why: 'Passive interface, o arayüzden OSPF <b>hello</b> göndermeyi durdurur ama ağı yine duyurur. LAN ve WAN arayüzlerinde güvenlik için açılmalıdır.', label: 'Passive Interface', type: 'text', placeholder: 'GigabitEthernet0/1 (boş = yok)', hint: 'Son kullanıcıya bağlı portlarda OSPF hello göndermemek için', optional: true }
                     ]
@@ -374,7 +398,7 @@ CiscoIOS.ospf = {
             const pid     = data.pid || '1';
             const rid     = data.rid;
             const net     = data.net;
-            const wild    = data.wild || '0.0.0.255';
+            const wild    = data.wild;
             const area    = data.area || '0';
             const passive = data.passive;
             let config = '! ========================================\n! Cisco IOS OSPF Configuration\n! ========================================\n\n';
@@ -539,13 +563,13 @@ CiscoIOS.ipsec = {
             const localNet = fv('local_net'),  localMask = fv('local_mask');
             const remoteIP = fv('remote_ip'), remoteNet = fv('remote_net'), remoteMask = fv('remote_mask');
             const psk      = fv('psk');
-            const p1Life   = fv('p1_life') || '86400';
+            const p1Life   = fv('p1_life');
             const p1Enc    = fv('p1_enc')  || 'aes256';
             const p1Hash   = fv('p1_hash') || 'sha256';
             const p1DH     = fv('p1_dh')   || '19';
             const tsName   = fv('ts_name') || 'TS-IPSEC';
             const ipsecMode= fv('ipsec_mode') || 'tunnel';
-            const p2Life   = fv('p2_life') || '3600';
+            const p2Life   = fv('p2_life');
             const p2Enc    = fv('p2_enc')  || 'esp-aes256';
             const p2Hash   = fv('p2_hash') || 'esp-sha256-hmac';
             const pfsBool  = cb('pfs');
@@ -569,7 +593,7 @@ CiscoIOS.ipsec = {
                 let c = '! ── IPSec Transform Set ──────────────────────────────────\n';
                 c += `crypto ipsec transform-set ${tsName} ${esp2Enc[p2Enc] || 'esp-aes 256'} ${p2Hash}\n`;
                 c += ` mode ${ipsecMode}\nexit\n\n`;
-                c += `crypto ipsec security-association lifetime seconds ${p2Life}\n`;
+                if (p2Life) c += `crypto ipsec security-association lifetime seconds ${p2Life}\n`;
                 c += `crypto ipsec security-association lifetime kilobytes 536870912\n\n`;
                 return c;
             };
@@ -578,7 +602,7 @@ CiscoIOS.ipsec = {
                 let c = '! ── IKE Phase 1 (IKEv1) ─────────────────────────────────\n';
                 c += `crypto isakmp enable\ncrypto isakmp policy 10\n`;
                 c += ` encr ${encMapV1[p1Enc] || 'aes 256'}\n`;
-                c += ` hash ${p1Hash}\n authentication pre-share\n group ${p1DH}\n lifetime ${p1Life}\nexit\n\n`;
+                c += ` hash ${p1Hash}\n authentication pre-share\n group ${p1DH}\n` + (p1Life ? ` lifetime ${p1Life}\n` : '') + `exit\n\n`;
                 if (dpdBool) c += `crypto isakmp keepalive 10 3\n\n`;
                 if (nattBool) c += `crypto isakmp nat keepalive 20\n\n`;
                 return c;
@@ -772,6 +796,7 @@ CiscoIOS.snmp = {
                     showFor: ['v3'],
                     fields: [
                         { name: 'v3_group', why: "SNMPv3 grubu, yetki seviyesini belirler. <code>priv</code> hem kimlik doğrulama hem şifreleme ister — v1/v2c'den tek gerçek güvenlik farkı budur.", label: 'Grup Adı', type: 'text', required: true, placeholder: 'SNMPV3_GROUP', hint: 'SNMPv3 erişim grubu adı' },
+                        { name: 'v3_view', why: 'View tanımlanmazsa grup varsayılan görünümü kullanır; <code>iso included</code> tüm MIB ağacını açar, daraltmak için alt OID ekleyin.', label: 'Okuma View Adı', type: 'text', placeholder: 'ALL-VIEW', hint: 'snmp-server view <ad> iso included — boş = view yazılmaz' },
                         { name: 'v3_user', why: "SNMPv3 kullanıcısı bir gruba bağlıdır; grup tanımlanmadan kullanıcı yazmak sessizce işe yaramaz. Kullanıcıyı değiştirmek için çoğu IOS sürümünde silip yeniden oluşturman gerekir.", label: 'Kullanıcı', type: 'text', required: true, placeholder: 'snmpuser', hint: 'SNMPv3 kullanıcı adı' },
                         { name: 'v3_auth', why: 'Auth şifresi en az 8 karakter olmalı. <code>md5</code> zayıftır, <code>sha</code> tercih edilmelidir.', label: 'Auth Şifre', type: 'text', required: true, placeholder: 'AuthPassword123', hint: 'SHA algoritması ile kimlik doğrulama şifresi (min 8 karakter)' },
                         { name: 'v3_priv', why: 'Şifreleme olmadan (authNoPriv) SNMP verisi ağda <b>açık</b> geçer; cihaz envanteri ve arayüz bilgileri dinlenebilir.', label: 'Priv Şifre', type: 'text', required: true, placeholder: 'PrivPassword123', hint: 'AES-256 ile şifreleme anahtarı (min 8 karakter)' }
@@ -809,7 +834,8 @@ CiscoIOS.snmp = {
             const ver = data._cgtype;
             let c = '! ========================================\n! Cisco IOS SNMP Configuration\n! ========================================\n\n';
             if (ver === 'v3') {
-                c += 'snmp-server group ' + data.v3_group + ' v3 priv\n';
+                if (data.v3_view) c += 'snmp-server view ' + cgEsc(data.v3_view) + ' iso included\n';
+                c += 'snmp-server group ' + data.v3_group + ' v3 priv' + (data.v3_view ? ' read ' + cgEsc(data.v3_view) : '') + '\n';
                 c += 'snmp-server user ' + data.v3_user + ' ' + data.v3_group + ' v3 auth sha ' + data.v3_auth + ' priv aes 256 ' + data.v3_priv + '\n';
                 if (data.contact) c += 'snmp-server contact ' + data.contact + '\n';
                 if (data.location) c += 'snmp-server location ' + data.location + '\n';
@@ -874,6 +900,7 @@ CiscoIOS.aaa = {
                     title: 'Line Yapılandırması',
                     icon: 'fas fa-terminal',
                     fields: [
+                        { name: 'sess_id', why: 'Kimlik doğrulama, yetkilendirme ve accounting kayıtlarının aynı oturum numarasını taşımasını sağlar; SIEM\'de bir oturumun tüm adımları eşlenebilir.', label: 'aaa session-id common', type: 'checkbox', checked: true },
                         { name: 'vty_range', why: "Genelde <code>0 4</code> (5 eşzamanlı oturum) ya da <code>0 15</code>. Yalnızca <code>0 4</code>'ü yapılandırıp 5-15'i unutmak, o hatlardan <b>korumasız</b> erişim bırakır.", label: 'VTY Line Aralığı', type: 'text', value: '0 15', hint: 'Genelde "0 15" — tüm VTY satırları' }
                     ]
                 }
@@ -886,7 +913,7 @@ CiscoIOS.aaa = {
             const useRadius = method.includes('radius');
             const fallback = method.endsWith('_only') ? '' : ' local';
             const grp = useTacacs ? 'tacacs+' : (useRadius ? 'radius' : '');
-            let c = '! ========================================\n! Cisco IOS AAA Configuration\n! ========================================\n\naaa new-model\n!\n';
+            let c = '! ========================================\n! Cisco IOS AAA Configuration\n! ========================================\n\naaa new-model\n' + (data.sess_id ? 'aaa session-id common\n' : '') + '!\n';
             if (useTacacs) {
                 c += 'tacacs server PRIMARY\n address ipv4 ' + data.tacacs_ip + '\n key ' + data.tacacs_key + '\nexit\n!\n';
             }
@@ -962,7 +989,7 @@ CiscoIOS.tacacs = {
             if (data.local_user && data.local_pass) c += '!\nusername ' + data.local_user + ' privilege 15 secret ' + data.local_pass + '\n';
             c += '!\nline vty 0 15\n login authentication default\n authorization exec default\n transport input ssh\nexit\n';
             if (data.login_protect === true) c += '!\nlogin block-for 300 attempts 5 within 120\n';
-            c += '!\n! Doğrulama: show aaa servers | test aaa group ' + data.grp_name + ' ' + (data.local_user || 'admin') + ' <pass> legacy\n';
+            c += '!\n! Doğrulama: show aaa servers | test aaa group ' + data.grp_name + ' ' + (data.local_user || '<kullanici>') + ' <parola> legacy\n';
             return c;
         });
     }
@@ -971,56 +998,82 @@ CiscoIOS.tacacs = {
 // ── SSH ───────────────────────────────────────────────────────────────────────
 CiscoIOS.ssh = {
     label: 'SSH',
+    // Sözdizimi: canlı config — ip domain name (16) / ip domain-name (6), ip ssh time-out (18),
+    // authentication-retries (18), server algorithm encryption/mac/kex (11), dh min size (3), vty access-class (11)
     init(container) {
         cgFormBuilder(container, {
-            topic: {
-                icon: 'fas fa-terminal',
-                title: 'SSH — Secure Shell',
-                desc: 'Secure Shell — şifreli uzaktan yönetim. Telnet\'in güvenli alternatifi. RSA anahtar üretimi ve VTY line konfigürasyonu gerektirir.'
-            },
+            topic: { icon: 'fas fa-terminal', title: 'SSH — Güvenli Uzak Erişim', desc: 'RSA anahtarı üretir, SSHv2\'yi zorunlu kılar, VTY hatlarını yalnız SSH\'e açar. Algoritma listesi ve yönetim ACL\'i ile eski/zayıf şifreleme ve yetkisiz kaynaklar dışarıda tutulur.' },
             sections: [
                 {
-                    title: 'Cihaz Kimliği',
-                    icon: 'fas fa-id-badge',
-                    info: 'RSA anahtar üretimi için hostname ve domain name zorunludur.',
+                    title: 'Kimlik', icon: 'fas fa-id-card',
                     fields: [
-                        { name: 'hostname', why: 'SSH anahtarı üretmek için hostname <b>ve</b> domain adı tanımlı olmalıdır. Varsayılan <code>Router</code> adıyla anahtar üretilemez.', label: 'Hostname', type: 'text', required: true, placeholder: 'ROUTER-01', hint: 'Cihaz adı — RSA anahtar adını belirler' },
-                        { name: 'domain', why: 'SSH anahtarı üretmek için hostname <b>ve</b> domain adı tanımlı olmalıdır. Eksikse <code>crypto key generate rsa</code> komutu hata verir.', label: 'Domain Name', type: 'text', required: true, placeholder: 'example.com', hint: 'ip domain-name komutu ile ayarlanır' }
-                    ]
-                },
-                {
-                    title: 'SSH Ayarları',
-                    icon: 'fas fa-lock',
-                    fields: [
-                        { name: 'key_size', why: 'RSA anahtar boyutu. <b>768 bit altı SSHv2 desteklemez</b>; 2048 bit günümüz için alt sınırdır.', label: 'RSA Key Boyutu', type: 'select', options: [
-                            { value: '2048', label: '2048 bit (Önerilen)', selected: true },
-                            { value: '4096', label: '4096 bit' },
-                            { value: '1024', label: '1024 bit (Eski — kullanmayın)' }
-                        ], hint: 'Minimum 2048 bit önerilir' },
-                        { name: 'ssh_ver', why: 'SSHv1 kırılmıştır, <code>ip ssh version 2</code> zorunlu yapılmalıdır. Telnet ise parolayı düz metin taşır, kapatılmalıdır.', label: 'SSH Versiyonu', type: 'select', options: [
-                            { value: '2', label: 'SSHv2 (Önerilen)', selected: true },
-                            { value: '1', label: 'SSHv1 (Güvensiz)' }
+                        { name: 'hostname', why: 'SSH anahtarı üretmek için hostname <b>ve</b> domain adı tanımlı olmalıdır. Varsayılan <code>Router</code> adıyla anahtar üretilemez.', label: 'Hostname', type: 'text', validate: 'hostname', required: true, placeholder: 'ROUTER-01', hint: 'Cihaz adı — RSA anahtar adını belirler' },
+                        { name: 'domain', why: 'SSH anahtarı üretmek için hostname <b>ve</b> domain adı tanımlı olmalıdır. Eksikse <code>crypto key generate rsa</code> komutu hata verir.', label: 'Domain Name', type: 'text', required: true, placeholder: 'example.com', hint: 'RSA anahtarı için gerekli' },
+                        { name: 'dom_syntax', why: 'IOS-XE 16 ve sonrası running-config\'e <code>ip domain name</code> (boşluklu) yazar; klasik IOS <code>ip domain-name</code> ister. Yanlış biçim eski sürümde komut hatası verir.', label: 'Domain komutu biçimi', type: 'select', options: [
+                            { value: 'new', label: 'ip domain name (IOS-XE 16+)', selected: true },
+                            { value: 'old', label: 'ip domain-name (klasik IOS)' }
                         ]}
                     ]
                 },
                 {
-                    title: 'Lokal Kullanıcı',
-                    icon: 'fas fa-user',
-                    info: 'Kullanıcı ve şifre girilirse VTY\'ye login local uygulanır.',
+                    title: 'SSH Ayarları', icon: 'fas fa-lock',
                     fields: [
-                        { name: 'ssh_user', why: "SSH için en az bir yerel kullanıcı ve <code>login local</code> şarttır. Kullanıcı oluşturmadan <code>transport input ssh</code> yazmak seni cihazın dışında bırakır.", label: 'Kullanıcı Adı', type: 'text', placeholder: 'admin', optional: true },
-                        { name: 'ssh_pass', why: "<code>secret</code> kullan, <code>password</code> değil: ikincisi geri çevrilebilir şekilde saklanır ve config paylaşıldığında şifre açığa çıkar.", label: 'Şifre', type: 'text', placeholder: 'Admin123!', optional: true }
+                        { name: 'key_size', why: 'RSA anahtar boyutu. <b>768 bit altı SSHv2 desteklemez</b>; 2048 bit günümüz için alt sınırdır.', label: 'RSA Key Boyutu', type: 'select', options: [
+                            { value: '2048', label: '2048 bit (Önerilen)', selected: true },
+                            { value: '4096', label: '4096 bit' }
+                        ], hint: '1024 bit artık güvenli değildir' },
+                        { name: 'ssh_timeout', label: 'Oturum Açma Zaman Aşımı (sn)', type: 'text', min: 1, max: 120, placeholder: '60', hint: 'ip ssh time-out — boş = yazılmaz' },
+                        { name: 'ssh_retries', label: 'Kimlik Doğrulama Deneme Hakkı', type: 'text', min: 0, max: 5, placeholder: '3', hint: 'ip ssh authentication-retries — boş = yazılmaz' },
+                        { name: 'ssh_algo', why: 'Varsayılan liste eski CBC şifreleri ve SHA-1 MAC\'leri içerebilir; denetimlerde (PCI, BDDK) zayıf algoritma bulgusu olarak işaretlenir.', label: 'Algoritmalar', type: 'select', options: [
+                            { value: 'strong', label: 'Güçlü liste (aes-ctr, hmac-sha2, dh-group14/ecdh)', selected: true },
+                            { value: 'keep', label: 'Cihaz varsayılanı' }
+                        ]},
+                        { name: 'dh_min', label: 'DH minimum boyutu 2048 bit', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'VTY Erişimi', icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'vty_acl', why: 'Yönetim ACL\'i olmadan VTY hatlarına ulaşabilen her kaynak kaba kuvvet deneyebilir. Standart ACL numarası veya adı yazın; ACL önceden tanımlı olmalı.', label: 'Yönetim ACL\'i', type: 'text', placeholder: 'MGMT-ACCESS', hint: 'line vty → access-class <ACL> in — boş = kısıtlama yok' },
+                        { name: 'vty_login', label: 'VTY Kimlik Doğrulama', type: 'select', options: [
+                            { value: 'local', label: 'login local (yerel kullanıcılar)', selected: true },
+                            { value: 'aaa', label: 'AAA (login authentication default)' }
+                        ], hint: 'AAA seçilirse AAA aracındaki liste kullanılır' }
+                    ]
+                },
+                {
+                    title: 'Lokal Kullanıcı', icon: 'fas fa-user',
+                    info: 'login local seçiliyse cihazda en az bir yerel kullanıcı olmalıdır; yoksa SSH ile giriş yapılamaz.',
+                    fields: [
+                        { name: 'ssh_user', why: "SSH için en az bir yerel kullanıcı ve <code>login local</code> şarttır. Kullanıcı oluşturmadan <code>transport input ssh</code> yazmak seni cihazın dışında bırakır.", label: 'Kullanıcı Adı', type: 'text', placeholder: 'admin', hint: 'Boş = kullanıcı oluşturulmaz' },
+                        { name: 'ssh_pass', why: "<code>secret</code> kullan, <code>password</code> değil: ikincisi geri çevrilebilir şekilde saklanır ve config paylaşıldığında şifre açığa çıkar.", label: 'Şifre', type: 'text', placeholder: 'Admin123!', hint: 'secret (tip 9/8 hash) olarak saklanır' }
                     ]
                 }
             ],
             submit: 'SSH Konfigürasyonu Oluştur'
         }, (data) => {
+            const h = cgEsc(data.hostname || ''), d = cgEsc(data.domain || ''), u = cgEsc(data.ssh_user || ''), pw = cgEsc(data.ssh_pass || '');
+            const to = cgEsc(data.ssh_timeout || ''), rt = cgEsc(data.ssh_retries || ''), acl = cgEsc(data.vty_acl || '');
             let c = '! ========================================\n! Cisco IOS SSH Configuration\n! ========================================\n\n';
-            c += 'hostname ' + data.hostname + '\nip domain-name ' + data.domain + '\n!\ncrypto key generate rsa modulus ' + (data.key_size || '2048') + '\n!\n';
-            c += 'ip ssh version ' + (data.ssh_ver || '2') + '\nip ssh time-out 60\nip ssh authentication-retries 3\n!\n';
-            if (data.ssh_user && data.ssh_pass) c += 'username ' + data.ssh_user + ' privilege 15 secret ' + data.ssh_pass + '\n!\n';
-            c += 'line vty 0 15\n transport input ssh\n login local\nexit\n';
-            c += '!\n! Doğrulama: show ip ssh | show ssh\n';
+            if (data.vty_login !== 'aaa' && !(u && pw))
+                c += '! UYARI: login local seçili ama yerel kullanıcı tanımlanmadı — cihazda kullanıcı yoksa SSH ile giriş yapılamaz.\n';
+            c += 'hostname ' + h + '\n' + (data.dom_syntax === 'old' ? 'ip domain-name ' : 'ip domain name ') + d + '\n!\n';
+            c += 'crypto key generate rsa modulus ' + cgEsc(data.key_size || '') + '\n!\n';
+            c += 'ip ssh version 2\n';
+            if (to) c += 'ip ssh time-out ' + to + '\n';
+            if (rt) c += 'ip ssh authentication-retries ' + rt + '\n';
+            if (data.dh_min) c += 'ip ssh dh min size 2048\n';
+            if (data.ssh_algo === 'strong') {
+                c += 'ip ssh server algorithm encryption aes256-ctr aes192-ctr aes128-ctr\n';
+                c += 'ip ssh server algorithm mac hmac-sha2-256 hmac-sha2-512\n';
+                c += 'ip ssh server algorithm kex diffie-hellman-group14-sha256 ecdh-sha2-nistp256\n';
+            }
+            c += '!\n';
+            if (u && pw) c += 'username ' + u + ' privilege 15 secret ' + pw + '\n!\n';
+            c += 'line vty 0 15\n';
+            if (acl) c += ' access-class ' + acl + ' in\n';
+            c += ' transport input ssh\n' + (data.vty_login === 'aaa' ? ' login authentication default\n' : ' login local\n') + 'exit\n';
+            c += '!\n! Doğrulama:\n! show ip ssh\n! show ssh\n! show line vty 0 4\n';
             return c;
         });
     }
@@ -1217,6 +1270,11 @@ CiscoIOS.stp = {
                     icon: 'fas fa-cog',
                     showFor: ['pvst', 'rapid', 'mst'],
                     fields: [
+                        { name: 'pf_syntax', why: 'IOS 15.2(2)E ve IOS-XE PortFast\'ı <code>portfast edge</code> olarak yazar; eski IOS yalnız <code>portfast</code> tanır.', label: 'PortFast biçimi', type: 'select', options: [
+                            { value: 'edge', label: 'portfast edge (IOS 15.2E+ / IOS-XE)', selected: true },
+                            { value: 'classic', label: 'portfast (eski IOS)' }
+                        ]},
+                        { name: 'ext_sysid', why: 'Bridge ID\'ye VLAN numarasını ekler; 4096\'nın katı öncelik değerlerinin ön koşuludur. Sahadaki tüm cihazlarda açık.', label: 'spanning-tree extend system-id', type: 'checkbox', checked: true },
                         { name: 'portfast_def', why: "PortFast, access portu dinleme/öğrenme aşamalarını atlayarak anında forwarding'e alır. <b>Yalnızca uç cihaz portlarında</b> açılmalı; switch'e bakan portta döngü yaratır.", label: 'spanning-tree portfast default', type: 'checkbox', hint: 'Tüm access portlarda portfast etkinleştirir' },
                         { name: 'bpduguard_def', why: "PortFast açık bir porta BPDU gelirse portu kapatır. PortFast'in güvenlik tamamlayıcısıdır — <b>ikisi birlikte açılmalıdır</b>, aksi halde kullanıcı kendi switch'ini takıp topolojiyi bozabilir.", label: 'spanning-tree portfast bpduguard default', type: 'checkbox', hint: 'Portfast portlarda BPDU gelirse port kapanır' },
                         { name: 'loopguard', why: "Tek yönlü link arızasında BPDU kesilirse portun yanlışlıkla forwarding'e geçmesini önler. Fiber bağlantılarda özellikle değerlidir.", label: 'spanning-tree loopguard default', type: 'checkbox' },
@@ -1254,11 +1312,12 @@ CiscoIOS.stp = {
                 if (data.root_vlans) c += 'spanning-tree vlan ' + data.root_vlans + ' root ' + (data.root_type || 'primary') + '\n';
             }
             c += '!\n';
-            if (data.portfast_def === true) c += 'spanning-tree portfast default\n';
-            if (data.bpduguard_def === true) c += 'spanning-tree portfast bpduguard default\n';
+            if (data.portfast_def === true) c += 'spanning-tree portfast ' + (data.pf_syntax === 'classic' ? '' : 'edge ') + 'default\n';
+            if (data.bpduguard_def === true) c += 'spanning-tree portfast ' + (data.pf_syntax === 'classic' ? '' : 'edge ') + 'bpduguard default\n';
+            if (data.ext_sysid) c += 'spanning-tree extend system-id\n';
             if (data.loopguard === true) c += 'spanning-tree loopguard default\n';
             if (data.uplinkfast === true) c += 'spanning-tree uplinkfast\n';
-            if (data.access_int) { c += '!\ninterface ' + data.access_int + '\n spanning-tree portfast edge\n spanning-tree bpduguard enable\nexit\n'; }
+            if (data.access_int) { c += '!\ninterface ' + data.access_int + '\n spanning-tree portfast' + (data.pf_syntax === 'classic' ? '' : ' edge') + '\n spanning-tree bpduguard enable\nexit\n'; }
             if (data.trunk_int) { c += '!\ninterface ' + data.trunk_int + '\n spanning-tree port-priority 64\nexit\n'; }
             if (data.rootguard_ports) { c += '!\ninterface ' + data.rootguard_ports + '\n spanning-tree guard root\nexit\n'; }
             c += '!\n! Doğrulama: show spanning-tree | show spanning-tree detail\n';
@@ -1382,8 +1441,8 @@ CiscoIOS.qos = {
                         { name: 'rl_iface', why: "Rate-limit arayüz bazlıdır ve ACL yoksa tüm trafiği etkiler — yönetim trafiğin dahil. Kendi SSH oturumunu boğabileceğini unutma.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0' },
                         { name: 'rl_acl', why: "ACL boş bırakılırsa <b>tüm</b> trafik sınırlanır. Yedekleme gibi tek bir akışı kısacaksan mutlaka ACL ile daralt.", label: 'ACL', type: 'text', placeholder: '100 (boş = tüm trafik)', optional: true },
                         { name: 'rl_rate', why: "Değer bit/saniye cinsindendir, byte değil: 1 Mbps için <code>1000000</code>. Sıfır sayısını şaşırmak en sık yapılan hatadır.", label: 'Rate (bps)', type: 'text', required: true, placeholder: '1000000' },
-                        { name: 'rl_bc', why: "Normal burst çok küçükse TCP sürekli kesilir ve gerçek throughput hedefin çok altına düşer. Pratik kural: CIR/8, yani bir saniyelik byte miktarı.", label: 'Normal Burst', type: 'text', placeholder: '187500', optional: true },
-                        { name: 'rl_be', why: "Extended burst genelde Bc'nin iki katıdır. Bc ile eşit vermek TCP yavaş başlangıç aşamasında aşırı paket kaybına yol açar.", label: 'Extended Burst', type: 'text', placeholder: '375000', optional: true },
+                        { name: 'rl_bc', why: "Normal burst çok küçükse TCP sürekli kesilir ve gerçek throughput hedefin çok altına düşer. Pratik kural: CIR/8, yani bir saniyelik byte miktarı.", label: 'Normal Burst', type: 'text', validate: 'posint', placeholder: '187500', hint: 'Boş = hızdan hesaplanır (hız × 1,5 sn / 8)' },
+                        { name: 'rl_be', why: "Extended burst genelde Bc'nin iki katıdır. Bc ile eşit vermek TCP yavaş başlangıç aşamasında aşırı paket kaybına yol açar.", label: 'Extended Burst', type: 'text', validate: 'posint', placeholder: '375000', hint: 'Boş = 2 × normal burst' },
                         { name: 'rl_dir', why: "<code>input</code> yönünde sınırlama, bant genişliği <b>zaten harcandıktan sonra</b> devreye girer. Gelen trafiği gerçekten korumak istiyorsan çözüm karşı uçta shaping'dir.", label: 'Yön', type: 'select', options: [{ value: 'output', label: 'output' }, { value: 'input', label: 'input' }] }
                     ]
                 },
@@ -1414,7 +1473,8 @@ CiscoIOS.qos = {
                 if (data.police_en === true && data.m_cir) c += '  police cir ' + data.m_cir + '\n   conform-action transmit\n   exceed-action drop\n';
                 c += ' class class-default\n  fair-queue\n!\ninterface ' + data.qos_iface + '\n service-policy ' + (data.qos_dir || 'output') + ' ' + data.policy_name + '\n!\n';
             } else if (mode === 'ratelimit') {
-                const bc = data.rl_bc || '187500', be = data.rl_be || '375000';
+                const _nb = Math.round((+data.rl_rate || 0) * 1.5 / 8);
+                const bc = data.rl_bc || String(_nb), be = data.rl_be || String(_nb * 2);   // Cisco önerisi: hız×1.5sn/8, max=2×normal
                 c += 'interface ' + data.rl_iface + '\n rate-limit ' + (data.rl_dir || 'output') + (data.rl_acl ? ' access-group ' + data.rl_acl : '') + ' ' + data.rl_rate + ' ' + bc + ' ' + be + ' conform-action transmit exceed-action drop\n!\n';
             } else {
                 if (data.mls_qos === true) c += 'mls qos\n!\n';
@@ -1578,14 +1638,16 @@ CiscoIOS.tracking = {
                 c += '!\n';
             } else if (type === 'ipsla') {
                 const sid = fv('sla_id'), stype = fv('sla_type'), sdest = fv('sla_dest');
-                const ssrc = fv('sla_src'), freq = fv('sla_freq') || '60', tout = fv('sla_timeout') || '5000';
+                const ssrc = fv('sla_src'), freq = fv('sla_freq'), tout = fv('sla_timeout');
                 c += 'ip sla ' + sid + '\n';
                 if (stype === 'icmp') {
                     c += ' icmp-echo ' + sdest + (ssrc ? ' source-interface ' + ssrc : '') + '\n';
                 } else {
                     c += ' tcp-connect ' + sdest + ' 80\n';
                 }
-                c += ' frequency ' + freq + '\n timeout ' + tout + '\nexit\n';
+                if (freq) c += ' frequency ' + freq + '\n';
+                if (tout) c += ' timeout ' + tout + '\n';
+                c += 'exit\n';
                 c += 'ip sla schedule ' + sid + ' life forever start-time now\n!\n';
                 c += 'track ' + fv('sla_track_id') + ' ip sla ' + sid + ' reachability\n!\n';
             } else if (type === 'route') {
@@ -1619,8 +1681,8 @@ CiscoIOS.rateLimit = {
                         { name: 'rl_acl', why: "ACL boş bırakılırsa <b>tüm</b> trafik sınırlanır — kendi SSH oturumun dahil. Tek bir akışı kısacaksan mutlaka ACL ile daralt.",     label: 'ACL No/Adı',          type: 'text',   required: false, placeholder: '100 (boş = tüm trafik)',      hint: 'Opsiyonel ACL filtresi' },
                         { name: 'ip_blocks', why: "Her satır bir ACL <code>permit</code> satırına dönüşür ve wildcard maske ister, subnet maske değil. Sıra önemlidir: geniş bir blok üstteyse altındakiler hiç değerlendirilmez.",  label: 'IP Bloklar (satır satır)', type: 'textarea', required: false, placeholder: '192.168.1.0 0.0.0.255\n10.0.0.0 0.0.0.255', hint: 'ACL için permit satırları' },
                         { name: 'rl_cir', why: "CIR bit/saniye cinsindendir. ISS'nin sattığı hızın tamamını yazmak yerine %90-95'ini seçmek, kuyruk oluşumunu karşı tarafa bırakmamanı sağlar.",     label: 'CIR (bps)',           type: 'text',   required: true,  placeholder: '1000000',                    hint: 'Committed Information Rate' },
-                        { name: 'rl_bc', why: "Normal burst çok küçükse TCP sürekli kesilir ve gerçek throughput hedefin çok altına düşer. Pratik kural: CIR/8, yani bir saniyelik byte miktarı.",      label: 'Bc (normal burst)',    type: 'text',   required: false, placeholder: '187500',                     hint: 'Normal burst boyutu' },
-                        { name: 'rl_be', why: "Extended burst genelde Bc'nin iki katıdır. Bc ile eşit vermek TCP yavaş başlangıç aşamasında aşırı paket kaybına yol açar.",      label: 'Be (extended burst)', type: 'text',   required: false, placeholder: '375000',                     hint: 'Genişletilmiş burst boyutu' },
+                        { name: 'rl_bc', why: "Normal burst çok küçükse TCP sürekli kesilir ve gerçek throughput hedefin çok altına düşer. Pratik kural: CIR/8, yani bir saniyelik byte miktarı.",      label: 'Bc (normal burst)',    type: 'text', validate: 'posint', placeholder: '187500',                     hint: 'Boş = hızdan hesaplanır (hız × 1,5 sn / 8)' },
+                        { name: 'rl_be', why: "Extended burst genelde Bc'nin iki katıdır. Bc ile eşit vermek TCP yavaş başlangıç aşamasında aşırı paket kaybına yol açar.",      label: 'Be (extended burst)', type: 'text', validate: 'posint', placeholder: '375000',                     hint: 'Boş = 2 × normal burst' },
                         { name: 'rl_dir', why: "<code>input</code> yönünde sınırlama, bant genişliği <b>zaten harcandıktan sonra</b> devreye girer. Gelen trafiği gerçekten korumak istiyorsan çözüm karşı uçta shaping'dir.",     label: 'Yön',                 type: 'select', required: false, options: [{v:'output',l:'output'},{v:'input',l:'input'},{v:'both',l:'input + output'}] },
                         { name: 'rl_conform', why: 'Limit içindeki trafiğe uygulanan aksiyon. <code>transmit</code> normal geçiştir.', label: 'Conform Action',      type: 'select', required: false, options: [{v:'transmit',l:'transmit'},{v:'set-dscp-transmit 0',l:'set-dscp-transmit'}] },
                         { name: 'rl_exceed', why: 'Limiti aşan trafik. <code>drop</code> sert keser, <code>set-dscp-transmit</code> ise işaretleyip geçirir ve tıkanıklıkta önce onu düşürür — genelde daha yumuşak bir davranıştır.',  label: 'Exceed Action',       type: 'select', required: false, options: [{v:'drop',l:'drop'},{v:'set-dscp-transmit 0',l:'set-dscp-transmit'}] }
@@ -1631,7 +1693,7 @@ CiscoIOS.rateLimit = {
         };
         cgFormBuilder(container, schema, (data) => {
             const fv = n => cgEsc((data[n] || '').trim());
-            const acl = fv('rl_acl'), cir = fv('rl_cir'), bc = fv('rl_bc') || '187500', be = fv('rl_be') || '375000';
+            const acl = fv('rl_acl'), cir = fv('rl_cir'), _nb = Math.round((+fv('rl_cir') || 0) * 1.5 / 8), bc = fv('rl_bc') || String(_nb), be = fv('rl_be') || String(_nb * 2);   // Cisco önerisi: hız×1.5sn/8, max=2×normal
             const dir = fv('rl_dir') || 'output', iface = fv('rl_iface'), conf = fv('rl_conform') || 'transmit', exc = fv('rl_exceed') || 'drop';
             let c = '! ========================================\n! Cisco IOS Rate Limit Configuration\n! ========================================\n\n';
             const blocks = fv('ip_blocks');

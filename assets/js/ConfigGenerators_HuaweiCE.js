@@ -675,3 +675,575 @@ HuaweiCE.routepolicy = {
         });
     }
 };
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Ek araçlar (Agent R). CloudEngine iki aşamalı yapılandırma kullanır:
+// değişiklikler 'commit' çalıştırılana kadar etkin olmaz.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Virgülle ayrılmış arayüz listesi → [{ name, range }]; aralıklar UYARI'ya çevrilir.
+function _hwceIfList(s) {
+    return String(s || '').split(',').map(x => x.trim()).filter(Boolean)
+        .map(x => ({ name: cgEsc(x), range: /\d\s*-\s*\d/.test(x) }));
+}
+
+// ── Huawei CloudEngine: Static Route ─────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100075369/3a7bfc3f/static-route-configuration-commands
+//            (ip route-static [vpn-instance V] D M NH [preference P] [track { bfd-session N | nqa A T }] [description T])
+HuaweiCE.staticroute = {
+    label: 'Static Route',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Static Route (CloudEngine)',
+                desc: '<code>ip route-static</code> — hedef ağ, next-hop, VPN instance, preference (floating route) ve BFD/NQA takibi.'
+            },
+            sections: [
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-map-signs',
+                    fields: [
+                        { name: 'dest', label: 'Hedef Ağ', type: 'text', validate: 'ip', required: true, placeholder: '10.20.0.0', hint: 'Default route için 0.0.0.0', why: "Hedef adresin host bitleri sıfır olmalıdır; aksi halde cihaz maskeyle keserek kaydeder ve tabloda beklediğinizden farklı bir önek görünür." },
+                        { name: 'mask', label: 'Maske', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.0.0', hint: 'Noktalı maske', why: "Maske hatası longest-match nedeniyle yalnızca bazı hedeflerde arıza yaratır ve teşhisi zorlaşır." },
+                        { name: 'nexthop', label: 'Next-hop IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', hint: 'Bağlı bir subnetteki komşu adresi', why: "Next-hop çözülemezse rota tabloya girer ama inactive kalır. Leaf/spine fabric'te statik rota yerine dinamik protokol tercih edin; statik rota yalnız sınır (border) cihazlarında anlamlıdır." },
+                        { name: 'vpn', label: 'VPN Instance', type: 'text', placeholder: 'VRF-A', hint: 'Rota bir VPN instance tablosuna eklenecekse', why: "VPN instance verilmezse rota global tabloya girer; VRF içindeki kiracı trafiği bu rotayı hiç görmez." }
+                    ]
+                },
+                {
+                    title: 'Öncelik ve Takip',
+                    icon: 'fas fa-heartbeat',
+                    fields: [
+                        { name: 'pref', label: 'Preference', type: 'text', min: 1, max: 255, placeholder: '60', hint: 'Varsayılan 60; yedek rota için büyük değer', why: "Düşük preference kazanır. Yedek rotaya ana rotadan büyük değer verilmezse iki rota ECMP olur ve trafik yedek yola da bölünür." },
+                        { name: 'track', label: 'Takip', type: 'select', options: [
+                            { value: '', label: 'Yok', selected: true },
+                            { value: 'bfd', label: 'BFD oturumu (track bfd-session)' },
+                            { value: 'nqa', label: 'NQA testi (track nqa)' }
+                        ], hint: 'Next-hop ulaşılamaz olunca rotayı geri çeker', why: "Arada L2 cihaz varken karşı uç çökerse yerel port up kalır ve rota aktif kalır; trafik kara deliğe düşer. Takip rotayı gerçek ulaşılabilirliğe bağlar." },
+                        { name: 'bfd_name', label: 'BFD Oturum Adı', type: 'text', requiredIf: { field: 'track', in: ['bfd'] }, placeholder: 'BFD-BORDER1', hint: 'BFD aracında tanımlı statik oturum adı', why: "Oturum tanımlı ve Up değilse rota hiç aktif olmaz; önce <code>display bfd session all</code> ile oturumu doğrulayın." },
+                        { name: 'nqa_admin', label: 'NQA Admin Adı', type: 'text', requiredIf: { field: 'track', in: ['nqa'] }, placeholder: 'nqa-adm', hint: 'nqa test-instance <admin> <test>', why: "NQA test örneği önceden oluşturulup başlatılmış olmalıdır; başlatılmamış test başarısız sayılır ve rota geri çekilir." },
+                        { name: 'nqa_test', label: 'NQA Test Adı', type: 'text', requiredIf: { field: 'track', in: ['nqa'] }, placeholder: 'icmp1', hint: 'NQA test adı', why: "Admin ve test adı birlikte tek testi tanımlar; biri yanlışsa takip hiçbir teste bağlanmaz." },
+                        { name: 'desc', label: 'Açıklama', type: 'text', placeholder: 'BORDER-yedek', hint: 'description', why: "Açıklamasız statik rotalar zamanla sahibi bilinmeyen kalıntılara dönüşür ve temizlikte yanlış rota silinir." }
+                    ]
+                }
+            ],
+            submit: 'Static Route Oluştur'
+        }, (data) => {
+            const dest = cgEsc(data.dest || ''), mask = cgEsc(data.mask || ''), nh = cgEsc(data.nexthop || '');
+            const vpn = cgEsc(data.vpn || ''), pref = cgEsc(data.pref || ''), track = data.track || '';
+            const bfd = cgEsc(data.bfd_name || ''), na = cgEsc(data.nqa_admin || ''), nt = cgEsc(data.nqa_test || ''), desc = cgEsc(data.desc || '');
+            let r = 'ip route-static ' + (vpn ? 'vpn-instance ' + vpn + ' ' : '') + dest + ' ' + mask + ' ' + nh;
+            if (pref) r += ' preference ' + pref;
+            if (track === 'bfd' && bfd) r += ' track bfd-session ' + bfd;
+            if (track === 'nqa' && na && nt) r += ' track nqa ' + na + ' ' + nt;
+            if (desc) r += ' description ' + desc;
+            let c = '# ========================================\n# Huawei CloudEngine — Static Route\n# ========================================\n\n';
+            c += 'system-view\n' + r + '\ncommit\n#\n';
+            c += '\n# Doğrulama:\n# display ip routing-table ' + (vpn ? 'vpn-instance ' + vpn + ' ' : '') + dest + '\n# display ip routing-table protocol static\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei CloudEngine: Syslog (info-center) ─────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100198444/cf7845b/information-center-configuration-commands
+//            (info-center loghost IP [vpn-instance V] [facility localN], info-center loghost source IF,
+//             info-center source default channel 2 log level L)
+HuaweiCE.syslog = {
+    label: 'Syslog (info-center)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-file-alt',
+                title: 'Syslog / info-center (CloudEngine)',
+                desc: 'Logları merkezi syslog sunucusuna gönderir — log host, VPN instance (yönetim VRF), kaynak arayüz, facility ve kanal seviyesi.'
+            },
+            sections: [
+                {
+                    title: 'Log Sunucuları',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'loghost1', label: 'Log Host 1', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.50', hint: 'Syslog sunucusu IPv4 adresi', why: "Log host olmadan loglar yalnızca cihaz belleğinde kalır; bir fabric arızasında olayların sırasını çıkarmak için leaf/spine loglarının tek yerde toplanması şarttır." },
+                        { name: 'loghost2', label: 'Log Host 2', type: 'text', validate: 'ip', placeholder: '192.0.2.51', hint: 'Yedek syslog sunucusu', why: "Tek sunucu bakımdayken üretilen loglar kaybolur; syslog UDP olduğundan cihaz bunu fark etmez bile." },
+                        { name: 'vpn', label: 'VPN Instance', type: 'text', placeholder: '_management_vpn_', hint: 'Sunucuya yönetim VRF\'i üzerinden gidiliyorsa', why: "CloudEngine'de yönetim portu çoğu zaman ayrı bir VPN instance içindedir. VPN verilmezse cihaz sunucuyu global tabloda arar, rota bulamaz ve loglar hatasız şekilde gönderilmez." },
+                        { name: 'facility', label: 'Facility', type: 'select', options: [
+                            { value: '', label: 'Varsayılan (local7)', selected: true },
+                            { value: 'local0', label: 'local0' }, { value: 'local1', label: 'local1' },
+                            { value: 'local2', label: 'local2' }, { value: 'local3', label: 'local3' },
+                            { value: 'local4', label: 'local4' }, { value: 'local5', label: 'local5' },
+                            { value: 'local6', label: 'local6' }
+                        ], hint: 'Sunucudaki ayrıştırma kuralıyla eşleşmeli', why: "Sunucu facility'ye göre dosyalara ayırıyorsa yanlış facility logların doğru yere düşmemesine ve gözden kaçmasına yol açar." }
+                    ]
+                },
+                {
+                    title: 'Kaynak ve Seviye',
+                    icon: 'fas fa-filter',
+                    fields: [
+                        { name: 'src_if', label: 'Kaynak Arayüz', type: 'text', validate: 'iface', placeholder: 'LoopBack0', hint: 'info-center loghost source', why: "Kaynak sabitlenmezse log paketi ECMP yollarından hangisinden çıkarsa o arayüzün IP'siyle gider; sunucu aynı cihazı farklı IP'lerden görür. VPN kullanılıyorsa arayüz o VPN'e bağlı olmalıdır." },
+                        { name: 'level', label: 'Log Host Seviyesi (channel 2)', type: 'select', options: [
+                            { value: '', label: 'Değiştirme (cihaz varsayılanı)', selected: true },
+                            { value: 'informational', label: 'informational (6)' },
+                            { value: 'notification', label: 'notification (5)' },
+                            { value: 'warning', label: 'warning (4)' },
+                            { value: 'error', label: 'error (3)' },
+                            { value: 'debugging', label: 'debugging (7)' }
+                        ], hint: 'info-center source default channel 2 log level ...', why: "Yüksek bir eşik (error) arayüz up/down ve oturum açma gibi informational olayları eler; debugging ise sunucuyu gereksiz mesajla doldurur." }
+                    ]
+                }
+            ],
+            submit: 'Syslog Konfigürasyonu Oluştur'
+        }, (data) => {
+            const h1 = cgEsc(data.loghost1 || ''), h2 = cgEsc(data.loghost2 || ''), vpn = cgEsc(data.vpn || '');
+            const fac = cgEsc(data.facility || ''), src = cgEsc(data.src_if || ''), lvl = cgEsc(data.level || '');
+            const opts = (vpn ? ' vpn-instance ' + vpn : '') + (fac ? ' facility ' + fac : '');
+            let c = '# ========================================\n# Huawei CloudEngine — Syslog (info-center)\n# ========================================\n\n';
+            c += 'system-view\n';
+            if (lvl) c += 'info-center source default channel 2 log level ' + lvl + '\n';
+            if (src) c += 'info-center loghost source ' + src + '\n';
+            c += 'info-center loghost ' + h1 + opts + '\n';
+            if (h2) c += 'info-center loghost ' + h2 + opts + '\n';
+            c += 'commit\n#\n';
+            c += '\n# Doğrulama:\n# display info-center\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei CloudEngine: LLDP ─────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100198444/8def618c/lldp-configuration-commands
+//            https://support.huawei.com/enterprise/en/doc/EDOC1100198822/6409701a/optional-disabling-lldp-on-an-interface
+//            (lldp enable, lldp transmit interval N, arayüzde lldp disable)
+HuaweiCE.lldp = {
+    label: 'LLDP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'LLDP (CloudEngine)',
+                desc: 'Fabric kablolama doğrulaması ve topoloji keşfi için LLDP\'yi global açar, gönderim aralığını ayarlar, dış yönlü portlarda kapatır.'
+            },
+            sections: [
+                {
+                    title: 'Global LLDP',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'interval', label: 'Gönderim Aralığı (sn)', type: 'text', min: 5, max: 32768, placeholder: '30', hint: 'lldp transmit interval (varsayılan 30, V200R020 sözdizimi)', why: "Kısa aralık kablolama hatalarını (yanlış porta takılan uplink) daha çabuk gösterir ama her portta kontrol düzlemine giden paket sayısını artırır. Eski yazılımlarda komut adı farklı olabilir; reddedilirse sürümün komut referansına bakın." }
+                    ]
+                },
+                {
+                    title: 'LLDP Kapatılacak Portlar',
+                    icon: 'fas fa-ban',
+                    info: 'LLDP yalnızca fiziksel portlarda çalışır; Vlanif ve Eth-Trunk arayüzleri desteklemez.',
+                    fields: [
+                        { name: 'disable_ifs', label: 'Portlar', type: 'text', validate: 'iface_range', placeholder: '10GE1/0/48', hint: 'Virgülle ayırın; lldp disable uygulanır', why: "LLDP cihaz adı, model ve yönetim adresini düz metin yayınlar. Operatör veya internet yönlü portlarda açık bırakmak altyapı bilgisini dışarı sızdırır." }
+                    ]
+                }
+            ],
+            submit: 'LLDP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const iv = cgEsc(data.interval || ''), ifs = _hwceIfList(data.disable_ifs);
+            let c = '# ========================================\n# Huawei CloudEngine — LLDP\n# ========================================\n\n';
+            c += 'system-view\nlldp enable\n';
+            if (iv) c += 'lldp transmit interval ' + iv + '\n';
+            ifs.forEach(i => {
+                if (i.range) { c += '# UYARI: aralık girilemez, portları tek tek yazın: ' + i.name + '\n'; return; }
+                c += 'interface ' + i.name + '\n lldp disable\n quit\n';
+            });
+            c += 'commit\n#\n';
+            c += '\n# Doğrulama:\n# display lldp neighbor brief\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei CloudEngine: VRRP ─────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/fr/doc/EDOC1000039339/e93214f5/deploying-vrrp-on-a-data-center-network-with-2-layer-architecture
+//            https://support.huawei.com/enterprise/en/doc/EDOC1100137933/3f68ca6c/vrrp-configuration-commands
+//            (vrrp vrid N virtual-ip / priority / preempt timer delay / track interface X reduced N)
+HuaweiCE.vrrp = {
+    label: 'VRRP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'VRRP (CloudEngine)',
+                desc: 'Vlanif üzerinde yedekli sanal gateway — VRID, sanal IP, öncelik, preemption gecikmesi ve uplink takibi.'
+            },
+            sections: [
+                {
+                    title: 'Arayüz ve Grup',
+                    icon: 'fas fa-network-wired',
+                    info: 'M-LAG çiftinde gateway için VRRP yerine çoğunlukla aynı IP/MAC ile active-active gateway kullanılır; VRRP klasik iki cihazlı toplama katmanı içindir.',
+                    fields: [
+                        { name: 'iface', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Vlanif10', hint: 'VRRP çalışacak L3 arayüz', why: "VRRP yalnız IP adresi olan L3 arayüzde çalışır; sanal IP bu arayüzün subnetinde olmalıdır." },
+                        { name: 'if_ip', label: 'Arayüz IP / Maske', type: 'text', validate: 'ip_mask', placeholder: '10.1.10.2 255.255.255.0', hint: 'Opsiyonel — IP zaten varsa boş bırakın', why: "Her cihazın arayüz IP'si farklı, sanal IP ise aynı olmalıdır. Arayüz IP'sini sanal IP ile aynı vermek o cihazı kalıcı master (IP owner) yapar." },
+                        { name: 'vrid', label: 'VRID', type: 'text', required: true, min: 1, max: 255, placeholder: '1', hint: '1-255; iki cihazda aynı', why: "VRID sanal MAC'i belirler; aynı VLAN'daki başka bir grupla çakışırsa gateway MAC'i sürekli yer değiştirir." },
+                        { name: 'vip', label: 'Sanal IP', type: 'text', validate: 'ip', required: true, placeholder: '10.1.10.1', hint: 'Sunucuların default gateway adresi', why: "Sanal IP iki cihazda farklı yazılırsa her ikisi de master olur (split-brain) ve sunucular rastgele cihaza yönlenir." }
+                    ]
+                },
+                {
+                    title: 'Öncelik ve Takip',
+                    icon: 'fas fa-sort-amount-up',
+                    fields: [
+                        { name: 'priority', label: 'Öncelik', type: 'text', min: 1, max: 254, placeholder: '120', hint: 'Varsayılan 100', why: "Eşit öncelikte master'ı arayüz IP'si belirler; gateway ile STP root farklı cihazlara düşerse trafik gereksiz yere peer-link/ara link üzerinden akar." },
+                        { name: 'preempt_delay', label: 'Preemption Gecikmesi (sn)', type: 'text', min: 0, max: 3600, placeholder: '20', hint: 'vrrp vrid N preempt timer delay', why: "Yeniden açılan cihaz rotalarını öğrenmeden master olursa trafik birkaç saniye kara deliğe düşer; gecikme yakınsamaya zaman tanır." },
+                        { name: 'track_if', label: 'Takip Edilen Uplink', type: 'text', validate: 'iface', placeholder: '40GE1/0/1', hint: 'Uplink düşerse öncelik düşürülür', why: "Uplink'i kopan master gateway olmaya devam ederse sunucu trafiği önce ona gelir ve sonra düşer; takip rolü yedek cihaza aktarır." },
+                        { name: 'reduced', label: 'Öncelik Düşüşü', type: 'text', min: 1, max: 255, placeholder: '30', hint: 'Takip edilen port düşünce çıkarılacak değer', why: "Düşüş sonrası öncelik yedek cihazın önceliğinin altına inmelidir (120 − 30 = 90 < 100); aksi halde geçiş olmaz." }
+                    ]
+                }
+            ],
+            submit: 'VRRP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const iface = cgEsc(data.iface || ''), ifip = cgEsc(data.if_ip || ''), vrid = cgEsc(data.vrid || ''), vip = cgEsc(data.vip || '');
+            const prio = cgEsc(data.priority || ''), pd = cgEsc(data.preempt_delay || ''), tif = cgEsc(data.track_if || ''), red = cgEsc(data.reduced || '');
+            let c = '# ========================================\n# Huawei CloudEngine — VRRP\n# ========================================\n\n';
+            c += 'system-view\ninterface ' + iface + '\n';
+            if (ifip) c += ' ip address ' + ifip + '\n';
+            c += ' vrrp vrid ' + vrid + ' virtual-ip ' + vip + '\n';
+            if (prio) c += ' vrrp vrid ' + vrid + ' priority ' + prio + '\n';
+            if (pd) c += ' vrrp vrid ' + vrid + ' preempt timer delay ' + pd + '\n';
+            if (tif) c += ' vrrp vrid ' + vrid + ' track interface ' + tif + (red ? ' reduced ' + red : '') + '\n';
+            c += ' quit\ncommit\n#\n';
+            c += '\n# Doğrulama:\n# display vrrp brief\n# display vrrp\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei CloudEngine: Local User + SSH (STelnet) ───────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/my/doc/EDOC1000039339/685aecbe/configuring-stelnet-login-based-on-aaa-local-authentication
+//            https://support.huawei.com/enterprise/en/doc/EDOC1000039339/f153bd04/configuring-an-acl-to-control-stelnet-client-login-rights
+//            (aaa / local-user U password irreversible-cipher P / service-type ssh / level N; stelnet server enable;
+//             ssh user U authentication-type password / service-type stelnet; user-interface vty 0 4 /
+//             authentication-mode aaa / protocol inbound ssh / acl N inbound)
+HuaweiCE.localuser = {
+    label: 'Local User + SSH',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-shield',
+                title: 'Local User + SSH / STelnet (CloudEngine)',
+                desc: 'AAA yerel kullanıcı, SSH kullanıcısı, STelnet sunucusu ve VTY hatlarında yalnız SSH + AAA + isteğe bağlı ACL kısıtı.'
+            },
+            sections: [
+                {
+                    title: 'Yerel Kullanıcı',
+                    icon: 'fas fa-user',
+                    fields: [
+                        { name: 'username', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netadmin', hint: 'AAA yerel kullanıcı', why: "Ortak 'admin' hesabı kimin hangi değişikliği yaptığını izlenemez kılar. Kişisel hesaplar, denetim kayıtlarında sorumluluğu netleştirir." },
+                        { name: 'password', label: 'Parola', type: 'text', required: true, placeholder: 'Str0ng-Pass-2026', hint: 'irreversible-cipher ile saklanır', why: "Parola geri döndürülemez biçimde saklanır; unutulursa konsol erişimi gerekir. CloudEngine karmaşıklık kuralı uygular: zayıf parola komut aşamasında reddedilir." },
+                        { name: 'level', label: 'Yetki Seviyesi', type: 'text', required: true, min: 0, max: 15, placeholder: '3', hint: '3 = yönetici (manage); 15 = en yüksek', why: "Seviye, kullanıcının çalıştırabileceği komutları belirler. Günlük izleme hesaplarına yüksek seviye vermek yanlışlıkla yapılan değişiklik riskini artırır." }
+                    ]
+                },
+                {
+                    title: 'VTY Erişimi',
+                    icon: 'fas fa-terminal',
+                    info: 'SSH için cihazda RSA anahtarı olmalıdır: <code>rsa local-key-pair create</code> (etkileşimli, elle çalıştırın).',
+                    fields: [
+                        { name: 'vty_last', label: 'Son VTY Numarası', type: 'text', required: true, min: 0, max: 20, placeholder: '4', hint: 'user-interface vty 0 <N>', why: "Ayarlar yalnızca bu aralıktaki hatlara uygulanır; aralık dışındaki hatlar eski ayarlarla kalır ve kısıtlamayı delmek için kullanılabilir." },
+                        { name: 'acl_num', label: 'VTY ACL Numarası', type: 'text', min: 2000, max: 3999, placeholder: '2000', hint: 'Cihazda tanımlı ACL; acl N inbound', why: "ACL olmadan yönetim IP'sine ulaşabilen herkes giriş ekranına parola deneyebilir. ACL cihazda tanımlı değilse kısıt uygulanmaz; önce ACL aracıyla oluşturun ve kendi kaynak IP'nizin izinli olduğunu doğrulayın." }
+                    ]
+                }
+            ],
+            submit: 'Kullanıcı + SSH Oluştur'
+        }, (data) => {
+            const u = cgEsc(data.username || ''), p = cgEsc(data.password || ''), lvl = cgEsc(data.level || '');
+            const last = cgEsc(data.vty_last || ''), acl = cgEsc(data.acl_num || '');
+            let c = '# ========================================\n# Huawei CloudEngine — Local User + SSH\n# ========================================\n\n';
+            c += 'system-view\naaa\n';
+            c += ' local-user ' + u + ' password irreversible-cipher ' + p + '\n';
+            c += ' local-user ' + u + ' service-type ssh\n';
+            c += ' local-user ' + u + ' level ' + lvl + '\n quit\n';
+            c += 'stelnet server enable\n';
+            c += 'ssh user ' + u + '\n';
+            c += 'ssh user ' + u + ' authentication-type password\n';
+            c += 'ssh user ' + u + ' service-type stelnet\n';
+            c += 'user-interface vty 0 ' + last + '\n';
+            c += ' authentication-mode aaa\n';
+            c += ' protocol inbound ssh\n';
+            if (acl) c += ' acl ' + acl + ' inbound\n';
+            c += ' quit\ncommit\n#\n';
+            c += '\n# Doğrulama:\n# display local-user\n# display ssh user-information ' + u + '\n# display ssh server status\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei CloudEngine: ACL ──────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100137933/f3ca4a6c/acl-configuration-commands
+//            https://support.huawei.com/enterprise/en/doc/EDOC1000039339/a850fda1/example-for-configuring-local-traffic-mirroring
+//            (acl number N; rule 5 permit ip source A W destination B W; traffic classifier C type or / if-match acl N;
+//             traffic behavior B; traffic policy P / classifier C behavior B precedence 5; traffic-policy P inbound)
+HuaweiCE.acl = {
+    label: 'ACL',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-filter',
+                title: 'ACL (CloudEngine)',
+                desc: 'Temel (2000-2999) veya gelişmiş (3000-3999) ACL kuralı. İsteğe bağlı olarak MQC traffic-policy ile bir arayüze paket filtresi olarak uygulanır.'
+            },
+            configTypes: [
+                { id: 'basic', label: 'Temel ACL', icon: 'fas fa-list', desc: 'Yalnız kaynak IP — VTY/SNMP erişim kısıtı', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'adv', label: 'Gelişmiş ACL', icon: 'fas fa-list-alt', desc: 'Protokol, kaynak/hedef, port' }
+            ],
+            sections: [
+                {
+                    title: 'Temel ACL Numarası',
+                    icon: 'fas fa-hashtag',
+                    showFor: ['basic'],
+                    fields: [
+                        { name: 'acl_num_b', label: 'ACL Numarası', type: 'text', min: 2000, max: 2999, requiredIf: { field: '_cgtype', in: ['basic'] }, placeholder: '2000', hint: 'Temel ACL: 2000-2999', why: "Numara aralığı ACL tipini belirler; temel ACL yalnız kaynak adresle eşleşir. VTY ve SNMP erişim kısıtları için temel ACL yeterlidir." }
+                    ]
+                },
+                {
+                    title: 'Gelişmiş ACL Numarası',
+                    icon: 'fas fa-hashtag',
+                    showFor: ['adv'],
+                    fields: [
+                        { name: 'acl_num_a', label: 'ACL Numarası', type: 'text', min: 3000, max: 3999, requiredIf: { field: '_cgtype', in: ['adv'] }, placeholder: '3000', hint: 'Gelişmiş ACL: 3000-3999', why: "Protokol, hedef ve port eşleşmesi yalnız gelişmiş ACL'de (3000-3999) yazılabilir; temel aralıkta bir numaraya bu kurallar reddedilir." }
+                    ]
+                },
+                {
+                    title: 'ACL ve Kural',
+                    icon: 'fas fa-list-ol',
+                    fields: [
+                        { name: 'rule_id', label: 'Kural No', type: 'text', required: true, min: 0, max: 4294967294, placeholder: '5', hint: 'Kurallar küçükten büyüğe değerlendirilir', why: "Kurallar numara sırasıyla eşleşir ve ilk eşleşme kazanır. Aralıklı numara (5, 10, 15) sonradan araya kural eklemeye yer bırakır." },
+                        { name: 'action', label: 'Eylem', type: 'select', options: [
+                            { value: 'permit', label: 'permit', selected: true },
+                            { value: 'deny', label: 'deny' }
+                        ], hint: 'Kural eşleşince uygulanacak eylem', why: "Traffic-policy ile uygulanan ACL'de kural yalnızca trafiği <b>seçer</b>; gerçek izin/engel davranışı traffic behavior'dan gelir. Bu nedenle arayüz uygulamasında kural permit yazılır, eylem behavior'a taşınır." },
+                        { name: 'src', label: 'Kaynak Ağ', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.0', hint: 'Kaynak IP / ağ adresi', why: "Kaynak yanlış yazılırsa kural hiç eşleşmez ve trafik varsayılan davranışa düşer; hata vermediği için fark edilmesi zordur." },
+                        { name: 'src_wc', label: 'Kaynak Wildcard', type: 'text', validate: 'wildcard', required: true, placeholder: '0.0.0.255', hint: 'Ters maske (0 = tek host)', why: "Huawei ACL ters maske bekler; 255.255.255.0 yazmak neredeyse her adresi eşleştirir ve kuralı anlamsız kılar." }
+                    ]
+                },
+                {
+                    title: 'Gelişmiş Eşleşme',
+                    icon: 'fas fa-sliders-h',
+                    showFor: ['adv'],
+                    fields: [
+                        { name: 'proto', label: 'Protokol', type: 'select', options: [
+                            { value: 'ip', label: 'ip (tümü)', selected: true },
+                            { value: 'tcp', label: 'tcp' },
+                            { value: 'udp', label: 'udp' },
+                            { value: 'icmp', label: 'icmp' }
+                        ], hint: 'rule ... <protokol>', why: "Port eşleşmesi yalnızca tcp/udp ile anlamlıdır; ip seçip port girmek kuralı reddettirir, bu yüzden ip/icmp'de port yazılmaz." },
+                        { name: 'dst', label: 'Hedef Ağ', type: 'text', validate: 'ip', placeholder: '192.0.2.0', hint: 'Boşsa hedef kısıtı yok', why: "Hedef verilmezse kural tüm hedeflere uygulanır; deny kurallarında bu beklenenden çok daha geniş bir kesintiye yol açabilir." },
+                        { name: 'dst_wc', label: 'Hedef Wildcard', type: 'text', validate: 'wildcard', placeholder: '0.0.0.255', hint: 'Hedef ağ için ters maske', why: "Hedef ağ verilip wildcard boş bırakılırsa tek host (0) varsayılır." },
+                        { name: 'dport', label: 'Hedef Port', type: 'text', validate: 'port', placeholder: '22', hint: 'destination-port eq N (yalnız tcp/udp)', why: "Port yalnızca protokol tcp veya udp iken yazılır; yanlış port servis erişimini ya engellemez ya da gereksiz kapatır." }
+                    ]
+                },
+                {
+                    title: 'Arayüze Uygulama (opsiyonel)',
+                    icon: 'fas fa-plug',
+                    fields: [
+                        { name: 'apply_if', label: 'Arayüz', type: 'text', validate: 'iface', placeholder: '10GE1/0/1', hint: 'Boşsa yalnız ACL oluşturulur (VTY/SNMP için)', why: "ACL tek başına trafiğe etki etmez; bir servise (VTY, SNMP) veya traffic-policy ile arayüze bağlanmadıkça yalnızca tanım olarak durur." },
+                        { name: 'policy', label: 'Policy Adı', type: 'text', placeholder: 'PF-MGMT', hint: 'Classifier/behavior/policy adları bundan türetilir', why: "Aynı adı başka bir amaçla kullanılan mevcut policy'ye vermek o policy'nin eşleşmelerini değiştirir; benzersiz ve amaca uygun ad seçin." },
+                        { name: 'dir', label: 'Yön', type: 'select', options: [
+                            { value: 'inbound', label: 'inbound', selected: true },
+                            { value: 'outbound', label: 'outbound' }
+                        ], hint: 'traffic-policy P inbound|outbound', why: "Filtreyi trafiğin girdiği ilk arayüzde (inbound) uygulamak istenmeyen paketi fabric'e girmeden düşürür; outbound desteği modele göre sınırlıdır." }
+                    ]
+                }
+            ],
+            submit: 'ACL Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'basic', num = cgEsc((t === 'adv' ? data.acl_num_a : data.acl_num_b) || ''), rid = cgEsc(data.rule_id || ''), act = cgEsc(data.action || 'permit');
+            const src = cgEsc(data.src || ''), swc = cgEsc(data.src_wc || ''), aif = cgEsc(data.apply_if || ''), pol = cgEsc(data.policy || ''), dir = cgEsc(data.dir || 'inbound');
+            const usePolicy = !!(aif && pol);
+            const ruleAct = usePolicy ? 'permit' : act;
+            let c = '# ========================================\n# Huawei CloudEngine — ACL\n# ========================================\n\n';
+            c += 'system-view\nacl number ' + num + '\n';
+            if (t === 'basic') {
+                c += ' rule ' + rid + ' ' + ruleAct + ' source ' + src + ' ' + swc + '\n';
+            } else {
+                const proto = cgEsc(data.proto || 'ip'), dst = cgEsc(data.dst || ''), dwc = cgEsc(data.dst_wc || ''), dp = cgEsc(data.dport || '');
+                let r = ' rule ' + rid + ' ' + ruleAct + ' ' + proto + ' source ' + src + ' ' + swc;
+                if (dst) r += ' destination ' + dst + ' ' + (dwc || '0');
+                if (dp && (proto === 'tcp' || proto === 'udp')) r += ' destination-port eq ' + dp;
+                c += r + '\n';
+            }
+            c += ' quit\n';
+            if (usePolicy) {
+                c += 'traffic classifier ' + pol + '-C type or\n if-match acl ' + num + '\n quit\n';
+                c += 'traffic behavior ' + pol + '-B\n ' + act + '\n quit\n';
+                c += 'traffic policy ' + pol + '\n classifier ' + pol + '-C behavior ' + pol + '-B precedence 5\n quit\n';
+                c += 'interface ' + aif + '\n traffic-policy ' + pol + ' ' + dir + '\n quit\n';
+            } else if (aif) {
+                c += '# UYARI: arayüze uygulamak için Policy Adı gerekli.\n';
+            }
+            c += 'commit\n#\n';
+            c += '\n# Doğrulama:\n# display acl ' + num + '\n';
+            if (usePolicy) c += '# display traffic-policy applied-record\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei CloudEngine: STP ──────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1000060766/41c08b96/how-do-i-configure-stp-when-a-ce-series-switch-connects-to-a-server
+//            https://support.huawei.cn/enterprise/en/doc/EDOC1100468591/91c2824a/example-for-configuring-stp
+//            (stp mode, stp instance 0 root primary|secondary, stp bpdu-protection, stp edged-port enable)
+HuaweiCE.stp = {
+    label: 'STP / Edge Port',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-sitemap',
+                title: 'STP / Edge Port (CloudEngine)',
+                desc: 'STP modu, root/secondary root rolü, sunucu portlarında edge port ve global BPDU koruması.'
+            },
+            sections: [
+                {
+                    title: 'Global',
+                    icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'mode', label: 'STP Modu', type: 'select', options: [
+                            { value: 'mstp', label: 'MSTP (varsayılan)', selected: true },
+                            { value: 'rstp', label: 'RSTP' },
+                            { value: 'stp', label: 'STP' }
+                        ], hint: 'stp mode', why: "Komşu cihazlarla uyumsuz mod bölge sınırı yaratır ve yakınsama yavaşlar. Klasik STP modu topoloji değişikliğinde 30-50 saniyelik kesintiye yol açar; mümkünse RSTP/MSTP kullanın." },
+                        { name: 'root', label: 'Root Rolü (instance 0)', type: 'select', options: [
+                            { value: '', label: 'Belirtme', selected: true },
+                            { value: 'primary', label: 'primary — root bridge' },
+                            { value: 'secondary', label: 'secondary — yedek root' }
+                        ], hint: 'stp instance 0 root primary|secondary', why: "Root elle belirlenmezse en düşük MAC'li rastgele bir cihaz root olur; trafik beklenmedik yollardan akar. Root, toplama/spine katmanındaki cihaz olmalıdır." },
+                        { name: 'bpdu_prot', label: 'BPDU Protection (global)', type: 'checkbox', checked: true, why: "BPDU koruması yalnızca edge portlara etki eder: sunucu portuna BPDU gelirse (ör. sanal switch yanlış yapılandırılmışsa) port error-down olur ve topoloji bozulmaz." }
+                    ]
+                },
+                {
+                    title: 'Edge Portlar',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'edge_ifs', label: 'Sunucu Port(lar)ı', type: 'text', validate: 'iface_range', placeholder: '10GE1/0/1', hint: 'Virgülle ayırın; stp edged-port enable', why: "Edge port bağlantı kurulur kurulmaz forwarding'e geçer; sunucu PXE/DHCP boot sırasında 30 saniye beklemez. Switch'e giden portu edge yapmak geçici döngü riski taşır." }
+                    ]
+                }
+            ],
+            submit: 'STP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const mode = cgEsc(data.mode || 'mstp'), root = cgEsc(data.root || ''), edge = _hwceIfList(data.edge_ifs);
+            let c = '# ========================================\n# Huawei CloudEngine — STP / Edge Port\n# ========================================\n\n';
+            c += 'system-view\nstp mode ' + mode + '\n';
+            if (root) c += 'stp instance 0 root ' + root + '\n';
+            if (data.bpdu_prot) c += 'stp bpdu-protection\n';
+            edge.forEach(i => {
+                if (i.range) { c += '# UYARI: aralık girilemez, portları tek tek yazın: ' + i.name + '\n'; return; }
+                c += 'interface ' + i.name + '\n stp edged-port enable\n quit\n';
+            });
+            c += 'commit\n#\n';
+            c += '\n# Doğrulama:\n# display stp brief\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei CloudEngine: Interface ────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1000060766/82f53f5c/https&
+//            https://support.huawei.com/enterprise/en/doc/EDOC1100198444/cdd85713/basic-interface-configuration-commands
+//            (portswitch / undo portswitch, ip address A M, description, shutdown / undo shutdown)
+HuaweiCE.interface = {
+    label: 'Interface (L2/L3)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-ethernet',
+                title: 'Interface L2/L3 (CloudEngine)',
+                desc: 'Fiziksel portu Layer 2 (portswitch) veya Layer 3 (undo portswitch) moduna alır, açıklama, IP adresi ve yönetimsel durum atar.'
+            },
+            configTypes: [
+                { id: 'l3', label: 'Layer 3 (routed)', icon: 'fas fa-route', desc: 'undo portswitch + IP adresi — spine/leaf uplink', badge: { text: 'Fabric', cls: 'recommended' } },
+                { id: 'l2', label: 'Layer 2 (switched)', icon: 'fas fa-exchange-alt', desc: 'portswitch — VLAN atamasını VLAN aracıyla yapın' }
+            ],
+            sections: [
+                {
+                    title: 'Arayüz',
+                    icon: 'fas fa-plug',
+                    fields: [
+                        { name: 'iface', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: '10GE1/0/1', hint: 'Fiziksel port', why: "Mod değişikliği (portswitch ↔ undo portswitch) öncesi porttaki varsayılan olmayan tüm ayarlar silinmelidir; aksi halde komut reddedilir." },
+                        { name: 'desc', label: 'Açıklama', type: 'text', placeholder: 'to-SPINE1-40GE1/0/1', hint: 'description', why: "Karşı cihaz ve portu açıklamaya yazmak kablolama doğrulamasını ve arıza anında doğru portu bulmayı hızlandırır." },
+                        { name: 'admin', label: 'Yönetimsel Durum', type: 'select', options: [
+                            { value: 'undo shutdown', label: 'undo shutdown (aktif)', selected: true },
+                            { value: 'shutdown', label: 'shutdown (kapalı)' }
+                        ], hint: 'Port durumu', why: "Bazı CloudEngine modellerinde portlar fabrikadan kapalı gelir; <code>undo shutdown</code> yazılmazsa kablo takılı olsa bile link kalkmaz." }
+                    ]
+                },
+                {
+                    title: 'Layer 3',
+                    icon: 'fas fa-sitemap',
+                    showFor: ['l3'],
+                    fields: [
+                        { name: 'ip_mask', label: 'IP / Maske', type: 'text', validate: 'ip_mask', requiredIf: { field: '_cgtype', in: ['l3'] }, placeholder: '10.255.0.1 255.255.255.252', hint: 'Noktalı maske ile', why: "Point-to-point fabric linklerinde /30 veya /31 kullanılır; iki uçta farklı subnet yazılırsa OSPF/BGP komşuluğu kurulmaz ve hata yalnızca 'neighbor down' olarak görünür." }
+                    ]
+                }
+            ],
+            submit: 'Arayüz Konfigürasyonu Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'l3', iface = cgEsc(data.iface || ''), desc = cgEsc(data.desc || '');
+            const admin = cgEsc(data.admin || 'undo shutdown'), ipm = cgEsc(data.ip_mask || '');
+            let c = '# ========================================\n# Huawei CloudEngine — Interface\n# ========================================\n\n';
+            c += 'system-view\ninterface ' + iface + '\n';
+            if (t === 'l3') {
+                c += ' undo portswitch\n';
+                if (ipm) c += ' ip address ' + ipm + '\n';
+            } else {
+                c += ' portswitch\n';
+            }
+            if (desc) c += ' description ' + desc + '\n';
+            c += ' ' + admin + '\n quit\ncommit\n#\n';
+            c += '\n# Doğrulama:\n# display interface brief\n# display ip interface brief\n';
+            return c;
+        });
+    }
+};
+
+// ── Huawei CloudEngine: Port Mirroring ───────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100137943/894ed4f4/configuring-local-port-mirroring
+//            https://support.huawei.com/enterprise/en/doc/EDOC1100198444/6bd51f84/mirroring-configuration-commands
+//            (observe-port N interface X; port-mirroring observe-port N { inbound | outbound | both })
+HuaweiCE.mirror = {
+    label: 'Port Mirroring',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'Port Mirroring (CloudEngine)',
+                desc: 'Yerel port yansıtma: kaynak portların trafiğini analizör/IDS\'e bağlı gözlem portuna kopyalar.'
+            },
+            sections: [
+                {
+                    title: 'Gözlem Portu',
+                    icon: 'fas fa-eye',
+                    fields: [
+                        { name: 'obs_idx', label: 'Observe-port Numarası', type: 'text', required: true, min: 1, max: 4, placeholder: '1', hint: 'observe-port indeksi', why: "Aynı indeksi başka bir arayüze yeniden atamak o indekse bağlı tüm yansıtmaları yeni porta taşır; mevcut analiz oturumu bozulur." },
+                        { name: 'obs_if', label: 'Gözlem Portu', type: 'text', validate: 'iface', required: true, placeholder: '10GE1/0/48', hint: 'Analizörün bağlı olduğu port', why: "Kaynak portların toplam trafiği gözlem portunun hızını aşarsa kopyaların bir kısmı sessizce düşer; 40G/100G uplink'i 10G porta yansıtmak eksik yakalama demektir." }
+                    ]
+                },
+                {
+                    title: 'Yansıtılacak Portlar',
+                    icon: 'fas fa-exchange-alt',
+                    fields: [
+                        { name: 'src_ifs', label: 'Kaynak Port(lar)', type: 'text', validate: 'iface_range', required: true, placeholder: '10GE1/0/1', hint: 'Virgülle ayırın', why: "Gözlem portunun kendisini kaynak eklemek döngü yaratır. Yoğun bir portu iki yönde yansıtmak gerekli bant genişliğini ikiye katlar." },
+                        { name: 'dir', label: 'Yön', type: 'select', options: [
+                            { value: 'inbound', label: 'inbound — gelen', selected: true },
+                            { value: 'outbound', label: 'outbound — giden' },
+                            { value: 'both', label: 'both — iki yön' }
+                        ], hint: 'port-mirroring observe-port N <yön>', why: "Yalnızca gelen trafik yansıtılırsa analizör cevap paketlerini görmez ve TCP analizi yarım kalır; both tam görünürlük verir ama bant genişliğini iki katına çıkarır." }
+                    ]
+                }
+            ],
+            submit: 'Port Mirroring Oluştur'
+        }, (data) => {
+            const idx = cgEsc(data.obs_idx || ''), oif = cgEsc(data.obs_if || ''), dir = cgEsc(data.dir || 'inbound');
+            const srcs = _hwceIfList(data.src_ifs);
+            let c = '# ========================================\n# Huawei CloudEngine — Port Mirroring\n# ========================================\n\n';
+            c += 'system-view\nobserve-port ' + idx + ' interface ' + oif + '\n';
+            srcs.forEach(i => {
+                if (i.range) { c += '# UYARI: aralık girilemez, portları tek tek yazın: ' + i.name + '\n'; return; }
+                c += 'interface ' + i.name + '\n port-mirroring observe-port ' + idx + ' ' + dir + '\n quit\n';
+            });
+            c += 'commit\n#\n';
+            c += '\n# Doğrulama:\n# display port-mirroring\n';
+            return c;
+        });
+    }
+};
