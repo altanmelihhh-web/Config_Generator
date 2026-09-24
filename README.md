@@ -11,6 +11,7 @@ Backend yok, kurulum yok: tamamen tarayıcıda çalışır.
 ![JavaScript](https://img.shields.io/badge/JavaScript-vanilla-f7df1e?logo=javascript&logoColor=black)
 ![No backend](https://img.shields.io/badge/backend-yok-2ea44f)
 ![Offline](https://img.shields.io/badge/offline-çalışır-0b2e5b)
+[![License: MIT](https://img.shields.io/badge/lisans-MIT-blue)](LICENSE)
 
 </div>
 
@@ -28,6 +29,7 @@ Backend yok, kurulum yok: tamamen tarayıcıda çalışır.
 - [Geliştirme: yeni şablon / vendor ekleme](#geliştirme-yeni-şablon--vendor-ekleme)
 - [Güvenlik ve gizlilik](#güvenlik-ve-gizlilik)
 - [Sorumluluk reddi](#sorumluluk-reddi)
+- [Lisans](#lisans)
 
 ---
 
@@ -166,6 +168,7 @@ Config_Generator/
 │   │   └── ConfigConverter_Writers_<Vendor>.js  IR → config üreticileri
 │   ├── fonts/inter/                    Inter yazı tipi (woff2)
 │   └── vendor/fontawesome/             Font Awesome 6 Free (ikonlar)
+├── LICENSE
 └── README.md
 ```
 
@@ -243,6 +246,10 @@ Config_Generator/
 ## Sorumluluk reddi
 
 Üretilen ve dönüştürülen konfigürasyonlar yardımcı niteliktedir. Cihaza uygulamadan önce içeriği gözden geçirin, mümkünse test/lab ortamında doğrulayın ve değişikliği kurumunuzun değişiklik yönetimi sürecine uygun şekilde yapın.
+
+## Lisans
+
+Bu proje [MIT Lisansı](LICENSE) ile lisanslanmıştır.
 
 ---
 
