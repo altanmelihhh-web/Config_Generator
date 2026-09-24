@@ -17,22 +17,22 @@ FortiGate.interface = {
                     title: 'WAN Interface',
                     icon: 'fas fa-globe',
                     fields: [
-                        { name: 'wan_port',   label: 'Interface Adı',          type: 'text',   required: true, placeholder: 'port1',            hint: 'WAN portunu belirtin (ör: port1, wan1)' },
-                        { name: 'wan_alias',  label: 'Alias',                  type: 'text',   required: true, placeholder: 'WAN',               hint: 'İnsan okunabilir kısa ad' },
-                        { name: 'wan_ip',     label: 'IP Adresi',              type: 'text', validate: 'ip',   required: true, placeholder: '203.0.113.1',        hint: 'WAN tarafındaki statik IP' },
-                        { name: 'wan_mask',   label: 'Subnet Mask',            type: 'text', validate: 'subnet',   required: true, placeholder: '255.255.255.252',    hint: 'Nokta-ondalık subnet maskı' },
-                        { name: 'wan_access', label: 'İzin Verilen Servisler', type: 'text',   required: true, placeholder: 'ping https',         hint: 'Boşlukla ayrılmış: ping https ssh' }
+                        { name: 'wan_port', why: "FortiGate'te portlar fiziksel isimle anılır (<code>port1</code>, <code>wan1</code>). Yanlış porta IP verirsen cihazla bağlantını kaybedebilirsin — önce <code>get system interface</code> ile mevcut portları gör.",   label: 'Interface Adı',          type: 'text',   required: true, placeholder: 'port1',            hint: 'WAN portunu belirtin (ör: port1, wan1)' },
+                        { name: 'wan_alias', why: "Alias yalnızca görünen addır, config'te port adı kullanılmaya devam eder. Ama kural yazarken <code>WAN</code> görmek <code>port1</code> görmekten çok daha az hata yaptırır.",  label: 'Alias',                  type: 'text',   required: true, placeholder: 'WAN',               hint: 'İnsan okunabilir kısa ad' },
+                        { name: 'wan_ip', why: "ISS'nin verdiği statik IP. DHCP alıyorsan bu alanı boş bırakıp <code>set mode dhcp</code> kullanmalısın; ikisini birden tanımlamak çakışır.",     label: 'IP Adresi',              type: 'text', validate: 'ip',   required: true, placeholder: '203.0.113.1',        hint: 'WAN tarafındaki statik IP' },
+                        { name: 'wan_mask', why: 'FortiOS nokta-ondalık maske bekler (<code>255.255.255.252</code>), CIDR değil. Point-to-point ISS bağlantılarında genelde /30 verilir.',   label: 'Subnet Mask',            type: 'text', validate: 'subnet',   required: true, placeholder: '255.255.255.252',    hint: 'Nokta-ondalık subnet maskı' },
+                        { name: 'wan_access', why: "Dışarıya açtığın her servis saldırı yüzeyidir. WAN'da <code>https</code> ve <code>ssh</code> açmak yönetim arayüzünü internete açar — mümkünse sadece <code>ping</code> bırak, yönetimi VPN üzerinden yap.", label: 'İzin Verilen Servisler', type: 'text',   required: true, placeholder: 'ping https',         hint: 'Boşlukla ayrılmış: ping https ssh' }
                     ]
                 },
                 {
                     title: 'LAN Interface',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'lan_port',   label: 'Interface Adı',          type: 'text',   required: true, placeholder: 'port2',             hint: 'LAN portunu belirtin (ör: port2, internal)' },
-                        { name: 'lan_alias',  label: 'Alias',                  type: 'text',   required: true, placeholder: 'LAN',               hint: 'İnsan okunabilir kısa ad' },
-                        { name: 'lan_ip',     label: 'IP Adresi',              type: 'text', validate: 'ip',   required: true, placeholder: '192.168.1.1',        hint: 'LAN tarafındaki gateway IP' },
-                        { name: 'lan_mask',   label: 'Subnet Mask',            type: 'text', validate: 'subnet',   required: true, placeholder: '255.255.255.0',      hint: 'Nokta-ondalık subnet maskı' },
-                        { name: 'lan_access', label: 'İzin Verilen Servisler', type: 'text',   required: true, placeholder: 'ping https ssh',     hint: 'Boşlukla ayrılmış servis adları' }
+                        { name: 'lan_port', why: "İç ağa bakan port. Bu porta verdiğin IP, LAN istemcilerinin default gateway'i olur.",   label: 'Interface Adı',          type: 'text',   required: true, placeholder: 'port2',             hint: 'LAN portunu belirtin (ör: port2, internal)' },
+                        { name: 'lan_alias', why: 'Kural listesinde <code>internal</code> yerine <code>LAN</code> görmek, özellikle çok portlu cihazlarda yanlış kural yazmayı önler.',  label: 'Alias',                  type: 'text',   required: true, placeholder: 'LAN',               hint: 'İnsan okunabilir kısa ad' },
+                        { name: 'lan_ip', why: "Bu adres iç ağın gateway'idir; DHCP dağıtıyorsan istemcilere bu IP'yi vereceksin. Mevcut ağdaki bir IP ile çakışmamasına dikkat et.",     label: 'IP Adresi',              type: 'text', validate: 'ip',   required: true, placeholder: '192.168.1.1',        hint: 'LAN tarafındaki gateway IP' },
+                        { name: 'lan_mask', why: 'Ağ büyüklüğünü belirler. <code>255.255.255.0</code> = 254 kullanılabilir adres. Sonradan büyütmek istemci yeniden adreslemesi gerektirir.',   label: 'Subnet Mask',            type: 'text', validate: 'subnet',   required: true, placeholder: '255.255.255.0',      hint: 'Nokta-ondalık subnet maskı' },
+                        { name: 'lan_access', why: "İç tarafta <code>https ssh</code> açmak normaldir; yönetim buradan yapılır. <code>ping</code>'i açık bırakmak sorun gidermeyi kolaylaştırır.", label: 'İzin Verilen Servisler', type: 'text',   required: true, placeholder: 'ping https ssh',     hint: 'Boşlukla ayrılmış servis adları' }
                     ]
                 }
             ],
@@ -90,8 +90,8 @@ FortiGate.address = {
                     title: 'Nesne Bilgileri',
                     icon: 'fas fa-tag',
                     fields: [
-                        { name: 'obj_name', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'LAN_SUBNET', hint: 'Policy içinde referans verilecek ad' },
-                        { name: 'comment',  label: 'Açıklama',  type: 'text', optional: true, placeholder: 'LAN ağı',    hint: 'Opsiyonel açıklama' }
+                        { name: 'obj_name', why: 'Adres nesnesi olmadan kural yazamazsın. İsimlendirmede tutarlı ol (<code>SRV_WEB_01</code> gibi) — 200 kurallı bir cihazda aranabilirlik her şeydir.', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'LAN_SUBNET', hint: 'Policy içinde referans verilecek ad' },
+                        { name: 'comment', why: 'Altı ay sonra bu nesneyi neden oluşturduğunu hatırlamayacaksın. Ticket numarası veya sorumlu ekip yazmak denetimlerde hayat kurtarır.',  label: 'Açıklama',  type: 'text', optional: true, placeholder: 'LAN ağı',    hint: 'Opsiyonel açıklama' }
                     ]
                 },
                 {
@@ -99,7 +99,7 @@ FortiGate.address = {
                     icon: 'fas fa-network-wired',
                     showFor: ['ipmask'],
                     fields: [
-                        { name: 'subnet', label: 'Subnet (IP Mask)', type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'Nokta-ondalık: IP MASK veya CIDR' }
+                        { name: 'subnet', why: 'Tek host için <code>/32</code>, ağ için <code>/24</code> gibi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet (IP Mask)', type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'Nokta-ondalık: IP MASK veya CIDR' }
                     ]
                 },
                 {
@@ -107,7 +107,7 @@ FortiGate.address = {
                     icon: 'fas fa-globe',
                     showFor: ['fqdn'],
                     fields: [
-                        { name: 'fqdn', label: 'FQDN', type: 'text', required: true, placeholder: 'example.com', hint: 'Tam nitelikli alan adı' }
+                        { name: 'fqdn', why: "IP'si sık değişen bulut servisleri için kullanılır; FortiGate DNS'i periyodik çözer. DNS'e erişim koparsa nesne eski IP ile kalır ve erişim sorunları yaşanır.", label: 'FQDN', type: 'text', required: true, placeholder: 'example.com', hint: 'Tam nitelikli alan adı' }
                     ]
                 },
                 {
@@ -160,34 +160,34 @@ FortiGate.policy = {
                     title: 'Kural Tanımı',
                     icon: 'fas fa-file-alt',
                     fields: [
-                        { name: 'rule_id',   label: 'Kural ID',          type: 'text',   required: true, placeholder: '1',                hint: 'Benzersiz politika numarası' },
-                        { name: 'rule_name', label: 'Kural Adı',         type: 'text',   required: true, placeholder: 'LAN_to_WAN',       hint: 'Politikayı tanımlayan kısa ad' }
+                        { name: 'rule_id', why: 'Kural sırası içeriği kadar önemlidir: FortiGate <b>yukarıdan aşağıya ilk eşleşen</b> kuralı uygular. Geniş bir kuralı üste koyarsan altındaki spesifik kurallar hiç çalışmaz.',   label: 'Kural ID',          type: 'text',   required: true, placeholder: '1',                hint: 'Benzersiz politika numarası' },
+                        { name: 'rule_name', why: 'Adsız kural, altı ay sonra kimsenin silmeye cesaret edemediği kuraldır. Amacını yaz.', label: 'Kural Adı',         type: 'text',   required: true, placeholder: 'LAN_to_WAN',       hint: 'Politikayı tanımlayan kısa ad' }
                     ]
                 },
                 {
                     title: 'Kaynak & Hedef',
                     icon: 'fas fa-exchange-alt',
                     fields: [
-                        { name: 'srcintf', label: 'Kaynak Interface', type: 'text',   required: true, placeholder: 'port2',            hint: 'Trafiğin geldiği arayüz' },
-                        { name: 'dstintf', label: 'Hedef Interface',  type: 'text',   required: true, placeholder: 'port1',            hint: 'Trafiğin çıktığı arayüz' },
-                        { name: 'srcaddr', label: 'Kaynak Adres',     type: 'text',   required: true, placeholder: 'LAN_SUBNET',       hint: 'Address Object adı veya "all"' },
-                        { name: 'dstaddr', label: 'Hedef Adres',      type: 'text',   required: true, placeholder: 'all',              hint: 'Address Object adı veya "all"' },
-                        { name: 'service', label: 'Servis',           type: 'text',   required: true, placeholder: 'ALL',              hint: 'Servis nesnesi: ALL, HTTP, HTTPS vb.' }
+                        { name: 'srcintf', why: 'Trafiğin <b>girdiği</b> interface. Yanlış yön seçmek kuralın hiç eşleşmemesine yol açar — en sık yapılan hatalardan biri.', label: 'Kaynak Interface', type: 'text',   required: true, placeholder: 'port2',            hint: 'Trafiğin geldiği arayüz' },
+                        { name: 'dstintf', why: 'Trafiğin <b>çıktığı</b> interface. VPN trafiği için tünel arayüzünü seçmelisin, fiziksel portu değil.', label: 'Hedef Interface',  type: 'text',   required: true, placeholder: 'port1',            hint: 'Trafiğin çıktığı arayüz' },
+                        { name: 'srcaddr', why: 'Önceden tanımlı adres nesnesi olmalı. <code>all</code> seçmek kuralı tüm kaynaklara açar — gerçekten gerekli mi düşün.', label: 'Kaynak Adres',     type: 'text',   required: true, placeholder: 'LAN_SUBNET',       hint: 'Address Object adı veya "all"' },
+                        { name: 'dstaddr', why: 'Hedef adres. <code>all</code> + <code>ALL</code> servis kombinasyonu, kural listesindeki en tehlikeli satırdır.', label: 'Hedef Adres',      type: 'text',   required: true, placeholder: 'all',              hint: 'Address Object adı veya "all"' },
+                        { name: 'service', why: 'Port/protokol kısıtı. <code>ALL</code> yerine yalnızca gereken servisi seçmek, ihlal anında yanal hareketi sınırlar.', label: 'Servis',           type: 'text',   required: true, placeholder: 'ALL',              hint: 'Servis nesnesi: ALL, HTTP, HTTPS vb.' }
                     ]
                 },
                 {
                     title: 'Aksiyon & Log',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'action',      label: 'Aksiyon',        type: 'select', options: [
+                        { name: 'action', why: '<code>accept</code> trafiği geçirir, <code>deny</code> sessizce düşürür. Deny kurallarında log açmazsan neyin engellendiğini asla göremezsin.',      label: 'Aksiyon',        type: 'select', options: [
                             { value: 'accept', label: 'Accept', selected: true },
                             { value: 'deny',   label: 'Deny' }
                         ]},
-                        { name: 'nat',         label: 'NAT',            type: 'select', options: [
+                        { name: 'nat', why: "Açıkken kaynak IP, çıkış arayüzünün IP'siyle değiştirilir. Site-to-site VPN kurallarında NAT <b>kapalı</b> olmalıdır; açık kalırsa karşı taraf gerçek iç IP'leri göremez ve trafik geri dönmez.",         label: 'NAT',            type: 'select', options: [
                             { value: 'enable',  label: 'Enable',  selected: true },
                             { value: 'disable', label: 'Disable' }
                         ]},
-                        { name: 'logtraffic',  label: 'Log Trafiği',    type: 'select', options: [
+                        { name: 'logtraffic', why: 'Log kapalı kural, olmayan kuraldır. Sorun giderirken ve denetimde ilk bakılan yer <code>Forward Traffic</code> logudur.',  label: 'Log Trafiği',    type: 'select', options: [
                             { value: 'all',     label: 'All',     selected: true },
                             { value: 'utm',     label: 'UTM' },
                             { value: 'disable', label: 'Disable' }
@@ -317,20 +317,20 @@ FortiGate.ipsec = {
                     title: 'Phase 1 — IKE',
                     icon: 'fas fa-key',
                     fields: [
-                        { name: 'p1_name',    label: 'Phase 1 Adı',      type: 'text',   required: true,  placeholder: 'VPN_P1',           hint: 'Tunnel interface adı olarak da kullanılır' },
-                        { name: 'p1_iface',   label: 'WAN Interface',    type: 'text',   required: true,  placeholder: 'port1',             hint: 'VPN trafiğinin çıkacağı WAN arayüzü' },
-                        { name: 'remote_gw',  label: 'Uzak Gateway IP',  type: 'text', validate: 'ip',   required: true,  placeholder: '203.0.113.2',       hint: 'Karşı tarafın WAN IP adresi' },
-                        { name: 'psk',        label: 'Pre-Shared Key',   type: 'text',   required: true,  placeholder: 'MyS3cr3tKey!',      hint: 'Her iki tarafta aynı PSK kullanılmalı' },
-                        { name: 'ike_ver',    label: 'IKE Versiyon',     type: 'select', options: [
+                        { name: 'p1_name', why: 'Tünel adı aynı zamanda sanal arayüz adı olur; statik rota ve firewall kuralında bu adı kullanacaksın.',    label: 'Phase 1 Adı',      type: 'text',   required: true,  placeholder: 'VPN_P1',           hint: 'Tunnel interface adı olarak da kullanılır' },
+                        { name: 'p1_iface', why: 'Tünelin kurulacağı dış arayüz. Birden fazla WAN varsa yanlış seçim tünelin hiç kurulmamasına yol açar.',   label: 'WAN Interface',    type: 'text',   required: true,  placeholder: 'port1',             hint: 'VPN trafiğinin çıkacağı WAN arayüzü' },
+                        { name: 'remote_gw', why: "Karşı tarafın <b>gerçek</b> WAN IP'si. NAT arkasındaysa bu IP dış IP olmalı; yanlışsa Phase 1 hiç başlamaz (<code>diagnose sniffer packet</code> ile UDP 500 gelmediğini görürsün).",  label: 'Uzak Gateway IP',  type: 'text', validate: 'ip',   required: true,  placeholder: '203.0.113.2',       hint: 'Karşı tarafın WAN IP adresi' },
+                        { name: 'psk', why: 'İki tarafta <b>birebir</b> aynı olmalı. Kopyala-yapıştır sırasında sondaki boşluk en klasik hatadır. Uzun ve rastgele seç — zayıf PSK tüm tünelin güvenliğini düşürür.',        label: 'Pre-Shared Key',   type: 'text',   required: true,  placeholder: 'MyS3cr3tKey!',      hint: 'Her iki tarafta aynı PSK kullanılmalı' },
+                        { name: 'ike_ver', why: 'IKEv2 daha az round-trip, daha iyi NAT geçişi ve MOBIKE desteği sunar. Karşı taraf desteklemiyorsa IKEv1 zorunlu kalır — <b>iki tarafta aynı sürüm</b> olmalı.',    label: 'IKE Versiyon',     type: 'select', options: [
                             { value: '2', label: 'IKEv2', selected: true },
                             { value: '1', label: 'IKEv1' }
                         ]},
-                        { name: 'proposal',   label: 'Proposal',         type: 'select', options: [
+                        { name: 'proposal', why: 'Şifreleme ve hash algoritması. İki tarafta en az bir ortak proposal olmalı, yoksa Phase 1 kurulamaz. <code>aes256-sha256</code> günümüz için makul bir taban.',   label: 'Proposal',         type: 'select', options: [
                             { value: 'aes256-sha256', label: 'AES256-SHA256', selected: true },
                             { value: 'aes128-sha256', label: 'AES128-SHA256' },
                             { value: 'aes256-sha1',   label: 'AES256-SHA1' }
                         ]},
-                        { name: 'dhgrp',      label: 'DH Group',         type: 'select', options: [
+                        { name: 'dhgrp', why: 'Anahtar değişimi için kullanılan grup. Grup 1, 2 ve 5 artık güvensiz kabul edilir; 14 (2048-bit) alt sınırdır. İki tarafta aynı grup seçilmeli.',      label: 'DH Group',         type: 'select', options: [
                             { value: '14', label: 'Group 14', selected: true },
                             { value: '19', label: 'Group 19 (EC)' },
                             { value: '5',  label: 'Group 5 (eski)' }
@@ -341,9 +341,9 @@ FortiGate.ipsec = {
                     title: 'Phase 2 — Tünel',
                     icon: 'fas fa-tunnel',
                     fields: [
-                        { name: 'p2_name',       label: 'Phase 2 Adı',      type: 'text', required: true, placeholder: 'VPN_P2',                       hint: 'Her tünel için benzersiz ad' },
-                        { name: 'local_subnet',  label: 'Yerel Subnet',     type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0',     hint: 'Nokta-ondalık: IP MASK formatı' },
-                        { name: 'remote_subnet', label: 'Uzak Subnet',      type: 'text', required: true, placeholder: '10.0.0.0 255.255.255.0',        hint: 'Karşı tarafın iç ağı' }
+                        { name: 'p2_name', why: "Phase 2, hangi trafiğin şifreleneceğini belirler. Phase 1 kurulup Phase 2 kurulmazsa tünel 'up' görünür ama trafik geçmez.",       label: 'Phase 2 Adı',      type: 'text', required: true, placeholder: 'VPN_P2',                       hint: 'Her tünel için benzersiz ad' },
+                        { name: 'local_subnet', why: "Bu tarafın şifrelenecek ağı. Trafik seçicileri iki tarafta <b>ayna</b> olmalı: senin local'in karşının remote'u olmalı.",  label: 'Yerel Subnet',     type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0',     hint: 'Nokta-ondalık: IP MASK formatı' },
+                        { name: 'remote_subnet', why: 'Karşı tarafın ağı. Bu subnet için <b>statik rota</b> ve <b>iki yönlü firewall kuralı</b> da gerekir — tünel kurulup trafiğin akmamasının en yaygın sebebi budur.', label: 'Uzak Subnet',      type: 'text', required: true, placeholder: '10.0.0.0 255.255.255.0',        hint: 'Karşı tarafın iç ağı' }
                     ]
                 }
             ],
@@ -480,7 +480,7 @@ FortiGate.secprofile = {
                     icon: 'fas fa-link',
                     fields: [
                         { name: 'policy_id',  label: 'Policy ID',      type: 'text',   required: true, placeholder: '10',   hint: 'UTM profillerinin bağlanacağı kural ID' },
-                        { name: 'logtraffic', label: 'Log Trafiği',    type: 'select', options: [
+                        { name: 'logtraffic', why: 'Log kapalı kural, olmayan kuraldır. Sorun giderirken ve denetimde ilk bakılan yer <code>Forward Traffic</code> logudur.', label: 'Log Trafiği',    type: 'select', options: [
                             { value: 'all', label: 'All', selected: true },
                             { value: 'utm', label: 'UTM only' }
                         ]}
@@ -948,7 +948,7 @@ FortiGate.ips = {
                             { value: 'medium',   label: 'Medium' },
                             { value: 'low',      label: 'Low' }
                         ], hint: 'Bu eşik ve üzerindeki imzalar etkilenir' },
-                        { name: 'action',      label: 'Aksiyon',    type: 'select', options: [
+                        { name: 'action', why: '<code>accept</code> trafiği geçirir, <code>deny</code> sessizce düşürür. Deny kurallarında log açmazsan neyin engellendiğini asla göremezsin.',      label: 'Aksiyon',    type: 'select', options: [
                             { value: 'block',   label: 'Block',   selected: true },
                             { value: 'monitor', label: 'Monitor' },
                             { value: 'reset',   label: 'Reset' }

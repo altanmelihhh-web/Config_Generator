@@ -280,7 +280,7 @@ CiscoIOS.acl = {
                     icon: 'fas fa-id-card',
                     showFor: ['standard', 'extended', 'named'],
                     fields: [
-                        { name: 'acl_name', label: 'ACL Ad / Numara', type: 'text', required: true, placeholder: 'ACL_PERMIT_WEB veya 100', hint: 'Standard: 1-99, Extended: 100-199, Named: metin isim' }
+                        { name: 'acl_name', why: "Numaralı ACL'lerde aralık anlamı taşır: 1-99 standart, 100-199 genişletilmiş. <b>İsimli ACL kullan</b> — sonradan araya satır ekleyebilirsin, numaralıda ACL'i silip baştan yazman gerekir.", label: 'ACL Ad / Numara', type: 'text', required: true, placeholder: 'ACL_PERMIT_WEB veya 100', hint: 'Standard: 1-99, Extended: 100-199, Named: metin isim' }
                     ]
                 },
                 {
@@ -288,10 +288,10 @@ CiscoIOS.acl = {
                     icon: 'fas fa-sliders-h',
                     showFor: ['standard', 'extended', 'named'],
                     fields: [
-                        { name: 'acl_action', label: 'Aksiyon', type: 'select', required: true, options: [{ value: 'permit', label: 'permit — İzin ver' }, { value: 'deny', label: 'deny — Engelle' }] },
+                        { name: 'acl_action', why: "Cisco ACL'lerinin sonunda <b>görünmeyen bir <code>deny any</code></b> vardır. Yani en az bir <code>permit</code> yazmazsan tüm trafik düşer.", label: 'Aksiyon', type: 'select', required: true, options: [{ value: 'permit', label: 'permit — İzin ver' }, { value: 'deny', label: 'deny — Engelle' }] },
                         { name: 'protocol', label: 'Protokol', type: 'select', options: [{ value: 'ip', label: 'ip (tüm protokoller)' }, { value: 'tcp', label: 'tcp' }, { value: 'udp', label: 'udp' }, { value: 'icmp', label: 'icmp' }] },
                         { name: 'src_ip', label: 'Kaynak IP', type: 'text', required: true, validate: 'ip', placeholder: '192.168.1.0', hint: 'Kaynak ağ adresi veya host IP' },
-                        { name: 'src_wild', label: 'Kaynak Wildcard', type: 'text', placeholder: '0.0.0.255', hint: 'Boş bırakılırsa 0.0.0.0 (host) kullanılır' }
+                        { name: 'src_wild', why: 'Cisco wildcard maskesi, subnet maskesinin <b>tersidir</b>: <code>255.255.255.0</code> → <code>0.0.0.255</code>. En sık yapılan hata normal maske yazmaktır.', label: 'Kaynak Wildcard', type: 'text', placeholder: '0.0.0.255', hint: 'Boş bırakılırsa 0.0.0.0 (host) kullanılır' }
                     ]
                 },
                 {
@@ -301,7 +301,7 @@ CiscoIOS.acl = {
                     info: 'Standard ACL yalnızca kaynağa göre filtreler, bu alanlar Standard için kullanılmaz.',
                     fields: [
                         { name: 'dst_ip', label: 'Hedef IP', type: 'text', validate: 'ip', placeholder: '10.0.0.10 (boş = any)', hint: 'Boş bırakılırsa hedef "any" olur' },
-                        { name: 'dst_wild', label: 'Hedef Wildcard', type: 'text', placeholder: '0.0.0.0', hint: 'Boş bırakılırsa 0.0.0.0 (host) kullanılır' },
+                        { name: 'dst_wild', why: 'Tek host için <code>0.0.0.0</code> (ya da <code>host</code> anahtar kelimesi). Yanlış wildcard, kuralın beklenenden çok daha geniş eşleşmesine yol açar.', label: 'Hedef Wildcard', type: 'text', placeholder: '0.0.0.0', hint: 'Boş bırakılırsa 0.0.0.0 (host) kullanılır' },
                         { name: 'src_port', label: 'Kaynak Port (opsiyonel)', type: 'text', placeholder: 'eq 1024 (yalnızca tcp/udp)', hint: 'Örn: eq 1024, gt 1023' },
                         { name: 'dst_port', label: 'Hedef Port (opsiyonel)', type: 'text', placeholder: 'eq 443 (yalnızca tcp/udp)', hint: 'Örn: eq 443, range 8000 8080' }
                     ]
@@ -313,7 +313,7 @@ CiscoIOS.acl = {
                     info: 'Interface belirtilmezse ACL yalnızca tanımlanır, uygulanmaz.',
                     fields: [
                         { name: 'iface', label: 'Interface', type: 'text', placeholder: 'GigabitEthernet0/0 (boş = uygulama yok)', hint: 'ACL\'in uygulanacağı interface. Boş bırakılabilir.' },
-                        { name: 'direction', label: 'Yön', type: 'select', options: [{ value: 'in', label: 'in — Gelen trafik' }, { value: 'out', label: 'out — Giden trafik' }] }
+                        { name: 'direction', why: '<code>in</code> arayüze <b>giren</b>, <code>out</code> <b>çıkan</b> trafiği süzer. Yanlış yön en yaygın ACL hatasıdır — filtrelemeyi kaynağa en yakın noktada yapmak iyi pratiktir.', label: 'Yön', type: 'select', options: [{ value: 'in', label: 'in — Gelen trafik' }, { value: 'out', label: 'out — Giden trafik' }] }
                     ]
                 }
             ],
@@ -372,8 +372,8 @@ CiscoIOS.nat = {
                     icon: 'fas fa-plug',
                     showFor: ['pat', 'static', 'dynamic'],
                     fields: [
-                        { name: 'inside_if', label: 'Inside Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/1', hint: 'İç ağa bağlı interface — ip nat inside uygulanır' },
-                        { name: 'outside_if', label: 'Outside Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0', hint: 'İnternet/WAN interface — ip nat outside uygulanır' }
+                        { name: 'inside_if', why: 'NAT çalışması için arayüzlerin <code>ip nat inside</code> / <code>ip nat outside</code> olarak işaretlenmesi <b>zorunludur</b>. Eksikse NAT hiç devreye girmez ve sorun çok geç fark edilir.', label: 'Inside Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/1', hint: 'İç ağa bağlı interface — ip nat inside uygulanır' },
+                        { name: 'outside_if', why: "Dışarı bakan arayüz. Birden fazla WAN varsa yanlış seçim trafiğin NAT'lanmadan çıkmasına ve karşı tarafta düşmesine yol açar.", label: 'Outside Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0', hint: 'İnternet/WAN interface — ip nat outside uygulanır' }
                     ]
                 },
                 {
@@ -382,7 +382,7 @@ CiscoIOS.nat = {
                     showFor: ['pat', 'dynamic'],
                     fields: [
                         { name: 'inside_net', label: 'Inside Network', type: 'text', required: true, placeholder: '192.168.1.0', hint: 'NAT uygulanacak iç ağ adresi' },
-                        { name: 'inside_wild', label: 'Wildcard Mask', type: 'text', placeholder: '0.0.0.255', hint: 'Boş bırakılırsa 0.0.0.255 kullanılır' }
+                        { name: 'inside_wild', why: "Burada da wildcard maske kullanılır, subnet maske değil. NAT ACL'i çok geniş olursa istemediğin trafiği de NAT'larsın (ör. VPN trafiği).", label: 'Wildcard Mask', type: 'text', placeholder: '0.0.0.255', hint: 'Boş bırakılırsa 0.0.0.255 kullanılır' }
                     ]
                 },
                 {
@@ -448,11 +448,11 @@ CiscoIOS.route = {
                     title: 'Rota Parametreleri',
                     icon: 'fas fa-map-signs',
                     fields: [
-                        { name: 'is_default', label: 'Default route ekle (0.0.0.0/0)', type: 'checkbox', hint: 'İşaretlenirse hedef ağ/mask otomatik 0.0.0.0 olur' },
+                        { name: 'is_default', why: 'Varsayılan rota, eşleşmeyen tüm trafiği gönderir. Birden fazla default rota varsa AD değeri düşük olan kazanır — yedeklilik böyle kurulur.', label: 'Default route ekle (0.0.0.0/0)', type: 'checkbox', hint: 'İşaretlenirse hedef ağ/mask otomatik 0.0.0.0 olur' },
                         { name: 'dest', label: 'Hedef Ağ', type: 'text', placeholder: '10.0.0.0', hint: 'Ulaşılmak istenen hedef ağ adresi' },
                         { name: 'mask', label: 'Subnet Mask', type: 'text', validate: 'subnet', placeholder: '255.255.255.0', hint: 'Hedef ağın subnet maskı' },
-                        { name: 'nexthop', label: 'Next Hop / Interface', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1 veya GigabitEthernet0/0', hint: 'Paketlerin yönlendirileceği sonraki IP veya çıkış interface' },
-                        { name: 'ad', label: 'Administrative Distance', type: 'number', placeholder: '1 (varsayılan)', min: 1, max: 255, hint: 'Düşük değer = öncelikli. Floating route için yüksek değer (örn: 254) girin' }
+                        { name: 'nexthop', why: 'Next-hop <b>IP</b> vermek, arayüz adı vermekten güvenlidir. Ethernet gibi çoklu erişimli ağlarda sadece arayüz yazmak ARP fırtınasına ve yanlış yönlendirmeye yol açabilir.', label: 'Next Hop / Interface', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1 veya GigabitEthernet0/0', hint: 'Paketlerin yönlendirileceği sonraki IP veya çıkış interface' },
+                        { name: 'ad', why: 'Administrative Distance, aynı hedefe giden rotalar arasında tercih sırasını belirler (düşük kazanır). Yedek rotaya yüksek AD vermek klasik floating static route tekniğidir.', label: 'Administrative Distance', type: 'number', placeholder: '1 (varsayılan)', min: 1, max: 255, hint: 'Düşük değer = öncelikli. Floating route için yüksek değer (örn: 254) girin' }
                     ]
                 }
             ],
@@ -486,12 +486,12 @@ CiscoIOS.ospf = {
                     title: 'OSPF Parametreleri',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'pid', label: 'Process ID', type: 'number', required: true, value: '1', min: 1, max: 65535, hint: 'Lokal anlamlı — farklı router\'larda aynı olmak zorunda değil' },
-                        { name: 'rid', label: 'Router ID', type: 'text', validate: 'ip', placeholder: '1.1.1.1', hint: 'Opsiyonel — boş bırakılırsa en yüksek IP otomatik seçilir', optional: true },
+                        { name: 'pid', why: 'Process ID <b>yereldir</b>, komşuyla aynı olmak zorunda değildir. Area numarası ve alan tipi ise eşleşmelidir.', label: 'Process ID', type: 'number', required: true, value: '1', min: 1, max: 65535, hint: 'Lokal anlamlı — farklı router\'larda aynı olmak zorunda değil' },
+                        { name: 'rid', why: "Router ID benzersiz olmalı; genelde Loopback IP verilir çünkü Loopback hiç 'down' olmaz. Değiştirmek OSPF sürecinin yeniden başlamasını gerektirir.", label: 'Router ID', type: 'text', validate: 'ip', placeholder: '1.1.1.1', hint: 'Opsiyonel — boş bırakılırsa en yüksek IP otomatik seçilir', optional: true },
                         { name: 'net', label: 'Network', type: 'text', required: true, validate: 'cidr', placeholder: '192.168.0.0', hint: 'OSPF\'e dahil edilecek ağ adresi' },
-                        { name: 'wild', label: 'Wildcard Mask', type: 'text', placeholder: '0.0.0.255', hint: 'Boş bırakılırsa 0.0.0.255 kullanılır' },
-                        { name: 'area', label: 'Area', type: 'text', value: '0', hint: 'Backbone için 0, diğer area\'lar için 1, 2... vb.' },
-                        { name: 'passive', label: 'Passive Interface', type: 'text', placeholder: 'GigabitEthernet0/1 (boş = yok)', hint: 'Son kullanıcıya bağlı portlarda OSPF hello göndermemek için', optional: true }
+                        { name: 'wild', why: "OSPF network komutu da wildcard maske alır. <code>0.0.0.0 255.255.255.255</code> tüm arayüzleri dahil eder — istemeden WAN'da OSPF konuşmaya başlayabilirsin.", label: 'Wildcard Mask', type: 'text', placeholder: '0.0.0.255', hint: 'Boş bırakılırsa 0.0.0.255 kullanılır' },
+                        { name: 'area', why: "Backbone alanı <code>0</code>'dır ve diğer tüm alanlar ona bitişik olmalıdır. Komşular arasında alan numarası eşleşmezse komşuluk kurulmaz.", label: 'Area', type: 'text', value: '0', hint: 'Backbone için 0, diğer area\'lar için 1, 2... vb.' },
+                        { name: 'passive', why: 'Passive interface, o arayüzden OSPF <b>hello</b> göndermeyi durdurur ama ağı yine duyurur. LAN ve WAN arayüzlerinde güvenlik için açılmalıdır.', label: 'Passive Interface', type: 'text', placeholder: 'GigabitEthernet0/1 (boş = yok)', hint: 'Son kullanıcıya bağlı portlarda OSPF hello göndermemek için', optional: true }
                     ]
                 }
             ],
@@ -530,16 +530,16 @@ CiscoIOS.bgp = {
                     title: 'Local AS Ayarları',
                     icon: 'fas fa-building',
                     fields: [
-                        { name: 'local_as', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65000', hint: 'Bu router\'ın Autonomous System numarası. Özel: 64512-65534' },
-                        { name: 'rid', label: 'Router ID', type: 'text', validate: 'ip', placeholder: '1.1.1.1', hint: 'BGP router kimliği — boş bırakılırsa en yüksek IP seçilir', optional: true }
+                        { name: 'local_as', why: "Kendi AS numaran. Peer'ın AS'i farklıysa eBGP, aynıysa iBGP olur; ikisinin davranışı belirgin şekilde farklıdır.", label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65000', hint: 'Bu router\'ın Autonomous System numarası. Özel: 64512-65534' },
+                        { name: 'rid', why: "Router ID benzersiz olmalı; genelde Loopback IP verilir çünkü Loopback hiç 'down' olmaz. Değiştirmek OSPF sürecinin yeniden başlamasını gerektirir.", label: 'Router ID', type: 'text', validate: 'ip', placeholder: '1.1.1.1', hint: 'BGP router kimliği — boş bırakılırsa en yüksek IP seçilir', optional: true }
                     ]
                 },
                 {
                     title: 'Peer (Komşu) Ayarları',
                     icon: 'fas fa-handshake',
                     fields: [
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'BGP komşusunun IP adresi' },
-                        { name: 'peer_as', label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Komşunun AS numarası — farklıysa eBGP, aynıysa iBGP' }
+                        { name: 'peer_ip', why: "Komşunun IP'si. eBGP'de genelde doğrudan bağlı arayüz IP'si kullanılır; Loopback kullanacaksan <code>ebgp-multihop</code> ve <code>update-source</code> gerekir.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'BGP komşusunun IP adresi' },
+                        { name: 'peer_as', why: 'Komşunun AS numarası. Yanlış yazarsan oturum <code>Active/Idle</code> durumunda takılır — <code>show ip bgp summary</code> ile görürsün.', label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Komşunun AS numarası — farklıysa eBGP, aynıysa iBGP' }
                     ]
                 },
                 {
@@ -547,7 +547,7 @@ CiscoIOS.bgp = {
                     icon: 'fas fa-broadcast-tower',
                     info: 'BGP üzerinden duyurulacak ağı girin. Routing tablosunda bu ağ mevcut olmalıdır.',
                     fields: [
-                        { name: 'adv_net', label: 'Advertise Network', type: 'text', placeholder: '192.168.0.0 (boş = yok)', hint: 'BGP ile duyurulacak ağ adresi', optional: true },
+                        { name: 'adv_net', why: 'BGP <code>network</code> komutu, ağı yalnızca routing tablosunda <b>birebir</b> varsa duyurur. Maske tam eşleşmezse duyuru hiç çıkmaz.', label: 'Advertise Network', type: 'text', placeholder: '192.168.0.0 (boş = yok)', hint: 'BGP ile duyurulacak ağ adresi', optional: true },
                         { name: 'adv_mask', label: 'Network Mask', type: 'text', placeholder: '255.255.0.0', hint: 'Duyurulacak ağın subnet maskı', optional: true }
                     ]
                 }
@@ -608,7 +608,7 @@ CiscoIOS.ipsec = {
                     title: 'Remote Site', icon: 'fas fa-map-marker',
                     showFor: ['site-to-site', 'remote-access', 'dmvpn-ready'], warn: null, info: null,
                     fields: [
-                        { name: 'remote_ip',   label: 'Remote Public IP',  type: 'text', validate: 'ip', required: true,  placeholder: '85.200.2.2',    hint: 'Karşı taraf WAN IP' },
+                        { name: 'remote_ip', why: "Karşı tarafın gerçek dış IP'si. NAT arkasındaysa dış IP yazılmalı ve NAT-T (UDP 4500) açık olmalı.",   label: 'Remote Public IP',  type: 'text', validate: 'ip', required: true,  placeholder: '85.200.2.2',    hint: 'Karşı taraf WAN IP' },
                         { name: 'remote_net',  label: 'Remote Network',    type: 'text', validate: 'cidr', required: false, placeholder: '192.168.2.0',   hint: 'Karşı ağ adresi' },
                         { name: 'remote_mask', label: 'Remote Mask',       type: 'text', required: false, placeholder: '255.255.255.0', hint: 'Karşı ağ maskesi' }
                     ]
@@ -628,11 +628,11 @@ CiscoIOS.ipsec = {
                     showFor: ['site-to-site', 'remote-access', 'dmvpn-ready'], warn: null, info: null,
                     fields: [
                         { name: 'ike_ver',  label: 'IKE Version',    type: 'select', required: false, options: [{v:'1',l:'IKEv1'},{v:'2',l:'IKEv2 (önerilen)'}] },
-                        { name: 'psk',      label: 'Pre-shared Key', type: 'text',   required: true,  placeholder: 'Min 8 karakter',     hint: 'Paylaşımlı anahtar (en az 8 karakter)' },
+                        { name: 'psk', why: 'İki tarafta birebir aynı olmalı. Kopyala-yapıştırda sondaki boşluk klasik hatadır. Uzun ve rastgele seç.',      label: 'Pre-shared Key', type: 'text',   required: true,  placeholder: 'Min 8 karakter',     hint: 'Paylaşımlı anahtar (en az 8 karakter)' },
                         { name: 'p1_life',  label: 'SA Lifetime (sn)',type: 'text',  required: false, placeholder: '86400',              hint: 'IKE SA yaşam süresi' },
-                        { name: 'p1_enc',   label: 'Şifreleme',      type: 'select', required: false, options: [{v:'aes256',l:'AES-256 (En güvenli)'},{v:'aes192',l:'AES-192'},{v:'aes128',l:'AES-128'},{v:'3des',l:'3DES (Legacy)'}] },
+                        { name: 'p1_enc', why: 'Phase 1 şifrelemesi iki tarafta eşleşmeli. <code>des</code> ve <code>3des</code> artık güvensizdir; <code>aes 256</code> kullan.',   label: 'Şifreleme',      type: 'select', required: false, options: [{v:'aes256',l:'AES-256 (En güvenli)'},{v:'aes192',l:'AES-192'},{v:'aes128',l:'AES-128'},{v:'3des',l:'3DES (Legacy)'}] },
                         { name: 'p1_hash',  label: 'Hash',           type: 'select', required: false, options: [{v:'sha512',l:'SHA-512'},{v:'sha256',l:'SHA-256 (önerilen)'},{v:'sha1',l:'SHA-1'},{v:'md5',l:'MD5 (Legacy)'}] },
-                        { name: 'p1_dh',    label: 'DH Group',       type: 'select', required: false, options: [{v:'21',l:'Group 21 — ECP-521'},{v:'19',l:'Group 19 — ECP-256 (önerilen)'},{v:'14',l:'Group 14 — 2048-bit'},{v:'5',l:'Group 5 — 1536-bit'}] }
+                        { name: 'p1_dh', why: 'DH grup 1, 2 ve 5 kırılabilir kabul edilir. En az grup 14 (2048-bit) seçilmeli ve iki tarafta aynı olmalı.',    label: 'DH Group',       type: 'select', required: false, options: [{v:'21',l:'Group 21 — ECP-521'},{v:'19',l:'Group 19 — ECP-256 (önerilen)'},{v:'14',l:'Group 14 — 2048-bit'},{v:'5',l:'Group 5 — 1536-bit'}] }
                     ]
                 },
                 {
@@ -644,9 +644,9 @@ CiscoIOS.ipsec = {
                         { name: 'p2_life',  label: 'SA Lifetime (sn)', type: 'text',   required: false, placeholder: '3600',              hint: 'IPSec SA yaşam süresi' },
                         { name: 'p2_enc',   label: 'ESP Şifreleme',    type: 'select', required: false, options: [{v:'esp-aes256',l:'ESP-AES-256'},{v:'esp-aes192',l:'ESP-AES-192'},{v:'esp-aes128',l:'ESP-AES-128'},{v:'esp-3des',l:'ESP-3DES'}] },
                         { name: 'p2_hash',  label: 'ESP Hash',         type: 'select', required: false, options: [{v:'esp-sha512-hmac',l:'SHA-512'},{v:'esp-sha256-hmac',l:'SHA-256 (önerilen)'},{v:'esp-sha-hmac',l:'SHA-1'},{v:'esp-md5-hmac',l:'MD5'}] },
-                        { name: 'pfs',      label: 'Perfect Forward Secrecy (PFS)', type: 'checkbox', required: false },
+                        { name: 'pfs', why: "PFS açıkken her rekey'de yeni anahtar üretilir; bir anahtar ele geçse bile geçmiş trafik çözülemez. İki tarafta da açık olmalı.",      label: 'Perfect Forward Secrecy (PFS)', type: 'checkbox', required: false },
                         { name: 'pfs_group',label: 'PFS Group',        type: 'select', required: false, options: [{v:'19',l:'Group 19 — ECP-256'},{v:'21',l:'Group 21 — ECP-521'},{v:'14',l:'Group 14 — 2048-bit'}] },
-                        { name: 'dpd',      label: 'Dead Peer Detection (DPD)',      type: 'checkbox', required: false },
+                        { name: 'dpd', why: "Dead Peer Detection, karşı taraf sessizce kaybolduğunda tüneli temizler. Kapalıysa tünel 'up' görünmeye devam eder ama trafik akmaz.",      label: 'Dead Peer Detection (DPD)',      type: 'checkbox', required: false },
                         { name: 'natt',     label: 'NAT Traversal',    type: 'checkbox', required: false },
                         { name: 'qos',      label: 'QoS Pre-classify', type: 'checkbox', required: false }
                     ]
@@ -800,7 +800,7 @@ CiscoIOS.dhcp = {
                         { name: 'dns1',       label: 'DNS Server 1',        type: 'text',   required: false, validate: 'ip', placeholder: '8.8.8.8',        optional: true, hint: 'Birincil DNS. Google: 8.8.8.8, Cloudflare: 1.1.1.1 veya kurumsal DNS sunucunuz girilebilir.' },
                         { name: 'dns2',       label: 'DNS Server 2',        type: 'text',   required: false, validate: 'ip', placeholder: '8.8.4.4',        optional: true, hint: 'İkincil (yedek) DNS sunucusu. Birincil erişilemez olduğunda devreye girer.' },
                         { name: 'lease_days', label: 'Lease Süresi (gün)',  type: 'number', required: false, min: 0, max: 365, placeholder: '1',            optional: true, hint: 'Önerilen: masaüstü/sunucu için 7-30 gün, misafir ağı için 1 gün veya daha az.', tooltip: 'IP adresinin cihaza ne kadar süre tahsis edileceği. Kısa lease: daha fazla DHCP trafiği. Uzun lease: statik benzeri davranış.' },
-                        { name: 'domain',     label: 'Domain Name',         type: 'text',   required: false, placeholder: 'example.com',    optional: true, hint: 'Client\'lara iletilecek DNS arama domain\'i. Kurumsal ortamda Active Directory domain adı kullanılabilir.' },
+                        { name: 'domain', why: 'SSH anahtarı üretmek için hostname <b>ve</b> domain adı tanımlı olmalıdır. Eksikse <code>crypto key generate rsa</code> komutu hata verir.',     label: 'Domain Name',         type: 'text',   required: false, placeholder: 'example.com',    optional: true, hint: 'Client\'lara iletilecek DNS arama domain\'i. Kurumsal ortamda Active Directory domain adı kullanılabilir.' },
                     ]
                 },
                 {
@@ -1110,7 +1110,7 @@ CiscoIOS.ssh = {
                     info: 'RSA anahtar üretimi için hostname ve domain name zorunludur.',
                     fields: [
                         { name: 'hostname', label: 'Hostname', type: 'text', required: true, placeholder: 'ROUTER-01', hint: 'Cihaz adı — RSA anahtar adını belirler' },
-                        { name: 'domain', label: 'Domain Name', type: 'text', required: true, placeholder: 'example.com', hint: 'ip domain-name komutu ile ayarlanır' }
+                        { name: 'domain', why: 'SSH anahtarı üretmek için hostname <b>ve</b> domain adı tanımlı olmalıdır. Eksikse <code>crypto key generate rsa</code> komutu hata verir.', label: 'Domain Name', type: 'text', required: true, placeholder: 'example.com', hint: 'ip domain-name komutu ile ayarlanır' }
                     ]
                 },
                 {
@@ -2192,7 +2192,7 @@ CiscoIOS.l3vpn = {
                     fields: [
                         { name: 'ce_iface',   label: 'CE Interface',       type: 'text', required: true,  placeholder: 'GigabitEthernet0/1',      hint: 'PE-CE bağlantı interface' },
                         { name: 'ce_ip',      label: 'CE Interface IP',    type: 'text', required: true,  placeholder: '10.1.1.1 255.255.255.252', hint: 'PE tarafı IP adresi' },
-                        { name: 'local_as',   label: 'Local BGP AS (PE)',  type: 'text', validate: 'asn', required: true,  placeholder: '65001',                   hint: 'PE BGP AS numarası' },
+                        { name: 'local_as', why: "Kendi AS numaran. Peer'ın AS'i farklıysa eBGP, aynıysa iBGP olur; ikisinin davranışı belirgin şekilde farklıdır.",   label: 'Local BGP AS (PE)',  type: 'text', validate: 'asn', required: true,  placeholder: '65001',                   hint: 'PE BGP AS numarası' },
                         { name: 'ce_as',      label: 'CE BGP AS',          type: 'text', validate: 'asn', required: false, placeholder: '65100',                   hint: 'CE BGP AS (opsiyonel)' },
                         { name: 'ce_neighbor',label: 'CE BGP Neighbor IP', type: 'text', required: false, placeholder: '10.1.1.2',                hint: 'CE\'nin IP adresi' }
                     ]
@@ -2321,7 +2321,7 @@ CiscoIOS.isis = {
                         { name: 'net',     label: 'NET (Network Entity Title)',         type: 'text',     required: true,  placeholder: '49.0001.0000.0000.0001.00',  hint: 'CLNS network entity title' },
                         { name: 'level',   label: 'IS-IS Level',                       type: 'select',   required: false, options: [{v:'level-2-only',l:'Level-2 Only'},{v:'level-1-only',l:'Level-1 Only'},{v:'level-1-2',l:'Level-1-2'}] },
                         { name: 'ifaces',  label: 'Interface\'ler (her satıra bir)',   type: 'textarea', required: true,  placeholder: 'GigabitEthernet0/0\nLoopback0', hint: 'IS-IS etkinleştirilecek interface\'ler' },
-                        { name: 'passive', label: 'Passive Interface\'ler (virgülle)', type: 'text',     required: false, placeholder: 'Loopback0',                   hint: 'Pasif interface listesi' }
+                        { name: 'passive', why: 'Passive interface, o arayüzden OSPF <b>hello</b> göndermeyi durdurur ama ağı yine duyurur. LAN ve WAN arayüzlerinde güvenlik için açılmalıdır.', label: 'Passive Interface\'ler (virgülle)', type: 'text',     required: false, placeholder: 'Loopback0',                   hint: 'Pasif interface listesi' }
                     ]
                 }
             ],

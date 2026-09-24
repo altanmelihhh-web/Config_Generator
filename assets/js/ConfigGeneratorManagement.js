@@ -27,6 +27,13 @@ const CG_VALIDATORS = {
     bgp_timer:{ fn: v => { const n = parseInt(v); return !isNaN(n) && n >= 1 && n <= 65535; }, msg: 'Timer 1-65535 saniye arasında olmalı' },
 };
 
+// "Neden?" bilgi kutusu — net-config.com'un en güçlü fikri.
+// Alan veya bölüm şemasına `why: '...'` eklendiğinde görünür.
+function cgWhyBox(why, key) {
+    if (!why) return '';
+    return '<div class="cg-why"><b>Neden?</b> ' + why + '</div>';
+}
+
 function cgValidate(form) {
     let ok = true;
     form.querySelectorAll('[data-cgv], [required]').forEach(el => {
@@ -276,6 +283,7 @@ function cgFormBuilder(container, schema, generateFn) {
         const opt  = f.optional ? '<span class="cg-opt">Opsiyonel</span>' : '';
         const tip  = f.tooltip  ? '<span class="cg-tip"><i class="fas fa-info-circle"></i><span class="cg-tip-text">' + esc(f.tooltip) + '</span></span>' : '';
         const hint = f.hint     ? '<span class="cg-field-hint">' + esc(f.hint) + '</span>' : '';
+        const why  = cgWhyBox(f.why, f.name);
 
         const baseAttrs = 'name="' + esc(f.name) + '" id="cgfb_' + esc(f.name) + '"' +
             (f.required    ? ' required'                        : '') +
@@ -292,7 +300,7 @@ function cgFormBuilder(container, schema, generateFn) {
             return '<div class="mb-3 form-check">' +
                    '<input type="checkbox" name="' + esc(f.name) + '" id="cgfb_' + esc(f.name) + '" class="form-check-input"' + (f.checked ? ' checked' : '') + '>' +
                    '<label class="form-check-label" for="cgfb_' + esc(f.name) + '">' + esc(f.label) + ' ' + tip + '</label>' +
-                   hint + '</div>';
+                   hint + why + '</div>';
         }
 
         if (f.type === 'select') {
@@ -300,16 +308,16 @@ function cgFormBuilder(container, schema, generateFn) {
                 '<option value="' + esc(o.value) + '"' + (o.selected ? ' selected' : '') + '>' + esc(o.label) + '</option>'
             ).join('');
             return '<div class="mb-4 row">' + label +
-                   '<div class="col-sm-8"><select ' + baseAttrs + ' class="form-select">' + opts + '</select>' + hint + '</div></div>';
+                   '<div class="col-sm-8"><select ' + baseAttrs + ' class="form-select">' + opts + '</select>' + hint + why + '</div></div>';
         }
 
         if (f.type === 'textarea') {
             return '<div class="mb-4 row">' + label +
-                   '<div class="col-sm-8"><textarea ' + baseAttrs + ' class="form-control" rows="' + (f.rows || 3) + '"></textarea>' + hint + '</div></div>';
+                   '<div class="col-sm-8"><textarea ' + baseAttrs + ' class="form-control" rows="' + (f.rows || 3) + '"></textarea>' + hint + why + '</div></div>';
         }
 
         return '<div class="mb-4 row">' + label +
-               '<div class="col-sm-8"><input type="' + (f.type || 'text') + '" ' + baseAttrs + ' class="form-control">' + hint + '</div></div>';
+               '<div class="col-sm-8"><input type="' + (f.type || 'text') + '" ' + baseAttrs + ' class="form-control">' + hint + why + '</div></div>';
     }
 
     function renderSection(sec) {
@@ -319,7 +327,7 @@ function cgFormBuilder(container, schema, generateFn) {
         const display = sec.showFor ? ' style="display:none"' : '';
         return '<div class="cg-fb-section"' + showFor + display + '>' +
                '<div class="cg-section"><div class="cg-section-title"><i class="' + esc(sec.icon || 'fas fa-cog') + '"></i> ' + esc(sec.title) + '</div>' +
-               warn + info +
+               cgWhyBox(sec.why, 'sec') + warn + info +
                (sec.fields || []).map(renderField).join('') +
                '</div></div>';
     }
