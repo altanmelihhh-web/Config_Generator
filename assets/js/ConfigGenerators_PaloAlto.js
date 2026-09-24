@@ -17,7 +17,7 @@ PaloAlto.zone = {
                     title: 'Zone Tipi',
                     icon: 'fas fa-layer-group',
                     fields: [
-                        { name: 'zone_type', label: 'Zone Tipi', type: 'select', options: [
+                        { name: 'zone_type', why: "Palo Alto'da <b>her arayüz bir zone'a ait olmalıdır</b>, yoksa trafik işlenmez. Layer3 en yaygın tiptir; Virtual Wire ise mevcut topolojiye dokunmadan araya girer.", label: 'Zone Tipi', type: 'select', options: [
                             { value: 'layer3', label: 'Layer 3', selected: true },
                             { value: 'tap', label: 'TAP' },
                             { value: 'virtual-wire', label: 'Virtual Wire' }
@@ -28,25 +28,25 @@ PaloAlto.zone = {
                     title: 'Outside (Untrust) Zone',
                     icon: 'fas fa-globe',
                     fields: [
-                        { name: 'outside_zone', label: 'Outside Zone Adı', type: 'text', required: true, placeholder: 'outside', hint: 'Untrust zone adı (ör: outside, Untrust)' },
-                        { name: 'outside_iface', label: 'Outside Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'WAN bacağı arayüzü — PAN-OS formatı: ethernet1/1' },
-                        { name: 'outside_ip', label: 'Outside IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında WAN IP' }
+                        { name: 'outside_zone', why: 'Zone adları kural yazarken kullanılır. Aynı zone içi trafik varsayılan olarak <b>izinlidir</b> (intrazone-default) — bunu bilmemek beklenmedik geçişlere yol açar.', label: 'Outside Zone Adı', type: 'text', required: true, placeholder: 'outside', hint: 'Untrust zone adı (ör: outside, Untrust)' },
+                        { name: 'outside_iface', why: "Arayüz adları <code>ethernet1/1</code> biçimindedir. Arayüzü bir Virtual Router'a ve zone'a atamadan trafik akmaz.", label: 'Outside Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'WAN bacağı arayüzü — PAN-OS formatı: ethernet1/1' },
+                        { name: 'outside_ip', why: "CIDR formatında (<code>203.0.113.1/30</code>). PAN-OS'ta arayüz IP'si değişince <b>commit</b> gerekir; commit edilmeden hiçbir değişiklik devreye girmez.", label: 'Outside IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında WAN IP' }
                     ]
                 },
                 {
                     title: 'Inside (Trust) Zone',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'inside_zone', label: 'Inside Zone Adı', type: 'text', required: true, placeholder: 'inside', hint: 'Trust zone adı (ör: inside, Trust)' },
+                        { name: 'inside_zone', why: "İç ağ zone'u. Zone isimlendirmesinde tutarlılık (TRUST/UNTRUST/DMZ) 300 kurallı bir cihazda okunabilirliği belirler.", label: 'Inside Zone Adı', type: 'text', required: true, placeholder: 'inside', hint: 'Trust zone adı (ör: inside, Trust)' },
                         { name: 'inside_iface', label: 'Inside Interface', type: 'text', required: true, placeholder: 'ethernet1/2', hint: 'LAN bacağı arayüzü' },
-                        { name: 'inside_ip', label: 'Inside IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.1/24', hint: 'CIDR formatında LAN gateway IP' }
+                        { name: 'inside_ip', why: "İç arayüz IP'si; LAN istemcilerinin gateway'i olur.", label: 'Inside IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.1/24', hint: 'CIDR formatında LAN gateway IP' }
                     ]
                 },
                 {
                     title: 'Virtual Router',
                     icon: 'fas fa-route',
                     fields: [
-                        { name: 'vr', label: 'Virtual Router Adı', type: 'text', required: true, placeholder: 'default', hint: 'Varsayılan VR adı genellikle "default" bırakılır' }
+                        { name: 'vr', why: "Virtual Router, PAN-OS'un routing tablosudur. Arayüz bir VR'a atanmazsa rota öğrenemez ve trafik yönlendirilemez.", label: 'Virtual Router Adı', type: 'text', required: true, placeholder: 'default', hint: 'Varsayılan VR adı genellikle "default" bırakılır' }
                     ]
                 }
             ],
@@ -85,17 +85,17 @@ PaloAlto.address = {
                     title: 'Adres Nesnesi',
                     icon: 'fas fa-address-card',
                     fields: [
-                        { name: 'addr_name', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'WEB_SERVER', hint: 'Büyük harf ve alt çizgi önerilir (ör: WEB_SERVER)' },
-                        { name: 'addr_type', label: 'Tip', type: 'select', options: [
+                        { name: 'addr_name', why: 'Nesne adı kuralda görünür. Tutarlı isimlendirme (<code>SRV_WEB_01</code>) büyük kural setlerinde aranabilirliği belirler.', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'WEB_SERVER', hint: 'Büyük harf ve alt çizgi önerilir (ör: WEB_SERVER)' },
+                        { name: 'addr_type', why: "<b>IP Netmask</b> sabit ağlar, <b>FQDN</b> IP'si değişen bulut servisleri, <b>IP Range</b> ardışık adresler için. FQDN nesneleri DNS çözümlemesine bağımlıdır.", label: 'Tip', type: 'select', options: [
                             { value: 'ip-netmask', label: 'IP/Netmask', selected: true },
                             { value: 'fqdn', label: 'FQDN' },
                             { value: 'ip-range', label: 'IP Range' }
                         ], hint: 'IP/Netmask en yaygın; FQDN DNS tabanlı nesneler için' },
                         { name: 'netmask', label: 'IP / Prefix (CIDR)', type: 'text', validate: 'subnet', optional: true, placeholder: '192.168.1.10/32', hint: 'IP/Netmask tipi seçildiyse doldurun' },
-                        { name: 'fqdn_val', label: 'FQDN', type: 'text', optional: true, placeholder: 'example.com', hint: 'FQDN tipi seçildiyse doldurun' },
+                        { name: 'fqdn_val', why: "PAN-OS, FQDN'i periyodik çözer ve önbelleğe alır. DNS erişimi koparsa nesne eski IP ile kalır; erişim sorunlarının sessiz kaynağıdır.", label: 'FQDN', type: 'text', optional: true, placeholder: 'example.com', hint: 'FQDN tipi seçildiyse doldurun' },
                         { name: 'ip_range', label: 'IP Range', type: 'text', optional: true, placeholder: '192.168.1.10-192.168.1.20', hint: 'IP Range tipi seçildiyse doldurun' },
                         { name: 'desc', label: 'Açıklama', type: 'text', optional: true, placeholder: 'Web sunucusu', hint: 'Nesne açıklaması (opsiyonel)' },
-                        { name: 'group_name', label: 'Adres Grubu', type: 'text', optional: true, placeholder: 'WEB_SERVERS', hint: 'Bu nesneyi eklemek istediğiniz adres grubu adı' }
+                        { name: 'group_name', why: 'Adres grubu kural sayısını azaltır. <b>Dynamic Address Group</b> ise etiket bazlı çalışır ve commit gerektirmeden güncellenir — otomasyon için güçlü bir araçtır.', label: 'Adres Grubu', type: 'text', optional: true, placeholder: 'WEB_SERVERS', hint: 'Bu nesneyi eklemek istediğiniz adres grubu adı' }
                     ]
                 }
             ],
@@ -141,28 +141,28 @@ PaloAlto.policy = {
                     icon: 'fas fa-lock',
                     badge: { text: 'Güvenlik', cls: 'security' },
                     fields: [
-                        { name: 'rule_name', label: 'Kural Adı', type: 'text', required: true, placeholder: 'Allow_LAN_to_WAN', hint: 'Kural adı boşluk içermemeli (ör: Allow_LAN_to_WAN)' },
-                        { name: 'from_zone', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'inside', hint: 'Trafiğin geldiği zone' },
-                        { name: 'to_zone', label: 'Hedef Zone', type: 'text', required: true, placeholder: 'outside', hint: 'Trafiğin gittiği zone' },
+                        { name: 'rule_name', why: 'Kurallar yukarıdan aşağıya değerlendirilir, <b>ilk eşleşen</b> uygulanır. Sonda iki gizli kural vardır: intrazone-default (allow) ve interzone-default (deny).', label: 'Kural Adı', type: 'text', required: true, placeholder: 'Allow_LAN_to_WAN', hint: 'Kural adı boşluk içermemeli (ör: Allow_LAN_to_WAN)' },
+                        { name: 'from_zone', why: 'Kaynak zone. Palo Alto kuralları <b>zone bazlıdır</b>, arayüz bazlı değil — yanlış zone kuralın hiç eşleşmemesine yol açar.', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'inside', hint: 'Trafiğin geldiği zone' },
+                        { name: 'to_zone', why: "Hedef zone. NAT uygulanıyorsa kuralda <b>çevrilmiş hedefin zone'u</b> değil, orijinal paketin gideceği zone yazılır — en kafa karıştırıcı noktalardan biri.", label: 'Hedef Zone', type: 'text', required: true, placeholder: 'outside', hint: 'Trafiğin gittiği zone' },
                         { name: 'src_addr', label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya adres nesnesi adı (ör: LAN_SUBNET)' },
                         { name: 'dst_addr', label: 'Hedef Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya hedef adres nesnesi' },
-                        { name: 'application', label: 'Uygulama', type: 'text', required: true, placeholder: 'any', hint: '"any" veya App-ID adları boşlukla ayrılmış (ör: web-browsing ssl)' }
+                        { name: 'application', why: "App-ID, Palo Alto'nun asıl farkıdır: trafiği porttan değil içeriğinden tanır. <code>any</code> yazmak bu korumayı devre dışı bırakır. Bağımlılıkları da eklemeyi unutma (ör. <code>ssl</code>, <code>web-browsing</code>).", label: 'Uygulama', type: 'text', required: true, placeholder: 'any', hint: '"any" veya App-ID adları boşlukla ayrılmış (ör: web-browsing ssl)' }
                     ]
                 },
                 {
                     title: 'Aksiyon ve Log',
                     icon: 'fas fa-gavel',
                     fields: [
-                        { name: 'service', label: 'Servis', type: 'select', options: [
+                        { name: 'service', why: 'App-ID kullanırken <code>application-default</code> seçmek en güvenlisidir: uygulama yalnızca kendi standart portunda çalışabilir.', label: 'Servis', type: 'select', options: [
                             { value: 'application-default', label: 'application-default', selected: true },
                             { value: 'any', label: 'any' }
                         ], hint: '"application-default" App-ID ile port uyumunu zorunlu kılar' },
-                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'action', why: '<code>allow</code> geçirir, <code>deny</code> uygulamaya göre davranır, <code>drop</code> sessizce düşürür, <code>reset</code> RST gönderir. Deny kuralında log açmazsan engellenen trafiği göremezsin.', label: 'Aksiyon', type: 'select', options: [
                             { value: 'allow', label: 'Allow', selected: true },
                             { value: 'deny', label: 'Deny' },
                             { value: 'drop', label: 'Drop' }
                         ]},
-                        { name: 'log_end', label: 'Log', type: 'select', options: [
+                        { name: 'log_end', why: "<b>Log at Session End</b> varsayılan ve doğru olandır; session start loglaması disk ve CPU'yu gereksiz yorar. Log açılmamış kural, denetimde yok sayılır.", label: 'Log', type: 'select', options: [
                             { value: 'yes', label: 'Log at Session End', selected: true },
                             { value: 'no', label: 'No Log' }
                         ], hint: 'Session end loglaması önerilir; log başlangıç için log-start kullanın' }
@@ -211,9 +211,9 @@ PaloAlto.nat = {
                     title: 'NAT Kural Tanımı',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'rule_name', label: 'Kural Adı', type: 'text', required: true, placeholder: 'Source_NAT', hint: 'NAT kuralı için anlamlı bir ad' },
-                        { name: 'from_zone', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'inside', hint: 'Kaynak zone adı' },
-                        { name: 'to_zone', label: 'Hedef Zone', type: 'text', required: true, placeholder: 'outside', hint: 'Hedef zone adı' },
+                        { name: 'rule_name', why: 'Kurallar yukarıdan aşağıya değerlendirilir, <b>ilk eşleşen</b> uygulanır. Sonda iki gizli kural vardır: intrazone-default (allow) ve interzone-default (deny).', label: 'Kural Adı', type: 'text', required: true, placeholder: 'Source_NAT', hint: 'NAT kuralı için anlamlı bir ad' },
+                        { name: 'from_zone', why: 'Kaynak zone. Palo Alto kuralları <b>zone bazlıdır</b>, arayüz bazlı değil — yanlış zone kuralın hiç eşleşmemesine yol açar.', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'inside', hint: 'Kaynak zone adı' },
+                        { name: 'to_zone', why: "Hedef zone. NAT uygulanıyorsa kuralda <b>çevrilmiş hedefin zone'u</b> değil, orijinal paketin gideceği zone yazılır — en kafa karıştırıcı noktalardan biri.", label: 'Hedef Zone', type: 'text', required: true, placeholder: 'outside', hint: 'Hedef zone adı' },
                         { name: 'src_addr', label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya adres nesnesi' },
                         { name: 'dst_addr', label: 'Hedef Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya hedef adres nesnesi' }
                     ]
@@ -223,12 +223,12 @@ PaloAlto.nat = {
                     icon: 'fas fa-arrow-up',
                     showFor: ['source'],
                     fields: [
-                        { name: 'src_trans_type', label: 'Source Translation Tipi', type: 'select', options: [
+                        { name: 'src_trans_type', why: "<b>Dynamic IP and Port</b> çok kaynağı tek IP'ye gizler (giden trafik). <b>Static IP</b> bire bir eşler. Yanlış tip, dışarıdan erişimi imkânsız kılar.", label: 'Source Translation Tipi', type: 'select', options: [
                             { value: 'dynamic-ip-and-port interface-address', label: 'Dynamic IP+Port (Interface)', selected: true },
                             { value: 'dynamic-ip-and-port translated-address', label: 'Dynamic IP+Port (Pool)' },
                             { value: 'static-ip static-translated-address', label: 'Static IP' }
                         ], hint: 'Interface-address: WAN IP üzerinden PAT' },
-                        { name: 'to_iface', label: 'To Interface (Interface NAT için)', type: 'text', optional: true, placeholder: 'ethernet1/1', hint: 'Dynamic IP+Port Interface seçildiyse WAN arayüzü' }
+                        { name: 'to_iface', why: "Interface NAT'ta çıkış arayüzünün IP'si kullanılır — ISS'den tek IP alıyorsan doğru seçimdir.", label: 'To Interface (Interface NAT için)', type: 'text', optional: true, placeholder: 'ethernet1/1', hint: 'Dynamic IP+Port Interface seçildiyse WAN arayüzü' }
                     ]
                 },
                 {
@@ -236,8 +236,8 @@ PaloAlto.nat = {
                     icon: 'fas fa-arrow-down',
                     showFor: ['destination'],
                     fields: [
-                        { name: 'trans_dst_ip', label: 'Translated Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.10', hint: 'İç sunucunun IP adresi' },
-                        { name: 'trans_dst_port', label: 'Translated Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '80', hint: 'Hedef porta yönlendirilecek port (opsiyonel)' }
+                        { name: 'trans_dst_ip', why: "Destination NAT'ta iç sunucunun gerçek IP'si. <b>Güvenlik kuralında hedef adres olarak orijinal (dış) IP yazılır</b>, çevrilmiş IP değil — bu ayrımı kaçırmak en sık yapılan Palo Alto hatasıdır.", label: 'Translated Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.10', hint: 'İç sunucunun IP adresi' },
+                        { name: 'trans_dst_port', why: "Port yönlendirme. Dış 8080'i iç 80'e çevirmek gibi. Servis nesnesinin <b>orijinal</b> portu içermesi gerekir.", label: 'Translated Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '80', hint: 'Hedef porta yönlendirilecek port (opsiyonel)' }
                     ]
                 }
             ],
@@ -290,11 +290,11 @@ PaloAlto.ipsec = {
                     fields: [
                         { name: 'ike_profile', label: 'IKE Crypto Profil', type: 'text', required: true, placeholder: 'IKE_PROFILE', hint: 'IKE Phase-1 şifreleme profili adı' },
                         { name: 'ipsec_profile', label: 'IPSec Crypto Profil', type: 'text', required: true, placeholder: 'IPSEC_PROFILE', hint: 'IPSec Phase-2 şifreleme profili adı' },
-                        { name: 'ike_ver', label: 'IKE Versiyon', type: 'select', options: [
+                        { name: 'ike_ver', why: 'IKEv2 daha az round-trip ve daha iyi NAT geçişi sağlar. İki tarafta <b>aynı sürüm</b> olmalı.', label: 'IKE Versiyon', type: 'select', options: [
                             { value: 'ikev2', label: 'IKEv2', selected: true },
                             { value: 'ikev1', label: 'IKEv1' }
                         ], hint: 'IKEv2 tercih edilir; IKEv1 legacy cihazlar için' },
-                        { name: 'ike_enc', label: 'IKE Şifreleme', type: 'select', options: [
+                        { name: 'ike_enc', why: '<code>3DES</code> ve <code>DES</code> güvensizdir; <code>aes-256-cbc</code> kullan. İki tarafta en az bir ortak proposal bulunmalı.', label: 'IKE Şifreleme', type: 'select', options: [
                             { value: 'aes-256-cbc', label: 'AES-256-CBC', selected: true },
                             { value: 'aes-128-cbc', label: 'AES-128-CBC' }
                         ]},
@@ -302,7 +302,7 @@ PaloAlto.ipsec = {
                             { value: 'sha256', label: 'SHA-256', selected: true },
                             { value: 'sha1', label: 'SHA-1' }
                         ]},
-                        { name: 'dh_grp', label: 'DH Group', type: 'select', options: [
+                        { name: 'dh_grp', why: 'DH grup 1, 2 ve 5 kırılabilir kabul edilir. En az grup 14 (2048-bit) seçilmeli ve iki tarafta aynı olmalı.', label: 'DH Group', type: 'select', options: [
                             { value: 'group14', label: 'Group 14', selected: true },
                             { value: 'group19', label: 'Group 19 (ECDH)' },
                             { value: 'group5', label: 'Group 5 (eski)' }
@@ -315,8 +315,8 @@ PaloAlto.ipsec = {
                     fields: [
                         { name: 'gw_name', label: 'IKE Gateway Adı', type: 'text', required: true, placeholder: 'IKE_GW', hint: 'Gateway nesnesi adı' },
                         { name: 'gw_iface', label: 'WAN Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'Karşı tarafa bağlı WAN arayüzü' },
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.2', hint: 'Uzak IPSec endpoint IP adresi' },
-                        { name: 'psk', label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'MyS3cr3tKey!', hint: 'Her iki tarafta aynı PSK girilmeli' }
+                        { name: 'peer_ip', why: "Karşı tarafın gerçek dış IP'si. NAT arkasındaysa NAT-T açık olmalı ve UDP 4500 geçmelidir.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.2', hint: 'Uzak IPSec endpoint IP adresi' },
+                        { name: 'psk', why: 'İki tarafta birebir aynı olmalı; kopyalarken sondaki boşluk klasik hatadır. Uzun ve rastgele seç.', label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'MyS3cr3tKey!', hint: 'Her iki tarafta aynı PSK girilmeli' }
                     ]
                 },
                 {
@@ -324,9 +324,9 @@ PaloAlto.ipsec = {
                     icon: 'fas fa-tunnel',
                     fields: [
                         { name: 'tunnel_name', label: 'Tunnel Adı', type: 'text', required: true, placeholder: 'VPN_TUNNEL', hint: 'IPSec tunnel nesnesi adı' },
-                        { name: 'tunnel_iface', label: 'Tunnel Interface', type: 'text', required: true, placeholder: 'tunnel.1', hint: 'PAN-OS tunnel arayüzü (ör: tunnel.1)' },
-                        { name: 'proxy_local', label: 'Proxy ID — Yerel Subnet', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Bu taraftaki ilgili subnet' },
-                        { name: 'proxy_remote', label: 'Proxy ID — Uzak Subnet', type: 'text', required: true, placeholder: '10.0.0.0/24', hint: 'Karşı taraftaki ilgili subnet' }
+                        { name: 'tunnel_iface', why: "Tünel arayüzü (<code>tunnel.1</code>) bir zone'a ve Virtual Router'a atanmalıdır. Atanmazsa tünel kurulur ama trafik akmaz.", label: 'Tunnel Interface', type: 'text', required: true, placeholder: 'tunnel.1', hint: 'PAN-OS tunnel arayüzü (ör: tunnel.1)' },
+                        { name: 'proxy_local', why: "Proxy ID, hangi trafiğin şifreleneceğini belirler. <b>Route-based</b> VPN'de bile karşı taraf policy-based ise Proxy ID zorunludur.", label: 'Proxy ID — Yerel Subnet', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Bu taraftaki ilgili subnet' },
+                        { name: 'proxy_remote', why: "İki tarafın Proxy ID'leri <b>ayna</b> olmalı: senin local'in karşının remote'u. Uyuşmazlık Phase 2'nin kurulmamasına yol açar.", label: 'Proxy ID — Uzak Subnet', type: 'text', required: true, placeholder: '10.0.0.0/24', hint: 'Karşı taraftaki ilgili subnet' }
                     ]
                 }
             ],
@@ -387,17 +387,17 @@ PaloAlto.threatprev = {
                     icon: 'fas fa-shield-virus',
                     badge: { text: 'Güvenlik', cls: 'security' },
                     fields: [
-                        { name: 'av_name', label: 'Antivirus Profil', type: 'text', required: true, placeholder: 'corp-av', hint: 'FTP/HTTP/SMTP trafiğini tarar' },
-                        { name: 'vp_name', label: 'Vulnerability Protection Profil', type: 'text', required: true, placeholder: 'strict-vp', hint: 'CVE tabanlı exploit koruması' },
-                        { name: 'spy_name', label: 'Anti-Spyware Profil', type: 'text', required: true, placeholder: 'corp-spyware', hint: 'C2 trafiği ve spyware tespiti' },
-                        { name: 'wf_name', label: 'WildFire Analysis Profil', type: 'text', required: true, placeholder: 'corp-wildfire', hint: 'Bilinmeyen dosyaları bulut analizine gönderir' }
+                        { name: 'av_name', why: 'Antivirus profili kurala <b>bağlanmalıdır</b>; oluşturmak tek başına korumaz. Profilsiz kural hiçbir tarama yapmaz.', label: 'Antivirus Profil', type: 'text', required: true, placeholder: 'corp-av', hint: 'FTP/HTTP/SMTP trafiğini tarar' },
+                        { name: 'vp_name', why: "Vulnerability Protection, exploit denemelerini durdurur. Üretimde önce <code>alert</code> ile izleyip sonra <code>block</code>'a geçmek kesintiyi önler.", label: 'Vulnerability Protection Profil', type: 'text', required: true, placeholder: 'strict-vp', hint: 'CVE tabanlı exploit koruması' },
+                        { name: 'spy_name', why: 'Anti-Spyware, C2 (command-and-control) trafiğini yakalar. <b>DNS Sinkhole</b> özelliğini açmak, enfekte iç makineyi tespit etmenin en pratik yoludur.', label: 'Anti-Spyware Profil', type: 'text', required: true, placeholder: 'corp-spyware', hint: 'C2 trafiği ve spyware tespiti' },
+                        { name: 'wf_name', why: 'WildFire bilinmeyen dosyaları buluta gönderip analiz eder. Gizlilik kısıtı olan kurumlarda hangi dosya tiplerinin gönderileceği dikkatle seçilmelidir.', label: 'WildFire Analysis Profil', type: 'text', required: true, placeholder: 'corp-wildfire', hint: 'Bilinmeyen dosyaları bulut analizine gönderir' }
                     ]
                 },
                 {
                     title: 'Security Rule Binding',
                     icon: 'fas fa-link',
                     fields: [
-                        { name: 'rule_name', label: 'Kural Adı', type: 'text', required: true, placeholder: 'OUTBOUND-WEB', hint: 'Profillerin bağlanacağı mevcut security rule adı' }
+                        { name: 'rule_name', why: 'Kurallar yukarıdan aşağıya değerlendirilir, <b>ilk eşleşen</b> uygulanır. Sonda iki gizli kural vardır: intrazone-default (allow) ve interzone-default (deny).', label: 'Kural Adı', type: 'text', required: true, placeholder: 'OUTBOUND-WEB', hint: 'Profillerin bağlanacağı mevcut security rule adı' }
                     ]
                 }
             ],
@@ -449,9 +449,9 @@ PaloAlto.urlfilter = {
                     badge: { text: 'Güvenlik', cls: 'security' },
                     fields: [
                         { name: 'profile_name', label: 'Profil Adı', type: 'text', required: true, placeholder: 'corp-urlfilter', hint: 'URL filtering profili adı' },
-                        { name: 'block_cats', label: 'Engellenen Kategoriler', type: 'text', required: true, placeholder: 'adult gambling malware phishing', hint: 'Boşlukla ayrılmış PAN-OS kategori adları' },
+                        { name: 'block_cats', why: "Kategori engelleme. HTTPS trafiğinde kategori tespiti için <b>decryption</b> gerekebilir; decrypt edilmeyen trafikte yalnızca SNI'ye bakılır.", label: 'Engellenen Kategoriler', type: 'text', required: true, placeholder: 'adult gambling malware phishing', hint: 'Boşlukla ayrılmış PAN-OS kategori adları' },
                         { name: 'alert_cats', label: 'Uyarı Kategorileri', type: 'text', optional: true, placeholder: 'social-networking games', hint: 'Engellenmez, sadece loglanır (boşlukla ayrılmış)' },
-                        { name: 'safe_search', label: 'Safe Search', type: 'select', options: [
+                        { name: 'safe_search', why: 'Arama motorlarında güvenli aramayı zorunlu kılar. Çalışması için ilgili arama motorunun HTTPS trafiğinin decrypt edilmesi gerekir.', label: 'Safe Search', type: 'select', options: [
                             { value: 'strict', label: 'strict', selected: true },
                             { value: 'moderate', label: 'moderate' },
                             { value: 'off', label: 'off' }
@@ -462,7 +462,7 @@ PaloAlto.urlfilter = {
                     title: 'Rule Binding',
                     icon: 'fas fa-link',
                     fields: [
-                        { name: 'rule_name', label: 'Security Rule Adı', type: 'text', required: true, placeholder: 'OUTBOUND-WEB', hint: 'Profil bağlanacak security rule' }
+                        { name: 'rule_name', why: 'Kurallar yukarıdan aşağıya değerlendirilir, <b>ilk eşleşen</b> uygulanır. Sonda iki gizli kural vardır: intrazone-default (allow) ve interzone-default (deny).', label: 'Security Rule Adı', type: 'text', required: true, placeholder: 'OUTBOUND-WEB', hint: 'Profil bağlanacak security rule' }
                     ]
                 }
             ],
@@ -510,7 +510,7 @@ PaloAlto.globalprotect = {
                     icon: 'fas fa-door-open',
                     badge: { text: 'Enterprise', cls: 'advanced' },
                     fields: [
-                        { name: 'portal_iface', label: 'Portal Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'Kullanıcıların bağlandığı WAN arayüzü' },
+                        { name: 'portal_iface', why: 'Portal, istemcinin ilk bağlandığı ve config indirdiği noktadır. Gateway ile aynı arayüzde olabilir ama sertifikası geçerli olmalıdır.', label: 'Portal Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'Kullanıcıların bağlandığı WAN arayüzü' },
                         { name: 'portal_ip', label: 'Portal IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Portal erişim IP adresi (public)' }
                     ]
                 },
@@ -527,9 +527,9 @@ PaloAlto.globalprotect = {
                     title: 'IP Pool ve DNS',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'pool_start', label: 'Pool Başlangıç', type: 'text', validate: 'ip', required: true, placeholder: '10.210.0.1', hint: 'VPN kullanıcıları için IP aralığı başlangıcı' },
+                        { name: 'pool_start', why: 'VPN istemcilerine dağıtılacak IP havuzu. İç ağdaki hiçbir subnet ile <b>çakışmamalı</b>, aksi halde yönlendirme kırılır.', label: 'Pool Başlangıç', type: 'text', validate: 'ip', required: true, placeholder: '10.210.0.1', hint: 'VPN kullanıcıları için IP aralığı başlangıcı' },
                         { name: 'pool_end', label: 'Pool Bitiş', type: 'text', validate: 'ip', required: true, placeholder: '10.210.0.254', hint: 'VPN kullanıcıları için IP aralığı bitişi' },
-                        { name: 'dns', label: 'DNS Server', type: 'text', validate: 'ip', optional: true, placeholder: '8.8.8.8', hint: 'VPN istemcilerine atanacak DNS sunucu' }
+                        { name: 'dns', why: "İstemcilere verilecek DNS. İç kaynaklara isimle erişim için iç DNS sunucusu verilmelidir; aksi halde kullanıcılar 'VPN bağlı ama hiçbir şeye erişemiyorum' der.", label: 'DNS Server', type: 'text', validate: 'ip', optional: true, placeholder: '8.8.8.8', hint: 'VPN istemcilerine atanacak DNS sunucu' }
                     ]
                 }
             ],
@@ -572,12 +572,12 @@ PaloAlto.ha = {
                     title: 'HA Rol ve Grup',
                     icon: 'fas fa-crown',
                     fields: [
-                        { name: 'ha_role', label: 'Rol', type: 'select', options: [
+                        { name: 'ha_role', why: "Active-Passive'de yalnızca bir cihaz trafik işler. İki cihazın <b>aynı PAN-OS sürümünde</b> ve aynı donanım modelinde olması gerekir.", label: 'Rol', type: 'select', options: [
                             { value: 'primary', label: 'Primary (Active)', selected: true },
                             { value: 'secondary', label: 'Secondary (Passive)' }
                         ], hint: 'Primary cihaza düşük device-priority atanır (10), secondary\'ye 100' },
-                        { name: 'grp_id', label: 'Group ID (1-63)', type: 'text', required: true, placeholder: '1', hint: 'Her iki cihazda aynı group ID kullanılmalı' },
-                        { name: 'preemptive', label: 'Preemptive?', type: 'select', options: [
+                        { name: 'grp_id', why: 'Group ID aynı L2 segmentindeki farklı HA çiftlerinde benzersiz olmalıdır; çakışma iki çiftin birbirini üye sanmasına yol açar.', label: 'Group ID (1-63)', type: 'text', required: true, placeholder: '1', hint: 'Her iki cihazda aynı group ID kullanılmalı' },
+                        { name: 'preemptive', why: 'Açıkken birincil cihaz döndüğünde rolü geri alır — bu ikinci bir kesinti demektir. Çoğu kurulumda <b>kapalı</b> bırakmak daha az kesinti üretir.', label: 'Preemptive?', type: 'select', options: [
                             { value: 'yes', label: 'Evet', selected: true },
                             { value: 'no', label: 'Hayır' }
                         ], hint: 'Preempt açık iken primary düzelince geri devralır' }
@@ -587,7 +587,7 @@ PaloAlto.ha = {
                     title: 'HA1 Interface (Control)',
                     icon: 'fas fa-link',
                     fields: [
-                        { name: 'ha1_iface', label: 'HA1 Interface', type: 'text', required: true, placeholder: 'ethernet1/3', hint: 'HA control link arayüzü' },
+                        { name: 'ha1_iface', why: 'HA1 kontrol kanalıdır (heartbeat, config senkronu). Üyeler arasında <b>doğrudan</b> bağlanmalı; switch üzerinden geçerse split-brain riski doğar.', label: 'HA1 Interface', type: 'text', required: true, placeholder: 'ethernet1/3', hint: 'HA control link arayüzü' },
                         { name: 'ha1_ip', label: 'HA1 IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '169.254.0.1/24', hint: 'Bu cihazın HA1 IP adresi' },
                         { name: 'ha1_peer', label: 'HA1 Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '169.254.0.2', hint: 'Karşı cihazın HA1 IP adresi' }
                     ]
@@ -596,7 +596,7 @@ PaloAlto.ha = {
                     title: 'HA2 Interface (Data Sync)',
                     icon: 'fas fa-sync',
                     fields: [
-                        { name: 'ha2_iface', label: 'HA2 Interface', type: 'text', required: true, placeholder: 'ethernet1/4', hint: 'HA data sync link arayüzü' },
+                        { name: 'ha2_iface', why: 'HA2 veri kanalıdır (session senkronu). Kopması failover sırasında mevcut oturumların düşmesine yol açar.', label: 'HA2 Interface', type: 'text', required: true, placeholder: 'ethernet1/4', hint: 'HA data sync link arayüzü' },
                         { name: 'ha2_ip', label: 'HA2 IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '169.254.1.1/24', hint: 'Bu cihazın HA2 IP adresi' }
                     ]
                 }
@@ -644,7 +644,7 @@ PaloAlto.interface = {
                     icon: 'fas fa-plug',
                     fields: [
                         { name: 'intf_name', label: 'Interface Adı', type: 'text', required: true, placeholder: 'ethernet1/3', hint: 'PAN-OS formatı: ethernet1/3, loopback.1' },
-                        { name: 'intf_type', label: 'Interface Tipi', type: 'select', options: [
+                        { name: 'intf_type', why: '<b>Layer3</b> yönlendirir, <b>Layer2</b> köprüler, <b>Virtual Wire</b> şeffaf geçer, <b>Tap</b> sadece dinler. Tip sonradan değiştirilince bağlı tüm config sıfırlanır.', label: 'Interface Tipi', type: 'select', options: [
                             { value: 'layer3', label: 'Layer 3', selected: true },
                             { value: 'vlan', label: 'VLAN Sub-Interface' },
                             { value: 'loopback', label: 'Loopback' }
@@ -652,7 +652,7 @@ PaloAlto.interface = {
                         { name: 'ip_prefix', label: 'IP / Prefix (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi' },
                         { name: 'zone', label: 'Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Arayüzün atanacağı zone adı' },
                         { name: 'description', label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN Link', hint: 'İsteğe bağlı arayüz açıklaması' },
-                        { name: 'mtu', label: 'MTU', type: 'text', optional: true, placeholder: '1500', hint: 'MTU değeri (varsayılan 1500, VLAN için 1400–1500)' },
+                        { name: 'mtu', why: 'Varsayılan 1500. IPSec tünelleri üzerinden geçen trafikte MTU/MSS ayarı yapılmazsa büyük paketler parçalanır ve uygulamalar yavaşlar.', label: 'MTU', type: 'text', optional: true, placeholder: '1500', hint: 'MTU değeri (varsayılan 1500, VLAN için 1400–1500)' },
                         { name: 'vlan_id', label: 'VLAN ID', type: 'text', validate: 'vlan', optional: true, placeholder: '100', hint: 'Yalnızca VLAN tipi seçildiyse gerekli' }
                     ]
                 }
@@ -702,10 +702,10 @@ PaloAlto.staticroute = {
                     icon: 'fas fa-map-signs',
                     fields: [
                         { name: 'vr_name', label: 'Virtual Router Adı', type: 'text', required: true, placeholder: 'default', hint: 'Varsayılan VR genellikle "default" olarak adlandırılır' },
-                        { name: 'dst', label: 'Hedef Ağ (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '0.0.0.0/0', hint: 'Rota hedefi; default route için 0.0.0.0/0' },
-                        { name: 'nexthop', label: 'Next-Hop IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.254', hint: 'Bir sonraki hop IP adresi' },
+                        { name: 'dst', why: "Hedef ağ CIDR olarak. Palo Alto'da rota eklemek yetmez; trafiğin geçmesi için ayrıca <b>güvenlik kuralı</b> gerekir.", label: 'Hedef Ağ (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '0.0.0.0/0', hint: 'Rota hedefi; default route için 0.0.0.0/0' },
+                        { name: 'nexthop', why: 'Next-hop IP. Tünel arayüzü üzerinden rota veriyorsan next-hop yerine arayüzü seçmelisin.', label: 'Next-Hop IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.254', hint: 'Bir sonraki hop IP adresi' },
                         { name: 'interface', label: 'Interface', type: 'text', required: true, placeholder: 'ethernet1/1', hint: 'Çıkış arayüzü' },
-                        { name: 'metric', label: 'Metric', type: 'text', required: true, placeholder: '10', hint: 'Rota metriği; düşük değer öncelikli' }
+                        { name: 'metric', why: 'Aynı hedefe birden fazla rota varsa düşük metric kazanır. Yedek hat için yüksek metric vererek failover kurulur.', label: 'Metric', type: 'text', required: true, placeholder: '10', hint: 'Rota metriği; düşük değer öncelikli' }
                     ]
                 }
             ],
@@ -745,8 +745,8 @@ PaloAlto.ospf = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'vr_name', label: 'Virtual Router Adı', type: 'text', required: true, placeholder: 'default', hint: 'OSPF çalışacak Virtual Router' },
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Genellikle Loopback IP adresi kullanılır' },
-                        { name: 'area', label: 'Area', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone area için 0.0.0.0' }
+                        { name: 'router_id', why: 'Benzersiz olmalı; genelde Loopback IP verilir. Değiştirmek OSPF/BGP oturumlarını sıfırlar.', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Genellikle Loopback IP adresi kullanılır' },
+                        { name: 'area', why: "Backbone <code>0</code>'dır ve tüm alanlar ona bitişik olmalıdır. Alan numarası eşleşmezse komşuluk kurulmaz.", label: 'Area', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone area için 0.0.0.0' }
                     ]
                 },
                 {
@@ -754,7 +754,7 @@ PaloAlto.ospf = {
                     icon: 'fas fa-ethernet',
                     fields: [
                         { name: 'intfs', label: 'OSPF Interface\'ler', type: 'text', required: true, placeholder: 'ethernet1/2,ethernet1/3', hint: 'Virgülle ayrılmış arayüz listesi' },
-                        { name: 'passive_intfs', label: 'Passive Interface\'ler', type: 'text', optional: true, placeholder: 'ethernet1/3', hint: 'OSPF hello göndermeyecek arayüzler (virgülle ayrılmış)' }
+                        { name: 'passive_intfs', why: 'Passive arayüz hello göndermez ama ağı duyurur. WAN arayüzlerinde güvenlik için açılmalıdır.', label: 'Passive Interface\'ler', type: 'text', optional: true, placeholder: 'ethernet1/3', hint: 'OSPF hello göndermeyecek arayüzler (virgülle ayrılmış)' }
                     ]
                 }
             ],
@@ -801,16 +801,16 @@ PaloAlto.bgp = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'vr_name', label: 'Virtual Router Adı', type: 'text', required: true, placeholder: 'default', hint: 'BGP çalışacak Virtual Router' },
-                        { name: 'local_as', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
-                        { name: 'router_id', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
+                        { name: 'local_as', why: "Kendi AS numaran. Peer'ın AS'i farklıysa eBGP, aynıysa iBGP olur.", label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
+                        { name: 'router_id', why: 'Benzersiz olmalı; genelde Loopback IP verilir. Değiştirmek OSPF/BGP oturumlarını sıfırlar.', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
                     ]
                 },
                 {
                     title: 'Peer Ayarları',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'peer_ip', label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
-                        { name: 'peer_as', label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
+                        { name: 'peer_ip', why: "Karşı tarafın gerçek dış IP'si. NAT arkasındaysa NAT-T açık olmalı ve UDP 4500 geçmelidir.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
+                        { name: 'peer_as', why: "Komşunun AS numarası. Yanlışsa oturum Idle/Active'de takılır.", label: 'Peer AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun AS numarası' },
                         { name: 'peer_group', label: 'Peer Group Adı', type: 'text', required: true, placeholder: 'EBGP-PEERS', hint: 'eBGP peer group adı' }
                     ]
                 }
@@ -851,11 +851,11 @@ PaloAlto.vlan = {
                     title: 'VLAN Yapılandırması',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'vlan_id', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası' },
-                        { name: 'vlan_name', label: 'VLAN Adı', type: 'text', required: true, placeholder: 'SERVERS', hint: 'VLAN nesne adı (büyük harf önerilir)' },
-                        { name: 'interface', label: 'Interface', type: 'text', required: true, placeholder: 'ethernet1/2', hint: 'VLAN üyesi fiziksel arayüz' },
-                        { name: 'ip', label: 'IP / Prefix', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.100.1/24', hint: 'VLAN SVI IP adresi (opsiyonel)' },
-                        { name: 'zone', label: 'Zone', type: 'text', optional: true, placeholder: 'trust', hint: 'VLAN arayüzünün atanacağı zone (opsiyonel)' }
+                        { name: 'vlan_id', why: "802.1Q etiketi (1-4094). Karşı switch portu <b>trunk</b> modda olmalı ve bu VLAN'a izin vermeli, aksi halde tag'li trafik sessizce düşer.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası' },
+                        { name: 'vlan_name', why: "PAN-OS'ta alt arayüz adı <code>ethernet1/1.100</code> biçiminde oluşur. Ad yalnızca okunabilirlik içindir, trafiği etkilemez.", label: 'VLAN Adı', type: 'text', required: true, placeholder: 'SERVERS', hint: 'VLAN nesne adı (büyük harf önerilir)' },
+                        { name: 'interface', why: "Alt arayüzün bağlanacağı fiziksel arayüz. Üst arayüzün de bir zone'a ve Virtual Router'a atanmış olması gerekir.", label: 'Interface', type: 'text', required: true, placeholder: 'ethernet1/2', hint: 'VLAN üyesi fiziksel arayüz' },
+                        { name: 'ip', why: "Alt arayüz IP'si, o VLAN'daki istemcilerin gateway'i olur. CIDR formatında verilir.", label: 'IP / Prefix', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.100.1/24', hint: 'VLAN SVI IP adresi (opsiyonel)' },
+                        { name: 'zone', why: "Her alt arayüz bir zone'a atanmalıdır. Atanmazsa trafik güvenlik kurallarına hiç girmez ve düşer.", label: 'Zone', type: 'text', optional: true, placeholder: 'trust', hint: 'VLAN arayüzünün atanacağı zone (opsiyonel)' }
                     ]
                 }
             ],
@@ -898,11 +898,11 @@ PaloAlto.service = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'name', label: 'Servis Adı', type: 'text', required: true, placeholder: 'SVC-HTTPS', hint: 'Servis nesnesi adı (ör: SVC-HTTPS, SVC-CUSTOM-8080)' },
-                        { name: 'protocol', label: 'Protokol', type: 'select', options: [
+                        { name: 'protocol', why: "TCP/UDP ayrımını yanlış yapmak en sık görülen 'kural çalışmıyor' sebebidir.", label: 'Protokol', type: 'select', options: [
                             { value: 'tcp', label: 'TCP', selected: true },
                             { value: 'udp', label: 'UDP' }
                         ]},
-                        { name: 'dst_port', label: 'Hedef Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'Hedef port veya aralık (ör: 443, 8080-8090)' },
+                        { name: 'dst_port', why: 'Palo Alto uygulamayı porttan bağımsız tanır (App-ID). Yine de servis kısıtı koymak, uygulamanın beklenmedik portlarda çalışmasını engeller.', label: 'Hedef Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'Hedef port veya aralık (ör: 443, 8080-8090)' },
                         { name: 'src_port', label: 'Kaynak Port', type: 'text', validate: 'port', optional: true, placeholder: 'any', hint: 'Kaynak port kısıtlaması (genellikle boş bırakılır)' },
                         { name: 'description', label: 'Açıklama', type: 'text', optional: true, placeholder: 'HTTPS service', hint: 'Servis nesnesi açıklaması' }
                     ]
@@ -945,9 +945,9 @@ PaloAlto.customapp = {
                     title: 'Uygulama Tanımı',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'app_name', label: 'Uygulama Adı', type: 'text', required: true, placeholder: 'CUSTOM-APP', hint: 'Büyük harf ve tire önerilir (ör: CUSTOM-APP)' },
+                        { name: 'app_name', why: "Özel uygulama tanımı, App-ID'nin tanımadığı iç uygulamalar için gerekir. Yanlış signature, meşru trafiğin engellenmesine yol açar.", label: 'Uygulama Adı', type: 'text', required: true, placeholder: 'CUSTOM-APP', hint: 'Büyük harf ve tire önerilir (ör: CUSTOM-APP)' },
                         { name: 'category', label: 'Kategori', type: 'text', required: true, placeholder: 'networking', hint: 'PAN-OS uygulama kategorisi (ör: networking, business-systems)' },
-                        { name: 'risk', label: 'Risk Seviyesi', type: 'select', options: [
+                        { name: 'risk', why: 'Risk seviyesi 1-5. Yüksek riskli uygulamaları (tor, proxy, uzaktan erişim) engellemek, gölge BT ile mücadelede ilk adımdır.', label: 'Risk Seviyesi', type: 'select', options: [
                             { value: '1', label: '1 — Low', selected: true },
                             { value: '2', label: '2' },
                             { value: '3', label: '3 — Medium' },
@@ -961,7 +961,7 @@ PaloAlto.customapp = {
                     icon: 'fas fa-fingerprint',
                     fields: [
                         { name: 'sig_pattern', label: 'Signature Pattern', type: 'text', required: true, placeholder: 'GET /api/v1', hint: 'HTTP header üzerinde aranacak string' },
-                        { name: 'protocol', label: 'Protokol', type: 'select', options: [
+                        { name: 'protocol', why: "TCP/UDP ayrımını yanlış yapmak en sık görülen 'kural çalışmıyor' sebebidir.", label: 'Protokol', type: 'select', options: [
                             { value: 'tcp', label: 'TCP', selected: true },
                             { value: 'udp', label: 'UDP' }
                         ]},
@@ -1006,7 +1006,7 @@ PaloAlto.secprofilegroup = {
                     icon: 'fas fa-layer-group',
                     badge: { text: 'Güvenlik', cls: 'security' },
                     fields: [
-                        { name: 'group_name', label: 'Grup Adı', type: 'text', required: true, placeholder: 'STRICT-PROFILES', hint: 'Profile group adı; security rule\'da bu ad kullanılır' },
+                        { name: 'group_name', why: 'Adres grubu kural sayısını azaltır. <b>Dynamic Address Group</b> ise etiket bazlı çalışır ve commit gerektirmeden güncellenir — otomasyon için güçlü bir araçtır.', label: 'Grup Adı', type: 'text', required: true, placeholder: 'STRICT-PROFILES', hint: 'Profile group adı; security rule\'da bu ad kullanılır' },
                         { name: 'av_profile', label: 'Antivirus Profil', type: 'text', required: true, placeholder: 'default', hint: 'Mevcut AV profil adı' },
                         { name: 'vuln_profile', label: 'Vulnerability Protection Profil', type: 'text', required: true, placeholder: 'strict', hint: 'Mevcut VP profil adı' },
                         { name: 'url_profile', label: 'URL Filtering Profil', type: 'text', required: true, placeholder: 'default', hint: 'Mevcut URL filtering profil adı' },
@@ -1053,12 +1053,12 @@ PaloAlto.decryption = {
                         { name: 'policy_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'DECRYPT-OUTBOUND', hint: 'Decryption policy adı' },
                         { name: 'src_zone', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'trust', hint: 'İç ağ zone adı' },
                         { name: 'dst_zone', label: 'Hedef Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Dış ağ zone adı' },
-                        { name: 'decrypt_type', label: 'Decrypt Tipi', type: 'select', options: [
+                        { name: 'decrypt_type', why: '<b>SSL Forward Proxy</b> giden kullanıcı trafiğini, <b>SSL Inbound Inspection</b> kendi sunucuna gelen trafiği açar. Forward Proxy için CA sertifikası tüm istemcilere dağıtılmalıdır.', label: 'Decrypt Tipi', type: 'select', options: [
                             { value: 'ssl-forward-proxy', label: 'SSL Forward Proxy (giden trafik)', selected: true },
                             { value: 'ssl-inbound-inspection', label: 'SSL Inbound Inspection (gelen trafik)' }
                         ], hint: 'Forward Proxy kullanıcı trafiğini; Inbound sunucu trafiğini açar' },
-                        { name: 'profile', label: 'Decryption Profil', type: 'text', required: true, placeholder: 'default-decryption', hint: 'Decryption profil nesnesi adı' },
-                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                        { name: 'profile', why: 'Decryption profili zayıf şifre ve süresi dolmuş sertifikaları reddeder. Sertifika sabitleme (pinning) kullanan uygulamalar <b>bypass listesine</b> alınmalıdır, yoksa çalışmazlar.', label: 'Decryption Profil', type: 'text', required: true, placeholder: 'default-decryption', hint: 'Decryption profil nesnesi adı' },
+                        { name: 'action', why: '<code>allow</code> geçirir, <code>deny</code> uygulamaya göre davranır, <code>drop</code> sessizce düşürür, <code>reset</code> RST gönderir. Deny kuralında log açmazsan engellenen trafiği göremezsin.', label: 'Aksiyon', type: 'select', options: [
                             { value: 'decrypt', label: 'Decrypt', selected: true },
                             { value: 'no-decrypt', label: 'No-Decrypt' }
                         ], hint: 'No-Decrypt: bankacılık gibi hassas siteleri hariç tutmak için' }
@@ -1107,12 +1107,12 @@ PaloAlto.dos = {
                         { name: 'policy_name', label: 'Policy Adı', type: 'text', required: true, placeholder: 'DOS-PROTECT', hint: 'DoS koruma policy adı' },
                         { name: 'src_zone', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Saldırının geldiği zone (genellikle untrust)' },
                         { name: 'dst_zone', label: 'Hedef Zone', type: 'text', required: true, placeholder: 'dmz', hint: 'Korunacak zone (ör: dmz, trust)' },
-                        { name: 'flood_type', label: 'Flood Tipi', type: 'select', options: [
+                        { name: 'flood_type', why: 'DoS koruması. Eşikler <b>normal trafiğinizi ölçtükten sonra</b> belirlenmelidir; düşük eşik meşru trafiği keser.', label: 'Flood Tipi', type: 'select', options: [
                             { value: 'syn', label: 'SYN Flood', selected: true },
                             { value: 'udp', label: 'UDP Flood' },
                             { value: 'icmp', label: 'ICMP Flood' }
                         ], hint: 'SYN flood en yaygın DDoS vektörüdür' },
-                        { name: 'alarm_rate', label: 'Alarm Rate (pps)', type: 'text', required: true, placeholder: '10000', hint: 'Bu eşiği aşınca log/alarm üretilir' },
+                        { name: 'alarm_rate', why: 'Uyarı eşiği (paket/sn). Bu değeri üretim trafiğinizin tepe noktasının üstünde tutun, aksi halde sürekli alarm üretir.', label: 'Alarm Rate (pps)', type: 'text', required: true, placeholder: '10000', hint: 'Bu eşiği aşınca log/alarm üretilir' },
                         { name: 'activate_rate', label: 'Activate Rate (pps)', type: 'text', required: true, placeholder: '15000', hint: 'Bu eşiği aşınca aktif koruma başlar' }
                     ]
                 }
@@ -1157,12 +1157,12 @@ PaloAlto.snmp = {
                     fields: [
                         { name: 'profile_name', label: 'Profil Adı', type: 'text', required: true, placeholder: 'SNMP-PROFILE', hint: 'SNMP profil referans adı' },
                         { name: 'username', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'snmp-user', hint: 'SNMPv3 kullanıcı adı' },
-                        { name: 'auth_proto', label: 'Auth Protokol', type: 'select', options: [
+                        { name: 'auth_proto', why: "SNMPv3'te <code>MD5</code> ve <code>SHA1</code> zayıftır; mümkünse <code>SHA256</code> kullan.", label: 'Auth Protokol', type: 'select', options: [
                             { value: 'SHA', label: 'SHA', selected: true },
                             { value: 'MD5', label: 'MD5' }
                         ], hint: 'SHA daha güvenli; MD5 eski sistemlerle uyumluluk için' },
                         { name: 'auth_pass', label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123!', hint: 'En az 8 karakter, güçlü şifre kullanın' },
-                        { name: 'priv_proto', label: 'Privacy Protokol', type: 'select', options: [
+                        { name: 'priv_proto', why: '<code>DES</code> kırılabilir; <code>AES</code> tercih edilmeli. authPriv olmadan SNMP verisi açık geçer.', label: 'Privacy Protokol', type: 'select', options: [
                             { value: 'AES', label: 'AES', selected: true },
                             { value: 'DES', label: 'DES' }
                         ], hint: 'AES şifreleme tercih edilir' },
@@ -1216,9 +1216,9 @@ PaloAlto.panorama = {
                     badge: { text: 'Enterprise', cls: 'advanced' },
                     warn: 'Bu komutlar Panorama CLI\'ında çalıştırılır — doğrudan cihaz CLI\'ında kullanmayın.',
                     fields: [
-                        { name: 'dg_name', label: 'Device Group Adı', type: 'text', required: true, placeholder: 'DG-CUSTOMER1', hint: 'Panorama device group adı' },
+                        { name: 'dg_name', why: 'Panorama Device Group, kuralların merkezi yönetimini sağlar. <b>Pre-Rules</b> yerel kurallardan önce, <b>Post-Rules</b> sonra değerlendirilir.', label: 'Device Group Adı', type: 'text', required: true, placeholder: 'DG-CUSTOMER1', hint: 'Panorama device group adı' },
                         { name: 'device_serial', label: 'Cihaz Seri Numarası', type: 'text', required: true, placeholder: '0123456789', hint: '10 haneli PAN-OS seri numarası' },
-                        { name: 'shared_policy', label: 'Shared Policy Adı', type: 'text', required: true, placeholder: 'SHARED-POLICY', hint: 'Device group\'a atanacak paylaşılan policy' }
+                        { name: 'shared_policy', why: "Shared kurallar tüm device group'lara uygulanır. Değiştirmeden önce hangi cihazları etkilediğini kontrol et.", label: 'Shared Policy Adı', type: 'text', required: true, placeholder: 'SHARED-POLICY', hint: 'Device group\'a atanacak paylaşılan policy' }
                     ]
                 },
                 {
@@ -1279,8 +1279,8 @@ PaloAlto.sdwan = {
                     title: 'Health Check ve Failover',
                     icon: 'fas fa-heartbeat',
                     fields: [
-                        { name: 'health_check_ip', label: 'Health Check IP', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'Ping ile erişilebilirlik kontrolü yapılacak IP' },
-                        { name: 'failover_threshold', label: 'Failover Threshold', type: 'text', required: true, placeholder: '3', hint: 'Kaç ardışık başarısız ping sonrası failover tetiklenir' }
+                        { name: 'health_check_ip', why: "SD-WAN path seçimi bu hedefe ping/probe atarak yapılır. Hedefin sürekli erişilebilir ve <b>ISS'den bağımsız</b> olması gerekir (ör. 8.8.8.8 değil, kendi DC'niz).", label: 'Health Check IP', type: 'text', validate: 'ip', required: true, placeholder: '8.8.8.8', hint: 'Ping ile erişilebilirlik kontrolü yapılacak IP' },
+                        { name: 'failover_threshold', why: "Yol değiştirme eşiği. Çok hassas ayarlamak, kısa dalgalanmalarda gereksiz path flapping'e yol açar.", label: 'Failover Threshold', type: 'text', required: true, placeholder: '3', hint: 'Kaç ardışık başarısız ping sonrası failover tetiklenir' }
                     ]
                 }
             ],
