@@ -349,52 +349,48 @@ Dell.bgp = {
 // ── Dell OS10: VLT (MLAG) ─────────────────────────────────────────────────────
 Dell.vlt = {
     label: 'VLT (MLAG)',
+    // OS10 sozdizimi canli config'lerle dogrulandi (5/5 cihaz): 'vlt-domain N' ve
+    // VLTi FIZIKSEL arayuzlerle 'discovery-interface ethernet1/1/25-1/1/26'.
+    // Eski surum 'vlt domain' yaziyor ve VLTi'yi port-channel'a bagliyordu.
     init(container) {
         cgFormBuilder(container, {
             topic: {
                 icon: 'fas fa-clone',
                 title: 'Dell OS10 — VLT / MLAG',
-                desc: 'Virtual Link Trunking (MLAG) yapılandırması. Primary/Secondary rol, ICL port-channel ve backup destination.'
+                desc: 'Virtual Link Trunking: iki switch tek mantıksal switch gibi port-channel sunar. VLTi (peer bağlantısı) fiziksel portlarla kurulur, backup link yönetim ağı üzerinden peer\'ı izler.'
             },
             sections: [
                 {
                     title: 'VLT Domain',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'domain_id', why: "VLT domain ID <b>iki peer'da birebir aynı</b> olmalıdır; farklıysa VLT hiç kurulmaz, her switch tek başına davranır ve karşı taraftaki LAG yarım çalışır.", label: 'VLT Domain ID', type: 'text', required: true, placeholder: '1', hint: 'VLT domain numarası (1–255)' },
-                        { name: 'vlt_role', why: "Primary/secondary rolü split-brain anında hangi switch'in portları ayakta tutacağını belirler; iki cihaza da aynı rol verilirse kopuş anında ya iki switch aktif kalır ya da ikisi birden portları kapatır.", label: 'Rol', type: 'select', options: [
-                            { value: 'primary', label: 'Primary', selected: true },
-                            { value: 'secondary', label: 'Secondary' }
-                        ]},
-                        { name: 'backup_dest', why: "Backup link, ICL koptuğunda peer'ın hâlâ hayatta olduğunu anlamayı sağlayan bağımsız yoldur; tanımlanmazsa ICL arızasında <b>split-brain</b> oluşur ve ağda çift gateway ile MAC kararsızlığı başlar.", label: 'Backup Destination IP (peer management IP)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.0.2', hint: 'Peer cihazının yönetim IP adresi' }
+                        { name: 'domain_id', why: 'Domain ID iki peer\'da aynı olmalı; VLT sistem MAC\'i bu değerden türetilir.', label: 'VLT Domain ID', type: 'text', min: 1, max: 255, required: true, placeholder: '1', hint: 'İki peer\'da aynı değer' },
+                        { name: 'backup_dest', why: 'VLTi koparsa peer\'ın hâlâ canlı olup olmadığı bu adres üzerinden anlaşılır; olmazsa iki switch de primary olup split-brain yaşanır.', label: 'Backup Destination IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.0.2', hint: 'Peer cihazın yönetim IP adresi' },
+                        { name: 'primary_priority', why: 'Düşük değer primary olur. Boş bırakılırsa cihaz varsayılanı kullanılır ve rol MAC adresine göre belirlenir.', label: 'Primary Priority', type: 'text', min: 1, max: 65535, placeholder: '4096', hint: 'Düşük değer = primary; iki peer\'da farklı verin' },
+                        { name: 'peer_routing', label: 'peer-routing (peer\'ın MAC\'ine gelen L3 trafiği de yönlendir)', type: 'checkbox' }
                     ]
                 },
                 {
-                    title: 'ICL (Interconnect) Ayarları',
+                    title: 'VLTi (Peer Bağlantısı)',
                     icon: 'fas fa-ethernet',
+                    info: 'VLTi portları port-channel\'a ÜYE YAPILMAZ ve üzerlerinde switchport ayarı olmamalıdır; OS10 bunları discovery-interface ile kendisi bağlar.',
                     fields: [
-                        { name: 'icl_ifaces', why: "ICL üyeleri birden fazla fiziksel port olmalıdır; tek link bırakmak, o link koptuğunda tüm VLT'nin çökmesi demektir. Üyelerin hızları da aynı olmalıdır.", label: 'ICL Interface(ler)', type: 'text', required: true, placeholder: 'ethernet1/1/49, ethernet1/1/50', hint: 'Virgülle ayrılmış ICL port listesi' },
-                        { name: 'icl_pc', why: "ICL <b>mutlaka bir port-channel</b> üzerinden kurulur ve iki peer'da aynı numarayı kullanmalıdır; tek fiziksel arayüz verilirse yapılandırma kabul edilmez veya yedeksiz kalır.", label: 'ICL Port-Channel ID', type: 'text', required: true, placeholder: '127', hint: 'ICL için kullanılacak port-channel numarası' }
+                        { name: 'vlti_ifaces', label: 'VLTi Arayüzleri', type: 'text', validate: 'iface_range', required: true, placeholder: 'ethernet1/1/25-1/1/26', hint: 'Aralık veya virgülle liste' }
                     ]
                 }
             ],
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
-            const domainId = cgEsc(data.domain_id || ''), vltRole = cgEsc(data.vlt_role || 'primary');
-            const backupDest = cgEsc(data.backup_dest || '');
-            const iclIfaces = (data.icl_ifaces || '').split(',').map(s => cgEsc(s.trim())).filter(Boolean);
-            const iclPc = cgEsc(data.icl_pc || '');
-            let c = '# ========================================\n# Dell OS10 — VLT / MLAG (' + vltRole.toUpperCase() + ')\n# ========================================\n\n';
-            iclIfaces.forEach(i => {
-                c += 'interface ' + i + '\n';
-                c += ' channel-group ' + iclPc + ' mode active\n!\n';
-            });
-            c += '\ninterface port-channel' + iclPc + '\n no switchport\n!\n\n';
-            c += 'vlt domain ' + domainId + '\n';
+            const domainId = cgEsc(data.domain_id || ''), backupDest = cgEsc(data.backup_dest || '');
+            const prio = cgEsc(data.primary_priority || '');
+            const vlti = cgEsc(data.vlti_ifaces || '').split(/[,\s]+/).filter(Boolean).join(',');
+            let c = '# ========================================\n# Dell OS10 — VLT / MLAG\n# ========================================\n\n';
+            c += 'vlt-domain ' + domainId + '\n';
             c += ' backup destination ' + backupDest + '\n';
-            c += ' discovery-interface port-channel' + iclPc + '\n';
-            if (vltRole === 'primary') c += ' primary-priority 1\n';
-            c += '!\n\n# Doğrulama:\n# show vlt ' + domainId + '\n# show vlt backup-link\n';
+            c += ' discovery-interface ' + vlti + '\n';
+            if (prio) c += ' primary-priority ' + prio + '\n';
+            if (data.peer_routing) c += ' peer-routing\n';
+            c += '!\n\n# Doğrulama:\n# show vlt ' + domainId + '\n# show vlt ' + domainId + ' backup-link\n';
             return c;
         });
     }
