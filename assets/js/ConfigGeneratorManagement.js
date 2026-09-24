@@ -371,11 +371,19 @@ function cgFormBuilder(container, schema, generateFn) {
         const data = {};
         new FormData(form).forEach((v, k) => { data[k] = v; });
         form.querySelectorAll('input[type="checkbox"]').forEach(cb => { data[cb.name] = cb.checked; });
-        // Canlı önizlemede boş alanlar yerine placeholder kullan.
-        // Böylece çıktı her zaman çalışır bir örnek olur ('set ip' yerine 'set ip 203.0.113.1').
+        // Canlı önizlemede bos ZORUNLU alanlar yerine placeholder kullanilir;
+        // boylece cikti tip secilir secilmez calisir bir ornek olur.
+        //
+        // OPSIYONEL alanlara DOKUNULMAZ. Eskiden bos olan her alana placeholder
+        // yaziliyordu; bu, kullanicinin hic doldurmadigi opsiyonel alanlari
+        // "dolu" gosterip ilgili satiri config'e sokuyordu. Ornek: Native VLAN
+        // bos birakildiginda bile 'switchport trunk native vlan 1' uretiliyordu.
+        // Generator'lar zaten bos degeri atliyor (if (nativeVlan) ...), sorun
+        // degerin burada uydurulmasiydi.
         if (usePlaceholders) {
             form.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(el => {
                 if (el.disabled || el.type === 'checkbox' || el.type === 'radio') return;
+                if (!el.required) return;          // opsiyonel alan bos kalir
                 if (!String(data[el.name] || '').trim() && el.placeholder) data[el.name] = el.placeholder;
             });
         }
@@ -398,6 +406,9 @@ function cgFormBuilder(container, schema, generateFn) {
         // Doldurulmamış zorunlu alanları say -> kullanıcıya "örnek değer" uyarısı
         const empties = [];
         formEl.querySelectorAll('input[placeholder]:not([type=checkbox]):not([type=radio]), textarea[placeholder]').forEach(el => {
+            // Yalnizca ZORUNLU alanlar icin ornek deger kullanildigindan, uyari da
+            // yalnizca onlari listeler. Opsiyonel bos alan bir eksiklik degildir.
+            if (!el.required) return;
             if (!el.disabled && !String(el.value || '').trim()) {
                 // Etiket metnini okurken isaretleyicileri (zorunlu yildizi, 'Opsiyonel'
                 // etiketi, ipucu ikonu) DISLA — aksi halde uyari metni
