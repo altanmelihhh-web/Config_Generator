@@ -1028,7 +1028,7 @@ CitrixADC.acl = {
                     icon: 'fas fa-arrow-right',
                     fields: [
                         { name: 'src_ip', why: "Kaynak IP <code>0.0.0.0</code> verilirse kural tüm kaynakları kapsar; bu bir DENY kuralında cihazı erişilemez hale getirebilir. Kural yazmadan önce mevcut yönetim oturumunun hangi kaynaktan geldiği mutlaka kontrol edilmelidir.", label: 'Kaynak IP', type: 'text', validate: 'ip', required: true, placeholder: '0.0.0.0', hint: 'Eşleşecek kaynak IP (0.0.0.0 = tümü)' },
-                        { name: 'src_mask', why: "Maske kuralın kaç adresi kapsadığını belirler; yanlış maske beklenenden çok daha geniş bir aralığı kapsar ve istenmeyen trafiği sessizce engeller.", label: 'Kaynak Mask', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Wildcard mask formatı' }
+                        { name: 'src_mask', why: "Maske kuralın kaç adresi kapsadığını belirler; yanlış maske beklenenden çok daha geniş bir aralığı kapsar ve istenmeyen trafiği sessizce engeller.", label: 'Kaynak Mask', type: 'text', validate: 'subnet', required: true, placeholder: '0.0.0.0', hint: 'Wildcard mask formatı' }
                     ]
                 },
                 {
@@ -1037,7 +1037,7 @@ CitrixADC.acl = {
                     info: 'Hedef IP ve port bilgileri opsiyoneldir. Boş bırakılırsa tüm hedeflere uygulanır.',
                     fields: [
                         { name: 'dst_ip', why: "Hedef IP boş bırakılırsa kural tüm hedefleri kapsar; VIP'ler ve NSIP de dahil olur. Belirli bir servisi korumak isterken tüm cihazı kilitlememek için hedef daraltılmalıdır.", label: 'Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.0' },
-                        { name: 'dst_mask', why: "Hedef maske kuralın kapsamını belirler; <code>255.255.0.0</code> gibi geniş bir maske komşu sistemleri de kapsayıp beklenmedik kesintiler yaratır.", label: 'Hedef Mask', type: 'text', optional: true, placeholder: '255.255.0.0' },
+                        { name: 'dst_mask', why: "Hedef maske kuralın kapsamını belirler; <code>255.255.0.0</code> gibi geniş bir maske komşu sistemleri de kapsayıp beklenmedik kesintiler yaratır.", label: 'Hedef Mask', type: 'text', validate: 'subnet', optional: true, placeholder: '255.255.0.0' },
                         { name: 'protocol', why: "Protokol seçilmezse kural TCP, UDP ve ICMP dahil her şeye uygulanır. ICMP'yi kapatmak sorun gidermeyi ve path MTU keşfini bozar, bu da büyük paketlerde açıklanamayan takılmalara yol açar.", label: 'Protokol', type: 'select', options: [
                             { value: 'TCP', label: 'TCP', selected: true },
                             { value: 'UDP', label: 'UDP' },

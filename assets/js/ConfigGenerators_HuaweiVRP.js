@@ -34,8 +34,8 @@ HuaweiVRP.basic = {
                     title: 'Arayüzler',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "Bu arayüz <code>port link-type access</code> + <code>port default vlan</code> ile yapılandırılır. Arayüz daha önce trunk yapıldıysa link-type değişimi izinli VLAN listesini sıfırlar; uplink portunu buraya yazarsanız o anda tüm ağ bağlantısını keserseniz.", label: 'LAN Arayüzü', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Access port olarak yapılandırılır' },
-                        { name: 'wan_iface', why: "WAN portu L3 IP alabilmesi için switch üzerinde <code>undo portswitch</code> ile routed moda alınmış olmalı, aksi halde <code>ip address</code> komutu kabul edilmez. VRP arayüzleri varsayılan olarak açık gelir ama <code>undo shutdown</code> yoksa manuel kapatılmış bir portta link asla kalkmaz.", label: 'WAN Arayüzü', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'IP adresi doğrudan atanır, undo shutdown yapılır' }
+                        { name: 'iface', why: "Bu arayüz <code>port link-type access</code> + <code>port default vlan</code> ile yapılandırılır. Arayüz daha önce trunk yapıldıysa link-type değişimi izinli VLAN listesini sıfırlar; uplink portunu buraya yazarsanız o anda tüm ağ bağlantısını keserseniz.", label: 'LAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Access port olarak yapılandırılır' },
+                        { name: 'wan_iface', why: "WAN portu L3 IP alabilmesi için switch üzerinde <code>undo portswitch</code> ile routed moda alınmış olmalı, aksi halde <code>ip address</code> komutu kabul edilmez. VRP arayüzleri varsayılan olarak açık gelir ama <code>undo shutdown</code> yoksa manuel kapatılmış bir portta link asla kalkmaz.", label: 'WAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'IP adresi doğrudan atanır, undo shutdown yapılır' }
                     ]
                 }
             ],
@@ -76,7 +76,7 @@ HuaweiVRP.vlan = {
                     icon: 'fas fa-server',
                     fields: [
                         { name: 'sw_name', why: "Üretilen konfigdeki komut istemi öneki bu isimden türetilir; cihazdaki gerçek sysname ile uyuşmazsa blok halinde yapıştırırken satırların hangi moda ait olduğunu takip edemez, yanlış görünüm altında komut çalıştırırsınız.", label: 'Switch Adı', type: 'text', required: true, placeholder: 'SW1', hint: 'Cihazın sysname değeri' },
-                        { name: 'iface', why: "Port tipi (<b>access / trunk / hybrid</b>) bu arayüzde değişir. Huaweide hybrid varsayılan tiptir ve Ciscodan gelenler bunu trunk sanıp <code>port trunk allow-pass</code> yazar; komut hybrid portta reddedilir ve VLAN geçişi hiç kurulmaz.", label: 'Arayüz', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Port tipi uygulanacak arayüz' }
+                        { name: 'iface', why: "Port tipi (<b>access / trunk / hybrid</b>) bu arayüzde değişir. Huaweide hybrid varsayılan tiptir ve Ciscodan gelenler bunu trunk sanıp <code>port trunk allow-pass</code> yazar; komut hybrid portta reddedilir ve VLAN geçişi hiç kurulmaz.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Port tipi uygulanacak arayüz' }
                     ]
                 },
                 {
@@ -87,7 +87,7 @@ HuaweiVRP.vlan = {
                         { name: 'vlan_id', why: "VLAN cihazda <code>vlan X</code> ile yaratılmadan porta atanamaz. Access portta bu numara <code>port default vlan</code> olur; karşı uçtaki PVID farklıysa trafik yanlış broadcast domainine düşer ve sorun ping değil sadece DHCP/ARP seviyesinde görünür.", label: 'VLAN ID (tekli)', type: 'text', validate: 'vlan', optional: true, placeholder: '10', hint: 'Porta atanacak tekil VLAN numarası' },
                         { name: 'vlan_desc', why: "Açıklama boşluk içeremez ve <code>display vlan</code> çıktısında tek tanımlayıcıdır. Numaradan ibaret VLANlar zamanla kimin olduğu bilinmeyen kalıntılara dönüşür ve temizlik sırasında yanlış VLAN silinir.", label: 'VLAN Açıklaması', type: 'text', optional: true, placeholder: 'BT_Personel', hint: 'VLAN description etiketi' },
                         { name: 'vlan_batch_list', why: "<code>vlan batch</code> yalnızca VLANları oluşturur; trunk üzerinde <code>port trunk allow-pass vlan</code> ile ayrıca izin verilmezse bu VLANlarda tag işaretli trafik sessizce düşer. Toplu oluşturma yanlış aralıkla yazılırsa yüzlerce gereksiz VLAN açılır ve MSTP instance eşlemesi bozulur.", label: 'VLAN Batch Liste', type: 'text', optional: true, placeholder: '5 8 17', hint: 'Boşlukla ayrılmış birden fazla VLAN ID' },
-                        { name: 'vlan_batch_range', why: "Aralık sözdizimi <code>20 to 30</code> şeklindedir; tire (<code>20-30</code>) yazarsanız komut hata verir. Çok geniş aralık açmak STP hesaplama yükünü ve broadcast alanını gereksiz büyütür.", label: 'VLAN Batch Aralık', type: 'text', optional: true, placeholder: '20 to 30', hint: 'Aralık formatında VLAN oluşturma (örn: 20 to 30)' }
+                        { name: 'vlan_batch_range', why: "Aralık sözdizimi <code>20 to 30</code> şeklindedir; tire (<code>20-30</code>) yazarsanız komut hata verir. Çok geniş aralık açmak STP hesaplama yükünü ve broadcast alanını gereksiz büyütür.", label: 'VLAN Batch Aralık', type: 'text', validate: 'iface_range', optional: true, placeholder: '20 to 30', hint: 'Aralık formatında VLAN oluşturma (örn: 20 to 30)' }
                     ]
                 },
                 {
@@ -95,7 +95,7 @@ HuaweiVRP.vlan = {
                     icon: 'fas fa-stream',
                     showFor: ['trunk'],
                     fields: [
-                        { name: 'trunk_vlans', why: "Trunk portta izin verilmeyen VLAN trafiği hata vermeden düşer; en sık arıza budur. İki ucun izin listesi simetrik olmalı ve PVID VLAN (<code>port trunk pvid vlan</code>) da listeye dahil edilmelidir, aksi halde etiketsiz yönetim trafiği kaybolur.", label: 'İzin Verilen VLAN\'lar', type: 'text', optional: true, placeholder: '10 20 30', hint: 'Boşlukla ayrılmış VLAN listesi' },
+                        { name: 'trunk_vlans', why: "Trunk portta izin verilmeyen VLAN trafiği hata vermeden düşer; en sık arıza budur. İki ucun izin listesi simetrik olmalı ve PVID VLAN (<code>port trunk pvid vlan</code>) da listeye dahil edilmelidir, aksi halde etiketsiz yönetim trafiği kaybolur.", label: 'İzin Verilen VLAN\'lar', type: 'text', validate: 'vlan_list', optional: true, placeholder: '10 20 30', hint: 'Boşlukla ayrılmış VLAN listesi' },
                         { name: 'trunk_all', why: "<code>allow-pass vlan all</code> tüm VLANları açar; kolay çözüm gibi görünse de yayın alanını ve MAC tablosunu şişirir, komşu switchten gelen istenmeyen VLANları da içeri alır. Üretim ortamında açıkça listelemek güvenlidir.", label: 'Tüm VLAN\'lara izin ver', type: 'checkbox', checked: false }
                     ]
                 }
@@ -163,7 +163,7 @@ HuaweiVRP.dhcp = {
                     icon: 'fas fa-ethernet',
                     showFor: ['server'],
                     fields: [
-                        { name: 'srv_iface', why: "Bu arayüzde <code>dhcp select interface</code> aktif edilir. Global <code>dhcp enable</code> yapılmadan hiçbir DHCP komutu kabul edilmez; ayrıca aynı arayüzde hem interface hem global pool seçilemez, ikisi birbirini dışlar.", label: 'Arayüz', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'DHCP sunucu olarak yapılandırılacak arayüz' },
+                        { name: 'srv_iface', why: "Bu arayüzde <code>dhcp select interface</code> aktif edilir. Global <code>dhcp enable</code> yapılmadan hiçbir DHCP komutu kabul edilmez; ayrıca aynı arayüzde hem interface hem global pool seçilemez, ikisi birbirini dışlar.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'DHCP sunucu olarak yapılandırılacak arayüz' },
                         { name: 'srv_ip', why: "İstemciler adreslerini bu arayüz IP adresinin bulunduğu subnetten alır; yanlış subnet verirseniz havuz hiç oluşmaz veya istemciler erişemeyecekleri bir gateway alır. Bu IP aynı zamanda istemcilerin varsayılan ağ geçididir.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'Arayüze atanacak IP' },
                         { name: 'srv_prefix', why: "Prefix uzunluğu doğrudan dağıtılacak adres havuzunun boyutunu belirler; dar verirseniz istemciler adres bulamaz, geniş verirseniz komşu subnetle çakışır ve çift IP çatışmaları başlar.", label: 'Prefix (CIDR)', type: 'text', required: true, placeholder: '24', hint: 'Subnet prefix uzunluğu (örn: 24)' }
                     ]
@@ -176,7 +176,7 @@ HuaweiVRP.dhcp = {
                         { name: 'pool_name', why: "Global havuz adı <code>dhcp select global</code> yapan arayüzlerle network eşleşmesi üzerinden bağlanır, isimle değil. Havuzun <code>network</code> satırı arayüz subneti ile örtüşmezse istemciye hiç yanıt gitmez ve istemci APIPA adresine düşer.", label: 'Havuz Adı', type: 'text', required: true, placeholder: 'LAN1', hint: 'DHCP pool ismi' },
                         { name: 'pool_gw', why: "Gateway istemciye verilir ama cihazın gerçekten o IP ile ulaşılabilir olması gerekir. Yanlış gateway verildiğinde istemci IP alır, ping ile yerel ağı görür ama internete hiç çıkamaz; arıza DHCP değil yönlendirme sorunu gibi görünür.", label: 'Gateway (gateway-list)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.2.1', hint: 'DHCP istemcilerine verilecek default gateway' },
                         { name: 'pool_dns', why: "DNS yanlış veya erişilemezse istemci IP alır ve ping IP adresleriyle çalışır, fakat kullanıcı için ağ tamamen bozuk görünür. Yedek DNS de tanımlamak tek sunucu arızasında tüm siteyi durdurmayı engeller.", label: 'DNS Sunucusu', type: 'text', validate: 'ip', optional: true, placeholder: '8.8.8.8', hint: 'DHCP ile dağıtılacak DNS IP' },
-                        { name: 'gbl_iface', why: "Bu arayüzde <code>dhcp select global</code> kullanılır; arayüz IP adresi hangi global havuzun <code>network</code> tanımına düşüyorsa o havuz seçilir. Eşleşen havuz yoksa istemciye yanıt verilmez ve hata mesajı üretilmez.", label: 'Arayüz', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'dhcp select global uygulanacak arayüz' },
+                        { name: 'gbl_iface', why: "Bu arayüzde <code>dhcp select global</code> kullanılır; arayüz IP adresi hangi global havuzun <code>network</code> tanımına düşüyorsa o havuz seçilir. Eşleşen havuz yoksa istemciye yanıt verilmez ve hata mesajı üretilmez.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'dhcp select global uygulanacak arayüz' },
                         { name: 'gbl_ip', why: "Arayüz IP adresi havuz seçimini belirleyen anahtardır; havuz network satırı ile aynı subnette olmalıdır. Aksi halde DHCP mekanizması aktif görünür ama hiçbir istemci adres alamaz.", label: 'Arayüz IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.2.1', hint: 'Arayüze atanacak IP adresi' },
                         { name: 'gbl_prefix', why: "Prefix, arayüzün hangi havuza eşleneceğini belirler. Havuzdaki maske ile arayüzdeki maske farklıysa eşleşme kurulmaz; VRP bunu uyarı vermeden geçer.", label: 'Prefix (CIDR)', type: 'text', required: true, placeholder: '24', hint: 'Subnet prefix uzunluğu' }
                     ]
@@ -186,7 +186,7 @@ HuaweiVRP.dhcp = {
                     icon: 'fas fa-arrows-alt-h',
                     showFor: ['relay'],
                     fields: [
-                        { name: 'relay_iface', why: "Relay arayüzünde <code>dhcp select relay</code> aktif edilir. Aynı arayüzde relay ile server modu birlikte olamaz; yanlışlıkla ikisi denenirse ikinci komut reddedilir veya mevcut yapı sessizce devre dışı kalır.", label: 'Arayüz', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/2', hint: 'Relay agent olacak arayüz' },
+                        { name: 'relay_iface', why: "Relay arayüzünde <code>dhcp select relay</code> aktif edilir. Aynı arayüzde relay ile server modu birlikte olamaz; yanlışlıkla ikisi denenirse ikinci komut reddedilir veya mevcut yapı sessizce devre dışı kalır.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/2', hint: 'Relay agent olacak arayüz' },
                         { name: 'relay_ip', why: "Bu IP relay edilen isteklerin <b>giaddr</b> alanına yazılır ve DHCP sunucusu hangi havuzdan adres vereceğine buna bakarak karar verir. Yanlış IP verirseniz sunucu yanlış subnetten adres dağıtır veya hiç yanıt vermez.", label: 'Relay Interface IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.3.1', hint: 'Relay arayüzüne atanacak IP' },
                         { name: 'relay_servers', why: "Sunucu listesindeki adreslere cihazdan yönlendirilebilir bir yol olmalı ve dönüş trafiği için sunucu tarafında relay subnetine rota bulunmalıdır. Sunucuya giden yol tek yönlüyse istemci DISCOVER gönderir, OFFER asla geri dönmez.", label: 'DHCP Sunucu IP(leri)', type: 'text', required: true, placeholder: '10.10.10.1', hint: 'Virgülle ayrılmış DHCP sunucu IP listesi' }
                     ]
@@ -278,7 +278,7 @@ HuaweiVRP.snmp = {
                     icon: 'fas fa-bell',
                     fields: [
                         { name: 'trap_host', why: "Trap hedefi yanlışsa cihaz arıza anında sessiz kalır ve kimse haberdar olmaz. Hedefe giden yol ve arada duran güvenlik duvarındaki UDP 162 izni de doğrulanmalıdır.", label: 'Trap Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.10', hint: 'SNMP trap gönderilecek NMS IP adresi' },
-                        { name: 'trap_iface', why: "Kaynak arayüz sabitlenmezse trap paketleri çıkış arayüzünün değişen IP adresiyle gider ve NMS bunları tanımadığı kaynaktan geldiği için yok sayar. Genellikle Loopback seçilir ki link değişimlerinden etkilenmesin.", label: 'Trap Kaynak Arayüz', type: 'text', optional: true, placeholder: 'LoopBack0', hint: 'Trap paketlerinin kaynak arayüzü' }
+                        { name: 'trap_iface', why: "Kaynak arayüz sabitlenmezse trap paketleri çıkış arayüzünün değişen IP adresiyle gider ve NMS bunları tanımadığı kaynaktan geldiği için yok sayar. Genellikle Loopback seçilir ki link değişimlerinden etkilenmesin.", label: 'Trap Kaynak Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'LoopBack0', hint: 'Trap paketlerinin kaynak arayüzü' }
                     ]
                 },
                 {
@@ -345,8 +345,8 @@ HuaweiVRP.nat = {
                     title: 'Arayüzler',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'in_iface', why: "Bu arayüze <code>nat inside</code> mantığı uygulanır; iç arayüz yanlış seçilirse NAT hiç tetiklenmez ve paketler özel IP ile WAN tarafına çıkıp ISP tarafında düşer. Arıza internet kesintisi gibi görünür ama sebep yön tanımıdır.", label: 'Inside Arayüzü', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'İç ağa bağlı arayüz (nat inside)' },
-                        { name: 'out_iface', why: "NAT dönüşümü çıkış arayüzünde yapılır; <code>nat server</code> veya <code>nat outbound</code> yanlış arayüze bağlanırsa kurallar hiç devreye girmez. Yedek WAN varsa her iki arayüzde de ayrı tanım gerekir.", label: 'Outside Arayüzü', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'WAN/İnternet arayüzü (nat outside)' },
+                        { name: 'in_iface', why: "Bu arayüze <code>nat inside</code> mantığı uygulanır; iç arayüz yanlış seçilirse NAT hiç tetiklenmez ve paketler özel IP ile WAN tarafına çıkıp ISP tarafında düşer. Arıza internet kesintisi gibi görünür ama sebep yön tanımıdır.", label: 'Inside Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'İç ağa bağlı arayüz (nat inside)' },
+                        { name: 'out_iface', why: "NAT dönüşümü çıkış arayüzünde yapılır; <code>nat server</code> veya <code>nat outbound</code> yanlış arayüze bağlanırsa kurallar hiç devreye girmez. Yedek WAN varsa her iki arayüzde de ayrı tanım gerekir.", label: 'Outside Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'WAN/İnternet arayüzü (nat outside)' },
                         { name: 'out_ip', why: "Port yönlendirmede dış dünyanın bağlandığı adres budur; ISP tarafından size atanmamış bir IP yazarsanız trafik cihaza hiç ulaşmaz. Dinamik WAN IP kullanılıyorsa sabit IP yerine arayüz temelli NAT gerekir.", label: 'Dış IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Outside arayüze atanacak public IP' }
                     ]
                 },
@@ -529,7 +529,7 @@ HuaweiVRP.acl = {
                     title: 'Zaman Kısıtlaması',
                     icon: 'fas fa-clock',
                     fields: [
-                        { name: 'time_range', why: "Time-range önce <code>time-range</code> komutuyla tanımlanmalı, yoksa kural referans verilen zaman dilimi olmadığı için hiç etkin olmaz. Ayrıca cihaz saati NTP ile doğru değilse kural yanlış saatlerde devreye girer.", label: 'Time Range', type: 'text', optional: true, placeholder: 't1', hint: 'Önceden tanımlanmış time-range adı' }
+                        { name: 'time_range', why: "Time-range önce <code>time-range</code> komutuyla tanımlanmalı, yoksa kural referans verilen zaman dilimi olmadığı için hiç etkin olmaz. Ayrıca cihaz saati NTP ile doğru değilse kural yanlış saatlerde devreye girer.", label: 'Time Range', type: 'text', validate: 'iface_range', optional: true, placeholder: 't1', hint: 'Önceden tanımlanmış time-range adı' }
                     ]
                 }
             ],
@@ -578,7 +578,7 @@ HuaweiVRP.security = {
                     icon: 'fas fa-lock',
                     fields: [
                         { name: 'ps_enable', why: "Port security MAC öğrenmeyi kilitler; yanlış uygulanırsa cihaz taşındığında veya kullanıcı değiştiğinde port kendini kapatır ve saha müdahalesi gerekir. Uplink ve sunucu portlarında asla açılmamalıdır.", label: 'Port Security Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'ps_iface', why: "Yalnızca son kullanıcı erişim portlarında anlamlıdır. Uplink veya trunk portunda açarsanız komşu switchten gelen yüzlerce MAC limiti anında aşar ve tüm ağ segmentini düşürürsünüz.", label: 'Arayüz', type: 'text', optional: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Port security uygulanacak arayüz' },
+                        { name: 'ps_iface', why: "Yalnızca son kullanıcı erişim portlarında anlamlıdır. Uplink veya trunk portunda açarsanız komşu switchten gelen yüzlerce MAC limiti anında aşar ve tüm ağ segmentini düşürürsünüz.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Port security uygulanacak arayüz' },
                         { name: 'ps_max_mac', why: "Limit çok dar ise IP telefon arkasındaki bilgisayar gibi meşru ikinci cihaz portu ihlale sokar; çok geniş ise koruma anlamını yitirir. Telefon + PC senaryosunda en az 2 gerekir.", label: 'Maks. MAC Sayısı', type: 'text', optional: true, placeholder: '2', hint: 'İzin verilen maksimum MAC adresi sayısı' },
                         { name: 'ps_violation', why: "<code>shutdown</code> modu portu err-down durumuna alır ve manuel müdahale olmadan geri gelmez; <code>protect</code> sessizce düşürür ve kimse fark etmez, <code>restrict</code> ise log üretir. Seçim doğrudan arıza süresini belirler.", label: 'İhlal Modu', type: 'select', options: [
                             { value: '', label: 'Seçin', selected: true },
@@ -594,7 +594,7 @@ HuaweiVRP.security = {
                     icon: 'fas fa-search',
                     fields: [
                         { name: 'ds_enable', why: "DHCP snooping globalde açılmadan arayüz veya VLAN seviyesindeki komutlar etkisizdir. Ayrıca snooping açıldığında tüm portlar varsayılan olarak untrusted olur; gerçek DHCP sunucusuna giden portu trusted yapmazsanız ağdaki herkes adres almayı bırakır.", label: 'DHCP Snooping Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'ds_iface', why: "Bu arayüz meşru DHCP sunucusunun bulunduğu yön ise trusted olmalıdır. Yanlış yönü trusted yapmak sahte DHCP sunucusuna kapı açar; doğru yönü unutmak ise tüm istemcileri adressiz bırakır.", label: 'Arayüz', type: 'text', optional: true, placeholder: 'GigabitEthernet0/0/2', hint: 'DHCP snooping uygulanacak arayüz' },
+                        { name: 'ds_iface', why: "Bu arayüz meşru DHCP sunucusunun bulunduğu yön ise trusted olmalıdır. Yanlış yönü trusted yapmak sahte DHCP sunucusuna kapı açar; doğru yönü unutmak ise tüm istemcileri adressiz bırakır.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/2', hint: 'DHCP snooping uygulanacak arayüz' },
                         { name: 'ds_vlan', why: "Snooping VLAN bazında çalışır; sadece bir VLANda açmak diğer VLANlardaki sahte DHCP sunucularını engellemez. Ayrıca DAI ve IP Source Guard bu VLANdaki snooping binding tablosuna dayanır.", label: 'VLAN', type: 'text', optional: true, placeholder: '10', hint: 'DHCP snooping VLAN numarası' }
                     ]
                 },
@@ -603,7 +603,7 @@ HuaweiVRP.security = {
                     icon: 'fas fa-exclamation-triangle',
                     fields: [
                         { name: 'dai_enable', why: "DAI, DHCP snooping binding tablosu olmadan çalışamaz; snooping kapalıyken açarsanız tablo boş olur ve tüm ARP paketleri düşürülerek ağ tamamen durur. Sabit IPli sunucular için statik binding gerekir.", label: 'DAI Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'dai_iface', why: "ARP anti-attack erişim portlarında uygulanır. Sunucu veya uplink portunda binding kaydı bulunmadığından meşru ARP trafiği de düşürülür ve kesinti kaynağı olarak ilk akla DAI gelmez.", label: 'Arayüz', type: 'text', optional: true, placeholder: 'GigabitEthernet0/0/3', hint: 'ARP anti-attack uygulanacak arayüz' }
+                        { name: 'dai_iface', why: "ARP anti-attack erişim portlarında uygulanır. Sunucu veya uplink portunda binding kaydı bulunmadığından meşru ARP trafiği de düşürülür ve kesinti kaynağı olarak ilk akla DAI gelmez.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/3', hint: 'ARP anti-attack uygulanacak arayüz' }
                     ]
                 },
                 {
@@ -611,7 +611,7 @@ HuaweiVRP.security = {
                     icon: 'fas fa-fingerprint',
                     fields: [
                         { name: 'isg_enable', why: "IP Source Guard paketin kaynak IP ve MAC ikilisini binding tablosuyla karşılaştırır. Statik IP kullanan yazıcı veya sunucular için elle binding girilmezse bu cihazlar ağdan tamamen kopar.", label: 'IP Source Guard Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'isg_iface', why: "Yalnızca DHCP ile adres alan istemci portlarında güvenlidir. Sabit IP atanmış cihazların bulunduğu portta açmak, o cihazların trafiğini sessizce düşürür ve arıza fiziksel katman sorunu gibi görünür.", label: 'Arayüz', type: 'text', optional: true, placeholder: 'GigabitEthernet0/0/4', hint: 'IP source guard uygulanacak arayüz' }
+                        { name: 'isg_iface', why: "Yalnızca DHCP ile adres alan istemci portlarında güvenlidir. Sabit IP atanmış cihazların bulunduğu portta açmak, o cihazların trafiğini sessizce düşürür ve arıza fiziksel katman sorunu gibi görünür.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/4', hint: 'IP source guard uygulanacak arayüz' }
                     ]
                 },
                 {
@@ -619,7 +619,7 @@ HuaweiVRP.security = {
                     icon: 'fas fa-ban',
                     fields: [
                         { name: 'bpdu_enable', why: "BPDU protection, edge port olarak işaretlenmiş bir porta BPDU geldiğinde portu kapatır ve yanlışlıkla takılan switchin STP topolojisini bozmasını engeller. Edge port işaretlemesi olmadan bu koruma devreye girmez.", label: 'BPDU Guard Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'bpdu_iface', why: "Bu port <code>stp edged-port enable</code> ile işaretlenmiş olmalıdır. Uplink veya switche giden portta BPDU protection açmak, meşru BPDU geldiği anda portu err-down yaparak yedek yolu koparır.", label: 'Arayüz', type: 'text', optional: true, placeholder: 'GigabitEthernet0/0/5', hint: 'BPDU protection uygulanacak arayüz' }
+                        { name: 'bpdu_iface', why: "Bu port <code>stp edged-port enable</code> ile işaretlenmiş olmalıdır. Uplink veya switche giden portta BPDU protection açmak, meşru BPDU geldiği anda portu err-down yaparak yedek yolu koparır.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/5', hint: 'BPDU protection uygulanacak arayüz' }
                     ]
                 }
             ],
@@ -828,8 +828,8 @@ HuaweiVRP.l3vpn = {
                     title: 'CE Arayüzü ve BGP',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'ce_iface', why: "Arayüzü VPN instancea bağlamak üzerindeki IP adresini siler; bu yüzden önce binding yapıp sonra IP vermek gerekir. Sırayı ters yaparsanız uzaktan bağlıysanız oturumunuz da o anda kopar.", label: 'CE Interface', type: 'text', required: true, placeholder: 'GE0/1/0', hint: 'CE cihazına bağlanan PE arayüzü' },
-                        { name: 'ce_ip', why: "Bu IP artık global tabloda değil VRF tablosundadır; <code>ping</code> ve <code>display ip routing-table</code> komutlarını <code>vpn-instance</code> parametresiyle çalıştırmazsanız adres yokmuş gibi görünür ve boşuna arıza aranır.", label: 'CE Interface IP', type: 'text', required: true, placeholder: '10.1.1.1 255.255.255.252', hint: 'CE arayüzüne atanacak IP ve netmask' },
+                        { name: 'ce_iface', why: "Arayüzü VPN instancea bağlamak üzerindeki IP adresini siler; bu yüzden önce binding yapıp sonra IP vermek gerekir. Sırayı ters yaparsanız uzaktan bağlıysanız oturumunuz da o anda kopar.", label: 'CE Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GE0/1/0', hint: 'CE cihazına bağlanan PE arayüzü' },
+                        { name: 'ce_ip', why: "Bu IP artık global tabloda değil VRF tablosundadır; <code>ping</code> ve <code>display ip routing-table</code> komutlarını <code>vpn-instance</code> parametresiyle çalıştırmazsanız adres yokmuş gibi görünür ve boşuna arıza aranır.", label: 'CE Interface IP', type: 'text', validate: 'ip', required: true, placeholder: '10.1.1.1 255.255.255.252', hint: 'CE arayüzüne atanacak IP ve netmask' },
                         { name: 'bgp_as', why: "PE-CE arasında BGP kullanılıyorsa AS numarası <code>ipv4-family vpn-instance</code> altında doğru tanımlanmalıdır. Aynı AS numarası birden fazla şubede kullanılıyorsa AS-path döngü koruması rotaları düşürür ve <code>as-path-loop</code> ayarı gerekir.", label: 'PE BGP AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Provider Edge BGP AS numarası' }
                     ]
                 }
@@ -916,7 +916,7 @@ HuaweiVRP.ospf = {
                     icon: 'fas fa-network-wired',
                     fields: [
                         { name: 'networks', why: "Huaweide network satırı <code>area</code> altında ve <b>wildcard maske</b> ile yazılır (<code>0.0.0.255</code>). Subnet maskesi yazmak beklenmedik arayüzlerin sürece dahil olmasına veya hiçbirinin dahil olmamasına neden olur.", label: 'Network(ler)', type: 'text', required: true, placeholder: '192.168.1.0/24,10.0.0.0/30', hint: 'Virgülle ayrılmış CIDR formatında networkler' },
-                        { name: 'passive_intfs', why: "Huaweide karşılığı <code>silent-interface</code> komutudur. Kullanıcı VLANlarında bunu uygulamamak, ağa takılan sahte bir routerla komşuluk kurulmasına açık kapı bırakır; uplink arayüzünde uygulamak ise komşuluğu koparır.", label: 'Passive Interface(ler)', type: 'text', optional: true, placeholder: 'GigabitEthernet0/0/2', hint: 'Virgülle ayrılmış silent-interface listesi' }
+                        { name: 'passive_intfs', why: "Huaweide karşılığı <code>silent-interface</code> komutudur. Kullanıcı VLANlarında bunu uygulamamak, ağa takılan sahte bir routerla komşuluk kurulmasına açık kapı bırakır; uplink arayüzünde uygulamak ise komşuluğu koparır.", label: 'Passive Interface(ler)', type: 'text', validate: 'iface_range', optional: true, placeholder: 'GigabitEthernet0/0/2', hint: 'Virgülle ayrılmış silent-interface listesi' }
                     ]
                 }
             ],
@@ -1038,7 +1038,7 @@ HuaweiVRP.mstp = {
                     icon: 'fas fa-map',
                     fields: [
                         { name: 'vlan_map', why: "VLAN-instance eşlemesi bölgedeki <b>tüm</b> switchlerde birebir aynı olmalıdır; region adı, revizyon numarası ve eşleme tablosundan biri bile farklıysa cihaz farklı bölge sayılır ve MSTP tek instancea düşerek yedek yolları bloklar.", label: 'VLAN Map', type: 'text', optional: true, placeholder: '1-100', hint: 'Instance\'a bağlanacak VLAN aralığı (örn: 1-100)' },
-                        { name: 'portfast_intfs', why: "<code>stp edged-port</code> yalnızca uç cihaz bağlı portlarda kullanılmalıdır; switche giden bir portta açmak geçici döngü ve yayın fırtınası riski yaratır. Birlikte BPDU protection açmak bu riski kontrol altına alır.", label: 'Edge Port Interface(ler)', type: 'text', optional: true, placeholder: 'GigabitEthernet0/0/5', hint: 'Virgülle ayrılmış stp edged-port uygulanacak arayüzler' }
+                        { name: 'portfast_intfs', why: "<code>stp edged-port</code> yalnızca uç cihaz bağlı portlarda kullanılmalıdır; switche giden bir portta açmak geçici döngü ve yayın fırtınası riski yaratır. Birlikte BPDU protection açmak bu riski kontrol altına alır.", label: 'Edge Port Interface(ler)', type: 'text', validate: 'iface_range', optional: true, placeholder: 'GigabitEthernet0/0/5', hint: 'Virgülle ayrılmış stp edged-port uygulanacak arayüzler' }
                     ]
                 }
             ],
@@ -1100,7 +1100,7 @@ HuaweiVRP.qos = {
                     icon: 'fas fa-file-alt',
                     fields: [
                         { name: 'policy_name', why: "Policy yalnızca bir arayüze <code>traffic-policy ... inbound|outbound</code> ile uygulandığında etkindir. Uygulanmamış bir policy konfigürasyonda görünür ama hiçbir şey yapmaz; bu QoS sorunlarının en sık sebebidir.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'POL-QOS', hint: 'QoS policy adı' },
-                        { name: 'apply_intf', why: "Yön kritiktir: darboğaz genelde çıkış (outbound) yönündedir, inbound uygulanan shaping beklenen etkiyi vermez. Ayrıca aynı arayüzde aynı yönde birden fazla policy uygulanamaz, ikincisi reddedilir.", label: 'Apply Interface', type: 'text', optional: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Policy uygulanacak çıkış arayüzü' }
+                        { name: 'apply_intf', why: "Yön kritiktir: darboğaz genelde çıkış (outbound) yönündedir, inbound uygulanan shaping beklenen etkiyi vermez. Ayrıca aynı arayüzde aynı yönde birden fazla policy uygulanamaz, ikincisi reddedilir.", label: 'Apply Interface', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Policy uygulanacak çıkış arayüzü' }
                     ]
                 }
             ],
@@ -1185,7 +1185,7 @@ HuaweiVRP.ntp = {
                     fields: [
                         { name: 'server_ip', why: "Cihaz saati yanlışsa loglar korelasyona uygun olmaz, sertifika doğrulaması ve time-range tabanlı ACL kuralları beklenmedik davranır. NTP sunucusuna UDP 123 trafiğinin güvenlik duvarından geçtiğini de doğrulayın.", label: 'NTP Server IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Birincil NTP sunucu IP adresi' },
                         { name: 'server_ip2', why: "Tek NTP kaynağı sessiz bir tek arıza noktasıdır; sunucu yanlış saat yayınlarsa tüm ağ onunla birlikte kayar. İkinci kaynak sapmayı fark etmeyi sağlar.", label: 'NTP Server 2', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.2', hint: 'Yedek NTP sunucu IP adresi' },
-                        { name: 'source_intf', why: "Kaynak arayüz sabitlenmezse NTP paketleri değişen arayüz IPsi ile gider ve sunucu tarafındaki ACLlere takılır. Loopback kullanmak link değişimlerinden bağımsız kalmayı sağlar.", label: 'Source Interface', type: 'text', optional: true, placeholder: 'GigabitEthernet0/0/0', hint: 'NTP paketlerinin kaynak arayüzü' }
+                        { name: 'source_intf', why: "Kaynak arayüz sabitlenmezse NTP paketleri değişen arayüz IPsi ile gider ve sunucu tarafındaki ACLlere takılır. Loopback kullanmak link değişimlerinden bağımsız kalmayı sağlar.", label: 'Source Interface', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/0/0', hint: 'NTP paketlerinin kaynak arayüzü' }
                     ]
                 },
                 {

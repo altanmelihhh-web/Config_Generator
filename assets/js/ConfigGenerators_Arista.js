@@ -25,7 +25,7 @@ Arista.general = {
                     fields: [
                         { name: 'vlan', why: "LAN SVI bu VLAN üzerinde kurulur; karşı uçtaki trunk'ın <code>switchport trunk allowed vlan</code> listesinde bu ID yoksa port <b>up</b> görünür ama tek bir paket bile geçmez.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'Yönetim veya birincil VLAN numarası' },
                         { name: 'wan_ip', why: "Bu adres alt cihazların gateway'i olur. Aynı adres başka bir cihazda da tanımlıysa duplicate address oluşur, ARP tablosu sürekli el değiştirir ve trafik aralıklarla kesilir.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'SVI veya WAN arayüzüne atanacak IP' },
-                        { name: 'subnet', why: "Maske karşı uçtakiyle <b>birebir</b> aynı olmalıdır; /24 yerine /25 gibi dar bir maske girilirse aynı fiziksel segmentteki bazı hostlar komşu değil uzak ağ sayılır ve erişilemez.", label: 'Subnet Mask', type: 'text', required: true, placeholder: '255.255.255.0', hint: 'Noktalı ondalık subnet mask' },
+                        { name: 'subnet', why: "Maske karşı uçtakiyle <b>birebir</b> aynı olmalıdır; /24 yerine /25 gibi dar bir maske girilirse aynı fiziksel segmentteki bazı hostlar komşu değil uzak ağ sayılır ve erişilemez.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Noktalı ondalık subnet mask' },
                         { name: 'gw', why: "Varsayılan rota (<code>ip route 0.0.0.0/0</code>) bu adrese kurulur. Gateway SVI ile aynı subnet içinde değilse EOS rotayı kabul etmez ve cihaz dışarı çıkamaz.", label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.254', hint: 'Varsayılan ağ geçidi IP adresi' }
                     ]
                 },
@@ -33,8 +33,8 @@ Arista.general = {
                     title: 'Arayüzler',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "Buradaki portlar access moda alınır. Yanlışlıkla uplink portu yazılırsa trunk access'e döner, VLAN'lar arası taşıma durur ve uzaktan yönetim bağlantısı anında kopar.", label: 'LAN Arayüzü (numara)', type: 'text', required: true, placeholder: '1', hint: 'Ethernet<N> — sadece numarayı girin, ör: 1' },
-                        { name: 'wan_iface', why: "Bu port <code>no switchport</code> ile L3 moda alınır; switchport olarak kalan bir arayüze IP atanamaz ve konfigürasyon sessizce etkisiz kalır.", label: 'WAN Arayüzü', type: 'text', required: true, placeholder: 'Ethernet5', hint: 'Tam arayüz adı, ör: Ethernet5' }
+                        { name: 'iface', why: "Buradaki portlar access moda alınır. Yanlışlıkla uplink portu yazılırsa trunk access'e döner, VLAN'lar arası taşıma durur ve uzaktan yönetim bağlantısı anında kopar.", label: 'LAN Arayüzü (numara)', type: 'text', validate: 'iface', required: true, placeholder: '1', hint: 'Ethernet<N> — sadece numarayı girin, ör: 1' },
+                        { name: 'wan_iface', why: "Bu port <code>no switchport</code> ile L3 moda alınır; switchport olarak kalan bir arayüze IP atanamaz ve konfigürasyon sessizce etkisiz kalır.", label: 'WAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'Ethernet5', hint: 'Tam arayüz adı, ör: Ethernet5' }
                     ]
                 }
             ],
@@ -85,8 +85,8 @@ Arista.vlan = {
                     icon: 'fas fa-ethernet',
                     info: 'Access ve trunk portlar isteğe bağlıdır. Boş bırakılırsa sadece VLAN tanımı oluşturulur.',
                     fields: [
-                        { name: 'access_intf', why: "Access port tek VLAN taşır ve gelen etiketli çerçeveleri düşürür. Telefon veya AP gibi etiketli trafik üreten cihazlar access porta bağlanırsa trafikleri sessizce yok edilir.", label: 'Access Port', type: 'text', optional: true, placeholder: 'Ethernet1', hint: 'VLAN\'a access modda bağlanacak port' },
-                        { name: 'trunk_intf', why: "Trunk'ta <code>switchport trunk allowed vlan</code> ile listeyi daraltmak şarttır; <b>all</b> bırakmak broadcast alanını tüm VLAN'lara yayar ve bir VLAN'daki fırtına bütün switch'i etkiler.", label: 'Trunk Port', type: 'text', optional: true, placeholder: 'Ethernet2', hint: 'VLAN\'ı trunk\'a ekleyecek port' }
+                        { name: 'access_intf', why: "Access port tek VLAN taşır ve gelen etiketli çerçeveleri düşürür. Telefon veya AP gibi etiketli trafik üreten cihazlar access porta bağlanırsa trafikleri sessizce yok edilir.", label: 'Access Port', type: 'text', validate: 'iface', optional: true, placeholder: 'Ethernet1', hint: 'VLAN\'a access modda bağlanacak port' },
+                        { name: 'trunk_intf', why: "Trunk'ta <code>switchport trunk allowed vlan</code> ile listeyi daraltmak şarttır; <b>all</b> bırakmak broadcast alanını tüm VLAN'lara yayar ve bir VLAN'daki fırtına bütün switch'i etkiler.", label: 'Trunk Port', type: 'text', validate: 'iface', optional: true, placeholder: 'Ethernet2', hint: 'VLAN\'ı trunk\'a ekleyecek port' }
                     ]
                 }
             ],
@@ -238,7 +238,7 @@ Arista.mlag = {
                         { name: 'local_vlan', why: "Peer-link üzerindeki bu VLAN yalnızca MLAG kontrol trafiği içindir ve <code>trunk group MLAGPEER</code> ile izole edilmelidir; veri VLAN'ıyla karıştırılırsa kontrol trafiği tıkanır ve MLAG sürekli flap eder.", label: 'Peer-Link VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '4094', hint: 'MLAG peer iletişimi için özel VLAN (genellikle 4094)' },
                         { name: 'local_ip', why: "Local IP, karşı peer'ın peer-address değeriyle çapraz eşleşmelidir. İki peer aynı adresi local olarak tanımlarsa MLAG <b>inactive</b> kalır ve tüm uplink'ler split-brain riskine girer.", label: 'Local IP / Prefix (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '10.255.255.1/30', hint: 'Bu switch\'in peer-link SVI IP adresi' },
                         { name: 'peer_ip', why: "Peer-address karşı cihazın local IP'si olmalı ve bu adresler peer-link VLAN'ı üzerinden birbirine ulaşmalıdır; yanlış adreste MLAG <code>connecting</code> aşamasında sonsuza kadar takılır.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.255.2', hint: 'Karşı switch\'in peer-link IP adresi' },
-                        { name: 'peer_link_po', why: "Peer-link <b>mutlaka bir Port-Channel</b> olmalıdır; tek fiziksel port verilirse EOS yapılandırmayı kabul etmez, ayrıca o tek link koptuğunda split-brain oluşup iki switch de aktif davranır.", label: 'Peer-Link Port-Channel', type: 'text', required: true, placeholder: 'Port-Channel100', hint: 'Peer-link olarak kullanılan Port-Channel arayüzü' },
+                        { name: 'peer_link_po', why: "Peer-link <b>mutlaka bir Port-Channel</b> olmalıdır; tek fiziksel port verilirse EOS yapılandırmayı kabul etmez, ayrıca o tek link koptuğunda split-brain oluşup iki switch de aktif davranır.", label: 'Peer-Link Port-Channel', type: 'text', validate: 'ip', required: true, placeholder: 'Port-Channel100', hint: 'Peer-link olarak kullanılan Port-Channel arayüzü' },
                         { name: 'reload_delay', why: "Reboot sonrası switch'in MLAG yakınsamasını beklemeden portları açmasını engeller. Çok düşük verilirse cihaz hazır olmadan trafiği çeker ve her yeniden başlatma birkaç dakikalık kayıpla sonuçlanır.", label: 'Reload Delay (sn)', type: 'text', required: true, placeholder: '300', hint: 'Yeniden başlama sonrası MLAG\'ın aktif olması için bekleme süresi' }
                     ]
                 }
@@ -298,7 +298,7 @@ Arista.ospf = {
                             { value: 'yes', label: 'yes — tüm portlar pasif', selected: true },
                             { value: 'no', label: 'no — tüm portlar aktif' }
                         ], hint: 'yes: tüm portlar pasif olur, aktifler aşağıda belirtilir' },
-                        { name: 'active_intfs', why: "Passive default açıkken komşuluk yalnızca burada listelenen arayüzlerde kurulur; uplink'i eklemeyi unutmak OSPF'in hiçbir rota öğrenememesine ve trafiğin varsayılan rotaya düşmesine neden olur.", label: 'Aktif Arayüzler', type: 'text', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'passive-default=yes ise OSPF komşusu kurulacak portlar' }
+                        { name: 'active_intfs', why: "Passive default açıkken komşuluk yalnızca burada listelenen arayüzlerde kurulur; uplink'i eklemeyi unutmak OSPF'in hiçbir rota öğrenememesine ve trafiğin varsayılan rotaya düşmesine neden olur.", label: 'Aktif Arayüzler', type: 'text', validate: 'iface_range', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'passive-default=yes ise OSPF komşusu kurulacak portlar' }
                     ]
                 }
             ],
@@ -619,7 +619,7 @@ Arista.qos = {
                     title: 'Uygulama',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'apply_intf', why: "QoS genelde <b>çıkış</b> yönünde anlamlıdır, çünkü kuyruk darboğazın olduğu yerde oluşur; yanlış arayüze veya yanlış yöne uygulanan policy hiçbir sorunu çözmez ama çözüldü sanılır.", label: 'Arayüz', type: 'text', optional: true, placeholder: 'Ethernet1', hint: 'Policy\'nin uygulanacağı arayüz (boş bırakılırsa sadece tanım oluşturulur)' }
+                        { name: 'apply_intf', why: "QoS genelde <b>çıkış</b> yönünde anlamlıdır, çünkü kuyruk darboğazın olduğu yerde oluşur; yanlış arayüze veya yanlış yöne uygulanan policy hiçbir sorunu çözmez ama çözüldü sanılır.", label: 'Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'Ethernet1', hint: 'Policy\'nin uygulanacağı arayüz (boş bırakılırsa sadece tanım oluşturulur)' }
                     ]
                 }
             ],
@@ -674,8 +674,8 @@ Arista.stp = {
                     icon: 'fas fa-shield-alt',
                     info: 'Uç cihazların (sunucu, PC) bağlandığı portlara uygulanır. BPDU Guard ile döngü koruması sağlanır.',
                     fields: [
-                        { name: 'portfast_intfs', why: "PortFast yalnızca uç cihaz portlarında kullanılmalıdır; switch bağlı bir porta verilirse dinleme ve öğrenme aşaması atlandığı için <b>anında köprü döngüsü</b> oluşur ve ağ çöker.", label: 'PortFast Arayüzler', type: 'text', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'PortFast aktif edilecek edge portlar' },
-                        { name: 'bpduguard_intfs', why: "BPDU Guard, kullanıcı portuna takılan yetkisiz bir switch'in root'u ele geçirmesini engeller; PortFast'li her portta açılmalıdır, yoksa tek bir masaüstü switch tüm STP topolojisini bozabilir.", label: 'BPDU Guard Arayüzler', type: 'text', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'BPDU Guard aktif edilecek portlar (genellikle PortFast portlarıyla aynı)' }
+                        { name: 'portfast_intfs', why: "PortFast yalnızca uç cihaz portlarında kullanılmalıdır; switch bağlı bir porta verilirse dinleme ve öğrenme aşaması atlandığı için <b>anında köprü döngüsü</b> oluşur ve ağ çöker.", label: 'PortFast Arayüzler', type: 'text', validate: 'iface_range', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'PortFast aktif edilecek edge portlar' },
+                        { name: 'bpduguard_intfs', why: "BPDU Guard, kullanıcı portuna takılan yetkisiz bir switch'in root'u ele geçirmesini engeller; PortFast'li her portta açılmalıdır, yoksa tek bir masaüstü switch tüm STP topolojisini bozabilir.", label: 'BPDU Guard Arayüzler', type: 'text', validate: 'iface_range', optional: true, placeholder: 'Ethernet1,Ethernet2', hint: 'BPDU Guard aktif edilecek portlar (genellikle PortFast portlarıyla aynı)' }
                     ]
                 }
             ],
@@ -939,7 +939,7 @@ Arista.ntp = {
                     icon: 'fas fa-clock',
                     fields: [
                         { name: 'servers', why: "Saat kayması log korelasyonunu, sertifika doğrulamasını ve AAA/Kerberos'u bozar. En az iki sunucu girin; tek sunucu bozulursa cihaz yanlış saate <b>fark edilmeden</b> kilitlenir.", label: 'NTP Sunucular (virgülle)', type: 'text', required: true, placeholder: '10.0.0.1,10.0.0.2', hint: 'NTP sunucu IP adresleri, virgülle ayrılmış' },
-                        { name: 'source_intf', why: "Kaynak arayüz sabitlenmezse NTP paketleri rotaya göre değişen adreslerden çıkar; sunucu tarafındaki ACL bu adresleri tanımayıp paketleri düşürür ve senkronizasyon hiç kurulmaz.", label: 'Kaynak Arayüz', type: 'text', optional: true, placeholder: 'Management1', hint: 'NTP paketlerinin çıkacağı arayüz' },
+                        { name: 'source_intf', why: "Kaynak arayüz sabitlenmezse NTP paketleri rotaya göre değişen adreslerden çıkar; sunucu tarafındaki ACL bu adresleri tanımayıp paketleri düşürür ve senkronizasyon hiç kurulmaz.", label: 'Kaynak Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'Management1', hint: 'NTP paketlerinin çıkacağı arayüz' },
                         { name: 'vrf', why: "Yönetim trafiği ayrı bir VRF'teyse (<code>management</code>) VRF belirtilmediğinde paketler varsayılan tabloda dolaşır ve sunucuya hiç ulaşamaz; bu, out-of-band yönetimde sıkça atlanan bir ayrıntıdır.", label: 'VRF', type: 'text', optional: true, placeholder: 'MGMT', hint: 'NTP trafiği için VRF adı (yönetim VRF\'i ise genellikle MGMT)' }
                     ]
                 }
@@ -992,7 +992,7 @@ Arista.logging = {
                             { value: 'notifications', label: 'notifications' },
                             { value: 'warnings', label: 'warnings' }
                         ], hint: 'Bu seviye ve üzeri loglar gönderilir' },
-                        { name: 'source_intf', why: "Kaynak arayüz sabitlenmezse log'lar farklı kaynak IP'lerle gelir; syslog sunucusunda aynı cihaz birden fazla host gibi görünür, korelasyon ve ACL kuralları bozulur.", label: 'Kaynak Arayüz', type: 'text', optional: true, placeholder: 'Management1', hint: 'Syslog paketlerinin çıkacağı arayüz' }
+                        { name: 'source_intf', why: "Kaynak arayüz sabitlenmezse log'lar farklı kaynak IP'lerle gelir; syslog sunucusunda aynı cihaz birden fazla host gibi görünür, korelasyon ve ACL kuralları bozulur.", label: 'Kaynak Arayüz', type: 'text', validate: 'iface', optional: true, placeholder: 'Management1', hint: 'Syslog paketlerinin çıkacağı arayüz' }
                     ]
                 }
             ],

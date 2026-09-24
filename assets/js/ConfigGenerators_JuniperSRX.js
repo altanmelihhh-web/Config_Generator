@@ -239,7 +239,7 @@ JuniperSRX.vpn = {
                     fields: [
                         { name: 'local_gw', why: "Cihazın gerçek dış IP'si. SRX NAT arkasındaysa burada özel IP kullanılır ve <b>NAT-T</b> ile birlikte uygun local identity tanımlanmalıdır, aksi halde tünel hiç kurulmaz.", label: 'Local Gateway IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Bu cihazın WAN IP adresi' },
                         { name: 'remote_gw', why: "Karşı tarafın gerçek dış IP'si. Karşı uç dinamik IP kullanıyorsa sabit gateway yerine dynamic identity gerekir; sabit varsaymak, IP değiştiğinde tünelin sessizce kurulamamasına yol açar.", label: 'Remote Gateway IP', type: 'text', validate: 'ip', required: true, placeholder: '198.51.100.1', hint: 'Uzak tarafın WAN IP adresi' },
-                        { name: 'ext_iface', why: "IKE paketlerinin çıkacağı arayüz. Bu arayüzün bulunduğu zone'da <b>host-inbound-traffic ike</b> açık olmalıdır, yoksa UDP 500 paketleri cihaza ulaşmadan düşer ve tünel asla Phase 1'e geçmez.", label: 'External Interface', type: 'text', required: true, placeholder: 'ge-0/0/0.0', hint: 'IKE paketlerinin çıkacağı WAN interface' }
+                        { name: 'ext_iface', why: "IKE paketlerinin çıkacağı arayüz. Bu arayüzün bulunduğu zone'da <b>host-inbound-traffic ike</b> açık olmalıdır, yoksa UDP 500 paketleri cihaza ulaşmadan düşer ve tünel asla Phase 1'e geçmez.", label: 'External Interface', type: 'text', validate: 'iface', required: true, placeholder: 'ge-0/0/0.0', hint: 'IKE paketlerinin çıkacağı WAN interface' }
                     ]
                 },
                 {
@@ -247,7 +247,7 @@ JuniperSRX.vpn = {
                     icon: 'fas fa-project-diagram',
                     fields: [
                         { name: 'st0', why: "Route-based VPN'de st0 arayüzü bir <b>security zone'a atanmalı</b> ve trafiği taşıyan route'un next-hop'u olmalıdır. Zone ataması unutulduğunda tünel Up görünür ama tek paket geçmez — en sık görülen SRX VPN arızası budur.", label: 'St0 Interface', type: 'text', required: true, placeholder: 'st0.1', hint: 'Route-based VPN için secure tunnel interface' },
-                        { name: 'st0_ip', why: 'Numaralı st0 kullanıyorsanız iki uç aynı /30 içinde olmalıdır; unnumbered tasarımda ise belirleyici olan route tanımıdır. Bir ucun numaralı diğerinin numarasız olması yönlendirmeyi bozar.', label: 'St0 IP / Prefix', type: 'text', required: true, placeholder: '10.255.0.1/30', hint: 'Tünel interface IP adresi' }
+                        { name: 'st0_ip', why: 'Numaralı st0 kullanıyorsanız iki uç aynı /30 içinde olmalıdır; unnumbered tasarımda ise belirleyici olan route tanımıdır. Bir ucun numaralı diğerinin numarasız olması yönlendirmeyi bozar.', label: 'St0 IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1/30', hint: 'Tünel interface IP adresi' }
                     ]
                 }
             ],
@@ -325,8 +325,8 @@ JuniperSRX.ha = {
                     title: 'Link Arayüzleri',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'ctrl_iface', why: "Control link düğümlerin birbirini görmesini sağlar; koparsa küme split-brain'e girip iki düğüm de primary olmaya çalışır. Switch üzerinden taşıyorsanız ayrı bir VLAN kullanın ve asla başka trafikle paylaşmayın.", label: 'Control Link Interface', type: 'text', required: true, placeholder: 'ge-0/0/0', hint: 'Control plane haberleşmesi için dedicated interface' },
-                        { name: 'fab_iface', why: 'Fabric link oturum (RTO) senkronizasyonunu taşır; yetersiz bant genişliği failover sırasında oturumların kopması demektir. Control ve fabric linkini aynı fiziksel yola koymak, tek kablo arızasında kümenin tamamını riske atar.', label: 'Fabric Link Interface', type: 'text', required: true, placeholder: 'ge-0/0/1', hint: 'Data plane senkronizasyonu için dedicated interface' }
+                        { name: 'ctrl_iface', why: "Control link düğümlerin birbirini görmesini sağlar; koparsa küme split-brain'e girip iki düğüm de primary olmaya çalışır. Switch üzerinden taşıyorsanız ayrı bir VLAN kullanın ve asla başka trafikle paylaşmayın.", label: 'Control Link Interface', type: 'text', validate: 'iface', required: true, placeholder: 'ge-0/0/0', hint: 'Control plane haberleşmesi için dedicated interface' },
+                        { name: 'fab_iface', why: 'Fabric link oturum (RTO) senkronizasyonunu taşır; yetersiz bant genişliği failover sırasında oturumların kopması demektir. Control ve fabric linkini aynı fiziksel yola koymak, tek kablo arızasında kümenin tamamını riske atar.', label: 'Fabric Link Interface', type: 'text', validate: 'iface', required: true, placeholder: 'ge-0/0/1', hint: 'Data plane senkronizasyonu için dedicated interface' }
                     ]
                 },
                 {
@@ -545,7 +545,7 @@ JuniperSRX.ospf = {
                     icon: 'fas fa-ethernet',
                     fields: [
                         { name: 'intfs', why: "OSPF yalnızca listelenen arayüzlerde çalışır <b>ve</b> bu arayüzlerin zone'unda host-inbound-traffic ospf açık olmalıdır. İkisinden biri eksikse komşuluk kurulmaz; SRX'te en çok atlanan adım ikincisidir.", label: 'Aktif Interface\'ler', type: 'text', required: true, placeholder: 'ge-0/0/1.0, ge-0/0/2.0', hint: 'Virgülle ayrılmış OSPF interface listesi' },
-                        { name: 'passive_intfs', why: "Passive arayüz prefix'i duyurur ama komşuluk aramaz. Kullanıcı ve yönetim arayüzlerini passive yapmamak, güvenilmeyen tarafa OSPF paketi yaymak ve sahte komşu kabul etme riski almak demektir.", label: 'Passive Interface\'ler', type: 'text', optional: true, placeholder: 'ge-0/0/3.0, lo0.0', hint: 'Sadece prefix duyurulur, komşu oluşturulmaz' }
+                        { name: 'passive_intfs', why: "Passive arayüz prefix'i duyurur ama komşuluk aramaz. Kullanıcı ve yönetim arayüzlerini passive yapmamak, güvenilmeyen tarafa OSPF paketi yaymak ve sahte komşu kabul etme riski almak demektir.", label: 'Passive Interface\'ler', type: 'text', validate: 'iface_range', optional: true, placeholder: 'ge-0/0/3.0, lo0.0', hint: 'Sadece prefix duyurulur, komşu oluşturulmaz' }
                     ]
                 },
                 {
@@ -929,7 +929,7 @@ JuniperSRX.jflow = {
                     icon: 'fas fa-stopwatch',
                     fields: [
                         { name: 'active_timeout', why: 'Uzun süren akışlar ancak bu aralıkta raporlanır; büyük değer grafiklerde gecikmeli ve sıçramalı veri üretir. Çok küçük değer ise export yükünü ve collector maliyetini artırır.', label: 'Active Timeout (saniye)', type: 'text', required: true, placeholder: '60', hint: 'Aktif akış ihracat aralığı' },
-                        { name: 'export_intf', why: "Örneklemenin arayüz üzerinde (unit dahil) etkinleştirilmesi gerekir; yön belirtilmezse beklediğiniz trafik hiç örneklenmez. SRX'te flow mode ile örnekleme etkileşimi platforma göre değişir, doğrulamadan kapasite varsaymayın.", label: 'Export Interface', type: 'text', required: true, placeholder: 'ge-0/0/0.0', hint: 'Örneklemenin etkinleştirileceği interface (unit dahil)' }
+                        { name: 'export_intf', why: "Örneklemenin arayüz üzerinde (unit dahil) etkinleştirilmesi gerekir; yön belirtilmezse beklediğiniz trafik hiç örneklenmez. SRX'te flow mode ile örnekleme etkileşimi platforma göre değişir, doğrulamadan kapasite varsaymayın.", label: 'Export Interface', type: 'text', validate: 'iface', required: true, placeholder: 'ge-0/0/0.0', hint: 'Örneklemenin etkinleştirileceği interface (unit dahil)' }
                     ]
                 }
             ],

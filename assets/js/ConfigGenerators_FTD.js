@@ -161,8 +161,8 @@ CiscoFTD.nat = {
                     icon: 'fas fa-cube',
                     fields: [
                         { name: 'real_obj', why: "Nesne FMC’de önceden tanımlı olmalıdır; kural içinde ad uyuşmazlığı deploy sırasında hata verir. Nesneyi değiştirmek onu kullanan tüm kuralları aynı anda etkiler.", label: 'Kaynak Nesne Adı', type: 'text', required: true, placeholder: 'OBJ_INTERNAL_NET', hint: 'FMC\'de tanımlanacak network nesnesi adı' },
-                        { name: 'real_ip', why: "Gerçek (NAT öncesi) adres; FTD’de Access Control kuralları da NAT öncesi <b>gerçek</b> IP ile yazılır. Mapped adres kullanmak kuralın hiç eşleşmemesine yol açar.", label: 'Real IP/Network', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Orijinal iç ağ adresi (CIDR)' },
-                        { name: 'mapped_ip', why: "Dışarıya görünen adres; bu IP outside subnetinde değilse ISP tarafından route edilmeli ya da proxy-ARP ayarı kontrol edilmelidir. Aksi halde NAT tanımlı görünür ama trafik hiç gelmez.", label: 'Mapped IP (NAT sonrası)', type: 'text', required: true, placeholder: '203.0.113.10', hint: 'Dışarıya görünen IP adresi' }
+                        { name: 'real_ip', why: "Gerçek (NAT öncesi) adres; FTD’de Access Control kuralları da NAT öncesi <b>gerçek</b> IP ile yazılır. Mapped adres kullanmak kuralın hiç eşleşmemesine yol açar.", label: 'Real IP/Network', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.0/24', hint: 'Orijinal iç ağ adresi (CIDR)' },
+                        { name: 'mapped_ip', why: "Dışarıya görünen adres; bu IP outside subnetinde değilse ISP tarafından route edilmeli ya da proxy-ARP ayarı kontrol edilmelidir. Aksi halde NAT tanımlı görünür ama trafik hiç gelmez.", label: 'Mapped IP (NAT sonrası)', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.10', hint: 'Dışarıya görünen IP adresi' }
                     ]
                 },
                 {

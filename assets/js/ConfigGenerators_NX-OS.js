@@ -26,7 +26,7 @@ CiscoNXOS.ospf = {
                     title: 'Interface Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "OSPF’in bu arayüzde açıldığını <code>show ip ospf interface</code> ile doğrulayın. Arayüz <code>no switchport</code> yapılmamışsa L3 değildir ve OSPF hiç çalışmaz.", label: 'Interface', type: 'text', required: true, placeholder: 'GigabitEthernet 1/1', hint: 'OSPF etkinleştirilecek arayüz' },
+                        { name: 'iface', why: "OSPF’in bu arayüzde açıldığını <code>show ip ospf interface</code> ile doğrulayın. Arayüz <code>no switchport</code> yapılmamışsa L3 değildir ve OSPF hiç çalışmaz.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet 1/1', hint: 'OSPF etkinleştirilecek arayüz' },
                         { name: 'iface_ip', why: "Arayüz IP/prefix uyuşmazlığı, iki komşunun farklı subnetlerde olması demektir; OSPF hello’ları gelir ama komşuluk hiç kurulmaz. NX-OS CIDR biçimi bekler.", label: 'Interface IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi' },
                         { name: 'net_type', why: "Broadcast ağlarda DR/BDR seçimi yapılır; point-to-point seçmek bu seçimi atlayarak komşuluğu hızlandırır. Ancak iki uçta farklı network type seçilirse timer’lar uyuşmaz ve komşuluk kurulmaz.", label: 'Network Type', type: 'select', options: [
                             { value: 'point-to-point', label: 'point-to-point', selected: true },
@@ -140,7 +140,7 @@ CiscoNXOS.hsrp = {
                     title: 'Interface ve HSRP Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "HSRP bir L3 arayüzde veya SVI üzerinde çalışır; <code>feature interface-vlan</code> açılmadan SVI oluşturulamaz. vPC ortamında HSRP her iki switch’te de tanımlı olmalıdır.", label: 'Interface (SVI)', type: 'text', required: true, placeholder: 'Vlan10', hint: 'HSRP uygulanacak SVI veya arayüz' },
+                        { name: 'iface', why: "HSRP bir L3 arayüzde veya SVI üzerinde çalışır; <code>feature interface-vlan</code> açılmadan SVI oluşturulamaz. vPC ortamında HSRP her iki switch’te de tanımlı olmalıdır.", label: 'Interface (SVI)', type: 'text', validate: 'iface', required: true, placeholder: 'Vlan10', hint: 'HSRP uygulanacak SVI veya arayüz' },
                         { name: 'iface_ip', why: "Fiziksel IP her switch’te <b>farklı</b>, sanal IP (VIP) ise aynı olmalıdır. İki switch’e aynı fiziksel IP’yi vermek ağda adres çakışması yaratır.", label: 'Interface IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '192.168.10.2/24', hint: 'CIDR formatında fiziksel IP' },
                         { name: 'grp', why: "HSRP grup numarası iki switch’te <b>aynı</b> olmalıdır; farklı grup numarası her iki cihazın da kendi sanal IP’si ile active olmasına yol açar. Grup numarası sanal MAC adresini de belirler.", label: 'HSRP Grup Numarası', type: 'text', required: true, placeholder: '10', hint: '0–255 arası grup ID' },
                         { name: 'vip', why: "Sanal IP, istemcilerin default gateway’idir ve arayüzün fiziksel IP’sinden farklı, ama aynı subnette olmalıdır. Fiziksel IP ile aynı vermek HSRP’nin hiç başlamamasına neden olur.", label: 'Sanal IP (VIP)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.10.1', hint: 'Gateway olarak kullanılacak sanal IP' }
@@ -649,7 +649,7 @@ CiscoNXOS.fabricPath = {
                     title: 'FabricPath VLAN ve Interface',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'fp_vlans', why: "Bir VLAN ya klasik (CE) ya da FabricPath modunda olabilir; mod değişimi o VLAN’da anlık kesinti yaratır. VLAN’ların modu fabric’teki tüm switch’lerde aynı olmalıdır.", label: "FabricPath VLAN'lar", type: 'text', required: true, placeholder: '100,200,300', hint: 'Virgülle ayrılmış VLAN ID listesi' },
+                        { name: 'fp_vlans', why: "Bir VLAN ya klasik (CE) ya da FabricPath modunda olabilir; mod değişimi o VLAN’da anlık kesinti yaratır. VLAN’ların modu fabric’teki tüm switch’lerde aynı olmalıdır.", label: "FabricPath VLAN'lar", type: 'text', validate: 'vlan_list', required: true, placeholder: '100,200,300', hint: 'Virgülle ayrılmış VLAN ID listesi' },
                         { name: 'fp_ifaces', why: "FabricPath core portları yalnızca diğer fabric switch’lerine bakmalıdır; uç cihaz bağlı bir portu FabricPath moduna almak o cihazın trafiğinin tamamen kesilmesine neden olur.", label: "FabricPath Interface'ler", type: 'text', required: true, placeholder: 'Ethernet1/1,Ethernet1/2', hint: 'Virgülle ayrılmış fabric uplink portları' }
                     ]
                 }
@@ -901,7 +901,7 @@ CiscoNXOS.syslog = {
                             { value: 'local6', label: 'local6' },
                             { value: 'local7', label: 'local7' }
                         ], hint: 'Syslog facility kodu' },
-                        { name: 'src_iface', why: "Kaynak arayüz sabitlenmezse log paketleri çıkış arayüzüne göre farklı IP’lerle gider ve log sunucusu aynı cihazı birden çok kaynak gibi görür. Genelde <code>mgmt0</code> veya bir loopback seçilir.", label: 'Source Interface', type: 'text', optional: true, placeholder: 'mgmt0', hint: 'Log paketleri için kaynak arayüz' }
+                        { name: 'src_iface', why: "Kaynak arayüz sabitlenmezse log paketleri çıkış arayüzüne göre farklı IP’lerle gider ve log sunucusu aynı cihazı birden çok kaynak gibi görür. Genelde <code>mgmt0</code> veya bir loopback seçilir.", label: 'Source Interface', type: 'text', validate: 'iface', optional: true, placeholder: 'mgmt0', hint: 'Log paketleri için kaynak arayüz' }
                     ]
                 }
             ],
@@ -943,7 +943,7 @@ CiscoNXOS.ntp = {
                             { value: 'no', label: 'Hayır' }
                         ], hint: 'Prefer ile bu sunucu öncelikli seçilir' },
                         { name: 'ntp_ip2', why: "İkinci sunucu tanımlamak tek arıza noktasını kaldırır. Ayrıca iki sunucu birbirinden çok farklı zaman verirse NTP hangisinin doğru olduğuna karar veremez — üç sunucu en sağlıklısıdır.", label: 'Yedek NTP Server', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.2', hint: 'İkincil NTP sunucu IP adresi' },
-                        { name: 'src_iface', why: "NTP paketlerinin kaynağı sabitlenmezse sunucu tarafındaki erişim listeleri (restrict) isteği reddedebilir. Sabit bir loopback veya <code>mgmt0</code> kullanmak senkronizasyonu öngörülebilir kılar.", label: 'Source Interface', type: 'text', optional: true, placeholder: 'mgmt0', hint: 'NTP paketleri için kaynak arayüz' }
+                        { name: 'src_iface', why: "NTP paketlerinin kaynağı sabitlenmezse sunucu tarafındaki erişim listeleri (restrict) isteği reddedebilir. Sabit bir loopback veya <code>mgmt0</code> kullanmak senkronizasyonu öngörülebilir kılar.", label: 'Source Interface', type: 'text', validate: 'iface', optional: true, placeholder: 'mgmt0', hint: 'NTP paketleri için kaynak arayüz' }
                     ]
                 },
                 {

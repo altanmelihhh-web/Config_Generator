@@ -27,8 +27,8 @@ MikroTik.general = {
                         { name: 'vlan', why: "VLAN ID bridge VLAN tablosunda ve karşı uçtaki tagged portta birebir aynı olmalıdır; RouterOS'ta VLAN interface tanımlansa bile bridge tarafında izin verilmemişse trafik <b>sessizce</b> düşer.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: '1–4094 arası VLAN kimliği' },
                         { name: 'wan_ip', why: "RouterOS adresi CIDR ile ister (<code>/24</code>); prefix yazmayı unutursanız adres /32 olarak eklenir, cihaz hiçbir komşuyu göremez ve bağlantı anında kopar.", label: 'IP Adresi / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1/24', hint: 'CIDR formatında (örn: 192.168.1.1/24)' },
                         { name: 'gw', why: "Varsayılan rota bu gateway'e kurulur. Gateway doğrudan bağlı bir ağda değilse RouterOS rotayı <b>unreachable</b> işaretler ve rota mavi (inactive) kalır, hiçbir hata mesajı görmezsiniz.", label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.254', hint: 'Varsayılan çıkış gateway adresi' },
-                        { name: 'iface', why: "Arayüz adı RouterOS'ta birebir yazılmalıdır (<code>ether2</code>, <code>bridge1</code>); isim yanlışsa komut hata verip durur ve script'in geri kalanı uygulanmaz, config yarım kalır.", label: 'LAN Arayüzü', type: 'text', required: true, placeholder: 'ether2', hint: 'VLAN eklenecek arayüz' },
-                        { name: 'wan_iface', why: "WAN arayüzü masquerade ve firewall kurallarının dayanağıdır; yanlış arayüz seçilirse ya NAT hiç çalışmaz ya da <b>iç ağınız internete açık</b> hâle gelir.", label: 'WAN Arayüzü', type: 'text', required: true, placeholder: 'ether1', hint: 'Internet bağlantısı taşıyan port' }
+                        { name: 'iface', why: "Arayüz adı RouterOS'ta birebir yazılmalıdır (<code>ether2</code>, <code>bridge1</code>); isim yanlışsa komut hata verip durur ve script'in geri kalanı uygulanmaz, config yarım kalır.", label: 'LAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'ether2', hint: 'VLAN eklenecek arayüz' },
+                        { name: 'wan_iface', why: "WAN arayüzü masquerade ve firewall kurallarının dayanağıdır; yanlış arayüz seçilirse ya NAT hiç çalışmaz ya da <b>iç ağınız internete açık</b> hâle gelir.", label: 'WAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'ether1', hint: 'Internet bağlantısı taşıyan port' }
                     ]
                 }
             ],
@@ -108,7 +108,7 @@ MikroTik.ipaddress = {
                     title: 'IP Adresi',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'interface', why: "Adres yanlış arayüze eklenirse trafik beklenen bacaktan çıkmaz ve asimetrik yönlendirme oluşur; connection tracking bu durumda oturumları <b>invalid</b> sayıp düşürür.", label: 'Arayüz', type: 'text', required: true, placeholder: 'ether1', hint: 'IP atanacak fiziksel veya sanal arayüz' },
+                        { name: 'interface', why: "Adres yanlış arayüze eklenirse trafik beklenen bacaktan çıkmaz ve asimetrik yönlendirme oluşur; connection tracking bu durumda oturumları <b>invalid</b> sayıp düşürür.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'ether1', hint: 'IP atanacak fiziksel veya sanal arayüz' },
                         { name: 'ip_address', why: "RouterOS adresi mutlaka CIDR ile ister; <code>/24</code> yazmadan girilen adres /32 kabul edilir, komşuluk kurulmaz. Uzaktan bağlıysanız yanlış adres girmek oturumunuzu anında koparır.", label: 'IP Adresi (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1/24', hint: 'Örn: 192.168.1.1/24' },
                         { name: 'comment', why: "RouterOS'ta yorum, kuralı ve adresi script ile bulmanın tek güvenilir yoludur (<code>find comment=</code>); boş bırakılan kayıtlar zamanla kimsenin silmeye cesaret edemediği ölü config'e dönüşür.", label: 'Yorum', type: 'text', optional: true, placeholder: 'WAN uplink', hint: 'Tanımlayıcı not (opsiyonel)' }
                     ]
@@ -223,7 +223,7 @@ MikroTik.nat = {
                     icon: 'fas fa-mask',
                     showFor: ['masquerade'],
                     fields: [
-                        { name: 'out_interface', why: "Masquerade kuralı <b>mutlaka out-interface ile sınırlanmalıdır</b>; sınırlanmazsa VPN ve iç ağlar arası trafik de NAT'lanır, kaynak adresler bozulur ve site-to-site tüneller çalışmaz.", label: 'Çıkış Arayüzü', type: 'text', required: true, placeholder: 'ether1', hint: 'Internet çıkışı yapan WAN arayüzü' },
+                        { name: 'out_interface', why: "Masquerade kuralı <b>mutlaka out-interface ile sınırlanmalıdır</b>; sınırlanmazsa VPN ve iç ağlar arası trafik de NAT'lanır, kaynak adresler bozulur ve site-to-site tüneller çalışmaz.", label: 'Çıkış Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'ether1', hint: 'Internet çıkışı yapan WAN arayüzü' },
                         { name: 'masq_src_address', why: "<code>masquerade</code> çıkış arayüzünün adresini dinamik kullanır ve DHCP/PPPoE WAN için uygundur; sabit public IP varsa <code>src-nat</code> daha öngörülebilirdir, çünkü masquerade her link değişiminde bağlantıları sıfırlar.", label: 'Kaynak Ağ', type: 'text', optional: true, placeholder: '192.168.1.0/24', hint: 'Belirli bir ağı NAT etmek için (boş = tümü)' }
                     ]
                 },
@@ -295,7 +295,7 @@ MikroTik.dhcp = {
                     title: 'DHCP Server Ayarları',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'interface', why: "DHCP server yanlış arayüze bağlanırsa istemcilere hiç ulaşamaz veya daha kötüsü <b>başka bir ağa IP dağıtmaya başlar</b> ve o ağdaki mevcut DHCP ile çakışır.", label: 'Arayüz', type: 'text', required: true, placeholder: 'bridge1', hint: 'DHCP hizmeti verilecek arayüz veya bridge' },
+                        { name: 'interface', why: "DHCP server yanlış arayüze bağlanırsa istemcilere hiç ulaşamaz veya daha kötüsü <b>başka bir ağa IP dağıtmaya başlar</b> ve o ağdaki mevcut DHCP ile çakışır.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'bridge1', hint: 'DHCP hizmeti verilecek arayüz veya bridge' },
                         { name: 'network', why: "Network tanımı arayüzdeki IP ile aynı subnet'te olmalıdır; uyuşmazlıkta istemciler adres alır ama gateway'e erişemez, klasik <b>IP var internet yok</b> tablosu oluşur.", label: 'Ağ Adresi (CIDR)', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'DHCP dağıtılacak ağ bloğu' },
                         { name: 'gateway', why: "İstemcilere dağıtılan gateway yanlışsa cihazlar birbirini görür ama dışarı çıkamaz; bu, DHCP'nin çalışıyor görünmesi nedeniyle teşhisi en çok geciken hatalardandır.", label: 'Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'İstemcilere verilecek default gateway' },
                         { name: 'pool_start', why: "Havuz başlangıcı statik adresler ve gateway ile çakışmamalıdır; çakışırsa DHCP bir sunucunun adresini bir istemciye verir ve o servis aralıklarla erişilemez hâle gelir.", label: 'Pool Başlangıç', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Dağıtılacak IP aralığının başlangıcı' },
@@ -387,7 +387,7 @@ MikroTik.wireguard = {
                     title: 'Peer Ayarları',
                     icon: 'fas fa-user-shield',
                     fields: [
-                        { name: 'peer_pubkey', why: "Public key karşı ucun <b>public</b> anahtarı olmalıdır, kendi anahtarınız değil; yanlış anahtarda el sıkışma sessizce başarısız olur ve log'da yalnızca handshake tekrarları görünür.", label: 'Peer Public Key', type: 'text', required: true, placeholder: 'PEER_PUBLIC_KEY_BASE64=', hint: 'Uzak tarafın WireGuard public key değeri' },
+                        { name: 'peer_pubkey', why: "Public key karşı ucun <b>public</b> anahtarı olmalıdır, kendi anahtarınız değil; yanlış anahtarda el sıkışma sessizce başarısız olur ve log'da yalnızca handshake tekrarları görünür.", label: 'Peer Public Key', type: 'text', validate: 'ip', required: true, placeholder: 'PEER_PUBLIC_KEY_BASE64=', hint: 'Uzak tarafın WireGuard public key değeri' },
                         { name: 'allowed_address', why: "Allowed-address hem routing hem de kabul filtresidir: burada listelenmeyen kaynaklardan gelen paketler <b>düşürülür</b>. Çok dar yazmak trafiği keser, <code>0.0.0.0/0</code> yazmak tüm trafiği tünele sokar.", label: 'Allowed Address', type: 'text', required: true, placeholder: '10.10.0.2/32', hint: 'Bu peer üzerinden geçecek IP aralığı' },
                         { name: 'endpoint', why: "Endpoint yalnızca bağlantıyı başlatan tarafta gereklidir; NAT arkasındaki uçta tanımlanmazsa tünel ancak karşı taraf veri gönderdiğinde ayağa kalkar, bu yüzden keepalive kullanmak gerekir.", label: 'Endpoint (IP:Port)', type: 'text', optional: true, placeholder: '203.0.113.1:51820', hint: 'Uzak peer adresi — client tarafında gerekli' }
                     ]

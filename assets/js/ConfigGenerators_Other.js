@@ -27,7 +27,7 @@ Dell.general = {
                     fields: [
                         { name: 'vlan', why: "VLAN ID karşı uçtaki trunk'ta izinli değilse arayüz <b>up</b> görünür ama trafik geçmez. OS10'da VLAN interface ayrıca <code>no shutdown</code> edilmediği sürece L3 çalışmaz.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'Layer 2 VLAN numarası' },
                         { name: 'wan_ip', why: "Bu adres alt cihazların gateway'i olur; ağda ikinci kez kullanılırsa duplicate address oluşur, ARP tablosu sürekli değişir ve trafik aralıklarla kesilir.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'SVI / WAN IP adresi' },
-                        { name: 'subnet', why: "Maske karşı uçla birebir aynı olmalıdır; farklı maskeler aynı fiziksel segmentteki hostların bir kısmını uzak ağ saydırır ve bu cihazlar sessizce erişilemez hâle gelir.", label: 'Subnet Mask', type: 'text', required: true, placeholder: '255.255.255.0', hint: 'Noktalı ondalık subnet maskesi' },
+                        { name: 'subnet', why: "Maske karşı uçla birebir aynı olmalıdır; farklı maskeler aynı fiziksel segmentteki hostların bir kısmını uzak ağ saydırır ve bu cihazlar sessizce erişilemez hâle gelir.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Noktalı ondalık subnet maskesi' },
                         { name: 'gw', why: "Varsayılan rota bu adrese kurulur. Gateway doğrudan bağlı bir subnet içinde değilse OS10 rotayı aktif etmez ve cihaz hiçbir uzak ağa ulaşamaz.", label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.254', hint: 'Varsayılan ağ geçidi IP adresi' }
                     ]
                 },
@@ -35,8 +35,8 @@ Dell.general = {
                     title: 'Interface Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "Port aralığı yazarken OS10 söz dizimine uyun (<code>ethernet 1/1/1-1/1/10</code>); yanlışlıkla uplink dâhil edilirse trunk access'e döner ve uzaktan yönetim anında kopar.", label: 'LAN Arayüzü (port aralığı)', type: 'text', required: true, placeholder: 'ethernet1/1/1-1/1/4', hint: 'Access VLAN atanacak port aralığı' },
-                        { name: 'wan_iface', why: "WAN portu <code>no switchport</code> ile L3 moda alınmalıdır; switchport olarak kalan bir arayüze IP verilemez ve konfigürasyon sessizce etkisiz kalır.", label: 'WAN Arayüzü', type: 'text', required: true, placeholder: 'ethernet1/1/5', hint: 'IP adresi atanacak WAN portu' }
+                        { name: 'iface', why: "Port aralığı yazarken OS10 söz dizimine uyun (<code>ethernet 1/1/1-1/1/10</code>); yanlışlıkla uplink dâhil edilirse trunk access'e döner ve uzaktan yönetim anında kopar.", label: 'LAN Arayüzü (port aralığı)', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/1/1-1/1/4', hint: 'Access VLAN atanacak port aralığı' },
+                        { name: 'wan_iface', why: "WAN portu <code>no switchport</code> ile L3 moda alınmalıdır; switchport olarak kalan bir arayüze IP verilemez ve konfigürasyon sessizce etkisiz kalır.", label: 'WAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/1/5', hint: 'IP adresi atanacak WAN portu' }
                     ]
                 }
             ],
@@ -141,7 +141,7 @@ Dell.vlan = {
                     fields: [
                         { name: 'vlan_id', why: "VLAN ID uçtan uca tüm cihazlarda aynı olmalı; karşı tarafta tanımsız veya trunk'ta izinli değilse bağlantı sessizce çalışmaz. 1 numaralı VLAN'ı üretimde kullanmaktan kaçının.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '802.1Q VLAN numarası' },
                         { name: 'vlan_name', why: "İsim <code>show vlan</code> çıktısında VLAN'ın ne işe yaradığını söyleyen tek ipucudur; boş bırakılan VLAN'lar zamanla kimsenin silmeye cesaret edemediği ölü config'e dönüşür.", label: 'VLAN Adı', type: 'text', required: true, placeholder: 'DATA_VLAN', hint: 'VLAN için açıklayıcı isim' },
-                        { name: 'svi_ip', why: "SVI adresi VLAN'ın gateway'i olur ve yalnızca <code>no shutdown</code> yapıldığında aktifleşir; ayrıca VLAN'da en az bir aktif üye port yoksa SVI <b>down</b> kalır ve hiçbir host gateway'e ulaşamaz.", label: 'SVI IP', type: 'text', optional: true, placeholder: '10.1.100.1/24', hint: 'VLAN arayüzü IP adresi — CIDR formatında' }
+                        { name: 'svi_ip', why: "SVI adresi VLAN'ın gateway'i olur ve yalnızca <code>no shutdown</code> yapıldığında aktifleşir; ayrıca VLAN'da en az bir aktif üye port yoksa SVI <b>down</b> kalır ve hiçbir host gateway'e ulaşamaz.", label: 'SVI IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.1.100.1/24', hint: 'VLAN arayüzü IP adresi — CIDR formatında' }
                     ]
                 },
                 {
@@ -214,7 +214,7 @@ Dell.portchannel = {
                             { value: 'access', label: 'Access' },
                             { value: 'routed', label: 'Routed (no switchport)' }
                         ]},
-                        { name: 'vlan_ip', why: "L2 modda izinli VLAN listesi, L3 modda ise IP/maske girilir; ikisinin karıştırılması komutun reddedilmesine ve port-channel'ın yapılandırılmamış hâlde kalmasına neden olur.", label: 'VLAN / IP', type: 'text', optional: true, placeholder: '10,20,100 veya 10.1.1.1/30', hint: 'Trunk: VLAN listesi; Access: tek VLAN ID; Routed: IP/prefix' }
+                        { name: 'vlan_ip', why: "L2 modda izinli VLAN listesi, L3 modda ise IP/maske girilir; ikisinin karıştırılması komutun reddedilmesine ve port-channel'ın yapılandırılmamış hâlde kalmasına neden olur.", label: 'VLAN / IP', type: 'text', validate: 'ip', optional: true, placeholder: '10,20,100 veya 10.1.1.1/30', hint: 'Trunk: VLAN listesi; Access: tek VLAN ID; Routed: IP/prefix' }
                     ]
                 }
             ],
@@ -580,7 +580,7 @@ Dell.mclag = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'domain_id', why: "MC-LAG domain ID iki peer'da <b>birebir aynı</b> olmalıdır; farklıysa domain kurulmaz ve her switch bağımsız davranarak karşı taraftaki LAG'ı yarım bırakır.", label: 'Domain ID', type: 'text', required: true, placeholder: '1', hint: 'MC-LAG domain numarası' },
-                        { name: 'peer_link', why: "Peer-link mutlaka port-channel olmalıdır ve tüm VLAN'ları taşımalıdır; tek fiziksel link bırakmak kopma anında split-brain yaratır, iki switch de aktif gateway gibi davranır.", label: 'Peer-Link Port-Channel', type: 'text', required: true, placeholder: 'port-channel100', hint: 'Peer-link olarak kullanılacak port-channel' },
+                        { name: 'peer_link', why: "Peer-link mutlaka port-channel olmalıdır ve tüm VLAN'ları taşımalıdır; tek fiziksel link bırakmak kopma anında split-brain yaratır, iki switch de aktif gateway gibi davranır.", label: 'Peer-Link Port-Channel', type: 'text', validate: 'ip', required: true, placeholder: 'port-channel100', hint: 'Peer-link olarak kullanılacak port-channel' },
                         { name: 'peer_ip', why: "Peer IP karşı cihazın keepalive kaynak adresi olmalıdır ve bu adreslerin peer-link'ten <b>bağımsız</b> bir yoldan erişilebilir olması gerekir; aksi hâlde peer-link koptuğunda keepalive da kesilir ve split-brain tespit edilemez.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.1.1.2', hint: 'Peer cihazının keepalive IP adresi' },
                         { name: 'local_ip', why: "Keepalive kaynak adresi iki cihazda çapraz eşleşmeli; aynı adres iki tarafta local olarak tanımlanırsa oturum kurulamaz ve MC-LAG sürekli başlatma aşamasında takılır.", label: 'Local IP (keepalive source)', type: 'text', validate: 'ip', required: true, placeholder: '10.1.1.1', hint: 'Bu cihazın keepalive kaynak IP adresi' }
                     ]
@@ -750,7 +750,7 @@ Dell.ntp = {
                     fields: [
                         { name: 'ntp_server', why: "Saat kayması log korelasyonunu, sertifika doğrulamasını ve kimlik doğrulama protokollerini bozar; yanlış saatli bir cihazda arıza analizi yapmak neredeyse imkânsızdır.", label: 'NTP Server IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Birincil NTP sunucu IP adresi' },
                         { name: 'ntp_server2', why: "Tek NTP sunucusu tek hata noktasıdır ve bozulduğunda cihaz yanlış saate <b>fark edilmeden</b> kilitlenir; ikinci bir kaynak çoğunluk kararı sağlayarak bunu önler.", label: 'Yedek NTP Server', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.2', hint: 'İkincil NTP sunucu IP adresi' },
-                        { name: 'src_iface', why: "Kaynak arayüz sabitlenmezse NTP paketleri rotaya göre değişen adreslerden çıkar; sunucudaki ACL bu adresleri tanımaz, paketler düşer ve senkronizasyon hiç kurulmaz.", label: 'Source Interface', type: 'text', optional: true, placeholder: 'ManagementEthernet1/1/1', hint: 'NTP paketleri için kaynak arayüz' }
+                        { name: 'src_iface', why: "Kaynak arayüz sabitlenmezse NTP paketleri rotaya göre değişen adreslerden çıkar; sunucudaki ACL bu adresleri tanımaz, paketler düşer ve senkronizasyon hiç kurulmaz.", label: 'Source Interface', type: 'text', validate: 'iface', optional: true, placeholder: 'ManagementEthernet1/1/1', hint: 'NTP paketleri için kaynak arayüz' }
                     ]
                 },
                 {
@@ -819,7 +819,7 @@ Dell.syslog = {
                             { value: 'local6', label: 'local6' },
                             { value: 'local7', label: 'local7' }
                         ]},
-                        { name: 'src_iface', why: "Kaynak arayüz sabitlenmezse aynı cihaz syslog sunucusunda farklı IP'lerle birden fazla host gibi görünür; korelasyon ve sunucu tarafındaki filtreler bozulur.", label: 'Source Interface', type: 'text', optional: true, placeholder: 'ManagementEthernet1/1/1', hint: 'Syslog paketleri için kaynak arayüz' }
+                        { name: 'src_iface', why: "Kaynak arayüz sabitlenmezse aynı cihaz syslog sunucusunda farklı IP'lerle birden fazla host gibi görünür; korelasyon ve sunucu tarafındaki filtreler bozulur.", label: 'Source Interface', type: 'text', validate: 'iface', optional: true, placeholder: 'ManagementEthernet1/1/1', hint: 'Syslog paketleri için kaynak arayüz' }
                     ]
                 }
             ],
@@ -922,7 +922,7 @@ Dell.stormControl = {
                     title: 'Interface ve Eşikler',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "Storm control uç cihaz portlarında anlamlıdır; uplink veya port-channel üzerinde agresif eşik uygulamak, normal yedekleme trafiğini bile fırtına sanıp <b>bağlantıyı kesebilir</b>.", label: 'Interface (veya range, virgülle)', type: 'text', required: true, placeholder: 'ethernet1/1/1', hint: 'Storm control uygulanacak port(lar)' },
+                        { name: 'iface', why: "Storm control uç cihaz portlarında anlamlıdır; uplink veya port-channel üzerinde agresif eşik uygulamak, normal yedekleme trafiğini bile fırtına sanıp <b>bağlantıyı kesebilir</b>.", label: 'Interface (veya range, virgülle)', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/1/1', hint: 'Storm control uygulanacak port(lar)' },
                         { name: 'bc_pct', why: "Broadcast eşiği çok yüksekse döngü anında switch'i korumaz, çok düşükse ARP ve DHCP gibi normal broadcast trafiğini keser ve istemciler sebepsiz şekilde adres alamaz.", label: 'Broadcast Threshold (%)', type: 'text', required: true, placeholder: '20', hint: 'Broadcast trafik yüzde eşiği (0-100)' },
                         { name: 'mc_pct', why: "Multicast eşiğini düşük tutmak IPTV, IP kamera veya küme (cluster) heartbeat trafiğini istemeden kırpabilir; bu servisler kesildiğinde sorun genelde storm control'de aranmaz.", label: 'Multicast Threshold (%)', type: 'text', required: true, placeholder: '20', hint: 'Multicast trafik yüzde eşiği (0-100)' },
                         { name: 'uc_pct', why: "Unknown unicast flood'u sınırlamak MAC tablosu taşmasında switch'i korur; ancak eşik çok düşükse sessiz kalan sunuculara giden ilk paketler düşer ve bağlantılar rastgele yavaş açılır.", label: 'Unknown Unicast Threshold (%)', type: 'text', optional: true, placeholder: '10', hint: 'Bilinmeyen unicast trafik eşiği (opsiyonel)' }

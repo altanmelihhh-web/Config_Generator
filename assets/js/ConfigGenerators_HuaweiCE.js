@@ -17,7 +17,7 @@ HuaweiCE.vlan = {
                     title: 'VLAN Kimliği',
                     icon: 'fas fa-id-card',
                     fields: [
-                        { name: 'vlan_id', why: "CloudEngine üzerinde VLAN önce <code>vlan X</code> ile oluşturulmadan porta atanamaz. M-LAG veya stack ortamında VLAN her iki peer cihazda da tanımlı olmalıdır; tek tarafta eksik VLAN, yük paylaşımı sırasında trafiğin yarısının sessizce düşmesine yol açar.", label: 'VLAN ID', type: 'number', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası', min: 1, max: 4094 },
+                        { name: 'vlan_id', why: "CloudEngine üzerinde VLAN önce <code>vlan X</code> ile oluşturulmadan porta atanamaz. M-LAG veya stack ortamında VLAN her iki peer cihazda da tanımlı olmalıdır; tek tarafta eksik VLAN, yük paylaşımı sırasında trafiğin yarısının sessizce düşmesine yol açar.", label: 'VLAN ID', type: 'number', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası', min: 1, max: 4094 },
                         { name: 'vlan_desc', why: "Açıklama boşluk içeremez ve <code>display vlan</code> çıktısındaki tek tanımlayıcıdır. Veri merkezinde yüzlerce VLAN arasında etiketsiz kalanlar, temizlik çalışmalarında yanlışlıkla silinen VLANlar haline gelir.", label: 'VLAN Açıklama', type: 'text', optional: true, placeholder: 'DATA_VLAN', hint: 'VLAN için açıklayıcı isim (boşluksuz)' }
                     ]
                 },
@@ -26,7 +26,7 @@ HuaweiCE.vlan = {
                     icon: 'fas fa-sitemap',
                     info: 'SVI tanımlanırsa Vlanif arayüzü oluşturulur ve inter-VLAN routing etkinleşir.',
                     fields: [
-                        { name: 'svi_ip', why: "SVI (Vlanif) adresi bu VLAN için gateway görevi görür; M-LAG çiftinde aynı IPyi iki cihaza vermek yerine VRRP veya anycast gateway kullanılmalıdır, aksi halde ARP tablosu sürekli çakışır. Boş bırakılırsa VLAN sadece L2 kalır.", label: 'SVI IP / Mask', type: 'text', optional: true, placeholder: '10.1.100.1 255.255.255.0', hint: 'Örn: 10.1.100.1 255.255.255.0 — boş bırakılırsa SVI oluşturulmaz' }
+                        { name: 'svi_ip', why: "SVI (Vlanif) adresi bu VLAN için gateway görevi görür; M-LAG çiftinde aynı IPyi iki cihaza vermek yerine VRRP veya anycast gateway kullanılmalıdır, aksi halde ARP tablosu sürekli çakışır. Boş bırakılırsa VLAN sadece L2 kalır.", label: 'SVI IP / Mask', type: 'text', validate: 'ip', optional: true, placeholder: '10.1.100.1 255.255.255.0', hint: 'Örn: 10.1.100.1 255.255.255.0 — boş bırakılırsa SVI oluşturulmaz' }
                     ]
                 },
                 {
@@ -95,7 +95,7 @@ HuaweiCE.ospf = {
                     icon: 'fas fa-ethernet',
                     fields: [
                         { name: 'networks', why: "CloudEngine üzerinde network satırı <b>wildcard maske</b> ile yazılır (<code>0.0.0.255</code>). VTEP Loopback adresi bu bildirime dahil edilmezse VXLAN tüneli hiç kurulmaz ve arıza EVPN sorunu sanılarak boş yere yanlış yerde aranır.", label: 'Network(ler)', type: 'text', required: true, placeholder: '10.1.0.0/24, 10.2.0.0/24', hint: 'CIDR formatında, virgülle ayırın — OSPF\'e dahil edilecek subnetler' },
-                        { name: 'lo_iface', why: "Loopback arayüzünde <code>silent-interface</code> kullanmak gereksiz Hello trafiğini engeller. Ancak yanlışlıkla bir underlay uplink arayüzünü silent yapmak o komşuluğu tamamen koparır ve fabric bir bacak kaybeder.", label: 'Loopback (silent)', type: 'text', optional: true, placeholder: 'LoopBack0', hint: 'OSPF Hello paketi gönderilmeyecek interface — genellikle Loopback' }
+                        { name: 'lo_iface', why: "Loopback arayüzünde <code>silent-interface</code> kullanmak gereksiz Hello trafiğini engeller. Ancak yanlışlıkla bir underlay uplink arayüzünü silent yapmak o komşuluğu tamamen koparır ve fabric bir bacak kaybeder.", label: 'Loopback (silent)', type: 'text', validate: 'iface', optional: true, placeholder: 'LoopBack0', hint: 'OSPF Hello paketi gönderilmeyecek interface — genellikle Loopback' }
                     ]
                 }
             ],
@@ -284,7 +284,7 @@ HuaweiCE.lacp = {
                             { value: 'access', label: 'Access — tek VLAN' },
                             { value: 'routed', label: 'Routed — Layer-3 (undo portswitch)' }
                         ]},
-                        { name: 'vlan_ip', why: "Eth-Trunk L2 modda VLAN taşır, L3 modda (<code>undo portswitch</code>) IP alır; ikisi aynı anda olmaz. Mod değişimi mevcut yapılandırmayı sildiği için üretim trafiği anında kesilir.", label: 'VLAN / IP', type: 'text', optional: true, placeholder: '10 20 100 veya 10.1.1.1 255.255.255.252', hint: 'Trunk: izin verilen VLAN\'lar | Access: VLAN ID | Routed: IP/mask' }
+                        { name: 'vlan_ip', why: "Eth-Trunk L2 modda VLAN taşır, L3 modda (<code>undo portswitch</code>) IP alır; ikisi aynı anda olmaz. Mod değişimi mevcut yapılandırmayı sildiği için üretim trafiği anında kesilir.", label: 'VLAN / IP', type: 'text', validate: 'ip', optional: true, placeholder: '10 20 100 veya 10.1.1.1 255.255.255.252', hint: 'Trunk: izin verilen VLAN\'lar | Access: VLAN ID | Routed: IP/mask' }
                     ]
                 }
             ],
@@ -348,7 +348,7 @@ HuaweiCE.mlag = {
                     icon: 'fas fa-network-wired',
                     info: 'Peer link, iki M-LAG switch arasındaki kontrol ve veri trafiği için kullanılır. Yüksek bant genişliği önerilir.',
                     fields: [
-                        { name: 'peer_link_po', why: "Peer-link M-LAG çiftinin kontrol ve senkronizasyon yoludur ve mutlaka yedekli (çok üyeli Eth-Trunk) olmalıdır. Peer-link koparsa split-brain oluşur: iki cihaz da aktif davranır, aynı MAC adresleri iki yerden duyurulur ve ağ kullanılamaz hale gelir.", label: 'Peer Link Port-Channel', type: 'text', required: true, placeholder: 'Eth-Trunk1', hint: 'Peer link olarak kullanılacak Eth-Trunk arayüzü' },
+                        { name: 'peer_link_po', why: "Peer-link M-LAG çiftinin kontrol ve senkronizasyon yoludur ve mutlaka yedekli (çok üyeli Eth-Trunk) olmalıdır. Peer-link koparsa split-brain oluşur: iki cihaz da aktif davranır, aynı MAC adresleri iki yerden duyurulur ve ağ kullanılamaz hale gelir.", label: 'Peer Link Port-Channel', type: 'text', validate: 'ip', required: true, placeholder: 'Eth-Trunk1', hint: 'Peer link olarak kullanılacak Eth-Trunk arayüzü' },
                         { name: 'local_ip', why: "Bu adres M-LAG keepalive (DAD) trafiği içindir ve peer-linkten <b>bağımsız</b> bir yol üzerinden gitmelidir. Aynı fiziksel yolu kullanırsa peer-link arızasında keepalive de kopar ve split-brain koruması devre dışı kalır.", label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Bu switch\'in M-LAG peer iletişim IP adresi' },
                         { name: 'peer_ip', why: "Karşı cihazın keepalive adresi doğru olmalı ve arada filtre bulunmamalıdır. Yanlış adres M-LAG kurulmuş gibi görünmesine ama split-brain tespitinin hiç çalışmamasına yol açar; arıza ancak gerçek bir kesinti anında ortaya çıkar.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'Karşı switch\'in M-LAG IP adresi' }
                     ]
@@ -391,7 +391,7 @@ HuaweiCE.bfd = {
                     fields: [
                         { name: 'peer_ip', why: "Karşı cihazda da eşleşen bir BFD oturumu tanımlanmalıdır; tek taraflı yapılandırma oturumu Down bırakır. BFD bir yönlendirme protokolüne bağlanmazsa arıza tespiti yapar ama hiçbir rotayı düşürmez, yani hiçbir işe yaramaz.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BFD oturumu kurulacak karşı cihaz IP adresi' },
                         { name: 'local_ip', why: "Kaynak adres karşı tarafın peer olarak beklediği adresle aynı olmalıdır; aksi halde paketler ulaşır ama oturum eşleşmez. Çok yollu spine-leaf ortamında kaynağı sabitlemek oturumun rastgele kopmasını önler.", label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Bu cihazın BFD source IP adresi' },
-                        { name: 'interface', why: "Tek hop BFD oturumu belirli bir fiziksel arayüze bağlanır; Eth-Trunk üzerinde tanımlamak yalnızca tüm üyeler düştüğünde tespit yapar, tek üye arızasını yakalamaz. Üye bazlı tespit için her fiziksel arayüzde ayrı oturum gerekir.", label: 'Interface', type: 'text', required: true, placeholder: '40GE1/0/1', hint: 'BFD oturumunun bağlı olduğu fiziksel arayüz' }
+                        { name: 'interface', why: "Tek hop BFD oturumu belirli bir fiziksel arayüze bağlanır; Eth-Trunk üzerinde tanımlamak yalnızca tüm üyeler düştüğünde tespit yapar, tek üye arızasını yakalamaz. Üye bazlı tespit için her fiziksel arayüzde ayrı oturum gerekir.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: '40GE1/0/1', hint: 'BFD oturumunun bağlı olduğu fiziksel arayüz' }
                     ]
                 },
                 {
@@ -462,7 +462,7 @@ HuaweiCE.qos = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'policy_name', why: "Policy yalnızca bir arayüze <code>traffic-policy ... inbound|outbound</code> ile uygulandığında etkindir. Uygulanmamış policy konfigürasyonda görünür ama hiçbir şey yapmaz; QoS sorunlarının en sık kök nedeni budur.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'POL-EDGE', hint: 'QoS policy adı — interface\'e uygulanacak' },
-                        { name: 'intf', why: "Yön kritiktir: darboğaz genellikle çıkış (outbound) yönündedir, inbound uygulanan shaping beklenen etkiyi vermez. Aynı arayüzde aynı yönde ikinci bir policy uygulanamaz, komut reddedilir.", label: 'Apply Interface', type: 'text', optional: true, placeholder: '40GE1/0/1', hint: 'Policy\'nin outbound yönde uygulanacağı arayüz — boş bırakılırsa uygulama satırı eklenmez' }
+                        { name: 'intf', why: "Yön kritiktir: darboğaz genellikle çıkış (outbound) yönündedir, inbound uygulanan shaping beklenen etkiyi vermez. Aynı arayüzde aynı yönde ikinci bir policy uygulanamaz, komut reddedilir.", label: 'Apply Interface', type: 'text', validate: 'iface', optional: true, placeholder: '40GE1/0/1', hint: 'Policy\'nin outbound yönde uygulanacağı arayüz — boş bırakılırsa uygulama satırı eklenmez' }
                     ]
                 }
             ],
@@ -556,7 +556,7 @@ HuaweiCE.evpnsymirb = {
                     icon: 'fas fa-layer-group',
                     fields: [
                         { name: 'vbdif_id', why: "Vbdif arayüzü bridge-domain için L3 gateway görevi görür ve BD numarasıyla eşleşmelidir. Yanlış numara, arayüzün hiçbir bridge-domain ile ilişkilendirilmemesine ve gateway trafiğinin sessizce düşmesine yol açar.", label: 'Vbdif ID', type: 'number', required: true, placeholder: '100', hint: 'Virtual Bridge-Domain Interface numarası — genellikle VLAN ID ile aynı' },
-                        { name: 'vlan_id', why: "VLAN, bridge-domain içinde <code>bind vlan</code> ile VNIya eşlenir; eşleme eksikse yerel trafik tünele hiç girmez. Symmetric IRB tasarımında bu VLAN tüm ilgili leaf cihazlarda tutarlı yapılandırılmalıdır.", label: 'VLAN ID', type: 'number', required: true, placeholder: '100', hint: 'VXLAN ile eşlenecek VLAN numarası', min: 1, max: 4094 },
+                        { name: 'vlan_id', why: "VLAN, bridge-domain içinde <code>bind vlan</code> ile VNIya eşlenir; eşleme eksikse yerel trafik tünele hiç girmez. Symmetric IRB tasarımında bu VLAN tüm ilgili leaf cihazlarda tutarlı yapılandırılmalıdır.", label: 'VLAN ID', type: 'number', validate: 'vlan', required: true, placeholder: '100', hint: 'VXLAN ile eşlenecek VLAN numarası', min: 1, max: 4094 },
                         { name: 'vni', why: "Symmetric IRBde L2 VNI yanında ayrı bir <b>L3 VNI</b> gerekir ve L3 VNI tüm leaf cihazlarda aynı olmalıdır. İkisini karıştırmak, aynı subnet içinde iletişimin çalışıp subnetler arası yönlendirmenin hiç çalışmamasına neden olur.", label: 'VNI', type: 'number', required: true, placeholder: '10100', hint: 'VXLAN Network Identifier — 1–16777215 arası', min: 1, max: 16777215 }
                     ]
                 },

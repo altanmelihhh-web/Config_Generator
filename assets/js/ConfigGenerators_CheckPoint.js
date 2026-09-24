@@ -92,7 +92,7 @@ CheckPoint.interface = {
                     icon: 'fas fa-ethernet',
                     showFor: ['single'],
                     fields: [
-                        { name: 'iface', why: "Gaia'da arayüz adları <code>eth0</code>, <code>eth1</code> biçimindedir. Yanlış arayüze IP vermek yönetim erişimini koparabilir.", label: 'Interface', type: 'text', required: true, placeholder: 'eth1', hint: 'Yapılandırılacak fiziksel arayüz adı' },
+                        { name: 'iface', why: "Gaia'da arayüz adları <code>eth0</code>, <code>eth1</code> biçimindedir. Yanlış arayüze IP vermek yönetim erişimini koparabilir.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'eth1', hint: 'Yapılandırılacak fiziksel arayüz adı' },
                         { name: 'iface_ip', why: "CIDR formatında (<code>10.0.0.1/24</code>). Gaia'da topoloji Management tarafından okunur; IP değişikliğinden sonra <b>gateway topolojisini yeniden çekmen</b> gerekir.", label: 'IP / Prefix (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında IP adresi (örn: 10.0.0.1/24)' },
                         { name: 'desc', why: "Arayüz açıklaması SmartConsole'da ve <code>show interfaces</code> çıktısında görünür. Hangi hatta bağlı olduğunu yazmak, arıza anında kablo takip etmekten çok daha hızlıdır.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN', hint: 'Interface yorumu (comments)' }
                     ]
@@ -103,7 +103,7 @@ CheckPoint.interface = {
                     showFor: ['bond'],
                     fields: [
                         { name: 'bond_id', why: "Bond arayüzü <code>bond0</code>, <code>bond1</code> olarak adlandırılır. Üye arayüzlerin üzerindeki IP'ler önce kaldırılmalıdır.", label: 'Bond ID', type: 'text', required: true, placeholder: 'bond0', hint: 'Bond arayüzü adı (örn: bond0)' },
-                        { name: 'bond_ip', why: "IP bond arayüzüne verilir, üyelere <b>değil</b>. Üye arayüzlerde IP kalırsa bond kurulmaz.", label: 'Bond IP / Prefix (CIDR)', type: 'text', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında bond IP adresi' },
+                        { name: 'bond_ip', why: "IP bond arayüzüne verilir, üyelere <b>değil</b>. Üye arayüzlerde IP kalırsa bond kurulmaz.", label: 'Bond IP / Prefix (CIDR)', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında bond IP adresi' },
                         { name: 'bond_m1', why: "Bond üyeleri karşı switch'te de aynı LACP/etherchannel grubunda olmalı. Tek taraflı yapılandırma STP döngüsüne yol açabilir.", label: 'Üye Interface 1', type: 'text', required: true, placeholder: 'eth1', hint: 'Bond grubuna eklenecek birinci arayüz' },
                         { name: 'bond_m2', why: "İkinci üye. Bond'un anlamı yedeklilik olduğundan üyeler <b>farklı fiziksel switch'lere</b> bağlanmalıdır; aynı switch'e bağlamak tek arıza noktasını korur.", label: 'Üye Interface 2', type: 'text', required: true, placeholder: 'eth2', hint: 'Bond grubuna eklenecek ikinci arayüz' },
                         { name: 'desc', why: "Arayüz açıklaması SmartConsole'da ve <code>show interfaces</code> çıktısında görünür. Hangi hatta bağlı olduğunu yazmak, arıza anında kablo takip etmekten çok daha hızlıdır.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN-BOND', hint: 'Interface yorumu (comments)' }
@@ -202,7 +202,7 @@ CheckPoint.ospf = {
                     title: 'Interface Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "Gaia'da arayüz adları <code>eth0</code>, <code>eth1</code> biçimindedir. Yanlış arayüze IP vermek yönetim erişimini koparabilir.", label: 'Interface', type: 'text', required: true, placeholder: 'eth1', hint: 'OSPF etkinleştirilecek fiziksel arayüz adı' }
+                        { name: 'iface', why: "Gaia'da arayüz adları <code>eth0</code>, <code>eth1</code> biçimindedir. Yanlış arayüze IP vermek yönetim erişimini koparabilir.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'eth1', hint: 'OSPF etkinleştirilecek fiziksel arayüz adı' }
                     ]
                 }
             ],
@@ -250,7 +250,7 @@ CheckPoint.policy = {
                     icon: 'fas fa-desktop',
                     fields: [
                         { name: 'host_name', why: "Nesne adı SmartConsole'da benzersiz olmalı. Tutarlı isimlendirme (<code>SRV_WEB_01</code>) 500 nesneli bir veritabanında aranabilirliği belirler.", label: 'Host Adı', type: 'text', required: true, placeholder: 'WebServer-01', hint: 'SmartConsole\'da oluşturulacak nesne adı' },
-                        { name: 'host_ip', why: 'Tek IP. Aynı IP için iki nesne oluşturmak, kural analizinde karışıklığa ve yanlış eşleşmeye yol açar.', label: 'Host IP', type: 'text', required: true, placeholder: '10.1.2.10', hint: 'Sunucunun IP adresi' }
+                        { name: 'host_ip', why: 'Tek IP. Aynı IP için iki nesne oluşturmak, kural analizinde karışıklığa ve yanlış eşleşmeye yol açar.', label: 'Host IP', type: 'text', validate: 'ip', required: true, placeholder: '10.1.2.10', hint: 'Sunucunun IP adresi' }
                     ]
                 },
                 {
@@ -527,7 +527,7 @@ CheckPoint.netobj = {
                     icon: 'fas fa-network-wired',
                     fields: [
                         { name: 'name', why: "Nesne adı SmartConsole veritabanında benzersiz olmalı. Tutarlı isimlendirme (<code>SRV_WEB_01</code>) 500 nesneli bir kurulumda aranabilirliği belirler.", label: 'Nesne Adı', type: 'text', required: true, placeholder: 'NET-DMZ', hint: 'SmartConsole\'da görünecek nesne adı' },
-                        { name: 'subnet', why: 'Ağ nesnesi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet', type: 'text', required: true, placeholder: '192.168.2.0', hint: 'Ağ adresi (host bitleri sıfır olmalı)' },
+                        { name: 'subnet', why: 'Ağ nesnesi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet', type: 'text', validate: 'subnet', required: true, placeholder: '192.168.2.0', hint: 'Ağ adresi (host bitleri sıfır olmalı)' },
                         { name: 'mask', why: "Ağ maskesi. Çok geniş tanımlamak kuralı istemeden komşu segmentlere de açar.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0 → /24)' },
                         { name: 'color', why: "SmartConsole'da nesne rengi. Kurumsal renk şeması (ör. kırmızı=DMZ, yeşil=LAN) büyük kural listelerinde hata oranını gözle görülür azaltır.", label: 'Renk', type: 'select', options: [
                             { value: 'green', label: 'green', selected: true },
@@ -641,8 +641,8 @@ CheckPoint.clusterxl = {
                             { value: 'Load Sharing Multicast', label: 'Load Sharing Multicast' }
                         ], hint: 'ClusterXL çalışma modu', badge: { text: 'Yüksek Erişilebilirlik', cls: 'recommended' } },
                         { name: 'cluster_ip', why: "Sanal cluster IP'si — istemcilerin gördüğü adres budur. Üye IP'lerinden farklı olmalı ve aynı subnet'te bulunmalı.", label: 'Cluster IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'Sanal cluster IP adresi (VIP)' },
-                        { name: 'cluster_intf', why: "Cluster IP'sinin bulunacağı arayüz. Bu arayüz iki üyede de <b>aynı isimde</b> olmalı, aksi halde ClusterXL topoloji uyuşmazlığı verir.", label: 'Cluster Interface', type: 'text', required: true, placeholder: 'eth0', hint: 'Cluster trafiğini taşıyan fiziksel arayüz' },
-                        { name: 'sync_intf', why: "Senkronizasyon arayüzü üyeler arasında <b>doğrudan</b> (switch üzerinden değil) bağlanmalıdır. Sync kopması split-brain'e yol açar.", label: 'Sync Interface', type: 'text', required: true, placeholder: 'eth1', hint: 'State senkronizasyon trafiği için arayüz' }
+                        { name: 'cluster_intf', why: "Cluster IP'sinin bulunacağı arayüz. Bu arayüz iki üyede de <b>aynı isimde</b> olmalı, aksi halde ClusterXL topoloji uyuşmazlığı verir.", label: 'Cluster Interface', type: 'text', validate: 'iface', required: true, placeholder: 'eth0', hint: 'Cluster trafiğini taşıyan fiziksel arayüz' },
+                        { name: 'sync_intf', why: "Senkronizasyon arayüzü üyeler arasında <b>doğrudan</b> (switch üzerinden değil) bağlanmalıdır. Sync kopması split-brain'e yol açar.", label: 'Sync Interface', type: 'text', validate: 'iface', required: true, placeholder: 'eth1', hint: 'State senkronizasyon trafiği için arayüz' }
                     ]
                 },
                 {
@@ -697,9 +697,9 @@ CheckPoint.vsx = {
                     fields: [
                         { name: 'vs_name', why: "VSX'te her Virtual System bağımsız bir firewall gibi davranır; ayrı policy ve ayrı routing tablosu tutar.", label: 'VS Adı', type: 'text', required: true, placeholder: 'VS-CUSTOMER1', hint: 'SmartConsole\'da görünecek virtual system adı' },
                         { name: 'vs_id', why: "VS ID benzersiz olmalı. Silinen bir VS'in ID'si yeniden kullanılabilir ama önce tam temizlik gerekir.", label: 'VS ID', type: 'text', required: true, placeholder: '1', hint: 'Virtual system benzersiz kimlik numarası (VSID)' },
-                        { name: 'vs_intf', why: "Virtual System'in kullanacağı arayüz. VSX'te arayüzler VS'ler arasında paylaşılabilir ama VLAN ile ayrılmaları gerekir.", label: 'VS Interface', type: 'text', required: true, placeholder: 'bond0.100', hint: 'Virtual system\'e atanacak arayüz (örn: bond0.100)' },
+                        { name: 'vs_intf', why: "Virtual System'in kullanacağı arayüz. VSX'te arayüzler VS'ler arasında paylaşılabilir ama VLAN ile ayrılmaları gerekir.", label: 'VS Interface', type: 'text', validate: 'iface', required: true, placeholder: 'bond0.100', hint: 'Virtual system\'e atanacak arayüz (örn: bond0.100)' },
                         { name: 'vs_ip', why: "VS'in arayüz IP'si. Her VS bağımsız routing tablosu tuttuğundan, farklı VS'lerde <b>aynı IP</b> kullanılabilir — bu VSX'in temel avantajıdır.", label: 'VS IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1', hint: 'Virtual system ana IP adresi' },
-                        { name: 'vs_mask', why: "CIDR uzunluğu. VS'ler arası trafik Virtual Router üzerinden geçer; doğrudan değil.", label: 'Mask Length (CIDR)', type: 'text', required: true, placeholder: '24', hint: 'Prefix uzunluğu (örn: 24 → /24)' }
+                        { name: 'vs_mask', why: "CIDR uzunluğu. VS'ler arası trafik Virtual Router üzerinden geçer; doğrudan değil.", label: 'Mask Length (CIDR)', type: 'text', validate: 'subnet', required: true, placeholder: '24', hint: 'Prefix uzunluğu (örn: 24 → /24)' }
                     ]
                 }
             ],

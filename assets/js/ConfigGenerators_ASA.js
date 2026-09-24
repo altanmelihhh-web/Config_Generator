@@ -17,22 +17,22 @@ CiscoASA.interface = {
                     title: 'Outside (WAN)',
                     icon: 'fas fa-globe',
                     fields: [
-                        { name: 'out_iface', why: "Buraya fiziksel arayüz adı birebir doğru yazılmalı; yanlış slot/port girilirse komut başka bir arayüzü yapılandırır ve WAN sessizce kopar. Switch tarafı trunk ise <code>GigabitEthernet0/0.100</code> gibi alt arayüz + <code>vlan</code> tanımı gerekir.", label: 'Interface Adı', type: 'text', required: true, placeholder: 'GigabitEthernet0/0', hint: 'Fiziksel interface adı' },
+                        { name: 'out_iface', why: "Buraya fiziksel arayüz adı birebir doğru yazılmalı; yanlış slot/port girilirse komut başka bir arayüzü yapılandırır ve WAN sessizce kopar. Switch tarafı trunk ise <code>GigabitEthernet0/0.100</code> gibi alt arayüz + <code>vlan</code> tanımı gerekir.", label: 'Interface Adı', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0', hint: 'Fiziksel interface adı' },
                         { name: 'out_nameif', why: "<code>nameif</code> atanmayan arayüz ASA için <b>yok hükmündedir</b>: ne route, ne ACL, ne NAT ona referans verebilir. Sonradan nameif değiştirmek ise o ada bağlı tüm ACL, NAT ve route satırlarını sessizce siler.", label: 'Nameif', type: 'text', required: true, placeholder: 'outside', hint: 'Mantıksal interface adı (nameif)' },
                         { name: 'out_sec', why: "Outside için <b>0</b> standarttır. ASA yüksek seviyeden düşüğe trafiğe varsayılan olarak izin verir, düşükten yükseğe ise engeller; bu yüzden dışarıdan içeriye her akış için ayrıca ACL yazmanız gerekir.", label: 'Security Level', type: 'text', required: true, placeholder: '0', hint: '0 = en az güvenilir (dış ağ)' },
                         { name: 'out_ip', why: "WAN IP yanlışsa default route ve VPN peer eşleşmesi birlikte bozulur. ISP adresi DHCP/PPPoE veriyorsa statik IP yerine <code>ip address dhcp setroute</code> kullanılmalı, yoksa ASA hiç çıkış yapamaz.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'WAN IP adresi' },
-                        { name: 'out_mask', why: "Maske ISP bloğundan farklıysa next-hop aynı subnette görünmez ve statik default route <b>invalid</b> kalarak route tablosuna hiç girmez. Point-to-point WAN linklerinde genelde <code>255.255.255.252</code> kullanılır.", label: 'Subnet Mask', type: 'text', required: true, placeholder: '255.255.255.252', hint: 'Subnet maskesi' }
+                        { name: 'out_mask', why: "Maske ISP bloğundan farklıysa next-hop aynı subnette görünmez ve statik default route <b>invalid</b> kalarak route tablosuna hiç girmez. Point-to-point WAN linklerinde genelde <code>255.255.255.252</code> kullanılır.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.252', hint: 'Subnet maskesi' }
                     ]
                 },
                 {
                     title: 'Inside (LAN)',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'in_iface', why: "İç arayüzün fiziksel adı yanlışsa LAN gateway hiç ayağa kalkmaz ve tüm kullanıcılar internete çıkamaz. Trunk bağlantılarda alt arayüz ve VLAN etiketi şarttır.", label: 'Interface Adı', type: 'text', required: true, placeholder: 'GigabitEthernet0/1', hint: 'Fiziksel interface adı' },
+                        { name: 'in_iface', why: "İç arayüzün fiziksel adı yanlışsa LAN gateway hiç ayağa kalkmaz ve tüm kullanıcılar internete çıkamaz. Trunk bağlantılarda alt arayüz ve VLAN etiketi şarttır.", label: 'Interface Adı', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/1', hint: 'Fiziksel interface adı' },
                         { name: 'in_nameif', why: "Pek çok ASA varsayılanı <code>inside</code> adını referans alır (örn. <code>management-access inside</code>). Farklı bir ad verirseniz NAT, ACL ve route satırlarının tamamında bu yeni adı tutarlı kullanmak zorundasınız.", label: 'Nameif', type: 'text', required: true, placeholder: 'inside', hint: 'Mantıksal interface adı (nameif)' },
                         { name: 'in_sec', why: "Inside için <b>100</b> verilir; böylece içeriden dışarıya trafik ACL olmadan geçer. İki arayüz aynı seviyedeyse aralarındaki trafik <code>same-security-traffic permit inter-interface</code> yazılmadan <b>hiç</b> geçmez.", label: 'Security Level', type: 'text', required: true, placeholder: '100', hint: '100 = en güvenilir (iç ağ)' },
                         { name: 'in_ip', why: "Bu adres LAN istemcilerinin default gateway değeridir ve DHCP kapsamındaki gateway ile birebir aynı olmalıdır. Uyuşmazlık tüm iç ağın internete çıkamamasına yol açar.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'LAN gateway IP adresi' },
-                        { name: 'in_mask', why: "Maske dar verilirse LAN’ın bir bölümü gateway’e ulaşamaz; geniş verilirse başka bir VLAN ile çakışıp asimetrik yönlendirme ve kopan oturumlar oluşur.", label: 'Subnet Mask', type: 'text', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi' }
+                        { name: 'in_mask', why: "Maske dar verilirse LAN’ın bir bölümü gateway’e ulaşamaz; geniş verilirse başka bir VLAN ile çakışıp asimetrik yönlendirme ve kopan oturumlar oluşur.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi' }
                     ]
                 }
             ],
@@ -168,7 +168,7 @@ CiscoASA.acl = {
                     title: 'Interface Uygulaması',
                     icon: 'fas fa-plug',
                     fields: [
-                        { name: 'apply_iface', why: "Bir ACL, <code>access-group</code> ile arayüze bağlanmadıkça hiçbir etkisi olmaz. Yazılmış ama bağlanmamış ACL, ASA’da en sık görülen sessiz hatadır.", label: 'Uygulama Interface (Nameif)', type: 'text', optional: true, placeholder: 'outside', hint: 'ACL bağlanacak interface (boş bırakılabilir)' },
+                        { name: 'apply_iface', why: "Bir ACL, <code>access-group</code> ile arayüze bağlanmadıkça hiçbir etkisi olmaz. Yazılmış ama bağlanmamış ACL, ASA’da en sık görülen sessiz hatadır.", label: 'Uygulama Interface (Nameif)', type: 'text', validate: 'iface', optional: true, placeholder: 'outside', hint: 'ACL bağlanacak interface (boş bırakılabilir)' },
                         { name: 'direction', why: "Pratikte <b>in</b> kullanılır ve bir arayüze aynı yönde yalnızca <b>tek</b> ACL bağlanabilir; yeni bağlama eskisini uyarısızca devre dışı bırakır. Yön yanlış seçilirse kural dönüş trafiğine uygulanır ve stateful yapı bozulur.", label: 'Yön', type: 'select', options: [
                             { value: 'in', label: 'in', selected: true },
                             { value: 'out', label: 'out' }
@@ -213,7 +213,7 @@ CiscoASA.vpn = {
                     title: 'Tunnel Parametreleri',
                     icon: 'fas fa-tunnel',
                     fields: [
-                        { name: 'outside_iface', why: "Crypto map <code>crypto map MAP interface outside</code> ile bu arayüze bağlanmazsa tünel hiç kurulmaz. Ayrıca IKE bu arayüzde açık olmalıdır (<code>crypto ikev2 enable outside</code>).", label: 'Outside Interface', type: 'text', required: true, placeholder: 'outside', hint: 'VPN bitişinin bağlı olduğu nameif' },
+                        { name: 'outside_iface', why: "Crypto map <code>crypto map MAP interface outside</code> ile bu arayüze bağlanmazsa tünel hiç kurulmaz. Ayrıca IKE bu arayüzde açık olmalıdır (<code>crypto ikev2 enable outside</code>).", label: 'Outside Interface', type: 'text', validate: 'iface', required: true, placeholder: 'outside', hint: 'VPN bitişinin bağlı olduğu nameif' },
                         { name: 'peer_ip', why: "Peer, karşı tarafın gerçek dış IP adresi olmalıdır; NAT arkasındaysa NAT-T ve <b>UDP/4500</b> trafiğinin açık olması gerekir. Yanlış peer IP’sinde Phase-1 hiç başlamaz.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.2', hint: 'Uzak VPN endpoint IP adresi' },
                         { name: 'psk', why: "PSK iki tarafta birebir aynı olmalı; en ufak fark Phase-1’in <b>MM_WAIT_MSG</b> durumunda takılmasına yol açar. Zayıf PSK yakalanan IKE paketlerinden çevrimdışı kırılabildiği için uzun ve rastgele seçilmelidir.", label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'MyS3cr3tKey!', hint: 'Paylaşılan gizli anahtar' }
                     ]
@@ -392,7 +392,7 @@ CiscoASA.routeMap = {
                         { name: 'acl_match', why: "PBR yalnızca bu ACL’de <b>permit</b> edilen trafiğe uygulanır; deny satırları PBR dışında kalıp normal route tablosuna düşer. Bu mantığı ters kurmak beklenmedik yönlendirmeye yol açar.", label: 'Match ACL Adı', type: 'text', optional: true, placeholder: 'PBR_ACL', hint: 'Eşleşme kriteri olarak kullanılacak ACL' },
                         { name: 'src_net', why: "PBR kapsamı fazla geniş tutulursa yönetim veya VPN trafiği de ikinci çıkışa kaçar ve mevcut oturumlar kopar. Kapsamı mümkün olan en dar subnetle sınırlayın.", label: 'Kaynak Network (ACL)', type: 'text', optional: true, placeholder: '192.168.10.0 255.255.255.0', hint: 'PBR uygulanacak kaynak ağ' },
                         { name: 'pbr_nexthop', why: "PBR next-hop erişilemez hale gelirse trafik <b>kara deliğe</b> düşebilir, çünkü PBR normal route tablosunu atlar. Yedekli tasarımda <code>set ip next-hop verify-availability</code> ile SLA izleme ekleyin.", label: 'PBR Next-Hop IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.254', hint: 'Eşleşen trafiğin yönlendirileceği IP' },
-                        { name: 'pbr_iface', why: "PBR, trafiğin <b>girdiği</b> arayüze uygulanır; çıkış arayüzüne uygulamak hiçbir etki yaratmaz. PBR çalışmıyor şikayetlerinin büyük kısmı bu hatadan kaynaklanır.", label: 'PBR Interface (Nameif)', type: 'text', optional: true, placeholder: 'inside', hint: 'Route-map uygulanacak interface' }
+                        { name: 'pbr_iface', why: "PBR, trafiğin <b>girdiği</b> arayüze uygulanır; çıkış arayüzüne uygulamak hiçbir etki yaratmaz. PBR çalışmıyor şikayetlerinin büyük kısmı bu hatadan kaynaklanır.", label: 'PBR Interface (Nameif)', type: 'text', validate: 'iface', optional: true, placeholder: 'inside', hint: 'Route-map uygulanacak interface' }
                     ]
                 }
             ],
@@ -448,7 +448,7 @@ CiscoASA.mpfServicePolicy = {
                         { name: 'class_acl', why: "Sınıf bu ACL ile eşleşir; ACL’de deny olan trafik sınıfa <b>girmez</b> ve varsayılan global politikaya düşer. Yani deny burada engelleme değil kapsam dışı bırakma anlamına gelir.", label: 'Match ACL Adı', type: 'text', required: true, placeholder: 'HTTP_ACL', hint: 'Eşleşme kriteri ACL adı' },
                         { name: 'match_src', why: "Kaynak fazla geniş (<code>any</code>) bırakılırsa inspect/QoS tüm trafiğe uygulanır ve CPU beklenmedik şekilde yükselir. Kapsamı daraltmak hem performans hem öngörülebilirlik sağlar.", label: 'Kaynak Network', type: 'text', required: true, placeholder: 'any', hint: 'Kaynak IP (any veya subnet mask formatı)' },
                         { name: 'match_dst', why: "Hedef tanımı NAT sonrası değil <b>gerçek</b> adrese göre yazılmalıdır. Yanlış yazılırsa sınıf hiç hit almaz ve <code>show service-policy</code> çıktısında sayaçlar sıfır kalır.", label: 'Hedef Network', type: 'text', required: true, placeholder: 'any', hint: 'Hedef IP (any veya subnet mask formatı)' },
-                        { name: 'match_port', why: "Port <code>eq 80</code> biçiminde yazılır. Uygulama standart dışı bir portta çalışıyorsa inspect devreye girmez; bu durumda protokolü o porta açıkça eşlemeniz gerekir.", label: 'Hedef Port', type: 'text', optional: true, placeholder: 'eq 80', hint: 'Eşleştirilecek port (ör: eq 80)' }
+                        { name: 'match_port', why: "Port <code>eq 80</code> biçiminde yazılır. Uygulama standart dışı bir portta çalışıyorsa inspect devreye girmez; bu durumda protokolü o porta açıkça eşlemeniz gerekir.", label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: 'eq 80', hint: 'Eşleştirilecek port (ör: eq 80)' }
                     ]
                 },
                 {
@@ -476,7 +476,7 @@ CiscoASA.mpfServicePolicy = {
                             { value: 'global', label: 'Global (tüm interface)', selected: true },
                             { value: 'interface', label: 'Belirli Interface' }
                         ]},
-                        { name: 'sp_iface', why: "Arayüz bazlı uygulama global politikayı o arayüzde tamamen devre dışı bırakır; yani mevcut varsayılan inspect’leri de kaybedersiniz. Gerekli inspect satırlarını yeni politikaya elle eklemelisiniz.", label: 'Interface (Nameif)', type: 'text', optional: true, placeholder: 'outside', hint: 'Belirli interface seçiliyse nameif girin' }
+                        { name: 'sp_iface', why: "Arayüz bazlı uygulama global politikayı o arayüzde tamamen devre dışı bırakır; yani mevcut varsayılan inspect’leri de kaybedersiniz. Gerekli inspect satırlarını yeni politikaya elle eklemelisiniz.", label: 'Interface (Nameif)', type: 'text', validate: 'iface', optional: true, placeholder: 'outside', hint: 'Belirli interface seçiliyse nameif girin' }
                     ]
                 }
             ],
@@ -532,7 +532,7 @@ CiscoASA.failoverHA = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'fo_key', why: "Failover anahtarı iki cihazda aynı olmalıdır; yoksa eşleşme kurulmaz ve her iki ASA da kendini <b>active</b> sanarak ağda IP/MAC çakışması yaratır. Anahtar ayrıca config senkronizasyonunu şifreler.", label: 'Failover Key', type: 'text', required: true, placeholder: 'FoSecretKey123', hint: 'Failover iletişim şifreleme anahtarı' },
-                        { name: 'fo_iface', why: "Failover link ayrı ve adanmış bir arayüz olmalı, veri trafiği ile paylaşılmamalıdır. Link koparsa split-brain oluşur ve her iki cihaz aynı anda aktif olur.", label: 'Failover Link Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/3', hint: 'Failover kontrolü için kullanılan interface' },
+                        { name: 'fo_iface', why: "Failover link ayrı ve adanmış bir arayüz olmalı, veri trafiği ile paylaşılmamalıdır. Link koparsa split-brain oluşur ve her iki cihaz aynı anda aktif olur.", label: 'Failover Link Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/3', hint: 'Failover kontrolü için kullanılan interface' },
                         { name: 'fo_iface_nameif', why: "Failover arayüzüne verilen ad yalnızca failover için kullanılır; bu arayüze ACL veya NAT bağlamayın. Ad iki cihazda tutarlı olmalıdır.", label: 'Failover Link Nameif', type: 'text', required: true, placeholder: 'failover', hint: 'Failover interface mantıksal adı' }
                     ]
                 },
@@ -544,7 +544,7 @@ CiscoASA.failoverHA = {
                         { name: 'active_ip', why: "Failover link üzerindeki aktif cihazın IP’si. Standby IP ile aynı subnette olmalı, aksi halde iki ASA birbirini hiç göremez ve senkronizasyon başlamaz.", label: 'Aktif Cihaz IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.1', hint: 'Failover link — aktif ASA IP' },
                         { name: 'standby_ip', why: "Standby adresi yalnızca failover için ayrılmıştır ve ağda başka bir cihaza verilmemelidir. Çakışma, rol değişimlerinde öngörülemeyen kopmalara yol açar.", label: 'Standby Cihaz IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.2', hint: 'Failover link — standby ASA IP' },
                         { name: 'fo_mask', why: "Failover linki genelde /30 bir point-to-point ağdır. Maske hatası iki cihazın birbirini komşu görememesine ve sürekli rol yarışına neden olur.", label: 'Subnet Mask', type: 'text', validate: 'subnet', optional: true, placeholder: '255.255.255.252', hint: 'Failover link subnet maskesi' },
-                        { name: 'state_iface', why: "Stateful link olmadan failover çalışır ama devralma anında <b>tüm mevcut oturumlar düşer</b>; kullanıcılar kopma yaşar. Yoğun ortamlarda ayrı bir stateful link şarttır.", label: 'State Link Interface', type: 'text', optional: true, placeholder: 'GigabitEthernet0/2', hint: 'Session state senkronizasyon interface' },
+                        { name: 'state_iface', why: "Stateful link olmadan failover çalışır ama devralma anında <b>tüm mevcut oturumlar düşer</b>; kullanıcılar kopma yaşar. Yoğun ortamlarda ayrı bir stateful link şarttır.", label: 'State Link Interface', type: 'text', validate: 'iface', optional: true, placeholder: 'GigabitEthernet0/2', hint: 'Session state senkronizasyon interface' },
                         { name: 'state_active_ip', why: "State link IP’si failover link ile aynı subnette olmamalıdır; ikisi ayrı L2 segmentlerde tutulursa tek bir kablo arızası her ikisini birden düşürmez.", label: 'State Link Aktif IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.1.1', hint: 'State link — aktif IP' },
                         { name: 'state_standby_ip', why: "Standby tarafındaki state adresi; yanlış girilirse oturum tablosu hiç kopyalanmaz ve failover sonrası bağlantılar sıfırdan kurulur.", label: 'State Link Standby IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.1.2', hint: 'State link — standby IP' },
                         { name: 'state_mask', why: "State linki genelde /30’dur. Maske uyuşmazlığı senkronizasyonun sessizce çalışmamasına yol açar — <code>show failover state</code> ile doğrulayın.", label: 'State Link Mask', type: 'text', validate: 'subnet', optional: true, placeholder: '255.255.255.252', hint: 'State link subnet maskesi' }
@@ -620,7 +620,7 @@ CiscoASA.aaaRadius = {
                     icon: 'fas fa-server',
                     fields: [
                         { name: 'grp_name', why: "Server-group adı SSH, ASDM ve VPN satırlarının tamamında referans verilir; ad değişikliği bu satırların hepsini birden kırar ve kimlik doğrulama sessizce atlanabilir.", label: 'Server Group Adı', type: 'text', required: true, placeholder: 'RADIUS-SERVERS', hint: 'AAA server-group tanımı için isim' },
-                        { name: 'rad_iface', why: "RADIUS trafiği bu arayüzden çıkar; yanlış arayüz seçilirse paketler sunucuya hiç ulaşmaz ve her giriş timeout’a düşer. Sunucu tarafında da ASA’nın bu arayüz IP’si NAS client olarak tanımlı olmalıdır.", label: 'Bağlantı Interface (Nameif)', type: 'text', required: true, placeholder: 'inside', hint: 'RADIUS sunucusuna erişim interface' }
+                        { name: 'rad_iface', why: "RADIUS trafiği bu arayüzden çıkar; yanlış arayüz seçilirse paketler sunucuya hiç ulaşmaz ve her giriş timeout’a düşer. Sunucu tarafında da ASA’nın bu arayüz IP’si NAS client olarak tanımlı olmalıdır.", label: 'Bağlantı Interface (Nameif)', type: 'text', validate: 'iface', required: true, placeholder: 'inside', hint: 'RADIUS sunucusuna erişim interface' }
                     ]
                 },
                 {
@@ -726,7 +726,7 @@ CiscoASA.ospf = {
                     title: 'Interface OSPF Parametreleri',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "OSPF’in bu arayüzde gerçekten açıldığını <code>show ospf interface</code> ile doğrulayın. Arayüz security-level veya ACL nedeniyle OSPF çoklu yayınını engelliyorsa komşuluk hiç kurulmaz.", label: 'Interface (Nameif)', type: 'text', required: true, placeholder: 'inside', hint: 'OSPF etkinleştirilecek interface nameif' },
+                        { name: 'iface', why: "OSPF’in bu arayüzde gerçekten açıldığını <code>show ospf interface</code> ile doğrulayın. Arayüz security-level veya ACL nedeniyle OSPF çoklu yayınını engelliyorsa komşuluk hiç kurulmaz.", label: 'Interface (Nameif)', type: 'text', validate: 'iface', required: true, placeholder: 'inside', hint: 'OSPF etkinleştirilecek interface nameif' },
                         { name: 'cost', why: "Cost, yol seçimini doğrudan belirler ve yalnızca bir tarafta değiştirmek asimetrik yönlendirmeye yol açar — stateful firewall için bu kopan oturum demektir. Her iki uçta tutarlı planlayın.", label: 'OSPF Cost', type: 'text', optional: true, placeholder: '10', hint: 'Interface OSPF metrik değeri' }
                     ]
                 }

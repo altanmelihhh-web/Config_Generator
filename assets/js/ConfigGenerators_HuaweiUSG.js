@@ -16,16 +16,16 @@ HuaweiUSG.zone = {
                     title: 'Trust Zone',
                     icon: 'fas fa-lock',
                     fields: [
-                        { name: 'trust_iface', why: "USG üzerinde bir arayüz <b>security zone</b> içine alınmadan üzerinden hiçbir trafik geçmez; IP verilmiş ve up durumda olsa bile paketler sessizce düşer. Bu, Huawei güvenlik duvarlarında en sık yapılan ve teşhisi en çok geciken hatadır.", label: 'Trust Zone Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Trust zone\'a atanacak interface adı' },
-                        { name: 'trust_ip', why: "IP ve maske <b>boşlukla</b> ayrılmış yazılır (<code>10.1.1.1 255.255.255.0</code>), CIDR kabul edilmez. Yanlış subnet verildiğinde iç istemciler gateway olarak cihazı göremez ve arıza politika sorunu sanılır.", label: 'Trust IP / Mask', type: 'text', required: true, placeholder: '192.168.1.1 255.255.255.0', hint: 'IP adresi ve subnet mask (boşlukla ayrılmış)' }
+                        { name: 'trust_iface', why: "USG üzerinde bir arayüz <b>security zone</b> içine alınmadan üzerinden hiçbir trafik geçmez; IP verilmiş ve up durumda olsa bile paketler sessizce düşer. Bu, Huawei güvenlik duvarlarında en sık yapılan ve teşhisi en çok geciken hatadır.", label: 'Trust Zone Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Trust zone\'a atanacak interface adı' },
+                        { name: 'trust_ip', why: "IP ve maske <b>boşlukla</b> ayrılmış yazılır (<code>10.1.1.1 255.255.255.0</code>), CIDR kabul edilmez. Yanlış subnet verildiğinde iç istemciler gateway olarak cihazı göremez ve arıza politika sorunu sanılır.", label: 'Trust IP / Mask', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1 255.255.255.0', hint: 'IP adresi ve subnet mask (boşlukla ayrılmış)' }
                     ]
                 },
                 {
                     title: 'Untrust Zone',
                     icon: 'fas fa-globe',
                     fields: [
-                        { name: 'untrust_iface', why: "Untrust zone varsayılan olarak en düşük önceliğe sahiptir; WAN arayüzünü yanlışlıkla trust içine almak, internetten gelen trafiğin yüksek öncelikli bölgeden geliyormuş gibi değerlendirilmesine ve güvenlik modelinin tamamen çökmesine yol açar.", label: 'Untrust Zone Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'Untrust zone\'a atanacak interface adı (WAN tarafı)' },
-                        { name: 'untrust_ip', why: "WAN adresi ISPnin verdiğiyle aynı olmalıdır; ayrıca bu adres NAT ve IPSec yapılandırmalarında da referans alınır. Değiştiğinde NAT Server ve VPN peer tanımlarını güncellemezseniz dışarıdan erişim ve tüneller sessizce kopar.", label: 'Untrust IP / Mask', type: 'text', required: true, placeholder: '203.0.113.1 255.255.255.252', hint: 'WAN IP adresi ve subnet mask' }
+                        { name: 'untrust_iface', why: "Untrust zone varsayılan olarak en düşük önceliğe sahiptir; WAN arayüzünü yanlışlıkla trust içine almak, internetten gelen trafiğin yüksek öncelikli bölgeden geliyormuş gibi değerlendirilmesine ve güvenlik modelinin tamamen çökmesine yol açar.", label: 'Untrust Zone Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'Untrust zone\'a atanacak interface adı (WAN tarafı)' },
+                        { name: 'untrust_ip', why: "WAN adresi ISPnin verdiğiyle aynı olmalıdır; ayrıca bu adres NAT ve IPSec yapılandırmalarında da referans alınır. Değiştiğinde NAT Server ve VPN peer tanımlarını güncellemezseniz dışarıdan erişim ve tüneller sessizce kopar.", label: 'Untrust IP / Mask', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1 255.255.255.252', hint: 'WAN IP adresi ve subnet mask' }
                     ]
                 }
             ],
@@ -116,7 +116,7 @@ HuaweiUSG.nat = {
                     icon: 'fas fa-network-wired',
                     showFor: ['easyip'],
                     fields: [
-                        { name: 'out_iface', why: "NAT çıkış arayüzü yanlışsa iç adresler çevrilmeden WAN tarafına çıkar ve ISP tarafında düşürülür; arıza internet kesintisi gibi görünür. Yedek WAN varsa her iki arayüz için ayrı NAT politikası gerekir.", label: 'Outbound Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'WAN tarafındaki çıkış interface\'i' },
+                        { name: 'out_iface', why: "NAT çıkış arayüzü yanlışsa iç adresler çevrilmeden WAN tarafına çıkar ve ISP tarafında düşürülür; arıza internet kesintisi gibi görünür. Yedek WAN varsa her iki arayüz için ayrı NAT politikası gerekir.", label: 'Outbound Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'WAN tarafındaki çıkış interface\'i' },
                         { name: 'acl_name', why: "USGde kaynak NAT bir <b>address-group</b> üzerinden çalışır; grup tanımlanmadan politikada referans verilirse NAT hiç uygulanmaz. Havuzdaki adres sayısı eşzamanlı oturum sayısını sınırlar, tek adres yoğun kullanımda port tükenmesine yol açar.", label: 'ACL / Address Group Adı', type: 'text', required: true, placeholder: 'LAN_TO_WAN', hint: 'NAT politikası için address group adı' },
                         { name: 'int_net', why: "İç ağ tanımı NATın hangi trafiği kapsadığını belirler; fazla geniş yazmak VPN tüneline gitmesi gereken trafiği de NATlayarak tünelin sessizce boş kalmasına neden olur. IPSec ile birlikte kullanırken NAT muafiyeti şarttır.", label: 'İç Network', type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'NAT uygulanacak iç ağ (IP mask formatında)' }
                     ]
@@ -499,7 +499,7 @@ HuaweiUSG.ha = {
                     fields: [
                         { name: 'local_ip', why: "HRP heartbeat adresi üretim trafiğinden ayrı bir bağlantıda olmalıdır. Heartbeat koparsa iki cihaz da kendini aktif sanar (split-brain), aynı IP adresleri iki yerde duyurulur ve ağ kullanılamaz hale gelir.", label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Bu cihazın HRP heartbeat arayüzü IP adresi' },
                         { name: 'peer_ip', why: "Karşı cihazın heartbeat adresi doğru olmalı ve arada başka bir cihaz veya filtre bulunmamalıdır. Yanlış adres HA kurulmuş gibi görünmesine ama senkronizasyonun hiç çalışmamasına yol açar; yedek cihaz oturum tablosu boş kalır.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'Karşı cihazın HRP heartbeat IP adresi' },
-                        { name: 'heartbeat_intf', why: "Heartbeat arayüzü doğrudan kablo ile bağlanmalı ve bu arayüz güvenlik politikalarından etkilenmemelidir. Switch üzerinden geçiriliyorsa o switchin arızası aynı anda her iki güvenlik duvarını da kararsız hale getirir.", label: 'Heartbeat Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'HA heartbeat trafiği için kullanılacak interface' }
+                        { name: 'heartbeat_intf', why: "Heartbeat arayüzü doğrudan kablo ile bağlanmalı ve bu arayüz güvenlik politikalarından etkilenmemelidir. Switch üzerinden geçiriliyorsa o switchin arızası aynı anda her iki güvenlik duvarını da kararsız hale getirir.", label: 'Heartbeat Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'HA heartbeat trafiği için kullanılacak interface' }
                     ]
                 },
                 {

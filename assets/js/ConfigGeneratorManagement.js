@@ -15,17 +15,65 @@ const CG_VALIDATORS = {
     cidr:     { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/, msg: 'CIDR formatında girin (örn: 10.0.0.0/24)' },
     subnet:   { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli subnet mask girin (örn: 255.255.255.0)' },
     ip_cidr:  { fn: v => /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v) || /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/.test(v), msg: 'IP adresi veya CIDR (örn: 10.0.0.1 veya 10.0.0.0/24)' },
-    vlan:     { fn: v => { const n = parseInt(v); return !isNaN(n) && n >= 1 && n <= 4094; }, msg: 'VLAN ID 1-4094 arasında olmalı' },
+    vlan:     { fn: v => _cgInt(v, 1, 4094), msg: 'VLAN ID 1-4094 arasında olmalı' },
     asn:      { fn: v => { const n = parseInt(v); return (!isNaN(n) && n >= 1 && n <= 4294967295) || /^\d+\.\d+$/.test(v.trim()); }, msg: 'AS numarası 1-4294967295 veya dotted (ör: 65000 veya 1.100)' },
-    port:     { fn: v => { const n = parseInt(v); return !isNaN(n) && n >= 0 && n <= 65535; }, msg: 'Port 0-65535 arasında olmalı' },
+    port:     { fn: v => _cgInt(v, 0, 65535), msg: 'Port 0-65535 arasında olmalı' },
     hostname: { re: /^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,61}[a-zA-Z0-9])?$/, msg: 'Geçerli hostname girin (harf, rakam, tire)' },
     mac:      { re: /^([0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}$/, msg: 'MAC adresi formatında girin (örn: 00:1A:2B:3C:4D:5E)' },
-    prefix:   { fn: v => { const n = parseInt(v); return !isNaN(n) && n >= 0 && n <= 128; }, msg: 'Prefix 0-128 arasında olmalı' },
+    prefix:   { fn: v => _cgInt(v, 0, 128), msg: 'Prefix 0-128 arasında olmalı' },
     rd:       { re: /^\d+:\d+$/, msg: 'Route Distinguisher formatında girin (örn: 65000:100)' },
     rt:       { re: /^\d+:\d+$/, msg: 'Route Target formatında girin (örn: 65000:100)' },
-    vni:      { fn: v => { const n = parseInt(v); return !isNaN(n) && n >= 1 && n <= 16777215; }, msg: 'VNI 1-16777215 arasında olmalı' },
-    bgp_timer:{ fn: v => { const n = parseInt(v); return !isNaN(n) && n >= 1 && n <= 65535; }, msg: 'Timer 1-65535 saniye arasında olmalı' },
+    vni:      { fn: v => _cgInt(v, 1, 16777215), msg: 'VNI 1-16777215 arasında olmalı' },
+    bgp_timer:{ fn: v => _cgInt(v, 1, 65535), msg: 'Timer 1-65535 saniye arasında olmalı' },
+
+    // ── Arayuz adi ────────────────────────────────────────────────────────
+    // Coklu vendor: GigabitEthernet0/1, Gi0/1, Te1/1/1, Ethernet1/1, ge-0/0/0,
+    // ae0, xe-0/0/0, port1, ether1, Eth-Trunk1, Vlanif10, ethernet1/1/1,
+    // Port-channel1, Vlan10, Loopback0, Tunnel0, mgmt0, 1.1 (F5)
+    // Kabul edilmeyen: bosluk iceren serbest metin, rakamsiz uydurma kelime.
+    iface:    { fn: v => _cgIface(String(v).trim()), msg: 'Geçerli bir arayüz adı girin (örn: GigabitEthernet0/1, ge-0/0/0, port1, Eth-Trunk1)' },
+
+    // Arayuz araligi: 'Gi0/1-2', 'GigabitEthernet0/1 - 10', 'ethernet1/1/1-1/1/10'
+    // veya virgulle ayrilmis liste.
+    iface_range: { fn: v => String(v).split(',').every(p => {
+                       const t = p.trim(); if (!t) return false;
+                       const m = t.match(/^(.+?)\s*-\s*(.+)$/);
+                       if (!m) return _cgIface(t);
+                       return _cgIface(m[1].trim()) && (/^[0-9/.]+$/.test(m[2].trim()) || _cgIface(m[2].trim()));
+                   }), msg: 'Arayüz veya aralık girin (örn: Gi0/1-2, GigabitEthernet0/1, ethernet1/1/1-1/1/10)' },
+
+    // VLAN listesi: '10', '10,20,30', '10-20', '1,10-20,99', 'all', 'none'
+    vlan_list:{ fn: v => { const t = String(v).trim().toLowerCase();
+                       if (t === 'all' || t === 'none') return true;
+                       return t.split(',').every(p => {
+                           const q = p.trim(); if (!q) return false;
+                           const r = q.match(/^(\d+)\s*-\s*(\d+)$/);
+                           if (r) { const a = +r[1], b = +r[2];
+                                    return a >= 1 && b <= 4094 && a <= b; }
+                           return _cgInt(q, 1, 4094);
+                       }); },
+                msg: 'VLAN listesi girin: 10 · 10,20,30 · 10-20 · all' },
 };
+
+// parseInt('10abc') === 10 oldugu icin eski dogrulayicilar '10abc' gibi
+// degerleri KABUL EDIYORDU. Tam sayi olmayani reddeder.
+function _cgInt(v, min, max) {
+    const t = String(v).trim();
+    if (!/^\d+$/.test(t)) return false;
+    const n = parseInt(t, 10);
+    return n >= min && n <= max;
+}
+
+// Bilinen adsiz arayuzler (rakam icermeyenler)
+const _CG_BARE_IF = ['bridge', 'irb', 'internal', 'wan', 'lan', 'dmz', 'mgmt',
+                     'loopback', 'null', 'vlan', 'any', 'all'];
+function _cgIface(t) {
+    if (!t || /\s/.test(t)) return false;              // bosluk yok
+    if (!/^[A-Za-z]/.test(t)) return /^\d+(\.\d+)+$/.test(t);  // F5 '1.1'
+    if (!/^[A-Za-z0-9/._:-]+$/.test(t)) return false;  // gecersiz karakter
+    if (/\d/.test(t)) return true;                     // rakam iceriyorsa gecerli say
+    return _CG_BARE_IF.includes(t.toLowerCase());      // rakamsizsa bilinen ad olmali
+}
 
 // "Neden?" bilgi kutusu — net-config.com'un en güçlü fikri.
 // Alan veya bölüm şemasına `why: '...'` eklendiğinde görünür.
@@ -387,6 +435,28 @@ function cgFormBuilder(container, schema, generateFn) {
                 if (!String(data[el.name] || '').trim() && el.placeholder) data[el.name] = el.placeholder;
             });
         }
+        // GECERSIZ DEGERLER GENERATOR'A GONDERILMEZ.
+        // Bloklayan dogrulayici (cgValidate) kod tabaninda tek yerden cagriliyordu
+        // (ConfigGenerators_Cisco.js); diger 310 aracta 'required' ve 'validate'
+        // yalnizca yildiz ve kirmizi cerceve ciziyor, uretimi engellemiyordu.
+        // Sonuc: 'switchport trunk allowed vlan 1020304040404' veya
+        // 'interface range sanane' gibi satirlar config'e girebiliyordu.
+        // Canli onizlemede uretimi tumden bloklamak onizlemeyi yok eder; bunun
+        // yerine gecersiz deger BOS sayilir — generator'lar bos degeri zaten
+        // atliyor — ve cagiran tarafa bildirilir.
+        data.__cgInvalid = [];
+        form.querySelectorAll('[data-cgv]').forEach(el => {
+            if (el.disabled) return;
+            const raw = String(data[el.name] != null ? data[el.name] : '').trim();
+            if (!raw) return;
+            const v = CG_VALIDATORS[el.dataset.cgv];
+            if (!v) return;
+            const pass = v.re ? v.re.test(raw) : v.fn(raw);
+            if (!pass) {
+                data.__cgInvalid.push({ name: el.name, value: raw, msg: v.msg, el });
+                delete data[el.name];          // generator bos gormus gibi davranir
+            }
+        });
         // Bazı generator'lar tip alanını '_configType' diye okuyor; iki adı da ver.
         if (data._cgtype !== undefined) data._configType = data._cgtype;
         return data;
@@ -429,8 +499,21 @@ function cgFormBuilder(container, schema, generateFn) {
             }
         });
         try {
-            const result = generateFn(cgCollect(formEl, true), formEl);
+            const collected = cgCollect(formEl, true);
+            const invalid = collected.__cgInvalid || [];
+            delete collected.__cgInvalid;
+            const result = generateFn(collected, formEl);
             const warns = [];
+            if (invalid.length) {
+                invalid.forEach(iv => {
+                    iv.el.classList.add('is-invalid');
+                    _cgSetError(iv.el, iv.msg);
+                });
+                warns.push('\u26D4 ' + invalid.length + ' alan GECERSIZ, config\'e yazilmadi: ' +
+                    invalid.map(iv => iv.name + ' = "' + iv.value + '"').slice(0, 4).join(', ') +
+                    (invalid.length > 4 ? ' ve ' + (invalid.length - 4) + ' tane daha' : '') +
+                    ' — duzeltmeden kullanma.');
+            }
             if (empties.length) {
                 const anyProse = empties.some(e => e.endsWith('\u26A0'));
                 warns.push('Doldurulmamış ' + empties.length + ' alan için örnek değer kullanıldı: ' +

@@ -302,8 +302,8 @@ CiscoIOS.acl = {
                     fields: [
                         { name: 'dst_ip', why: "Boş bırakmak <code>any</code> demektir; kural tüm hedeflere açılır. Hedefi daraltmadan yazılan <code>permit</code>, ACL'i düşündüğünden çok daha geniş yapar.", label: 'Hedef IP', type: 'text', validate: 'ip', placeholder: '10.0.0.10 (boş = any)', hint: 'Boş bırakılırsa hedef "any" olur' },
                         { name: 'dst_wild', why: 'Tek host için <code>0.0.0.0</code> (ya da <code>host</code> anahtar kelimesi). Yanlış wildcard, kuralın beklenenden çok daha geniş eşleşmesine yol açar.', label: 'Hedef Wildcard', type: 'text', placeholder: '0.0.0.0', hint: 'Boş bırakılırsa 0.0.0.0 (host) kullanılır' },
-                        { name: 'src_port', why: "Kaynak port neredeyse her zaman rastgeledir (ephemeral). Buraya <code>eq 443</code> yazmak klasik hatadır: sunucu portu <b>hedef</b> porttur ve kural hiç eşleşmez.", label: 'Kaynak Port (opsiyonel)', type: 'text', placeholder: 'eq 1024 (yalnızca tcp/udp)', hint: 'Örn: eq 1024, gt 1023' },
-                        { name: 'dst_port', why: "Yalnızca <code>tcp</code>/<code>udp</code> ile çalışır; protokol <code>ip</code> iken yazılan port satırı kabul edilmez. <code>range</code> kullanırken aralığın iki ucunun da dahil olduğunu unutma.", label: 'Hedef Port (opsiyonel)', type: 'text', placeholder: 'eq 443 (yalnızca tcp/udp)', hint: 'Örn: eq 443, range 8000 8080' }
+                        { name: 'src_port', why: "Kaynak port neredeyse her zaman rastgeledir (ephemeral). Buraya <code>eq 443</code> yazmak klasik hatadır: sunucu portu <b>hedef</b> porttur ve kural hiç eşleşmez.", label: 'Kaynak Port (opsiyonel)', type: 'text', validate: 'port', placeholder: 'eq 1024 (yalnızca tcp/udp)', hint: 'Örn: eq 1024, gt 1023' },
+                        { name: 'dst_port', why: "Yalnızca <code>tcp</code>/<code>udp</code> ile çalışır; protokol <code>ip</code> iken yazılan port satırı kabul edilmez. <code>range</code> kullanırken aralığın iki ucunun da dahil olduğunu unutma.", label: 'Hedef Port (opsiyonel)', type: 'text', validate: 'port', placeholder: 'eq 443 (yalnızca tcp/udp)', hint: 'Örn: eq 443, range 8000 8080' }
                     ]
                 },
                 {
@@ -312,7 +312,7 @@ CiscoIOS.acl = {
                     showFor: ['standard', 'extended', 'named'],
                     info: 'Interface belirtilmezse ACL yalnızca tanımlanır, uygulanmaz.',
                     fields: [
-                        { name: 'iface', why: "ACL'i tanımlamak onu <b>uygulamaz</b>. <code>ip access-group</code> ile bir arayüze bağlamadığın sürece tek bir paketi bile etkilemez — en sık atlanan adımdır.", label: 'Interface', type: 'text', placeholder: 'GigabitEthernet0/0 (boş = uygulama yok)', hint: 'ACL\'in uygulanacağı interface. Boş bırakılabilir.' },
+                        { name: 'iface', why: "ACL'i tanımlamak onu <b>uygulamaz</b>. <code>ip access-group</code> ile bir arayüze bağlamadığın sürece tek bir paketi bile etkilemez — en sık atlanan adımdır.", label: 'Interface', type: 'text', validate: 'iface', placeholder: 'GigabitEthernet0/0 (boş = uygulama yok)', hint: 'ACL\'in uygulanacağı interface. Boş bırakılabilir.' },
                         { name: 'direction', why: '<code>in</code> arayüze <b>giren</b>, <code>out</code> <b>çıkan</b> trafiği süzer. Yanlış yön en yaygın ACL hatasıdır — filtrelemeyi kaynağa en yakın noktada yapmak iyi pratiktir.', label: 'Yön', type: 'select', options: [{ value: 'in', label: 'in — Gelen trafik' }, { value: 'out', label: 'out — Giden trafik' }] }
                     ]
                 }
@@ -548,7 +548,7 @@ CiscoIOS.bgp = {
                     info: 'BGP üzerinden duyurulacak ağı girin. Routing tablosunda bu ağ mevcut olmalıdır.',
                     fields: [
                         { name: 'adv_net', why: 'BGP <code>network</code> komutu, ağı yalnızca routing tablosunda <b>birebir</b> varsa duyurur. Maske tam eşleşmezse duyuru hiç çıkmaz.', label: 'Advertise Network', type: 'text', placeholder: '192.168.0.0 (boş = yok)', hint: 'BGP ile duyurulacak ağ adresi', optional: true },
-                        { name: 'adv_mask', why: "BGP'de duyurulan prefix, routing tablosundaki kayıtla <b>birebir</b> eşleşmeli. /24 duyurmak istersen tabloda tam olarak /24 bulunmalı; /25 varsa duyuru hiç çıkmaz.", label: 'Network Mask', type: 'text', placeholder: '255.255.0.0', hint: 'Duyurulacak ağın subnet maskı', optional: true }
+                        { name: 'adv_mask', why: "BGP'de duyurulan prefix, routing tablosundaki kayıtla <b>birebir</b> eşleşmeli. /24 duyurmak istersen tabloda tam olarak /24 bulunmalı; /25 varsa duyuru hiç çıkmaz.", label: 'Network Mask', type: 'text', validate: 'subnet', placeholder: '255.255.0.0', hint: 'Duyurulacak ağın subnet maskı', optional: true }
                     ]
                 }
             ],
@@ -610,7 +610,7 @@ CiscoIOS.ipsec = {
                     fields: [
                         { name: 'remote_ip', why: "Karşı tarafın gerçek dış IP'si. NAT arkasındaysa dış IP yazılmalı ve NAT-T (UDP 4500) açık olmalı.",   label: 'Remote Public IP',  type: 'text', validate: 'ip', required: true,  placeholder: '85.200.2.2',    hint: 'Karşı taraf WAN IP' },
                         { name: 'remote_net', why: "Karşı tarafın yerel ağı. Bu ağ aynı zamanda NAT muafiyet (<code>deny</code>) satırında da yer almalı; yoksa trafik NAT'lanır ve tünele hiç girmez.",  label: 'Remote Network',    type: 'text', validate: 'cidr', required: false, placeholder: '192.168.2.0',   hint: 'Karşı ağ adresi' },
-                        { name: 'remote_mask', why: "Uzak ağın maskesi iki uçta aynı olmalı. Fazla geniş yazmak internete giden trafiği de tünele sokarak şubeyi internetsiz bırakabilir.", label: 'Remote Mask',       type: 'text', required: false, placeholder: '255.255.255.0', hint: 'Karşı ağ maskesi' }
+                        { name: 'remote_mask', why: "Uzak ağın maskesi iki uçta aynı olmalı. Fazla geniş yazmak internete giden trafiği de tünele sokarak şubeyi internetsiz bırakabilir.", label: 'Remote Mask',       type: 'text', validate: 'subnet', required: false, placeholder: '255.255.255.0', hint: 'Karşı ağ maskesi' }
                     ]
                 },
                 {
@@ -619,7 +619,7 @@ CiscoIOS.ipsec = {
                     info: 'Sadece VTI veya FlexVPN yöntemi seçildiğinde kullanılır.',
                     fields: [
                         { name: 'tunnel_num', why: "Tunnel numarası yereldir, iki tarafta aynı olmak zorunda değil. Ancak kullanımdaki bir numarayı tekrar vermek çalışan VPN'i sessizce ezer.",  label: 'Tunnel No',    type: 'text', required: false, placeholder: '1',                  hint: 'Tunnel interface numarası' },
-                        { name: 'tunnel_ip', why: "VTI'da iki uç aynı /30 içinde olmalı. Fiziksel WAN ağından adres vermek yönlendirme döngüsü ve sürekli flap yaratır.",   label: 'Tunnel IP',    type: 'text', required: false, placeholder: '172.16.1.1',         hint: 'Tunnel IP (VTI/FlexVPN gerekli)' },
+                        { name: 'tunnel_ip', why: "VTI'da iki uç aynı /30 içinde olmalı. Fiziksel WAN ağından adres vermek yönlendirme döngüsü ve sürekli flap yaratır.",   label: 'Tunnel IP',    type: 'text', validate: 'ip', required: false, placeholder: '172.16.1.1',         hint: 'Tunnel IP (VTI/FlexVPN gerekli)' },
                         { name: 'tunnel_mask', why: "Point-to-point tünelde <code>255.255.255.252</code> (/30) yeterlidir. Daha geniş maske vermek, aynı blokta yapılandırılan başka bir tüneli istemeden kapsayabilir.", label: 'Tunnel Mask',  type: 'text', validate: 'subnet', required: false, placeholder: '255.255.255.252',    hint: 'Tunnel subnet maskesi' }
                     ]
                 },
@@ -795,7 +795,7 @@ CiscoIOS.dhcp = {
                     fields: [
                         { name: 'pool_name', why: "Havuz adı komutlarda referans alınır. Var olan bir adı tekrar kullanmak eski havuzun ayarlarını <b>üzerine yazar</b> ve mevcut istemciler etkilenir.",  label: 'Pool Adı',           type: 'text',   required: true,  placeholder: 'LAN_POOL',       hint: 'DHCP pool için benzersiz ve açıklayıcı bir isim. Boşluk kullanmayın.' },
                         { name: 'network', why: "Havuzun ağı, DHCP isteğinin geldiği arayüzün ağıyla örtüşmeli. Örtüşmezse router isteğe hiç yanıt vermez ve istemci APIPA adresine düşer.",    label: 'Network Adresi',      type: 'text',   required: true,  validate: 'ip', placeholder: '192.168.1.0',    hint: 'DHCP havuzunun ağ adresi. Host değil ağ adresi olmalı — son oktet genelde .0\'dır.' },
-                        { name: 'mask', why: "Havuzun maskesi arayüzün maskesiyle aynı olmalı. Daha dar bir maske vermek, aynı segmentteki bazı istemcilerin gateway'e ulaşamamasına yol açar.",       label: 'Subnet Mask',         type: 'text',   required: true,  placeholder: '255.255.255.0',  hint: 'Ağ büyüklüğünü belirler. /24 → 255.255.255.0 çoğu LAN için uygundur.', tooltip: '/24 = 255.255.255.0 → 254 host\n/25 = 255.255.255.128 → 126 host\n/16 = 255.255.0.0 → 65534 host' },
+                        { name: 'mask', why: "Havuzun maskesi arayüzün maskesiyle aynı olmalı. Daha dar bir maske vermek, aynı segmentteki bazı istemcilerin gateway'e ulaşamamasına yol açar.",       label: 'Subnet Mask',         type: 'text', validate: 'subnet',   required: true,  placeholder: '255.255.255.0',  hint: 'Ağ büyüklüğünü belirler. /24 → 255.255.255.0 çoğu LAN için uygundur.', tooltip: '/24 = 255.255.255.0 → 254 host\n/25 = 255.255.255.128 → 126 host\n/16 = 255.255.0.0 → 65534 host' },
                         { name: 'gateway', why: "İstemcilere dağıtılan gateway. HSRP/VRRP varsa buraya <b>sanal</b> IP yazılmalı; fiziksel IP yazmak failover'ı tamamen anlamsızlaştırır.",    label: 'Default Gateway',     type: 'text',   required: false, validate: 'ip', placeholder: '192.168.1.1',    optional: true, hint: 'Client\'ların internet/diğer ağlara ulaşmak için kullanacağı gateway IP adresi.', tooltip: 'Client\'ların internete veya diğer ağlara çıkacağı router adresi. Genelde bu cihazın aynı subnet\'teki interface IP\'sidir.' },
                         { name: 'dns1', why: "DNS yanlışsa kullanıcı için durum “internet yok” demektir, oysa IP bağlantısı çalışır. Active Directory ortamında iç DNS zorunludur; harici DNS vermek oturum açmayı bozar.",       label: 'DNS Server 1',        type: 'text',   required: false, validate: 'ip', placeholder: '8.8.8.8',        optional: true, hint: 'Birincil DNS. Google: 8.8.8.8, Cloudflare: 1.1.1.1 veya kurumsal DNS sunucunuz girilebilir.' },
                         { name: 'dns2', why: "Yedek DNS. İkisini de aynı sunucu yapmak yedekliliği ortadan kaldırır: birincil çökünce tüm ad çözümlemesi durur.",       label: 'DNS Server 2',        type: 'text',   required: false, validate: 'ip', placeholder: '8.8.4.4',        optional: true, hint: 'İkincil (yedek) DNS sunucusu. Birincil erişilemez olduğunda devreye girer.' },
@@ -826,7 +826,7 @@ CiscoIOS.dhcp = {
                     showFor: ['relay'],
                     info: 'DHCP Relay, client\'ın broadcast DHCP isteğini unicast olarak uzaktaki sunucuya iletir. Client ile sunucu farklı subnet\'lerde olduğunda kullanılır.',
                     fields: [
-                        { name: 'relay_iface', why: "<code>ip helper-address</code>, istemcinin bulunduğu <b>iç</b> arayüze yazılır; sunucunun bulunduğu arayüze değil. Ters yazmak en yaygın DHCP relay hatasıdır.",  label: 'Interface',      type: 'text', required: true, placeholder: 'GigabitEthernet0/1', hint: 'Client\'ların bağlı olduğu interface veya SVI arayüzü (örn: Vlan10).', tooltip: 'DHCP isteklerinin geldiği interface — client\'lara bağlı port veya SVI arayüzü. ip helper-address bu interface altına eklenir.' },
+                        { name: 'relay_iface', why: "<code>ip helper-address</code>, istemcinin bulunduğu <b>iç</b> arayüze yazılır; sunucunun bulunduğu arayüze değil. Ters yazmak en yaygın DHCP relay hatasıdır.",  label: 'Interface',      type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/1', hint: 'Client\'ların bağlı olduğu interface veya SVI arayüzü (örn: Vlan10).', tooltip: 'DHCP isteklerinin geldiği interface — client\'lara bağlı port veya SVI arayüzü. ip helper-address bu interface altına eklenir.' },
                         { name: 'relay_server', why: 'DHCP sunucusu farklı bir ağdaysa <code>ip helper-address</code> zorunludur. Eksikse istemciler adres alamaz ve sorun sessizce sürer.', label: 'DHCP Server IP', type: 'text', required: true, validate: 'ip', placeholder: '10.0.0.10', hint: 'Uzaktaki DHCP sunucusunun IP adresi. Birden fazla sunucu için komut tekrarlanır.' },
                     ]
                 },
@@ -835,7 +835,7 @@ CiscoIOS.dhcp = {
                     showFor: ['snooping'],
                     warn: '<strong>Önemli:</strong> DHCP Snooping aktif edildiğinde tüm portlar varsayılan olarak <strong>untrusted</strong> olur. DHCP sunucusuna veya uplink\'e bağlı portları mutlaka <strong>trusted</strong> yapın — aksi hâlde DHCP trafiği kesilir.',
                     fields: [
-                        { name: 'snoop_vlan', why: 'DHCP Snooping, sahte DHCP sunucularını engeller. <b>Gerçek DHCP sunucusuna giden port trusted işaretlenmezse</b> meşru sunucu da bloklanır — en sık yapılan hata.',   label: 'VLAN Aralığı',  type: 'text', required: true,  placeholder: '10,20,30-40',       hint: 'Snooping aktif edilecek VLAN\'lar. Tüm VLAN\'lar için: 1-4094' },
+                        { name: 'snoop_vlan', why: 'DHCP Snooping, sahte DHCP sunucularını engeller. <b>Gerçek DHCP sunucusuna giden port trusted işaretlenmezse</b> meşru sunucu da bloklanır — en sık yapılan hata.',   label: 'VLAN Aralığı',  type: 'text', validate: 'vlan', required: true,  placeholder: '10,20,30-40',       hint: 'Snooping aktif edilecek VLAN\'lar. Tüm VLAN\'lar için: 1-4094' },
                         { name: 'trusted_port', why: "Yalnızca gerçek DHCP sunucusuna veya uplink'e bakan port trusted olmalı. Tüm portları trusted yapmak özelliği anlamsızlaştırır.", label: 'Trusted Port',   type: 'text', required: false, placeholder: 'GigabitEthernet0/0', optional: true, hint: 'DHCP sunucuya bağlı veya uplink port. Her port için ayrı komut gerekir.', tooltip: 'DHCP sunucusuna veya uplink switche bağlı port. Bu porttan gelen DHCP server paketleri güvenilir kabul edilir ve iletilir.' },
                         { name: 'dai_enable', why: 'Dynamic ARP Inspection, DHCP Snooping veritabanını kullanarak ARP zehirlemesini engeller. Snooping olmadan çalışmaz.',   label: 'DAI (Dynamic ARP Inspection) etkinleştir', type: 'checkbox', required: false, hint: 'DHCP Snooping binding tablosunu kullanarak sahte ARP paketlerini engeller. Man-in-the-Middle saldırılarına karşı koruma sağlar.' },
                     ]
@@ -999,7 +999,7 @@ CiscoIOS.aaa = {
                     title: 'Line Yapılandırması',
                     icon: 'fas fa-terminal',
                     fields: [
-                        { name: 'vty_range', why: "Genelde <code>0 4</code> (5 eşzamanlı oturum) ya da <code>0 15</code>. Yalnızca <code>0 4</code>'ü yapılandırıp 5-15'i unutmak, o hatlardan <b>korumasız</b> erişim bırakır.", label: 'VTY Line Aralığı', type: 'text', value: '0 15', hint: 'Genelde "0 15" — tüm VTY satırları' }
+                        { name: 'vty_range', why: "Genelde <code>0 4</code> (5 eşzamanlı oturum) ya da <code>0 15</code>. Yalnızca <code>0 4</code>'ü yapılandırıp 5-15'i unutmak, o hatlardan <b>korumasız</b> erişim bırakır.", label: 'VTY Line Aralığı', type: 'text', validate: 'iface_range', value: '0 15', hint: 'Genelde "0 15" — tüm VTY satırları' }
                     ]
                 }
             ],
@@ -1226,7 +1226,7 @@ CiscoIOS.vrrp = {
                     icon: 'fas fa-cog',
                     showFor: ['hsrp', 'vrrp', 'glbp'],
                     fields: [
-                        { name: 'fhrp_iface', why: "FHRP yalnızca yönlendirilen arayüzde (SVI ya da routed port) çalışır; <code>switchport</code> modundaki portta yapılandıramazsın. İki cihazda da aynı VLAN/arayüz kullanılmalı.", label: 'Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/1', hint: 'Virtual IP\'nin atanacağı Layer-3 interface' },
+                        { name: 'fhrp_iface', why: "FHRP yalnızca yönlendirilen arayüzde (SVI ya da routed port) çalışır; <code>switchport</code> modundaki portta yapılandıramazsın. İki cihazda da aynı VLAN/arayüz kullanılmalı.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/1', hint: 'Virtual IP\'nin atanacağı Layer-3 interface' },
                         { name: 'fhrp_group', why: "Grup numarası iki router'da aynı olmalı. Aynı VLAN'daki farklı gruplar ise çakışmamalıdır.", label: 'Grup No', type: 'text', required: true, placeholder: '1', hint: 'HSRP/VRRP/GLBP grup numarası' },
                         { name: 'virtual_ip', why: "İstemcilerin gateway olarak gördüğü sanal IP. Fiziksel arayüz IP'lerinden farklı ve <b>aynı subnet'te</b> olmalıdır.", label: 'Virtual IP', type: 'text', required: true, validate: 'ip', placeholder: '192.168.1.254', hint: 'Gateway olarak kullanılacak sanal IP adresi' },
                         { name: 'priority', why: "Yüksek öncelik kazanır (varsayılan 100). Ama <code>preempt</code> açık değilse önceliği yükseltmek aktif rolü geri <b>almaz</b> — en sık karıştırılan ikili budur.", label: 'Priority', type: 'number', placeholder: '100 (default)', hint: 'Yüksek priority = Active/Master router. Varsayılan: 100', optional: true },
@@ -1321,7 +1321,7 @@ CiscoIOS.stp = {
                     icon: 'fas fa-crown',
                     showFor: ['pvst', 'rapid'],
                     fields: [
-                        { name: 'root_vlans', why: "Her VLAN'ın ayrı spanning-tree örneği vardır (PVST+). Root'u VLAN bazında planlamak trafiği dengeler.", label: 'VLANs', type: 'text', placeholder: '1,10,20', hint: 'Root bridge olunacak VLAN listesi', optional: true },
+                        { name: 'root_vlans', why: "Her VLAN'ın ayrı spanning-tree örneği vardır (PVST+). Root'u VLAN bazında planlamak trafiği dengeler.", label: 'VLANs', type: 'text', validate: 'vlan_list', placeholder: '1,10,20', hint: 'Root bridge olunacak VLAN listesi', optional: true },
                         { name: 'root_type', why: "<code>primary</code> önceliği 24576, <code>secondary</code> 28672 yapar. Root bridge'i <b>elle belirlemezsen</b> en düşük MAC'li switch root olur — genelde en eski ve en yavaş cihaz.", label: 'Root Tipi', type: 'select', options: [{ value: 'primary', label: 'Primary' }, { value: 'secondary', label: 'Secondary' }] }
                     ]
                 },
@@ -1333,7 +1333,7 @@ CiscoIOS.stp = {
                         { name: 'mst_region', why: "MST'de <b>region adı, revizyon ve VLAN-instance eşlemesi</b> tüm switch'lerde birebir aynı olmalı. En ufak fark, switch'lerin ayrı region sanmasına ve topolojinin bozulmasına yol açar.", label: 'Region Adı', type: 'text', placeholder: 'MST_REGION_1', optional: true },
                         { name: 'mst_rev', why: 'Revizyon numarası region kimliğinin parçasıdır. Değiştirmeyi unutmak sessiz topoloji hatalarının klasik sebebidir.', label: 'Revision', type: 'number', placeholder: '1', optional: true },
                         { name: 'mst_inst', why: "MST instance'ı VLAN gruplarını tek topolojiye eşler. Region adı, revizyon numarası ve VLAN-instance eşlemesi tüm switch'lerde <b>birebir</b> aynı olmalı.", label: 'Instance No', type: 'text', placeholder: '1', optional: true },
-                        { name: 'mst_vlans', why: "Bir VLAN yalnızca tek instance'a ait olabilir. Eşlemeyi bir cihazda değiştirip diğerlerinde unutmak ağı iki ayrı region'a böler ve döngü riski doğurur.", label: 'MST VLANs', type: 'text', placeholder: '10,20,30', optional: true },
+                        { name: 'mst_vlans', why: "Bir VLAN yalnızca tek instance'a ait olabilir. Eşlemeyi bir cihazda değiştirip diğerlerinde unutmak ağı iki ayrı region'a böler ve döngü riski doğurur.", label: 'MST VLANs', type: 'text', validate: 'vlan_list', placeholder: '10,20,30', optional: true },
                         { name: 'root_type', why: "<code>primary</code> önceliği 24576, <code>secondary</code> 28672 yapar. Root bridge'i <b>elle belirlemezsen</b> en düşük MAC'li switch root olur — genelde en eski ve en yavaş cihaz.", label: 'Root Tipi', type: 'select', options: [{ value: 'primary', label: 'Primary' }, { value: 'secondary', label: 'Secondary' }] }
                     ]
                 },
@@ -1407,8 +1407,8 @@ CiscoIOS.portSecurity = {
                     title: 'Interface Seçimi',
                     icon: 'fas fa-plug',
                     fields: [
-                        { name: 'ps_iface', why: "Port security yalnızca access portlarda çalışır; trunk ya da DTP ile dinamik portta yapılandırılamaz. Önce <code>switchport mode access</code> ver.", label: 'Interface', type: 'text', required: true, placeholder: 'FastEthernet0/1', hint: 'Tekil port. Range için "range Fa0/1 - Fa0/10" formatında girebilirsiniz.' },
-                        { name: 'access_vlan', why: "Access port tek VLAN taşır. Port'u access yapmadan VLAN atamak, portun DTP ile kendiliğinden trunk olmasına yol açabilir — <code>switchport mode access</code> her zaman açıkça yazılmalı.", label: 'Access VLAN', type: 'number', placeholder: '10', hint: 'Port security access modda çalışır — VLAN ataması yapılır', optional: true }
+                        { name: 'ps_iface', why: "Port security yalnızca access portlarda çalışır; trunk ya da DTP ile dinamik portta yapılandırılamaz. Önce <code>switchport mode access</code> ver.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'FastEthernet0/1', hint: 'Tekil port. Range için "range Fa0/1 - Fa0/10" formatında girebilirsiniz.' },
+                        { name: 'access_vlan', why: "Access port tek VLAN taşır. Port'u access yapmadan VLAN atamak, portun DTP ile kendiliğinden trunk olmasına yol açabilir — <code>switchport mode access</code> her zaman açıkça yazılmalı.", label: 'Access VLAN', type: 'number', validate: 'vlan', placeholder: '10', hint: 'Port security access modda çalışır — VLAN ataması yapılır', optional: true }
                     ]
                 },
                 {
@@ -1495,7 +1495,7 @@ CiscoIOS.qos = {
                         { name: 'set_dscp', why: "DSCP işaretlemesi ağın <b>tamamında</b> tutarlı olmalı. Bir cihazda işaretleyip diğerinde güvenmemek (trust boundary), QoS'un hiç çalışmamasına yol açar.", label: 'Set DSCP', type: 'select', options: [{ value: '', label: 'Yok' }, { value: 'ef', label: 'ef (Voice)' }, { value: 'af41', label: 'af41' }, { value: 'af31', label: 'af31' }, { value: 'cs3', label: 'cs3' }] },
                         { name: 'police_en', why: "Policing fazla trafiği <b>düşürür</b>, shaping ise kuyruklar. Hassas uygulamalarda policing ani paket kaybına yol açar; önce shaping'i değerlendir.", label: 'Police ekle', type: 'checkbox' },
                         { name: 'm_cir', why: 'Taahhüt edilen hız (bit/sn). Burst değerleri çok düşükse TCP performansı ciddi düşer — genel kural CIR/8 civarıdır.', label: 'CIR (bps)', type: 'text', placeholder: '1000000', optional: true },
-                        { name: 'qos_iface', why: "Politikanın bağlanacağı arayüz. Alt arayüz kullanıyorsan shaping ana arayüzde değil alt arayüzde tanımlanmalı, yoksa hız sınırı beklediğin gibi işlemez.", label: 'Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0' },
+                        { name: 'qos_iface', why: "Politikanın bağlanacağı arayüz. Alt arayüz kullanıyorsan shaping ana arayüzde değil alt arayüzde tanımlanmalı, yoksa hız sınırı beklediğin gibi işlemez.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0' },
                         { name: 'qos_dir', why: 'Shaping yalnızca <b>çıkış</b> yönünde anlamlıdır; policing her iki yönde çalışır. Giriş yönünde shaping tanımlamak etkisizdir.', label: 'Yön', type: 'select', options: [{ value: 'output', label: 'output' }, { value: 'input', label: 'input' }] }
                     ]
                 },
@@ -1504,7 +1504,7 @@ CiscoIOS.qos = {
                     icon: 'fas fa-tachometer-alt',
                     showFor: ['ratelimit'],
                     fields: [
-                        { name: 'rl_iface', why: "Rate-limit arayüz bazlıdır ve ACL yoksa tüm trafiği etkiler — yönetim trafiğin dahil. Kendi SSH oturumunu boğabileceğini unutma.", label: 'Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0' },
+                        { name: 'rl_iface', why: "Rate-limit arayüz bazlıdır ve ACL yoksa tüm trafiği etkiler — yönetim trafiğin dahil. Kendi SSH oturumunu boğabileceğini unutma.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0' },
                         { name: 'rl_acl', why: "ACL boş bırakılırsa <b>tüm</b> trafik sınırlanır. Yedekleme gibi tek bir akışı kısacaksan mutlaka ACL ile daralt.", label: 'ACL', type: 'text', placeholder: '100 (boş = tüm trafik)', optional: true },
                         { name: 'rl_rate', why: "Değer bit/saniye cinsindendir, byte değil: 1 Mbps için <code>1000000</code>. Sıfır sayısını şaşırmak en sık yapılan hatadır.", label: 'Rate (bps)', type: 'text', required: true, placeholder: '1000000' },
                         { name: 'rl_bc', why: "Normal burst çok küçükse TCP sürekli kesilir ve gerçek throughput hedefin çok altına düşer. Pratik kural: CIR/8, yani bir saniyelik byte miktarı.", label: 'Normal Burst', type: 'text', placeholder: '187500', optional: true },
@@ -1517,7 +1517,7 @@ CiscoIOS.qos = {
                     icon: 'fas fa-magic',
                     showFor: ['auto'],
                     fields: [
-                        { name: 'aq_iface', why: "AutoQoS arayüze onlarca komutu <b>tek seferde</b> yazar. Mevcut QoS yapılandırman varsa önce yedek al; geri almak elle temizlik gerektirir.", label: 'Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/1' },
+                        { name: 'aq_iface', why: "AutoQoS arayüze onlarca komutu <b>tek seferde</b> yazar. Mevcut QoS yapılandırman varsa önce yedek al; geri almak elle temizlik gerektirir.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/1' },
                         { name: 'aq_type', why: "<code>cisco-phone</code> telefonu CDP ile doğrular; <code>trust</code> ise gelen işaretlemeye koşulsuz güvenir ve kullanıcı PC'sinin kendini EF olarak işaretlemesine izin verir.", label: 'Tip', type: 'select', options: [{ value: 'cisco-phone', label: 'cisco-phone' }, { value: 'cisco-softphone', label: 'cisco-softphone' }, { value: 'trust', label: 'trust' }] },
                         { name: 'mls_qos', why: "Catalyst switch'lerde QoS global olarak açılmadan arayüz ayarları çalışmaz. Açtığında <b>varsayılan davranış değişir</b> ve işaretlenmemiş trafik farklı kuyruğa düşebilir.", label: 'mls qos (global) ekle', type: 'checkbox' }
                     ]
@@ -1573,8 +1573,8 @@ CiscoIOS.gre = {
                     showFor: ['gre', 'ipsec', 'mgre'],
                     fields: [
                         { name: 'tun_int', why: "Tunnel numarası cihaz içinde benzersiz olmalı. Kullanımdaki bir numarayı seçmek çalışan tüneli habersizce yeniden yapılandırır.", label: 'Tunnel Interface', type: 'text', required: true, placeholder: 'Tunnel0', hint: 'Sanal tünel arayüzü numarası' },
-                        { name: 'tun_ip', why: "Tünel IP'si fiziksel WAN ağından farklı bir blokta olmalı. Tünel hedefine giden rota tünelin kendi üzerinden geçerse arayüz sürekli up/down olur (recursive routing).", label: 'Tunnel IP', type: 'text', placeholder: '10.10.10.1', optional: true },
-                        { name: 'tun_mask', why: "Point-to-point tünelde /30 yeterlidir. mGRE (DMVPN) kullanıyorsan tüm spoke'lar <b>aynı</b> alt ağda olmalı; /30 vermek DMVPN'i tamamen bozar.", label: 'Tunnel Mask', type: 'text', placeholder: '255.255.255.252', optional: true },
+                        { name: 'tun_ip', why: "Tünel IP'si fiziksel WAN ağından farklı bir blokta olmalı. Tünel hedefine giden rota tünelin kendi üzerinden geçerse arayüz sürekli up/down olur (recursive routing).", label: 'Tunnel IP', type: 'text', validate: 'ip', placeholder: '10.10.10.1', optional: true },
+                        { name: 'tun_mask', why: "Point-to-point tünelde /30 yeterlidir. mGRE (DMVPN) kullanıyorsan tüm spoke'lar <b>aynı</b> alt ağda olmalı; /30 vermek DMVPN'i tamamen bozar.", label: 'Tunnel Mask', type: 'text', validate: 'subnet', placeholder: '255.255.255.252', optional: true },
                         { name: 'tun_src', why: 'Tünel kaynağı olarak <b>Loopback</b> kullanmak, fiziksel arayüz down olsa bile tünelin ayakta kalmasını sağlar.', label: 'Tunnel Source', type: 'text', required: true, placeholder: 'GigabitEthernet0/0 veya 1.2.3.4', hint: 'Tünelin kaynak interface veya IP adresi' },
                         { name: 'tun_dst', why: "Karşı tarafın ulaşılabilir IP'si. Bu adrese giden rota tünelin <b>kendi içinden</b> geçmemelidir — aksi halde tünel kendini yer (recursive routing) ve flap eder.", label: 'Tunnel Destination', type: 'text', placeholder: '5.6.7.8 (mGRE için boş)', hint: 'Karşı uç public IP. mGRE\'de boş bırakın.', optional: true },
                         { name: 'tun_mtu', why: 'GRE 24 byte ek yük getirir. MTU ayarlanmazsa büyük paketler parçalanır; 1400 yaygın bir değerdir.', label: 'MTU', type: 'number', placeholder: '1400', hint: 'GRE overhead için önerilen: 1400', optional: true },
@@ -1656,7 +1656,7 @@ CiscoIOS.tracking = {
                     title: 'Interface Tracking', icon: 'fas fa-ethernet', showFor: ['iface'], warn: null, info: null,
                     fields: [
                         { name: 'track_id', why: "Track nesne numarası rota ve FHRP tarafından referans alınır. Kullanımdaki bir numarayı yeniden kullanmak eski izlemeyi sessizce ezer.",    label: 'Track ID',        type: 'text', required: true,  placeholder: '1',                  hint: 'Takip nesnesi numarası' },
-                        { name: 'track_iface', why: "<code>line-protocol</code> izlemek yalnızca yerel arayüz durumunu görür. ISS tarafında uzakta bir arıza varsa arayüz up kalır ve failover <b>hiç</b> tetiklenmez — bunun için IP SLA kullan.", label: 'Interface',       type: 'text', required: true,  placeholder: 'GigabitEthernet0/0', hint: 'İzlenecek interface' },
+                        { name: 'track_iface', why: "<code>line-protocol</code> izlemek yalnızca yerel arayüz durumunu görür. ISS tarafında uzakta bir arıza varsa arayüz up kalır ve failover <b>hiç</b> tetiklenmez — bunun için IP SLA kullan.", label: 'Interface',       type: 'text', validate: 'iface', required: true,  placeholder: 'GigabitEthernet0/0', hint: 'İzlenecek interface' },
                         { name: 'delay_down', why: "Track nesnesinin down sayılması için beklenecek süre. Kısa süre, anlık dalgalanmalarda gereksiz failover'a (flapping) yol açar.",  label: 'Delay Down (sn)', type: 'text', required: false, placeholder: '10',                 hint: 'Down gecikmesi (saniye)' },
                         { name: 'delay_up', why: 'Geri dönüşte bekleme süresi. Hattın kararlı hale gelmesini beklemek, art arda kesintileri önler.',    label: 'Delay Up (sn)',   type: 'text', required: false, placeholder: '10',                 hint: 'Up gecikmesi (saniye)' }
                     ]
@@ -1678,7 +1678,7 @@ CiscoIOS.tracking = {
                     fields: [
                         { name: 'rt_track_id', why: "Track ID, statik rotadaki <code>track</code> anahtar kelimesiyle eşleşmeli. Eşleşmezse rota izlemeden bağımsız olarak <b>her zaman</b> tabloda kalır.", label: 'Track ID', type: 'text', required: true, placeholder: '1',         hint: 'Track nesnesi numarası' },
                         { name: 'rt_network', why: "İzlenen rotanın kendisi. Default rotayı izlemek yalnızca rotanın varlığını kontrol eder, hedefin gerçekten erişilebilir olduğunu değil.",  label: 'Network',  type: 'text', required: true, placeholder: '0.0.0.0',   hint: 'İzlenecek ağ adresi' },
-                        { name: 'rt_mask', why: "Maske routing tablosundaki kayıtla birebir eşleşmeli. /24 izleyip tabloda /25 varsa track hiçbir zaman up olmaz.",     label: 'Mask',     type: 'text', required: true, placeholder: '0.0.0.0',   hint: 'Alt ağ maskesi' }
+                        { name: 'rt_mask', why: "Maske routing tablosundaki kayıtla birebir eşleşmeli. /24 izleyip tabloda /25 varsa track hiçbir zaman up olmaz.",     label: 'Mask',     type: 'text', validate: 'subnet', required: true, placeholder: '0.0.0.0',   hint: 'Alt ağ maskesi' }
                     ]
                 },
                 {
@@ -1740,7 +1740,7 @@ CiscoIOS.rateLimit = {
                 {
                     title: 'Rate Limit Parametreleri', icon: 'fas fa-tachometer-alt', showFor: ['ratelimit'], warn: null, info: null,
                     fields: [
-                        { name: 'rl_iface', why: "Rate-limit arayüz bazlıdır ve ACL yoksa tüm trafiği etkiler — yönetim trafiğin dahil. Kendi SSH oturumunu boğabileceğini unutma.",   label: 'Interface',           type: 'text',   required: true,  placeholder: 'GigabitEthernet0/0',         hint: 'Rate limit uygulanacak interface' },
+                        { name: 'rl_iface', why: "Rate-limit arayüz bazlıdır ve ACL yoksa tüm trafiği etkiler — yönetim trafiğin dahil. Kendi SSH oturumunu boğabileceğini unutma.",   label: 'Interface',           type: 'text', validate: 'iface',   required: true,  placeholder: 'GigabitEthernet0/0',         hint: 'Rate limit uygulanacak interface' },
                         { name: 'rl_acl', why: "ACL boş bırakılırsa <b>tüm</b> trafik sınırlanır — kendi SSH oturumun dahil. Tek bir akışı kısacaksan mutlaka ACL ile daralt.",     label: 'ACL No/Adı',          type: 'text',   required: false, placeholder: '100 (boş = tüm trafik)',      hint: 'Opsiyonel ACL filtresi' },
                         { name: 'ip_blocks', why: "Her satır bir ACL <code>permit</code> satırına dönüşür ve wildcard maske ister, subnet maske değil. Sıra önemlidir: geniş bir blok üstteyse altındakiler hiç değerlendirilmez.",  label: 'IP Bloklar (satır satır)', type: 'textarea', required: false, placeholder: '192.168.1.0 0.0.0.255\n10.0.0.0 0.0.0.255', hint: 'ACL için permit satırları' },
                         { name: 'rl_cir', why: "CIR bit/saniye cinsindendir. ISS'nin sattığı hızın tamamını yazmak yerine %90-95'ini seçmek, kuyruk oluşumunu karşı tarafa bırakmamanı sağlar.",     label: 'CIR (bps)',           type: 'text',   required: true,  placeholder: '1000000',                    hint: 'Committed Information Rate' },
@@ -1790,9 +1790,9 @@ CiscoIOS.advanced = {
                     info: 'VLAN ve trunk ayarları — boş bırakılan alanlar çıktıya eklenmez.',
                     fields: [
                         { name: 'sec_vlan', why: 'Bu bölümü işaretlemezsen ilgili config üretilmez. Çoklu bölüm seçerek tek seferde birden fazla yapılandırma üretebilirsin.',      label: 'VLAN/Trunk Ekle', type: 'checkbox', required: false },
-                        { name: 'adv_vlan_id', why: "VLAN'ı switch'te oluşturmak yetmez; trunk'ın <code>allowed vlan</code> listesinde de bulunmalı. VLAN 1'i kullanmaktan kaçın, varsayılan yönetim trafiğiyle karışır.",   label: 'VLAN ID',         type: 'text',     required: false, placeholder: '10' },
+                        { name: 'adv_vlan_id', why: "VLAN'ı switch'te oluşturmak yetmez; trunk'ın <code>allowed vlan</code> listesinde de bulunmalı. VLAN 1'i kullanmaktan kaçın, varsayılan yönetim trafiğiyle karışır.",   label: 'VLAN ID',         type: 'text', validate: 'vlan',     required: false, placeholder: '10' },
                         { name: 'adv_vlan_name', why: "VLAN adı yalnızca yerel bir etikettir ve VTP dışında komşuya yayılmaz. Yine de tutarsız isimlendirme, arıza anında yanlış VLAN'a müdahaleye yol açar.", label: 'VLAN Name',       type: 'text',     required: false, placeholder: 'SALES' },
-                        { name: 'adv_trunk_iface', why: 'Trunk portun karşı uçta da trunk modda olması gerekir. Tek taraflı trunk, VLAN trafiğinin sessizce düşmesine yol açar.',label: 'Trunk Interface',type: 'text',     required: false, placeholder: 'GigabitEthernet0/1' }
+                        { name: 'adv_trunk_iface', why: 'Trunk portun karşı uçta da trunk modda olması gerekir. Tek taraflı trunk, VLAN trafiğinin sessizce düşmesine yol açar.',label: 'Trunk Interface',type: 'text', validate: 'iface',     required: false, placeholder: 'GigabitEthernet0/1' }
                     ]
                 },
                 {
@@ -1833,7 +1833,7 @@ CiscoIOS.advanced = {
                     title: 'VRRP/HSRP Snippet', icon: 'fas fa-redo', showFor: ['advanced'], warn: null, info: null,
                     fields: [
                         { name: 'sec_vrrp', why: "Her iki cihazda aynı grup numarası ve aynı sanal IP kullanılmalı. Tek tarafı yapılandırmak, o cihazın tek başına aktif kalmasına ve failover olmamasına yol açar.",   label: 'VRRP/HSRP Ekle', type: 'checkbox', required: false },
-                        { name: 'adv_vr_iface', why: "FHRP yönlendirilen arayüzde çalışır (SVI ya da routed port); Layer 2 portta yapılandırılamaz.",label: 'Interface',     type: 'text',     required: false, placeholder: 'GigabitEthernet0/0' },
+                        { name: 'adv_vr_iface', why: "FHRP yönlendirilen arayüzde çalışır (SVI ya da routed port); Layer 2 portta yapılandırılamaz.",label: 'Interface',     type: 'text', validate: 'iface',     required: false, placeholder: 'GigabitEthernet0/0' },
                         { name: 'adv_vr_grp', why: "Grup numarası iki cihazda aynı olmalı; sanal MAC bu numaradan türer. Aynı VLAN'da iki farklı grup numarası, birbirinden habersiz iki aktif router demektir.", label: 'Group/VRID',     type: 'text',     required: false, placeholder: '1' },
                         { name: 'adv_vr_vip', why: "Sanal IP, fiziksel arayüz IP'lerinden farklı ve aynı subnet'te olmalıdır.", label: 'Virtual IP',     type: 'text',     required: false, placeholder: '192.168.1.254' }
                     ]
@@ -1893,7 +1893,7 @@ CiscoIOS.etherchannel = {
                     title: 'EtherChannel Temel', icon: 'fas fa-link', showFor: ['trunk', 'access'], warn: null, info: null,
                     fields: [
                         { name: 'pc_num', why: 'Port-channel numarası iki uçta <b>farklı olabilir</b>, ama üye portların ayarları (hız, dupleks, VLAN, trunk modu) birebir aynı olmalıdır.',       label: 'Port-Channel No',      type: 'text',   required: true,  placeholder: '1',                   hint: 'Port-channel numarası' },
-                        { name: 'member_range', why: 'Üye portlara önce kanal yapılandırması uygulanmalı, sonra IP/VLAN. Ters sıra config kaybına yol açar.', label: 'Üye Interface Aralığı',type: 'text',   required: true,  placeholder: 'GigabitEthernet0/1-2', hint: 'Interface range komutu için' },
+                        { name: 'member_range', why: 'Üye portlara önce kanal yapılandırması uygulanmalı, sonra IP/VLAN. Ters sıra config kaybına yol açar.', label: 'Üye Interface Aralığı',type: 'text', validate: 'iface_range',   required: true,  placeholder: 'GigabitEthernet0/1-2', hint: 'Interface range komutu için' },
                         { name: 'lacp_mode', why: '<code>active</code> LACP başlatır, <code>passive</code> bekler. İki uç da <code>passive</code> ise kanal <b>hiç kurulmaz</b>. <code>on</code> ise protokolsüzdür ve yanlış kabloda döngü yaratır — kaçınılmalıdır.',    label: 'LACP Modu',            type: 'select', required: false, options: [{v:'active',l:'active (LACP gönder + bekle)'},{v:'passive',l:'passive (LACP yalnız bekle)'},{v:'on',l:'on (statik, LACP yok)'}] },
                         { name: 'desc', why: "Arayüz açıklaması, arıza anında hangi portun nereye gittiğini söyleyen tek kaynaktır. LAG üyelerine de aynı açıklamayı yaz; sonradan hangi portun bundle'a ait olduğunu aramak zaman kaybıdır.",         label: 'Açıklama',             type: 'text',   required: false, placeholder: 'UPLINK-LAG-to-CORE',   hint: 'Interface description' }
                     ]
@@ -1901,14 +1901,14 @@ CiscoIOS.etherchannel = {
                 {
                     title: 'Trunk Ayarları', icon: 'fas fa-network-wired', showFor: ['trunk'], warn: null, info: null,
                     fields: [
-                        { name: 'allowed_vlans', why: "Trunk'tan geçmesine izin verilen VLAN'lar. Varsayılan <b>tüm VLAN'lar</b>dır; daraltmak hem broadcast'i hem saldırı yüzeyini azaltır.", label: 'Allowed VLANs', type: 'text', required: false, placeholder: '10,20,30 veya all', hint: 'Trunk allowed VLAN listesi' },
+                        { name: 'allowed_vlans', why: "Trunk'tan geçmesine izin verilen VLAN'lar. Varsayılan <b>tüm VLAN'lar</b>dır; daraltmak hem broadcast'i hem saldırı yüzeyini azaltır.", label: 'Allowed VLANs', type: 'text', validate: 'vlan_list', required: false, placeholder: '10,20,30 veya all', hint: 'Trunk allowed VLAN listesi' },
                         { name: 'native_vlan', why: "Trunk'ta etiketsiz geçen VLAN. İki uçta farklı native VLAN, <b>VLAN hopping</b> saldırısına kapı açar. Native VLAN'ı kullanılmayan bir ID'ye (ör. 999) almak iyi pratiktir.",   label: 'Native VLAN',   type: 'text', validate: 'vlan', required: false, placeholder: '1',                hint: 'Native VLAN (opsiyonel)' }
                     ]
                 },
                 {
                     title: 'Access Ayarları', icon: 'fas fa-plug', showFor: ['access'], warn: null, info: null,
                     fields: [
-                        { name: 'access_vlan', why: "Access port tek VLAN taşır. Port'u access yapmadan VLAN atamak, portun DTP ile kendiliğinden trunk olmasına yol açabilir — <code>switchport mode access</code> her zaman açıkça yazılmalı.", label: 'Access VLAN', type: 'text', required: false, placeholder: '10', hint: 'Access VLAN numarası' }
+                        { name: 'access_vlan', why: "Access port tek VLAN taşır. Port'u access yapmadan VLAN atamak, portun DTP ile kendiliğinden trunk olmasına yol açabilir — <code>switchport mode access</code> her zaman açıkça yazılmalı.", label: 'Access VLAN', type: 'text', validate: 'vlan', required: false, placeholder: '10', hint: 'Access VLAN numarası' }
                     ]
                 }
             ],
@@ -1957,8 +1957,8 @@ CiscoIOS.dmvpn = {
                     title: 'Tunnel Temel', icon: 'fas fa-cloud', showFor: ['hub', 'spoke'], warn: null, info: null,
                     fields: [
                         { name: 'tun_num', why: "Tunnel numarası yereldir ama hub ve spoke'ta aynı tutmak sorun gidermeyi ciddi kolaylaştırır. Numara değiştirmek çalışan tüneli anında düşürür.",  label: 'Tunnel Numarası',  type: 'text', required: true, placeholder: '0',                       hint: 'Tunnel arayüz numarası' },
-                        { name: 'tun_ip', why: "DMVPN'de hub ve tüm spoke'lar <b>aynı</b> tünel alt ağında olmalı. /30 vermek ya da farklı bloklar seçmek spoke-to-spoke kısayollarını tamamen bozar.",   label: 'Tunnel IP / Mask', type: 'text', required: true, placeholder: '10.100.0.1 255.255.255.0', hint: 'Tunnel interface IP adresi' },
-                        { name: 'wan_iface', why: "Tünelin kaynak arayüzü. Dinamik IP alan bir hatta <code>tunnel source</code> olarak arayüz adını kullan, IP'yi değil — IP değişince tünel kalıcı olarak down kalır.",label: 'WAN Interface',    type: 'text', required: true, placeholder: 'GigabitEthernet0/0',       hint: 'Tunnel kaynağı (fiziksel WAN)' },
+                        { name: 'tun_ip', why: "DMVPN'de hub ve tüm spoke'lar <b>aynı</b> tünel alt ağında olmalı. /30 vermek ya da farklı bloklar seçmek spoke-to-spoke kısayollarını tamamen bozar.",   label: 'Tunnel IP / Mask', type: 'text', validate: 'ip', required: true, placeholder: '10.100.0.1 255.255.255.0', hint: 'Tunnel interface IP adresi' },
+                        { name: 'wan_iface', why: "Tünelin kaynak arayüzü. Dinamik IP alan bir hatta <code>tunnel source</code> olarak arayüz adını kullan, IP'yi değil — IP değişince tünel kalıcı olarak down kalır.",label: 'WAN Interface',    type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0',       hint: 'Tunnel kaynağı (fiziksel WAN)' },
                         { name: 'nhrp_id', why: "NHRP network-id tüm DMVPN üyelerinde <b>aynı</b> olmalı. Farklı olması spoke'ların hub'ı bulamamasına yol açar.",  label: 'NHRP Network-ID', type: 'text', required: true, placeholder: '1',                        hint: 'NHRP network ID' },
                         { name: 'nhrp_key', why: 'NHRP kimlik doğrulaması olmadan, tünel ağına katılan herhangi bir cihaz sahte eşleme kaydedebilir.', label: 'NHRP Auth Key',   type: 'text', required: true, placeholder: 'cisco123',                 hint: 'NHRP kimlik doğrulama anahtarı' }
                     ]
@@ -2031,10 +2031,10 @@ CiscoIOS.eigrpnamed = {
                     title: 'EIGRP Named Mode', icon: 'fas fa-project-diagram', showFor: ['eigrpnamed'], warn: null, info: null,
                     fields: [
                         { name: 'proc_name', why: "Named mode'da proses adı <b>yereldir</b>; komşuyla eşleşmesi gereken AS numarasıdır. Adı sonradan değiştirmek tüm alt yapılandırmayı baştan yazmayı gerektirir.",    label: 'Proses Adı',                   type: 'text',   required: true,  placeholder: 'CORP',             hint: 'EIGRP named process adı' },
-                        { name: 'asn', why: "EIGRP AS numarası komşularla <b>birebir</b> aynı olmalı. Farklıysa komşuluk hiç kurulmaz ve log'da bariz bir hata görmezsin — bu yüzden önce AS'i doğrula.",          label: 'AS Numarası',                  type: 'text',   required: true,  placeholder: '100',              hint: 'Autonomous System numarası' },
+                        { name: 'asn', why: "EIGRP AS numarası komşularla <b>birebir</b> aynı olmalı. Farklıysa komşuluk hiç kurulmaz ve log'da bariz bir hata görmezsin — bu yüzden önce AS'i doğrula.",          label: 'AS Numarası',                  type: 'text', validate: 'asn',   required: true,  placeholder: '100',              hint: 'Autonomous System numarası' },
                         { name: 'router_id', why: "Router-ID benzersiz olmalı. Çakışan ID, harici rotaların sessizce yok sayılmasına yol açar — en zor teşhis edilen EIGRP arızalarından biridir.",    label: 'Router-ID',                    type: 'text', validate: 'ip',   required: true,  placeholder: '1.1.1.1',          hint: 'EIGRP router-id' },
                         { name: 'network', why: "Named mode'da <code>network</code> yine wildcard maske ister ve hangi arayüzlerin EIGRP'e katılacağını belirler. Fazla geniş yazmak WAN arayüzünü de komşuluğa açar.",      label: 'Network',                      type: 'text',   required: true,  placeholder: '10.0.0.0',         hint: 'CIDR veya classful network' },
-                        { name: 'af_iface', why: "Named mode'da arayüz ayarları <code>af-interface</code> altında yapılır; klasik mode komutları buraya işlemez. <code>af-interface default</code> ile başlayıp istisnaları ayrı yazmak daha güvenlidir.",     label: 'AF Interface',                 type: 'text',   required: true,  placeholder: 'GigabitEthernet0/0',hint: 'Auth + hello ayarları için' },
+                        { name: 'af_iface', why: "Named mode'da arayüz ayarları <code>af-interface</code> altında yapılır; klasik mode komutları buraya işlemez. <code>af-interface default</code> ile başlayıp istisnaları ayrı yazmak daha güvenlidir.",     label: 'AF Interface',                 type: 'text', validate: 'iface',   required: true,  placeholder: 'GigabitEthernet0/0',hint: 'Auth + hello ayarları için' },
                         { name: 'hello', why: "EIGRP hello değeri komşuyla eşleşmek <b>zorunda değildir</b>, bu yüzden hata sessizdir: bir tarafta hello'yu kısaltıp diğerinde bırakmak tespit süresini asimetrik yapar.",        label: 'Hello Interval (sn)',          type: 'text',   required: false, placeholder: '5',                hint: 'Hello timer (varsayılan: 5)' },
                         { name: 'hold', why: "Hello'yu değiştirip hold'u güncellemeyi unutmak klasik EIGRP hatasıdır: komşuluk düzenli aralıklarla düşüp geri gelir ve nedeni geç bulunur.",         label: 'Hold Time (sn)',               type: 'text',   required: false, placeholder: '15',               hint: 'Hold-time (varsayılan: 15)' },
                         { name: 'auth_key', why: 'Kimlik doğrulama olmadan, ağa takılan herhangi bir cihaz yüksek öncelikle kendini aktif router ilan edip trafiği çalabilir.',     label: 'Auth Key',                     type: 'text',   required: false, placeholder: 'cisco123',         hint: 'MD5 kimlik doğrulama anahtarı (opsiyonel)' },
@@ -2095,7 +2095,7 @@ CiscoIOS.vrflite = {
                         { name: 'rd', why: "Route Distinguisher, aynı prefix'in farklı VRF'lerde ayırt edilmesini sağlar. VRF başına benzersiz olmalı (ör. <code>65000:100</code>).",        label: 'Route Distinguisher (RD)',    type: 'text', validate: 'rd', required: true,  placeholder: '65001:1',            hint: 'Benzersiz RD değeri' },
                         { name: 'rt_exp', why: "Route Target export, bu VRF'in rotalarını hangi etiketle duyuracağını belirler. Import/export eşleşmesi yanlışsa siteler birbirini göremez.",    label: 'Route Target Export',         type: 'text', required: true,  placeholder: '65001:1',            hint: 'Export RT' },
                         { name: 'rt_imp', why: "Import, hangi etiketli rotaların bu VRF'e alınacağını belirler. Hub-and-spoke topolojide import/export asimetrik kurulur.",    label: 'Route Target Import',         type: 'text', required: true,  placeholder: '65001:1',            hint: 'Import RT' },
-                        { name: 'vrf_iface', why: "Bir arayüzü VRF'e almak üzerindeki IP adresini <b>siler</b>. Önce <code>vrf forwarding</code>, sonra IP ver; sırayı karıştırmak uzaktan bağlantıyı koparır.", label: 'VRF Interface',              type: 'text', required: true,  placeholder: 'GigabitEthernet0/1', hint: 'VRF\'e atanacak interface' },
+                        { name: 'vrf_iface', why: "Bir arayüzü VRF'e almak üzerindeki IP adresini <b>siler</b>. Önce <code>vrf forwarding</code>, sonra IP ver; sırayı karıştırmak uzaktan bağlantıyı koparır.", label: 'VRF Interface',              type: 'text', validate: 'iface', required: true,  placeholder: 'GigabitEthernet0/1', hint: 'VRF\'e atanacak interface' },
                         { name: 'iface_ip', why: "VRF'e aldıktan sonra IP'yi yeniden girmen gerekir. Aynı adres başka bir VRF'te de kullanılabilir — bu VRF'in amacıdır ama sorun giderirken ciddi karışıklık yaratır.",  label: 'Interface IP / Mask',        type: 'text', validate: 'ip', required: true,  placeholder: '10.1.1.1 255.255.255.0', hint: 'Interface IP adresi' },
                         { name: 'vrf_gw', why: "VRF içindeki rotalar global tabloya <b>bakmaz</b>. Default rotayı <code>ip route vrf &lt;ad&gt;</code> ile ayrıca tanımlamazsan VRF trafiği hiçbir yere gitmez.",    label: 'VRF Default Route (Next-Hop)',type: 'text', required: false, placeholder: '10.1.1.254',         hint: 'VRF içi default gateway (opsiyonel)' }
                     ]
@@ -2140,7 +2140,7 @@ CiscoIOS.mpls = {
                     title: 'MPLS / LDP Konfigürasyonu', icon: 'fas fa-tags', showFor: ['mpls'], warn: null, info: null,
                     fields: [
                         { name: 'router_id', why: "LDP router-ID'si olarak kullanılan loopback, IGP'de <code>/32</code> olarak duyurulmalı. Duyurulmazsa LDP oturumu kurulmaz ve tüm MPLS yolu çöker.",   label: 'Router ID (Loopback IP)',              type: 'text', validate: 'ip',     required: true,  placeholder: '1.1.1.1',                         hint: 'Loopback interface IP adresi' },
-                        { name: 'lo_iface', why: "LDP router-ID'si bu loopback'ten alınır ve IGP'de <code>/32</code> duyurulmalı. Duyurulmazsa LDP oturumu kurulmaz ve MPLS yolu baştan çöker.",    label: 'Loopback Interface',                   type: 'text',     required: true,  placeholder: 'Loopback0',                       hint: 'Loopback interface adı' },
+                        { name: 'lo_iface', why: "LDP router-ID'si bu loopback'ten alınır ve IGP'de <code>/32</code> duyurulmalı. Duyurulmazsa LDP oturumu kurulmaz ve MPLS yolu baştan çöker.",    label: 'Loopback Interface',                   type: 'text', validate: 'iface',     required: true,  placeholder: 'Loopback0',                       hint: 'Loopback interface adı' },
                         { name: 'mpls_ifaces', why: "MPLS'in çalışacağı arayüzler. LDP komşuluğu kurulmadan etiket dağıtımı olmaz ve L3VPN trafiği geçmez.", label: 'MPLS Interface\'ler (her satıra bir)', type: 'textarea', required: true,  placeholder: 'GigabitEthernet0/0\nGigabitEthernet0/1', hint: 'mpls ip etkinleştirilecek interface\'ler' },
                         { name: 'ldp_rid_if', why: 'LDP Router-ID için Loopback kullanılmalı; fiziksel arayüz down olduğunda LDP oturumları kopar.',  label: 'LDP Router-ID Interface',              type: 'text',     required: true,  placeholder: 'Loopback0',                       hint: 'LDP router-id için interface' }
                     ]
@@ -2190,8 +2190,8 @@ CiscoIOS.l3vpn = {
                 {
                     title: 'CE Interface & BGP', icon: 'fas fa-exchange-alt', showFor: ['l3vpn'], warn: null, info: null,
                     fields: [
-                        { name: 'ce_iface', why: "PE üzerinde müşteriye bakan arayüz. Doğru VRF'e almazsan müşteri rotaları global tabloya karışır; bu, müşteriler arası sızıntı anlamına gelir.",   label: 'CE Interface',       type: 'text', required: true,  placeholder: 'GigabitEthernet0/1',      hint: 'PE-CE bağlantı interface' },
-                        { name: 'ce_ip', why: "PE-CE bağlantı adresi. Müşterinin adres planıyla çakışmayan bir /30 seç; çakışma aynı prefix'in iki farklı yere işaret etmesine yol açar.",      label: 'CE Interface IP',    type: 'text', required: true,  placeholder: '10.1.1.1 255.255.255.252', hint: 'PE tarafı IP adresi' },
+                        { name: 'ce_iface', why: "PE üzerinde müşteriye bakan arayüz. Doğru VRF'e almazsan müşteri rotaları global tabloya karışır; bu, müşteriler arası sızıntı anlamına gelir.",   label: 'CE Interface',       type: 'text', validate: 'iface', required: true,  placeholder: 'GigabitEthernet0/1',      hint: 'PE-CE bağlantı interface' },
+                        { name: 'ce_ip', why: "PE-CE bağlantı adresi. Müşterinin adres planıyla çakışmayan bir /30 seç; çakışma aynı prefix'in iki farklı yere işaret etmesine yol açar.",      label: 'CE Interface IP',    type: 'text', validate: 'ip', required: true,  placeholder: '10.1.1.1 255.255.255.252', hint: 'PE tarafı IP adresi' },
                         { name: 'local_as', why: "Kendi AS numaran. Peer'ın AS'i farklıysa eBGP, aynıysa iBGP olur; ikisinin davranışı belirgin şekilde farklıdır.",   label: 'Local BGP AS (PE)',  type: 'text', validate: 'asn', required: true,  placeholder: '65001',                   hint: 'PE BGP AS numarası' },
                         { name: 'ce_as', why: "Müşteri AS'i. Birden fazla şube aynı AS'i kullanıyorsa BGP döngü koruması rotaları reddeder; çözüm <code>as-override</code> ya da <code>allowas-in</code>'dir.",      label: 'CE BGP AS',          type: 'text', validate: 'asn', required: false, placeholder: '65100',                   hint: 'CE BGP AS (opsiyonel)' },
                         { name: 'ce_neighbor', why: "Komşu <code>address-family ipv4 vrf</code> altında tanımlanmalı. Global BGP altında tanımlamak, rotaların VRF'e hiç girmemesi demektir.",label: 'CE BGP Neighbor IP', type: 'text', required: false, placeholder: '10.1.1.2',                hint: 'CE\'nin IP adresi' }
@@ -2362,8 +2362,8 @@ CiscoIOS.zbfw = {
                     fields: [
                         { name: 'in_zone', why: "ZBFW'de <b>aynı zone içi trafik serbesttir</b>, farklı zone'lar arası ise zone-pair tanımlanmadan tamamen bloklu. Self zone (cihazın kendisi) ayrıca ele alınmalıdır.",  label: 'Inside Zone Adı',    type: 'text', required: true, placeholder: 'INSIDE',             hint: 'İç ağ zone adı' },
                         { name: 'out_zone', why: "Zone-pair yönlüdür: inside→outside tanımlamak, outside→inside'ı açmaz. Dönüş trafiği için inspect kullanılır.", label: 'Outside Zone Adı',   type: 'text', required: true, placeholder: 'OUTSIDE',            hint: 'Dış ağ zone adı' },
-                        { name: 'in_iface', why: "Arayüzü zone'a atamadan zone-pair yazmak hiçbir şey yapmaz. Arayüz zone'a alındığı anda varsayılan davranış değişir: eşleşmeyen tüm trafik düşer.", label: 'Inside Interface',   type: 'text', required: true, placeholder: 'GigabitEthernet0/1', hint: 'İç interface' },
-                        { name: 'out_iface', why: "Dış arayüzü zone'a aldığın anda cihazın kendi trafiği de etkilenir. <code>self</code> zone için kural yazmazsan SSH erişimini kaybedebilirsin.",label: 'Outside Interface',  type: 'text', required: true, placeholder: 'GigabitEthernet0/0', hint: 'Dış interface' },
+                        { name: 'in_iface', why: "Arayüzü zone'a atamadan zone-pair yazmak hiçbir şey yapmaz. Arayüz zone'a alındığı anda varsayılan davranış değişir: eşleşmeyen tüm trafik düşer.", label: 'Inside Interface',   type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/1', hint: 'İç interface' },
+                        { name: 'out_iface', why: "Dış arayüzü zone'a aldığın anda cihazın kendi trafiği de etkilenir. <code>self</code> zone için kural yazmazsan SSH erişimini kaybedebilirsin.",label: 'Outside Interface',  type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0', hint: 'Dış interface' },
                         { name: 'protos', why: "Yalnızca burada saydığın protokoller <code>inspect</code> edilir; geri kalan her şey sessizce düşer. ICMP'yi unutmak, çalışan bir ağda ping'in aniden kesilmesi demektir.",   label: 'İzin verilen protokoller (virgülle)', type: 'text', required: true, placeholder: 'tcp,udp,icmp', hint: 'Örn: tcp,udp,icmp' }
                     ]
                 }
@@ -2405,7 +2405,7 @@ CiscoIOS.bfd = {
                 {
                     title: 'BFD Konfigürasyonu', icon: 'fas fa-heartbeat', showFor: ['bfd'], warn: null, info: null,
                     fields: [
-                        { name: 'iface', why: "BFD her <b>iki uçta</b> da aynı arayüzde açılmalı. Tek taraflı yapılandırma oturumu <code>down</code> durumunda bekletir ve sessizce hiçbir şey yapmaz.",        label: 'Interface',               type: 'text',   required: true,  placeholder: 'GigabitEthernet0/0', hint: 'BFD etkinleştirilecek interface' },
+                        { name: 'iface', why: "BFD her <b>iki uçta</b> da aynı arayüzde açılmalı. Tek taraflı yapılandırma oturumu <code>down</code> durumunda bekletir ve sessizce hiçbir şey yapmaz.",        label: 'Interface',               type: 'text', validate: 'iface',   required: true,  placeholder: 'GigabitEthernet0/0', hint: 'BFD etkinleştirilecek interface' },
                         { name: 'interval', why: 'BFD, saniyeler yerine <b>milisaniyeler</b> içinde arıza tespit eder. Çok agresif değerler CPU yükü ve yanlış pozitif üretir; 300ms tipik bir başlangıçtır.',     label: 'BFD Interval (ms)',       type: 'text',   required: true,  placeholder: '300',                hint: 'Gönderme aralığı' },
                         { name: 'min_rx', why: "Karşı tarafın gönderim aralığıyla uyumlu olmalı; asimetrik değerler BFD oturumunun hiç kurulmamasına yol açar. Yazılım tabanlı BFD'de 50 ms gibi değerler CPU'yu boğar.",       label: 'Min-Rx (ms)',             type: 'text',   required: true,  placeholder: '300',                hint: 'Minimum alma aralığı' },
                         { name: 'multiplier', why: 'Kaç ardışık kayıp paketten sonra komşunun down sayılacağı. interval × multiplier = tespit süresi.',   label: 'Multiplier',              type: 'text',   required: true,  placeholder: '3',                  hint: 'Dead interval çarpanı' },
