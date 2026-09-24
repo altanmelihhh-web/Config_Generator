@@ -232,7 +232,7 @@ CiscoIOS.nat = {
                     showFor: ['pat', 'dynamic'],
                     fields: [
                         { name: 'inside_net', why: "NAT ACL'i <b>hangi kaynakların</b> çevrileceğini belirler. Fazla geniş yazmak (örn. <code>any</code>) VPN trafiğini de NAT'lar ve tünelin içinden hiçbir şey geçmez.", label: 'Inside Network', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.0', hint: 'NAT uygulanacak iç ağ adresi' },
-                        { name: 'inside_wild', why: "Burada da wildcard maske kullanılır, subnet maske değil. NAT ACL'i çok geniş olursa istemediğin trafiği de NAT'larsın (ör. VPN trafiği).", label: 'Wildcard Mask', type: 'text', validate: 'wildcard', placeholder: '0.0.0.255', hint: 'Boş bırakılırsa 0.0.0.255 kullanılır' }
+                        { name: 'inside_wild', why: "Burada da wildcard maske kullanılır, subnet maske değil. NAT ACL'i çok geniş olursa istemediğin trafiği de NAT'larsın (ör. VPN trafiği).", label: 'Wildcard Mask', type: 'text', validate: 'wildcard', required: true, placeholder: '0.0.0.255', hint: 'NAT uygulanacak iç ağın wildcard maskesi (/24 = 0.0.0.255)' }
                     ]
                 },
                 {
@@ -285,7 +285,7 @@ CiscoIOS.nat = {
             config += 'interface ' + inside + '\n ip nat inside\n!\ninterface ' + outside + '\n ip nat outside\n!\n';
             if (type === 'pat') {
                 const net  = data.inside_net;
-                const wild = data.inside_wild || '0.0.0.255';
+                const wild = data.inside_wild;
                 config += 'ip access-list extended NAT_ACL\n permit ip ' + net + ' ' + wild + ' any\n!\n';
                 config += 'ip nat inside source list NAT_ACL interface ' + outside + ' overload\n';
             } else if (type === 'static') {
@@ -296,7 +296,7 @@ CiscoIOS.nat = {
                           ' ' + pub + ' ' + data.pf_global_port + '\n';
             } else {
                 const net  = data.inside_net;
-                const wild = data.inside_wild || '0.0.0.255';
+                const wild = data.inside_wild;
                 config += 'ip nat pool NAT_POOL ' + data.pool_start + ' ' + data.pool_end + ' netmask ' + data.pool_mask + '\n';
                 config += 'ip access-list extended NAT_ACL\n permit ip ' + net + ' ' + wild + ' any\n!\n';
                 config += 'ip nat inside source list NAT_ACL pool NAT_POOL\n';
@@ -2401,3 +2401,320 @@ function cgIosSpanGen(data) {
     c += '\n! Doğrulama:\n! show monitor session ' + sid + '\n! show monitor session ' + sid + ' detail\n';
     return c;
 }
+
+// ── NTP + Saat Dilimi ─────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (ntp server/prefer/source: 20 cihaz, ntp access-group: 4, clock timezone: 21)
+CiscoIOS.ntp = {
+    label: 'NTP / Saat',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-clock', title: 'NTP ve Saat Dilimi', desc: 'Zaman senkronu olmadan log korelasyonu, sertifika doğrulaması ve Kerberos/802.1X çalışmaz. En az iki NTP sunucusu ve sabit bir kaynak arayüz önerilir.' },
+            sections: [
+                {
+                    title: 'NTP Sunucuları', icon: 'fas fa-server',
+                    fields: [
+                        { name: 'ntp1', why: 'Tek sunucu tek arıza noktasıdır; üç sunucu, biri saparsa çoğunluğun doğruyu seçmesini sağlar.', label: 'NTP Sunucu 1', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.10', hint: 'Birincil zaman kaynağı (prefer eklenir)' },
+                        { name: 'ntp2', label: 'NTP Sunucu 2', type: 'text', validate: 'ip', placeholder: '10.0.0.11', hint: 'Yedek sunucu' },
+                        { name: 'ntp_src', why: 'Kaynak arayüz sabitlenmezse NTP paketleri çıkış arayüzünün IP\'siyle gider; sunucu tarafındaki erişim listesi bu yüzden reddedebilir.', label: 'Kaynak Arayüz', type: 'text', validate: 'iface', placeholder: 'Loopback0', hint: 'ntp source' },
+                        { name: 'ntp_vrf', label: 'VRF', type: 'text', placeholder: 'MGMT', hint: 'Yönetim VRF\'i kullanılıyorsa' }
+                    ]
+                },
+                {
+                    title: 'Kimlik Doğrulama ve Erişim', icon: 'fas fa-key',
+                    fields: [
+                        { name: 'ntp_key_id', label: 'Anahtar No', type: 'text', min: 1, max: 65535, placeholder: '1', hint: 'Boş = kimlik doğrulama yok' },
+                        { name: 'ntp_key', why: 'Kimlik doğrulamasız NTP sahte zaman sunucusuna açıktır; saat kaydırılarak log ve sertifika kontrolleri atlatılabilir.', label: 'Anahtar (MD5)', type: 'text', requiredIf: { field: 'ntp_auth', checked: true }, placeholder: 'NtpKey123', hint: 'Sunucudakiyle aynı' },
+                        { name: 'ntp_auth', label: 'NTP kimlik doğrulamasını etkinleştir', type: 'checkbox' },
+                        { name: 'ntp_acl', why: 'serve-only/query-only erişim listeleri, cihazın başkalarına zaman sunmasını veya uzaktan sorgulanmasını sınırlar (NTP amplification saldırılarına karşı).', label: 'Sunmaya izinli ACL', type: 'text', placeholder: '10', hint: 'ntp access-group serve-only — boş = kısıtlama yok' }
+                    ]
+                },
+                {
+                    title: 'Saat Dilimi', icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'tz_name', label: 'Saat Dilimi Adı', type: 'text', placeholder: 'TRT', hint: 'Log\'larda görünen kısaltma (TRT, UTC, CET)' },
+                        { name: 'tz_offset', why: 'Türkiye 2016\'dan beri sabit UTC+3\'tür; yaz saati (summer-time) tanımlanmaz.', label: 'UTC Farkı (saat)', type: 'text', min: -12, max: 14, requiredIf: { field: 'tz_set', checked: true }, placeholder: '3', hint: 'Örn: 3, -5' },
+                        { name: 'tz_set', label: 'Saat dilimini ayarla (clock timezone)', type: 'checkbox', checked: true }
+                    ]
+                }
+            ],
+            submit: 'NTP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const n1 = cgEsc(data.ntp1 || ''), n2 = cgEsc(data.ntp2 || ''), src = cgEsc(data.ntp_src || ''), vrf = cgEsc(data.ntp_vrf || '');
+            const kid = cgEsc(data.ntp_key_id || ''), key = cgEsc(data.ntp_key || ''), acl = cgEsc(data.ntp_acl || '');
+            const v = vrf ? ' vrf ' + vrf : '';
+            const auth = data.ntp_auth && kid && key;
+            let c = '! ========================================\n! Cisco IOS — NTP ve Saat\n! ========================================\n\n';
+            if (data.tz_set && data.tz_offset !== '') c += 'clock timezone ' + (cgEsc(data.tz_name || '') || 'UTC') + ' ' + cgEsc(data.tz_offset) + ' 0\n';
+            if (data.ntp_auth && !auth) c += '! UYARI: kimlik doğrulama seçili ama anahtar no/anahtar eksik — doğrulama satırları yazılmadı.\n';
+            if (auth) c += 'ntp authentication-key ' + kid + ' md5 ' + key + '\nntp authenticate\nntp trusted-key ' + kid + '\n';
+            if (src) c += 'ntp source ' + src + '\n';
+            if (n1) c += 'ntp server' + v + ' ' + n1 + (auth ? ' key ' + kid : '') + ' prefer\n';
+            if (n2) c += 'ntp server' + v + ' ' + n2 + (auth ? ' key ' + kid : '') + '\n';
+            if (acl) c += 'ntp access-group serve-only ' + acl + '\n';
+            c += '\n! Doğrulama:\n! show ntp associations\n! show ntp status\n! show clock detail\n';
+            return c;
+        });
+    }
+};
+
+// ── Syslog ────────────────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (logging host: 22 cihaz; transport udp port / vrf: 8; buffered: 11; source-interface: 4; service timestamps: 23)
+CiscoIOS.logging = {
+    label: 'Syslog / Logging',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-file-alt', title: 'Syslog / Logging', desc: 'Olay kayıtlarını merkezi syslog/SIEM sunucusuna gönderir, yerel tamponu ve zaman damgasını ayarlar. Denetim ve olay müdahalesinin temelidir.' },
+            sections: [
+                {
+                    title: 'Syslog Sunucuları', icon: 'fas fa-server',
+                    fields: [
+                        { name: 'log1', label: 'Syslog Sunucu 1', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.20', hint: 'Birincil SIEM/syslog' },
+                        { name: 'log2', label: 'Syslog Sunucu 2', type: 'text', validate: 'ip', placeholder: '10.0.0.21', hint: 'Yedek' },
+                        { name: 'log_port', why: 'Varsayılan UDP 514\'tür; SIEM farklı portta dinliyorsa buraya yazın.', label: 'UDP Port', type: 'text', validate: 'port', placeholder: '514', hint: 'Boş = varsayılan 514' },
+                        { name: 'log_vrf', label: 'VRF', type: 'text', placeholder: 'MGMT', hint: 'Yönetim VRF\'i kullanılıyorsa' },
+                        { name: 'log_src', why: 'Kaynak arayüz sabit değilse SIEM aynı cihazı farklı IP\'lerden gelen iki ayrı cihaz sanabilir.', label: 'Kaynak Arayüz', type: 'text', validate: 'iface', placeholder: 'Loopback0', hint: 'logging source-interface' },
+                        { name: 'log_trap', label: 'Gönderilecek Seviye', type: 'select', options: [
+                            { value: 'informational', label: '6 — informational (önerilen)', selected: true },
+                            { value: 'notifications', label: '5 — notifications' },
+                            { value: 'warnings', label: '4 — warnings' },
+                            { value: 'errors', label: '3 — errors' },
+                            { value: 'debugging', label: '7 — debugging (yalnız sorun gidermede)' }
+                        ]}
+                    ]
+                },
+                {
+                    title: 'Yerel Tampon ve Konsol', icon: 'fas fa-memory',
+                    fields: [
+                        { name: 'buf_size', why: 'Tampon, sunucuya ulaşılamayan sürede son olayları cihazda tutar; çok küçük olursa arıza anının kayıtları silinir.', label: 'Tampon Boyutu (bayt)', type: 'text', min: 4096, max: 2147483647, placeholder: '64000', hint: 'Boş = tampon ayarı yazılmaz' },
+                        { name: 'console_log', label: 'Konsol Loglama', type: 'select', options: [
+                            { value: 'off', label: 'Kapalı — no logging console (önerilen)', selected: true },
+                            { value: 'warnings', label: 'warnings' },
+                            { value: 'informational', label: 'informational' },
+                            { value: 'keep', label: 'Değiştirme' }
+                        ], hint: 'Yoğun konsol loglaması CPU\'yu yükler' },
+                        { name: 'ts', label: 'Zaman damgası: datetime msec (debug ve log için)', type: 'checkbox', checked: true },
+                        { name: 'ts_local', label: 'Zaman damgasında yerel saat (localtime)', type: 'checkbox' }
+                    ]
+                }
+            ],
+            submit: 'Logging Konfigürasyonu Oluştur'
+        }, (data) => {
+            const hosts = [data.log1, data.log2].map(x => cgEsc(x || '')).filter(Boolean);
+            const port = cgEsc(data.log_port || ''), vrf = cgEsc(data.log_vrf || ''), src = cgEsc(data.log_src || '');
+            const buf = cgEsc(data.buf_size || ''), lt = data.ts_local ? ' localtime' : '';
+            let c = '! ========================================\n! Cisco IOS — Syslog / Logging\n! ========================================\n\n';
+            if (data.ts) c += 'service timestamps debug datetime msec' + lt + '\nservice timestamps log datetime msec' + lt + '\n';
+            if (buf) c += 'logging buffered ' + buf + ' informational\n';
+            if (data.console_log === 'off') c += 'no logging console\n';
+            else if (data.console_log && data.console_log !== 'keep') c += 'logging console ' + cgEsc(data.console_log) + '\n';
+            c += 'logging trap ' + cgEsc(data.log_trap || 'informational') + '\n';
+            if (src) c += 'logging source-interface ' + src + (vrf ? ' vrf ' + vrf : '') + '\n';
+            hosts.forEach(h => { c += 'logging host ' + h + (vrf ? ' vrf ' + vrf : '') + (port ? ' transport udp port ' + port : '') + '\n'; });
+            c += '\n! Doğrulama:\n! show logging\n! show logging | include Trap|host\n';
+            return c;
+        });
+    }
+};
+
+// ── LLDP / CDP ────────────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (lldp run: 17 cihaz; lldp timer/tlv-select); CDP: Cisco IOS Network Management Guide
+CiscoIOS.lldp = {
+    label: 'LLDP / CDP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-project-diagram', title: 'LLDP / CDP — Komşu Keşfi', desc: '<strong>LLDP</strong> standart (IEEE 802.1AB), <strong>CDP</strong> Cisco\'ya özeldir. Topoloji keşfi, NMS envanteri ve IP telefon tanıma için kullanılır; güvenilmeyen (internet, misafir) portlarda kapatılmalıdır.' },
+            sections: [
+                {
+                    title: 'Global', icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'lldp', label: 'LLDP', type: 'select', options: [
+                            { value: 'on', label: 'Açık — lldp run', selected: true },
+                            { value: 'off', label: 'Kapalı — no lldp run' }
+                        ]},
+                        { name: 'cdp', why: 'CDP cihaz modeli, IOS sürümü ve yönetim IP\'sini açık metinle yayınlar; saldırgan için hazır keşif bilgisidir.', label: 'CDP', type: 'select', options: [
+                            { value: 'keep', label: 'Değiştirme', selected: true },
+                            { value: 'on', label: 'Açık — cdp run' },
+                            { value: 'off', label: 'Kapalı — no cdp run' }
+                        ]},
+                        { name: 'lldp_timer', label: 'LLDP Gönderim Aralığı (sn)', type: 'text', min: 5, max: 65534, placeholder: '30', hint: 'Boş = varsayılan 30' },
+                        { name: 'lldp_hold', label: 'LLDP Holdtime (sn)', type: 'text', min: 0, max: 65535, placeholder: '120', hint: 'Boş = varsayılan 120' }
+                    ]
+                },
+                {
+                    title: 'Güvenilmeyen Portlarda Kapat', icon: 'fas fa-ban',
+                    fields: [
+                        { name: 'off_ifaces', why: 'İnternet, misafir ve üçüncü taraf portlarında keşif protokolü bilgi sızdırır; bu portlarda kapatılması önerilir.', label: 'Arayüzler', type: 'text', validate: 'iface_range', placeholder: 'GigabitEthernet1/0/48', hint: 'Virgülle liste; boş = dokunma' }
+                    ]
+                }
+            ],
+            submit: 'LLDP/CDP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const t = cgEsc(data.lldp_timer || ''), h = cgEsc(data.lldp_hold || '');
+            const offs = cgEsc(data.off_ifaces || '').split(/[,\s]+/).filter(Boolean);
+            let c = '! ========================================\n! Cisco IOS — LLDP / CDP\n! ========================================\n\n';
+            c += (data.lldp === 'off' ? 'no lldp run' : 'lldp run') + '\n';
+            if (data.lldp !== 'off' && t) c += 'lldp timer ' + t + '\n';
+            if (data.lldp !== 'off' && h) c += 'lldp holdtime ' + h + '\n';
+            if (data.cdp === 'on') c += 'cdp run\n'; else if (data.cdp === 'off') c += 'no cdp run\n';
+            offs.forEach(i => {
+                c += '!\ninterface ' + i + '\n no lldp transmit\n no lldp receive\n';
+                if (data.cdp !== 'off') c += ' no cdp enable\n';
+            });
+            c += '\n! Doğrulama:\n! show lldp neighbors\n! show cdp neighbors\n';
+            return c;
+        });
+    }
+};
+
+// ── Config Archive / Otomatik Yedek ──────────────────────────────────────────
+// Sözdizimi: canlı config (archive bloğu 22 cihaz: log config, logging enable, notify syslog contenttype plaintext, hidekeys, path, write-memory)
+CiscoIOS.archive = {
+    label: 'Config Archive / Yedek',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-archive', title: 'Config Archive — Otomatik Yedek ve Değişiklik Kaydı', desc: 'Her <code>write memory</code>\'de (ve/veya periyodik olarak) konfigürasyonu belirtilen yola kopyalar; <code>log config</code> ile kim hangi komutu girdi syslog\'a yazılır.' },
+            sections: [
+                {
+                    title: 'Yedek Hedefi', icon: 'fas fa-hdd',
+                    fields: [
+                        { name: 'arch_path', why: 'Yedek cihazın kendi flash\'ında kalırsa cihazla birlikte kaybolur; uzak (scp/tftp) hedef tercih edilmelidir. $h hostname, $t zaman damgası ile değiştirilir.', label: 'Yol', type: 'text', required: true, placeholder: 'flash:archive-$h-$t', hint: 'Örn: scp://kullanici@10.0.0.30/yedek/$h-$t' },
+                        { name: 'arch_wm', label: 'Her write memory\'de yedekle (write-memory)', type: 'checkbox', checked: true },
+                        { name: 'arch_period', label: 'Periyodik Yedek (dakika)', type: 'text', min: 1, max: 525600, placeholder: '1440', hint: 'Boş = periyodik yedek yok; 1440 = günlük' },
+                        { name: 'arch_max', why: 'Yalnız yerel (flash:) hedeflerde geçerlidir; eski kopyaların flash\'ı doldurmasını önler.', label: 'En Fazla Kopya', type: 'text', min: 1, max: 14, placeholder: '14', hint: 'Yalnız flash: yolunda' }
+                    ]
+                },
+                {
+                    title: 'Değişiklik Kaydı', icon: 'fas fa-history',
+                    fields: [
+                        { name: 'log_cfg', label: 'Girilen komutları kaydet (log config / logging enable)', type: 'checkbox', checked: true },
+                        { name: 'log_notify', label: 'Komutları syslog\'a gönder (notify syslog contenttype plaintext)', type: 'checkbox', checked: true },
+                        { name: 'log_hide', why: 'Parola ve anahtar içeren komutlar kayda ve syslog\'a açık metinle düşmesin.', label: 'Parolaları kayıtta gizle (hidekeys)', type: 'checkbox', checked: true }
+                    ]
+                }
+            ],
+            submit: 'Archive Konfigürasyonu Oluştur'
+        }, (data) => {
+            const p = cgEsc(data.arch_path || ''), per = cgEsc(data.arch_period || ''), mx = cgEsc(data.arch_max || '');
+            let c = '! ========================================\n! Cisco IOS — Config Archive\n! ========================================\n\n';
+            c += 'archive\n';
+            if (data.log_cfg) {
+                c += ' log config\n  logging enable\n';
+                if (data.log_notify) c += '  notify syslog contenttype plaintext\n';
+                if (data.log_hide) c += '  hidekeys\n';
+            }
+            c += ' path ' + p + '\n';
+            if (mx && /^flash|^bootflash|^disk/i.test(p)) c += ' maximum ' + mx + '\n';
+            if (data.arch_wm) c += ' write-memory\n';
+            if (per) c += ' time-period ' + per + '\n';
+            c += '!\n\n! Doğrulama:\n! show archive\n! show archive log config all\n';
+            return c;
+        });
+    }
+};
+
+// ── VTP ───────────────────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (vtp mode/domain/version: 15 cihaz)
+CiscoIOS.vtp = {
+    label: 'VTP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-share-alt', title: 'VTP — VLAN Trunking Protocol', desc: 'VLAN veritabanını switch\'ler arasında dağıtır. Yanlış mod veya daha yüksek revizyonlu bir switch ağa eklendiğinde <strong>tüm VLAN\'ları silebilir</strong>; çoğu kurumsal ağda <strong>transparent</strong> veya <strong>off</strong> kullanılır.' },
+            sections: [
+                {
+                    title: 'VTP Ayarları', icon: 'fas fa-cog',
+                    warn: 'Server/Client modundaki bir switch\'i ağa bağlamadan önce revizyon numarasını sıfırlayın (domain adını geçici değiştirip geri alarak); aksi halde VLAN veritabanı üzerine yazılabilir.',
+                    fields: [
+                        { name: 'vtp_mode', label: 'Mod', type: 'select', options: [
+                            { value: 'transparent', label: 'Transparent — VLAN\'ları yerel tut (önerilen)', selected: true },
+                            { value: 'off', label: 'Off — VTP\'yi kapat (VTPv3)' },
+                            { value: 'server', label: 'Server' },
+                            { value: 'client', label: 'Client' }
+                        ]},
+                        { name: 'vtp_domain', why: 'Transparent modda bile domain adı eşleşmezse bazı platformlar trunk\'ta DTP pazarlığını reddeder.', label: 'Domain', type: 'text', requiredIf: { field: 'vtp_mode', in: ['server', 'client'] }, placeholder: 'CORP', hint: 'Server/Client için zorunlu' },
+                        { name: 'vtp_ver', label: 'Sürüm', type: 'select', options: [
+                            { value: '2', label: 'Sürüm 2', selected: true },
+                            { value: '3', label: 'Sürüm 3 (primary server, off modu)' },
+                            { value: '', label: 'Değiştirme' }
+                        ]},
+                        { name: 'vtp_pw', label: 'Parola', type: 'text', placeholder: 'VtpPass123', hint: 'Server/Client\'ta yetkisiz güncellemeyi engeller' }
+                    ]
+                }
+            ],
+            submit: 'VTP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const m = cgEsc(data.vtp_mode || 'transparent'), d = cgEsc(data.vtp_domain || ''), v = cgEsc(data.vtp_ver || ''), pw = cgEsc(data.vtp_pw || '');
+            let c = '! ========================================\n! Cisco IOS — VTP\n! ========================================\n\n';
+            if (m === 'off' && v !== '3') c += '! UYARI: VTP off modu yalnız VTP sürüm 3\'te vardır.\n';
+            if (v) c += 'vtp version ' + v + '\n';
+            if (d) c += 'vtp domain ' + d + '\n';
+            c += 'vtp mode ' + m + '\n';
+            if (pw) c += 'vtp password ' + pw + '\n';
+            c += '\n! Doğrulama:\n! show vtp status\n! show vtp password\n';
+            return c;
+        });
+    }
+};
+
+// ── Cihaz Sertleştirme ───────────────────────────────────────────────────────
+// Sözdizimi: canlı config (service timestamps/login on-success log/no ip http: 23 cihaz; login block-for: 19;
+// no ip domain lookup: 15; no service pad: 6; ip scp server enable: 3; ip http authentication local: 14)
+CiscoIOS.hardening = {
+    label: 'Cihaz Sertleştirme',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-user-shield', title: 'Cihaz Sertleştirme — Temel Ayarlar', desc: 'Sahadaki cihazların neredeyse tamamında bulunan tek satırlık güvenlik ve işletim ayarları: gereksiz servisleri kapatma, giriş denemelerini sınırlama ve kaydetme, zaman damgası.' },
+            sections: [
+                {
+                    title: 'Servisler', icon: 'fas fa-power-off',
+                    fields: [
+                        { name: 'no_http', why: 'Kullanılmayan web yönetim arayüzü saldırı yüzeyidir; IOS HTTP sunucusunda geçmişte kritik açıklar çıkmıştır.', label: 'HTTP/HTTPS yönetim sunucusu', type: 'select', options: [
+                            { value: 'off', label: 'Kapat (no ip http server / secure-server)', selected: true },
+                            { value: 'https', label: 'Yalnız HTTPS, yerel kimlik doğrulama' },
+                            { value: 'keep', label: 'Değiştirme' }
+                        ]},
+                        { name: 'no_pad', label: 'no service pad (X.25 PAD kapat)', type: 'checkbox', checked: true },
+                        { name: 'no_lookup', why: 'Yanlış yazılan komut DNS adı sanılır ve konsol saniyelerce kilitlenir.', label: 'no ip domain lookup', type: 'checkbox', checked: true },
+                        { name: 'keepalive', why: 'Yarım kalan (koparılmış) vty oturumlarını temizler; oturum limitinin dolmasını önler.', label: 'service tcp-keepalives-in / out', type: 'checkbox', checked: true },
+                        { name: 'pw_enc', label: 'service password-encryption', type: 'checkbox', checked: true },
+                        { name: 'scp', label: 'ip scp server enable (SCP ile dosya aktarımı)', type: 'checkbox' }
+                    ]
+                },
+                {
+                    title: 'Giriş Güvenliği', icon: 'fas fa-sign-in-alt',
+                    fields: [
+                        { name: 'blk_sec', why: 'Belirtilen süre içinde çok sayıda hatalı girişte cihaz tüm girişleri geçici olarak engeller (kaba kuvvet koruması).', label: 'Engelleme Süresi (sn)', type: 'text', min: 1, max: 65535, placeholder: '120', hint: 'login block-for — boş = yazılmaz' },
+                        { name: 'blk_try', label: 'Deneme Sayısı', type: 'text', min: 1, max: 65535, requiredIf: { field: 'blk_on', checked: true }, placeholder: '5', hint: 'attempts' },
+                        { name: 'blk_win', label: 'Pencere (sn)', type: 'text', min: 1, max: 65535, requiredIf: { field: 'blk_on', checked: true }, placeholder: '60', hint: 'within' },
+                        { name: 'blk_on', label: 'Kaba kuvvet korumasını etkinleştir (login block-for)', type: 'checkbox', checked: true },
+                        { name: 'log_ok', label: 'Başarılı girişleri logla (login on-success log)', type: 'checkbox', checked: true },
+                        { name: 'log_fail', label: 'Başarısız girişleri logla (login on-failure log)', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'Zaman Damgası', icon: 'fas fa-stopwatch',
+                    fields: [
+                        { name: 'ts', label: 'service timestamps debug/log datetime msec', type: 'checkbox', checked: true }
+                    ]
+                }
+            ],
+            submit: 'Sertleştirme Konfigürasyonu Oluştur'
+        }, (data) => {
+            let c = '! ========================================\n! Cisco IOS — Cihaz Sertleştirme\n! ========================================\n\n';
+            if (data.ts) c += 'service timestamps debug datetime msec\nservice timestamps log datetime msec\n';
+            if (data.pw_enc) c += 'service password-encryption\n';
+            if (data.keepalive) c += 'service tcp-keepalives-in\nservice tcp-keepalives-out\n';
+            if (data.no_pad) c += 'no service pad\n';
+            if (data.no_lookup) c += 'no ip domain lookup\n';
+            if (data.no_http === 'off') c += 'no ip http server\nno ip http secure-server\n';
+            else if (data.no_http === 'https') c += 'no ip http server\nip http secure-server\nip http authentication local\n';
+            if (data.scp) c += 'ip scp server enable\n';
+            const bs = cgEsc(data.blk_sec || ''), bt = cgEsc(data.blk_try || ''), bw = cgEsc(data.blk_win || '');
+            if (data.blk_on && bs && bt && bw) c += 'login block-for ' + bs + ' attempts ' + bt + ' within ' + bw + '\n';
+            else if (data.blk_on) c += '! UYARI: login block-for için süre, deneme ve pencere değerlerinin üçü de gerekli — satır yazılmadı.\n';
+            if (data.log_ok) c += 'login on-success log\n';
+            if (data.log_fail) c += 'login on-failure log\n';
+            c += '\n! Doğrulama:\n! show login\n! show ip http server status\n! show running-config | include service|login\n';
+            return c;
+        });
+    }
+};
