@@ -141,7 +141,7 @@ Dell.vlan = {
                     fields: [
                         { name: 'vlan_id', why: "VLAN ID uçtan uca tüm cihazlarda aynı olmalı; karşı tarafta tanımsız veya trunk'ta izinli değilse bağlantı sessizce çalışmaz. 1 numaralı VLAN'ı üretimde kullanmaktan kaçının.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '802.1Q VLAN numarası' },
                         { name: 'vlan_name', why: "İsim <code>show vlan</code> çıktısında VLAN'ın ne işe yaradığını söyleyen tek ipucudur; boş bırakılan VLAN'lar zamanla kimsenin silmeye cesaret edemediği ölü config'e dönüşür.", label: 'VLAN Adı', type: 'text', required: true, placeholder: 'DATA_VLAN', hint: 'VLAN için açıklayıcı isim' },
-                        { name: 'svi_ip', why: "SVI adresi VLAN'ın gateway'i olur ve yalnızca <code>no shutdown</code> yapıldığında aktifleşir; ayrıca VLAN'da en az bir aktif üye port yoksa SVI <b>down</b> kalır ve hiçbir host gateway'e ulaşamaz.", label: 'SVI IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.1.100.1/24', hint: 'VLAN arayüzü IP adresi — CIDR formatında' }
+                        { name: 'svi_ip', why: "SVI adresi VLAN'ın gateway'i olur ve yalnızca <code>no shutdown</code> yapıldığında aktifleşir; ayrıca VLAN'da en az bir aktif üye port yoksa SVI <b>down</b> kalır ve hiçbir host gateway'e ulaşamaz.", label: 'SVI IP', type: 'text', validate: 'cidr', optional: true, placeholder: '10.1.100.1/24', hint: 'VLAN arayüzü IP adresi — CIDR formatında' }
                     ]
                 },
                 {
@@ -214,7 +214,7 @@ Dell.portchannel = {
                             { value: 'access', label: 'Access' },
                             { value: 'routed', label: 'Routed (no switchport)' }
                         ]},
-                        { name: 'vlan_ip', why: "L2 modda izinli VLAN listesi, L3 modda ise IP/maske girilir; ikisinin karıştırılması komutun reddedilmesine ve port-channel'ın yapılandırılmamış hâlde kalmasına neden olur.", label: 'VLAN / IP', type: 'text', validate: 'ip', optional: true, placeholder: '10,20,100 veya 10.1.1.1/30', hint: 'Trunk: VLAN listesi; Access: tek VLAN ID; Routed: IP/prefix' }
+                        { name: 'vlan_ip', why: "L2 modda izinli VLAN listesi, L3 modda ise IP/maske girilir; ikisinin karıştırılması komutun reddedilmesine ve port-channel'ın yapılandırılmamış hâlde kalmasına neden olur.", label: 'VLAN / IP', type: 'text', validate: 'vlan_list', optional: true, placeholder: '10,20,100 veya 10.1.1.1/30', hint: 'Trunk: VLAN listesi; Access: tek VLAN ID; Routed: IP/prefix' }
                     ]
                 }
             ],
@@ -580,7 +580,7 @@ Dell.mclag = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'domain_id', why: "MC-LAG domain ID iki peer'da <b>birebir aynı</b> olmalıdır; farklıysa domain kurulmaz ve her switch bağımsız davranarak karşı taraftaki LAG'ı yarım bırakır.", label: 'Domain ID', type: 'text', required: true, placeholder: '1', hint: 'MC-LAG domain numarası' },
-                        { name: 'peer_link', why: "Peer-link mutlaka port-channel olmalıdır ve tüm VLAN'ları taşımalıdır; tek fiziksel link bırakmak kopma anında split-brain yaratır, iki switch de aktif gateway gibi davranır.", label: 'Peer-Link Port-Channel', type: 'text', validate: 'ip', required: true, placeholder: 'port-channel100', hint: 'Peer-link olarak kullanılacak port-channel' },
+                        { name: 'peer_link', why: "Peer-link mutlaka port-channel olmalıdır ve tüm VLAN'ları taşımalıdır; tek fiziksel link bırakmak kopma anında split-brain yaratır, iki switch de aktif gateway gibi davranır.", label: 'Peer-Link Port-Channel', type: 'text', validate: 'iface', required: true, placeholder: 'port-channel100', hint: 'Peer-link olarak kullanılacak port-channel' },
                         { name: 'peer_ip', why: "Peer IP karşı cihazın keepalive kaynak adresi olmalıdır ve bu adreslerin peer-link'ten <b>bağımsız</b> bir yoldan erişilebilir olması gerekir; aksi hâlde peer-link koptuğunda keepalive da kesilir ve split-brain tespit edilemez.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.1.1.2', hint: 'Peer cihazının keepalive IP adresi' },
                         { name: 'local_ip', why: "Keepalive kaynak adresi iki cihazda çapraz eşleşmeli; aynı adres iki tarafta local olarak tanımlanırsa oturum kurulamaz ve MC-LAG sürekli başlatma aşamasında takılır.", label: 'Local IP (keepalive source)', type: 'text', validate: 'ip', required: true, placeholder: '10.1.1.1', hint: 'Bu cihazın keepalive kaynak IP adresi' }
                     ]

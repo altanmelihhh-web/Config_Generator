@@ -26,8 +26,8 @@ CiscoNXOS.ospf = {
                     title: 'Interface Ayarları',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'iface', why: "OSPF’in bu arayüzde açıldığını <code>show ip ospf interface</code> ile doğrulayın. Arayüz <code>no switchport</code> yapılmamışsa L3 değildir ve OSPF hiç çalışmaz.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet 1/1', hint: 'OSPF etkinleştirilecek arayüz' },
-                        { name: 'iface_ip', why: "Arayüz IP/prefix uyuşmazlığı, iki komşunun farklı subnetlerde olması demektir; OSPF hello’ları gelir ama komşuluk hiç kurulmaz. NX-OS CIDR biçimi bekler.", label: 'Interface IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi' },
+                        { name: 'iface', why: "OSPF’in bu arayüzde açıldığını <code>show ip ospf interface</code> ile doğrulayın. Arayüz <code>no switchport</code> yapılmamışsa L3 değildir ve OSPF hiç çalışmaz.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'Ethernet1/1', hint: 'OSPF etkinleştirilecek arayüz' },
+                        { name: 'iface_ip', why: "Arayüz IP/prefix uyuşmazlığı, iki komşunun farklı subnetlerde olması demektir; OSPF hello’ları gelir ama komşuluk hiç kurulmaz. NX-OS CIDR biçimi bekler.", label: 'Interface IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi' },
                         { name: 'net_type', why: "Broadcast ağlarda DR/BDR seçimi yapılır; point-to-point seçmek bu seçimi atlayarak komşuluğu hızlandırır. Ancak iki uçta farklı network type seçilirse timer’lar uyuşmaz ve komşuluk kurulmaz.", label: 'Network Type', type: 'select', options: [
                             { value: 'point-to-point', label: 'point-to-point', selected: true },
                             { value: 'broadcast', label: 'broadcast' }
@@ -141,7 +141,7 @@ CiscoNXOS.hsrp = {
                     icon: 'fas fa-ethernet',
                     fields: [
                         { name: 'iface', why: "HSRP bir L3 arayüzde veya SVI üzerinde çalışır; <code>feature interface-vlan</code> açılmadan SVI oluşturulamaz. vPC ortamında HSRP her iki switch’te de tanımlı olmalıdır.", label: 'Interface (SVI)', type: 'text', validate: 'iface', required: true, placeholder: 'Vlan10', hint: 'HSRP uygulanacak SVI veya arayüz' },
-                        { name: 'iface_ip', why: "Fiziksel IP her switch’te <b>farklı</b>, sanal IP (VIP) ise aynı olmalıdır. İki switch’e aynı fiziksel IP’yi vermek ağda adres çakışması yaratır.", label: 'Interface IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '192.168.10.2/24', hint: 'CIDR formatında fiziksel IP' },
+                        { name: 'iface_ip', why: "Fiziksel IP her switch’te <b>farklı</b>, sanal IP (VIP) ise aynı olmalıdır. İki switch’e aynı fiziksel IP’yi vermek ağda adres çakışması yaratır.", label: 'Interface IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.10.2/24', hint: 'CIDR formatında fiziksel IP' },
                         { name: 'grp', why: "HSRP grup numarası iki switch’te <b>aynı</b> olmalıdır; farklı grup numarası her iki cihazın da kendi sanal IP’si ile active olmasına yol açar. Grup numarası sanal MAC adresini de belirler.", label: 'HSRP Grup Numarası', type: 'text', required: true, placeholder: '10', hint: '0–255 arası grup ID' },
                         { name: 'vip', why: "Sanal IP, istemcilerin default gateway’idir ve arayüzün fiziksel IP’sinden farklı, ama aynı subnette olmalıdır. Fiziksel IP ile aynı vermek HSRP’nin hiç başlamamasına neden olur.", label: 'Sanal IP (VIP)', type: 'text', validate: 'ip', required: true, placeholder: '192.168.10.1', hint: 'Gateway olarak kullanılacak sanal IP' }
                     ]

@@ -17,7 +17,7 @@ HuaweiUSG.zone = {
                     icon: 'fas fa-lock',
                     fields: [
                         { name: 'trust_iface', why: "USG üzerinde bir arayüz <b>security zone</b> içine alınmadan üzerinden hiçbir trafik geçmez; IP verilmiş ve up durumda olsa bile paketler sessizce düşer. Bu, Huawei güvenlik duvarlarında en sık yapılan ve teşhisi en çok geciken hatadır.", label: 'Trust Zone Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'Trust zone\'a atanacak interface adı' },
-                        { name: 'trust_ip', why: "IP ve maske <b>boşlukla</b> ayrılmış yazılır (<code>10.1.1.1 255.255.255.0</code>), CIDR kabul edilmez. Yanlış subnet verildiğinde iç istemciler gateway olarak cihazı göremez ve arıza politika sorunu sanılır.", label: 'Trust IP / Mask', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1 255.255.255.0', hint: 'IP adresi ve subnet mask (boşlukla ayrılmış)' }
+                        { name: 'trust_ip', why: "IP ve maske <b>boşlukla</b> ayrılmış yazılır (<code>10.1.1.1 255.255.255.0</code>), CIDR kabul edilmez. Yanlış subnet verildiğinde iç istemciler gateway olarak cihazı göremez ve arıza politika sorunu sanılır.", label: 'Trust IP / Mask', type: 'text', validate: 'ip_mask', required: true, placeholder: '192.168.1.1 255.255.255.0', hint: 'IP adresi ve subnet mask (boşlukla ayrılmış)' }
                     ]
                 },
                 {
@@ -25,7 +25,7 @@ HuaweiUSG.zone = {
                     icon: 'fas fa-globe',
                     fields: [
                         { name: 'untrust_iface', why: "Untrust zone varsayılan olarak en düşük önceliğe sahiptir; WAN arayüzünü yanlışlıkla trust içine almak, internetten gelen trafiğin yüksek öncelikli bölgeden geliyormuş gibi değerlendirilmesine ve güvenlik modelinin tamamen çökmesine yol açar.", label: 'Untrust Zone Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'Untrust zone\'a atanacak interface adı (WAN tarafı)' },
-                        { name: 'untrust_ip', why: "WAN adresi ISPnin verdiğiyle aynı olmalıdır; ayrıca bu adres NAT ve IPSec yapılandırmalarında da referans alınır. Değiştiğinde NAT Server ve VPN peer tanımlarını güncellemezseniz dışarıdan erişim ve tüneller sessizce kopar.", label: 'Untrust IP / Mask', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1 255.255.255.252', hint: 'WAN IP adresi ve subnet mask' }
+                        { name: 'untrust_ip', why: "WAN adresi ISPnin verdiğiyle aynı olmalıdır; ayrıca bu adres NAT ve IPSec yapılandırmalarında da referans alınır. Değiştiğinde NAT Server ve VPN peer tanımlarını güncellemezseniz dışarıdan erişim ve tüneller sessizce kopar.", label: 'Untrust IP / Mask', type: 'text', validate: 'ip_mask', required: true, placeholder: '203.0.113.1 255.255.255.252', hint: 'WAN IP adresi ve subnet mask' }
                     ]
                 }
             ],
@@ -68,8 +68,8 @@ HuaweiUSG.policy = {
                     title: 'Adres ve Aksiyon',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'src_ip', why: "Boş bırakmak <code>any</code> anlamına gelir ve kuralı düşündüğünüzden çok daha geniş açar. Adres nesnesi tanımlanmadan doğrudan subnet yazmak, ileride adres değiştiğinde onlarca kuralı tek tek düzeltmenizi gerektirir.", label: 'Kaynak IP', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'any için boş bırakın, aksi hâlde subnet girin' },
-                        { name: 'dst_ip', why: "Hedefi daraltmamak, tek bir servise izin vermek isterken tüm DMZ veya iç ağı açmak demektir. NAT Server ile birlikte kullanırken politika <b>çevrilmiş (iç) adresi</b> görür, dış global IPyi değil; burada yapılan karışıklık en sık NAT arızası nedenidir.", label: 'Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.0 255.255.255.0', hint: 'any için boş bırakın' },
+                        { name: 'src_ip', why: "Boş bırakmak <code>any</code> anlamına gelir ve kuralı düşündüğünüzden çok daha geniş açar. Adres nesnesi tanımlanmadan doğrudan subnet yazmak, ileride adres değiştiğinde onlarca kuralı tek tek düzeltmenizi gerektirir.", label: 'Kaynak IP', type: 'text', validate: 'ip_mask', optional: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'any için boş bırakın, aksi hâlde subnet girin' },
+                        { name: 'dst_ip', why: "Hedefi daraltmamak, tek bir servise izin vermek isterken tüm DMZ veya iç ağı açmak demektir. NAT Server ile birlikte kullanırken politika <b>çevrilmiş (iç) adresi</b> görür, dış global IPyi değil; burada yapılan karışıklık en sık NAT arızası nedenidir.", label: 'Hedef IP', type: 'text', validate: 'ip_mask', optional: true, placeholder: '10.0.0.0 255.255.255.0', hint: 'any için boş bırakın' },
                         { name: 'action', why: "USGde politika listesinin sonunda örtük <code>deny</code> vardır; eşleşmeyen her şey düşer. Kurallar yukarıdan aşağı işlenir ve ilk eşleşen uygulanır, bu yüzden geniş bir permit kuralını listenin üstüne koymak altındaki tüm daraltmaları etkisiz kılar.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'permit', label: 'Permit — trafiğe izin ver', selected: true },
                             { value: 'deny', label: 'Deny — trafiği engelle' }

@@ -85,8 +85,8 @@ JuniperSRX.policy = {
                     title: 'Eşleşme Kriterleri',
                     icon: 'fas fa-filter',
                     fields: [
-                        { name: 'src_addr', why: '<code>any</code> yerine address-book nesnesi kullanmak politikayı okunur ve denetlenebilir kılar. Geniş kaynak tanımı, ilk eşleşen kazandığı için aşağıdaki daha özel politikaların hiç değerlendirilmemesine yol açar.', label: 'Kaynak Adres', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.0/24', hint: '"any" veya CIDR formatında adres' },
-                        { name: 'dst_addr', why: "Politika, destination NAT'tan <b>sonraki</b> gerçek iç adrese göre yazılır; dışarıdan görünen genel IP'yi yazmak DNAT kurulumlarındaki en yaygın hatadır ve trafik deny'e takılır.", label: 'Hedef Adres', type: 'text', validate: 'ip', required: true, placeholder: 'any', hint: '"any" veya CIDR formatında adres' },
+                        { name: 'src_addr', why: '<code>any</code> yerine address-book nesnesi kullanmak politikayı okunur ve denetlenebilir kılar. Geniş kaynak tanımı, ilk eşleşen kazandığı için aşağıdaki daha özel politikaların hiç değerlendirilmemesine yol açar.', label: 'Kaynak Adres', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.0/24', hint: '"any" veya CIDR formatında adres' },
+                        { name: 'dst_addr', why: "Politika, destination NAT'tan <b>sonraki</b> gerçek iç adrese göre yazılır; dışarıdan görünen genel IP'yi yazmak DNAT kurulumlarındaki en yaygın hatadır ve trafik deny'e takılır.", label: 'Hedef Adres', type: 'text', validate: 'iface', required: true, placeholder: 'any', hint: '"any" veya CIDR formatında adres' },
                         { name: 'app', why: '<code>junos-</code> önekli hazır uygulamalar port ve ALG davranışını birlikte getirir. <code>any</code> seçmek portu tamamen serbest bırakır; özel portlar için ayrı bir application tanımlayın.', label: 'Uygulama', type: 'text', required: true, placeholder: 'any', hint: '"any", "junos-https", "junos-http" vb.' }
                     ]
                 },
@@ -247,7 +247,7 @@ JuniperSRX.vpn = {
                     icon: 'fas fa-project-diagram',
                     fields: [
                         { name: 'st0', why: "Route-based VPN'de st0 arayüzü bir <b>security zone'a atanmalı</b> ve trafiği taşıyan route'un next-hop'u olmalıdır. Zone ataması unutulduğunda tünel Up görünür ama tek paket geçmez — en sık görülen SRX VPN arızası budur.", label: 'St0 Interface', type: 'text', required: true, placeholder: 'st0.1', hint: 'Route-based VPN için secure tunnel interface' },
-                        { name: 'st0_ip', why: 'Numaralı st0 kullanıyorsanız iki uç aynı /30 içinde olmalıdır; unnumbered tasarımda ise belirleyici olan route tanımıdır. Bir ucun numaralı diğerinin numarasız olması yönlendirmeyi bozar.', label: 'St0 IP / Prefix', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1/30', hint: 'Tünel interface IP adresi' }
+                        { name: 'st0_ip', why: 'Numaralı st0 kullanıyorsanız iki uç aynı /30 içinde olmalıdır; unnumbered tasarımda ise belirleyici olan route tanımıdır. Bir ucun numaralı diğerinin numarasız olması yönlendirmeyi bozar.', label: 'St0 IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.255.0.1/30', hint: 'Tünel interface IP adresi' }
                     ]
                 }
             ],
@@ -333,7 +333,7 @@ JuniperSRX.ha = {
                     title: 'Yönetim',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'mgmt_ip', why: "<code>fxp0</code> her düğümde ayrı adres ister ve redundancy group'lardan bağımsız çalışır. Out-of-band yönetim adresi olmadan failover veya cluster sorunlarında cihaza erişecek ikinci bir yolunuz kalmaz.", label: 'Management IP (fxp0)', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.0.1/24', hint: 'Out-of-band yönetim IP adresi' }
+                        { name: 'mgmt_ip', why: "<code>fxp0</code> her düğümde ayrı adres ister ve redundancy group'lardan bağımsız çalışır. Out-of-band yönetim adresi olmadan failover veya cluster sorunlarında cihaza erişecek ikinci bir yolunuz kalmaz.", label: 'Management IP (fxp0)', type: 'text', validate: 'cidr', optional: true, placeholder: '192.168.0.1/24', hint: 'Out-of-band yönetim IP adresi' }
                     ]
                 }
             ],

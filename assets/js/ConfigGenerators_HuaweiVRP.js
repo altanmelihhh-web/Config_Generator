@@ -87,7 +87,7 @@ HuaweiVRP.vlan = {
                         { name: 'vlan_id', why: "VLAN cihazda <code>vlan X</code> ile yaratılmadan porta atanamaz. Access portta bu numara <code>port default vlan</code> olur; karşı uçtaki PVID farklıysa trafik yanlış broadcast domainine düşer ve sorun ping değil sadece DHCP/ARP seviyesinde görünür.", label: 'VLAN ID (tekli)', type: 'text', validate: 'vlan', optional: true, placeholder: '10', hint: 'Porta atanacak tekil VLAN numarası' },
                         { name: 'vlan_desc', why: "Açıklama boşluk içeremez ve <code>display vlan</code> çıktısında tek tanımlayıcıdır. Numaradan ibaret VLANlar zamanla kimin olduğu bilinmeyen kalıntılara dönüşür ve temizlik sırasında yanlış VLAN silinir.", label: 'VLAN Açıklaması', type: 'text', optional: true, placeholder: 'BT_Personel', hint: 'VLAN description etiketi' },
                         { name: 'vlan_batch_list', why: "<code>vlan batch</code> yalnızca VLANları oluşturur; trunk üzerinde <code>port trunk allow-pass vlan</code> ile ayrıca izin verilmezse bu VLANlarda tag işaretli trafik sessizce düşer. Toplu oluşturma yanlış aralıkla yazılırsa yüzlerce gereksiz VLAN açılır ve MSTP instance eşlemesi bozulur.", label: 'VLAN Batch Liste', type: 'text', optional: true, placeholder: '5 8 17', hint: 'Boşlukla ayrılmış birden fazla VLAN ID' },
-                        { name: 'vlan_batch_range', why: "Aralık sözdizimi <code>20 to 30</code> şeklindedir; tire (<code>20-30</code>) yazarsanız komut hata verir. Çok geniş aralık açmak STP hesaplama yükünü ve broadcast alanını gereksiz büyütür.", label: 'VLAN Batch Aralık', type: 'text', validate: 'iface_range', optional: true, placeholder: '20 to 30', hint: 'Aralık formatında VLAN oluşturma (örn: 20 to 30)' }
+                        { name: 'vlan_batch_range', why: "Aralık sözdizimi <code>20 to 30</code> şeklindedir; tire (<code>20-30</code>) yazarsanız komut hata verir. Çok geniş aralık açmak STP hesaplama yükünü ve broadcast alanını gereksiz büyütür.", label: 'VLAN Batch Aralık', type: 'text', validate: 'vlan_list', optional: true, placeholder: '20 to 30', hint: 'Aralık formatında VLAN oluşturma (örn: 20 to 30)' }
                     ]
                 },
                 {
@@ -521,15 +521,15 @@ HuaweiVRP.acl = {
                             { value: 'specific', label: 'Belirli IP' }
                         ]},
                         { name: 'dst_ip', why: "Hedef adres yine wildcard maske ile yazılır. Hedef subnet yanlışsa kural sessizce hiç eşleşmez; ACLnin çalışmadığını ancak <code>display acl</code> çıktısındaki match sayacının sıfır kalmasından anlarsınız.", label: 'Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.1', hint: 'Hedef olarak "Belirli IP" seçildiğinde doldurulur' },
-                        { name: 'src_port', why: "Kaynak port çoğu istemci trafiğinde rastgeledir; buraya sabit port yazmak kuralın neredeyse hiç eşleşmemesine neden olur. Servis kısıtlaması genelde hedef portla yapılır.", label: 'Kaynak Port', type: 'text', validate: 'port', optional: true, placeholder: 'any veya 80', hint: 'Boş bırakılırsa tüm portlar' },
-                        { name: 'dst_port', why: "Servisin gerçek portu yazılmalıdır; pasif FTP veya SIP gibi dinamik port kullanan protokollerde tek port yeterli olmaz ve bağlantı el sıkışmadan sonra kopar. Aralık gerekiyorsa <code>range</code> operatörünü kullanın.", label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: 'any veya 443', hint: 'Boş bırakılırsa tüm portlar' }
+                        { name: 'src_port', why: "Kaynak port çoğu istemci trafiğinde rastgeledir; buraya sabit port yazmak kuralın neredeyse hiç eşleşmemesine neden olur. Servis kısıtlaması genelde hedef portla yapılır.", label: 'Kaynak Port', type: 'text', validate: 'iface', optional: true, placeholder: 'any veya 80', hint: 'Boş bırakılırsa tüm portlar' },
+                        { name: 'dst_port', why: "Servisin gerçek portu yazılmalıdır; pasif FTP veya SIP gibi dinamik port kullanan protokollerde tek port yeterli olmaz ve bağlantı el sıkışmadan sonra kopar. Aralık gerekiyorsa <code>range</code> operatörünü kullanın.", label: 'Hedef Port', type: 'text', validate: 'iface', optional: true, placeholder: 'any veya 443', hint: 'Boş bırakılırsa tüm portlar' }
                     ]
                 },
                 {
                     title: 'Zaman Kısıtlaması',
                     icon: 'fas fa-clock',
                     fields: [
-                        { name: 'time_range', why: "Time-range önce <code>time-range</code> komutuyla tanımlanmalı, yoksa kural referans verilen zaman dilimi olmadığı için hiç etkin olmaz. Ayrıca cihaz saati NTP ile doğru değilse kural yanlış saatlerde devreye girer.", label: 'Time Range', type: 'text', validate: 'iface_range', optional: true, placeholder: 't1', hint: 'Önceden tanımlanmış time-range adı' }
+                        { name: 'time_range', why: "Time-range önce <code>time-range</code> komutuyla tanımlanmalı, yoksa kural referans verilen zaman dilimi olmadığı için hiç etkin olmaz. Ayrıca cihaz saati NTP ile doğru değilse kural yanlış saatlerde devreye girer.", label: 'Time Range', type: 'text', optional: true, placeholder: 't1', hint: 'Önceden tanımlanmış time-range adı' }
                     ]
                 }
             ],
@@ -740,7 +740,7 @@ HuaweiVRP.ethtunk = {
                     icon: 'fas fa-ethernet',
                     fields: [
                         { name: 'members', why: "Üye arayüzler hız, dupleks ve port tipi bakımından aynı olmalıdır; farklı hızda portlar trunka alınmaz. Üye ekleme sırasında portun mevcut VLAN yapılandırması silinir, bu yüzden önce trunka alıp sonra VLAN yapılandırın.", label: 'Üye Interface(ler)', type: 'text', required: true, placeholder: 'GE0/0/1, GE0/0/2', hint: 'Virgülle ayrılmış Eth-Trunk üye arayüzler' },
-                        { name: 'ip', why: "Eth-Trunka IP vermek için arayüzün L3 (<code>undo portswitch</code>) modda olması gerekir. L2 modda IP komutu reddedilir; ayrıca IP verdikten sonra VLAN taşıyamazsınız, ikisi aynı anda olmaz.", label: 'Interface IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.1 255.255.255.252', hint: 'Routed interface ise IP adresi ve netmask' }
+                        { name: 'ip', why: "Eth-Trunka IP vermek için arayüzün L3 (<code>undo portswitch</code>) modda olması gerekir. L2 modda IP komutu reddedilir; ayrıca IP verdikten sonra VLAN taşıyamazsınız, ikisi aynı anda olmaz.", label: 'Interface IP', type: 'text', validate: 'ip_mask', optional: true, placeholder: '10.0.0.1 255.255.255.252', hint: 'Routed interface ise IP adresi ve netmask' }
                     ]
                 }
             ],
@@ -829,7 +829,7 @@ HuaweiVRP.l3vpn = {
                     icon: 'fas fa-ethernet',
                     fields: [
                         { name: 'ce_iface', why: "Arayüzü VPN instancea bağlamak üzerindeki IP adresini siler; bu yüzden önce binding yapıp sonra IP vermek gerekir. Sırayı ters yaparsanız uzaktan bağlıysanız oturumunuz da o anda kopar.", label: 'CE Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GE0/1/0', hint: 'CE cihazına bağlanan PE arayüzü' },
-                        { name: 'ce_ip', why: "Bu IP artık global tabloda değil VRF tablosundadır; <code>ping</code> ve <code>display ip routing-table</code> komutlarını <code>vpn-instance</code> parametresiyle çalıştırmazsanız adres yokmuş gibi görünür ve boşuna arıza aranır.", label: 'CE Interface IP', type: 'text', validate: 'ip', required: true, placeholder: '10.1.1.1 255.255.255.252', hint: 'CE arayüzüne atanacak IP ve netmask' },
+                        { name: 'ce_ip', why: "Bu IP artık global tabloda değil VRF tablosundadır; <code>ping</code> ve <code>display ip routing-table</code> komutlarını <code>vpn-instance</code> parametresiyle çalıştırmazsanız adres yokmuş gibi görünür ve boşuna arıza aranır.", label: 'CE Interface IP', type: 'text', validate: 'ip_mask', required: true, placeholder: '10.1.1.1 255.255.255.252', hint: 'CE arayüzüne atanacak IP ve netmask' },
                         { name: 'bgp_as', why: "PE-CE arasında BGP kullanılıyorsa AS numarası <code>ipv4-family vpn-instance</code> altında doğru tanımlanmalıdır. Aynı AS numarası birden fazla şubede kullanılıyorsa AS-path döngü koruması rotaları düşürür ve <code>as-path-loop</code> ayarı gerekir.", label: 'PE BGP AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Provider Edge BGP AS numarası' }
                     ]
                 }

@@ -99,7 +99,7 @@ FortiGate.address = {
                     icon: 'fas fa-network-wired',
                     showFor: ['ipmask'],
                     fields: [
-                        { name: 'subnet', why: 'Tek host için <code>/32</code>, ağ için <code>/24</code> gibi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet (IP Mask)', type: 'text', validate: 'subnet', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'Nokta-ondalık: IP MASK veya CIDR' }
+                        { name: 'subnet', why: 'Tek host için <code>/32</code>, ağ için <code>/24</code> gibi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet (IP Mask)', type: 'text', validate: 'ip_mask', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'Nokta-ondalık: IP MASK veya CIDR' }
                     ]
                 },
                 {
@@ -405,7 +405,7 @@ FortiGate.sslvpn = {
                         { name: 'src_iface', why: "SSL-VPN'in dinleyeceği dış arayüz. Yönetim arayüzüyle <b>aynı portu</b> paylaşırsa çakışma olur.",   label: 'WAN Interface',        type: 'text', validate: 'iface', required: true, placeholder: 'port1',                          hint: 'SSL-VPN dinleyeceği WAN arayüzü' },
                         { name: 'ssl_port', why: "Varsayılan 443, ama yönetim arayüzü de 443 kullanır. İkisini aynı portta bırakmak yönetim erişimini kırar — SSL-VPN'i 10443 gibi bir porta almak yaygın pratiktir.",    label: 'SSL-VPN Port',         type: 'text', validate: 'port', required: true, placeholder: '10443',                          hint: 'HTTPS 443\'ten farklı bir port önerilir' },
                         { name: 'tunnel_pool', why: 'VPN istemcilerine dağıtılacak IP havuzu. İç ağdaki hiçbir subnet ile <b>çakışmamalı</b>, aksi halde yönlendirme kırılır.', label: 'Tunnel IP Pool Adı',   type: 'text', required: true, placeholder: 'SSLVPN_TUNNEL_ADDR1',            hint: 'IP pool nesnesinin adı' },
-                        { name: 'pool_range', why: 'Havuz aralığı eşzamanlı kullanıcı sayısından büyük olmalı. Dolduğunda yeni kullanıcılar sessizce bağlanamaz.',  label: 'IP Pool Aralığı',      type: 'text', validate: 'iface_range', required: true, placeholder: '10.212.134.200-10.212.134.210',  hint: 'Başlangıç-Bitiş formatında IP aralığı' }
+                        { name: 'pool_range', why: 'Havuz aralığı eşzamanlı kullanıcı sayısından büyük olmalı. Dolduğunda yeni kullanıcılar sessizce bağlanamaz.',  label: 'IP Pool Aralığı',      type: 'text', validate: 'ip_range', required: true, placeholder: '10.212.134.200-10.212.134.210',  hint: 'Başlangıç-Bitiş formatında IP aralığı' }
                     ]
                 },
                 {
@@ -622,7 +622,7 @@ FortiGate.ha = {
                         ], hint: 'Bu cihazın HA kümesindeki rolü' },
                         { name: 'grp_name', why: 'HA grup adı iki üyede aynı olmalı. Aynı L2 segmentindeki farklı HA çiftlerinde ise <b>farklı</b> olmalı, aksi halde üyeler birbirini yanlış eşleştirir.',     label: 'HA Grup Adı',       type: 'text',   required: true, placeholder: 'FG-HA-CLUSTER',   hint: 'İki cihazda aynı olmalı' },
                         { name: 'ha_pass', why: "HA şifresi iki üyede aynı olmalı. Şifresiz HA, aynı ağa takılan başka bir FortiGate'in cluster'a katılmasına açık kapı bırakır.",      label: 'HA Şifresi',        type: 'text',   required: true, placeholder: 'ha-secret123',    hint: 'İki cihazda aynı olmalı' },
-                        { name: 'hb_iface', why: "Heartbeat arayüzü üyeler arasında <b>doğrudan</b> bağlanmalı (switch üzerinden değil). Kopması split-brain'e yol açar; en az iki heartbeat arayüzü önerilir.",     label: 'Heartbeat Interface\'lar', type: 'text', validate: 'iface', required: true, placeholder: 'port3 port4', hint: 'Boşlukla ayrılmış arayüz adları' },
+                        { name: 'hb_iface', why: "Heartbeat arayüzü üyeler arasında <b>doğrudan</b> bağlanmalı (switch üzerinden değil). Kopması split-brain'e yol açar; en az iki heartbeat arayüzü önerilir.",     label: 'Heartbeat Interface\'lar', type: 'text', validate: 'iface_range', required: true, placeholder: 'port3 port4', hint: 'Boşlukla ayrılmış arayüz adları' },
                         { name: 'priority', why: 'Yüksek öncelikli üye primary olur. <code>override</code> kapalıyken primary döndüğünde rolü geri almaz — bu ikinci kesintiyi önler.',     label: 'Öncelik',           type: 'text',   required: true, placeholder: '200',             hint: 'Primary\'de yüksek (ör: 200), Secondary\'de düşük (ör: 100)' },
                         { name: 'session_sync', why: "Açıkken mevcut TCP oturumları failover'da kopmaz. Kapalıysa failover anında tüm bağlantılar yeniden kurulur; kullanıcı kesinti hisseder.", label: 'Session Sync',      type: 'select', options: [
                             { value: 'enable',  label: 'Evet', selected: true },

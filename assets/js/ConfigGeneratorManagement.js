@@ -17,12 +17,37 @@ const CG_VALIDATORS = {
     ip_cidr:  { fn: v => /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v) || /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/.test(v), msg: 'IP adresi veya CIDR (örn: 10.0.0.1 veya 10.0.0.0/24)' },
     vlan:     { fn: v => _cgInt(v, 1, 4094), msg: 'VLAN ID 1-4094 arasında olmalı' },
     asn:      { fn: v => { const n = parseInt(v); return (!isNaN(n) && n >= 1 && n <= 4294967295) || /^\d+\.\d+$/.test(v.trim()); }, msg: 'AS numarası 1-4294967295 veya dotted (ör: 65000 veya 1.100)' },
+    // Tek port. ACL alanlarinda 'eq 80', 'range 80 443', 'any' gibi ifadeler
+    // kullanildigi icin onlar ayri 'port_match' dogrulayicisinda.
     port:     { fn: v => _cgInt(v, 0, 65535), msg: 'Port 0-65535 arasında olmalı' },
+    port_match:{ fn: v => { const t = String(v).trim().toLowerCase();
+                       if (!t || t === 'any') return true;
+                       let m = t.match(/^(eq|neq|gt|lt)\s+(\S+)$/);
+                       if (m) return _cgInt(m[2], 0, 65535) || /^[a-z][a-z0-9-]*$/.test(m[2]);
+                       m = t.match(/^range\s+(\S+)\s+(\S+)$/);
+                       if (m) return _cgInt(m[1], 0, 65535) && _cgInt(m[2], 0, 65535);
+                       return _cgInt(t, 0, 65535) || /^[a-z][a-z0-9-]*$/.test(t); },
+                msg: 'Port ifadesi girin: 80 · eq 80 · range 80 443 · gt 1024 · any' },
+
+    // 'IP maske' ikilisi: '10.0.0.1 255.255.255.0' (Cisco/Huawei stili)
+    ip_mask:  { fn: v => { const p = String(v).trim().split(/\s+/);
+                       if (p.length !== 2) return false;
+                       const ipRe = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+                       return ipRe.test(p[0]) && ipRe.test(p[1]); },
+                msg: 'IP ve maske girin (örn: 10.0.0.1 255.255.255.0)' },
+
+    // 'IP:port' (F5 virtual server hedefi)
+    host_port:{ fn: v => { const m = String(v).trim().match(/^(.+):(\d+)$/);
+                       if (!m) return false;
+                       const ipRe = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+                       return (ipRe.test(m[1]) || /^[a-z0-9][a-z0-9.-]*$/i.test(m[1])) && _cgInt(m[2], 0, 65535); },
+                msg: 'IP:port veya host:port girin (örn: 10.1.1.100:443)' },
     hostname: { re: /^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,61}[a-zA-Z0-9])?$/, msg: 'Geçerli hostname girin (harf, rakam, tire)' },
     mac:      { re: /^([0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}$/, msg: 'MAC adresi formatında girin (örn: 00:1A:2B:3C:4D:5E)' },
     prefix:   { fn: v => _cgInt(v, 0, 128), msg: 'Prefix 0-128 arasında olmalı' },
-    rd:       { re: /^\d+:\d+$/, msg: 'Route Distinguisher formatında girin (örn: 65000:100)' },
-    rt:       { re: /^\d+:\d+$/, msg: 'Route Target formatında girin (örn: 65000:100)' },
+    // Gecerli bicimler: 65000:100 · 10.0.0.1:100 (IP:nn) · auto · target:65001:100 (Junos)
+    rd:       { fn: v => _cgRdRt(String(v).trim()), msg: 'RD girin (örn: 65000:100, 10.0.0.1:100 veya auto)' },
+    rt:       { fn: v => _cgRdRt(String(v).trim()), msg: 'RT girin (örn: 65000:100, target:65001:100 veya auto)' },
     vni:      { fn: v => _cgInt(v, 1, 16777215), msg: 'VNI 1-16777215 arasında olmalı' },
     bgp_timer:{ fn: v => _cgInt(v, 1, 65535), msg: 'Timer 1-65535 saniye arasında olmalı' },
 
@@ -35,22 +60,44 @@ const CG_VALIDATORS = {
 
     // Arayuz araligi: 'Gi0/1-2', 'GigabitEthernet0/1 - 10', 'ethernet1/1/1-1/1/10'
     // veya virgulle ayrilmis liste.
-    iface_range: { fn: v => String(v).split(',').every(p => {
-                       const t = p.trim(); if (!t) return false;
-                       const m = t.match(/^(.+?)\s*-\s*(.+)$/);
-                       if (!m) return _cgIface(t);
-                       return _cgIface(m[1].trim()) && (/^[0-9/.]+$/.test(m[2].trim()) || _cgIface(m[2].trim()));
-                   }), msg: 'Arayüz veya aralık girin (örn: Gi0/1-2, GigabitEthernet0/1, ethernet1/1/1-1/1/10)' },
+    // Arayuz veya aralik. Virgul ve BOSLUK ile ayrilmis liste de kabul edilir
+    // ('ge-0/0/3.0, lo0.0' / 'port3 port4' gibi gercek kullanimlar var).
+    //
+    // Tire ayirici SONDAN aranir: eski tembel eslesme 'ge-0/0/1' ifadesini ilk
+    // tireden bolup sol tarafi 'ge' yapiyor ve reddediyordu — Juniper ge-/xe-/et-,
+    // Huawei Eth-Trunk1, Dell port-channel1, MikroTik sfp-sfpplus1 hepsi bu
+    // yuzden gecersiz sayiliyordu.
+    iface_range: { fn: v => String(v).split(/[,\s]+/).filter(Boolean).every(p => {
+                       const t = p.trim();
+                       if (_cgIface(t)) return true;               // tek arayuz
+                       const i = t.lastIndexOf('-');
+                       if (i <= 0 || i === t.length - 1) return false;
+                       const a = t.slice(0, i).trim(), b = t.slice(i + 1).trim();
+                       return _cgIface(a) && (/^[0-9/.:]+$/.test(b) || _cgIface(b));
+                   }), msg: 'Arayüz veya aralık girin (örn: Gi0/1-2, ge-0/0/1, port3 port4)' },
 
     // F5 BIG-IP arayuzleri ciplak sayisaldir: '1.1', '1.2', '2.1'
     // Ayri tutulur; genel iface'e konursa diger vendor'larda '1.2' arayuz sanilir.
     iface_f5: { fn: v => /^\d+(\.\d+)+$/.test(String(v).trim()) || _cgIface(String(v).trim()),
                 msg: 'F5 arayüzü girin (örn: 1.1, 1.2) veya trunk/VLAN adı' },
 
+    // IP araligi: '10.0.0.10-10.0.0.100' veya '10.0.0.10 10.0.0.100'
+    // DHCP havuzu, NAT havuzu, adres araligi alanlarinda kullanilir.
+    ip_range: { fn: v => { const t = String(v).trim();
+                    const parts = t.split(/\s*[-\s]\s*/).filter(Boolean);
+                    if (parts.length !== 2) return false;
+                    const re = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+                    if (!parts.every(x => re.test(x))) return false;
+                    const num = a => a.split('.').reduce((n, o) => n * 256 + (+o), 0);
+                    return num(parts[0]) <= num(parts[1]); },
+                msg: 'IP aralığı girin, başlangıç ≤ bitiş (örn: 10.0.0.10-10.0.0.100)' },
+
     // VLAN listesi: '10', '10,20,30', '10-20', '1,10-20,99', 'all', 'none'
-    vlan_list:{ fn: v => { const t = String(v).trim().toLowerCase();
+    // Ayraclar: virgul, BOSLUK. Aralik: '10-20' veya Huawei bicimi '20 to 30'.
+    vlan_list:{ fn: v => { let t = String(v).trim().toLowerCase();
                        if (t === 'all' || t === 'none') return true;
-                       return t.split(',').every(p => {
+                       t = t.replace(/\s+to\s+/g, '-');   // Huawei 'vlan batch 20 to 30'
+                       return t.split(/[,\s]+/).filter(Boolean).every(p => {
                            const q = p.trim(); if (!q) return false;
                            const r = q.match(/^(\d+)\s*-\s*(\d+)$/);
                            if (r) { const a = +r[1], b = +r[2];
@@ -70,16 +117,35 @@ function _cgInt(v, min, max) {
 }
 
 // Bilinen adsiz arayuzler (rakam icermeyenler)
-const _CG_BARE_IF = ['bridge', 'irb', 'internal', 'wan', 'lan', 'dmz', 'mgmt',
-                     'loopback', 'null', 'vlan', 'any', 'all'];
+// Rakam icermeyen gecerli arayuz / mantiksal arayuz adlari.
+// ASA'da arayuzlere nameif ile isim verilir ('outside', 'inside', 'management');
+// bu isimler config'te arayuz yerine gecer ve reddedilmemeli.
+const _CG_BARE_IF = ['bridge', 'irb', 'internal', 'external', 'wan', 'lan', 'dmz',
+                     'mgmt', 'management', 'outside', 'inside', 'untrust', 'trust',
+                     'loopback', 'null', 'vlan', 'any', 'all', 'guest', 'server',
+                     'voice', 'core', 'edge', 'transit'];
+function _cgRdRt(t) {
+    if (!t) return false;
+    if (t.toLowerCase() === 'auto') return true;
+    const m = t.match(/^(?:target:|origin:)?([^:]+):(\d+)$/i);
+    if (!m) return false;
+    const left = m[1];
+    if (/^\d+$/.test(left)) return true;                                   // 65000:100
+    return /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(left); // 10.0.0.1:100
+}
+
 function _cgIface(t) {
     if (!t || /\s/.test(t)) return false;              // bosluk yok
     // Arayuz adi HARFLE baslar. F5'in '1.1' bicimi ciplak sayisaldir ve yalnizca
     // F5 alanlarinda gecerlidir — genel dogrulayiciya konursa '1.2' gibi girdiler
     // her vendor'da arayuz sanilir ve 'interface range 1.2' gibi gecersiz satir
     // uretilir. O bicim ayri 'iface_f5' dogrulayicisinda.
-    if (!/^[A-Za-z]/.test(t)) return false;
     if (!/^[A-Za-z0-9/._:-]+$/.test(t)) return false;  // gecersiz karakter
+    // Huawei CE aile adlari RAKAMLA baslar: 10GE1/0/1, 25GE1/0/1, 40GE1/0/1, 100GE1/0/1
+    if (/^\d+GE\d/i.test(t)) return true;
+    // Ciplak sayisal ('1.2', '1-2') arayuz DEGILDIR — F5 icin iface_f5 kullanilir.
+    if (/^[\d.\-]+$/.test(t)) return false;
+    if (!/^[A-Za-z]/.test(t)) return false;
     if (/\d/.test(t)) return true;                     // rakam iceriyorsa gecerli say
     return _CG_BARE_IF.includes(t.toLowerCase());      // rakamsizsa bilinen ad olmali
 }

@@ -26,7 +26,7 @@ HuaweiCE.vlan = {
                     icon: 'fas fa-sitemap',
                     info: 'SVI tanımlanırsa Vlanif arayüzü oluşturulur ve inter-VLAN routing etkinleşir.',
                     fields: [
-                        { name: 'svi_ip', why: "SVI (Vlanif) adresi bu VLAN için gateway görevi görür; M-LAG çiftinde aynı IPyi iki cihaza vermek yerine VRRP veya anycast gateway kullanılmalıdır, aksi halde ARP tablosu sürekli çakışır. Boş bırakılırsa VLAN sadece L2 kalır.", label: 'SVI IP / Mask', type: 'text', validate: 'ip', optional: true, placeholder: '10.1.100.1 255.255.255.0', hint: 'Örn: 10.1.100.1 255.255.255.0 — boş bırakılırsa SVI oluşturulmaz' }
+                        { name: 'svi_ip', why: "SVI (Vlanif) adresi bu VLAN için gateway görevi görür; M-LAG çiftinde aynı IPyi iki cihaza vermek yerine VRRP veya anycast gateway kullanılmalıdır, aksi halde ARP tablosu sürekli çakışır. Boş bırakılırsa VLAN sadece L2 kalır.", label: 'SVI IP / Mask', type: 'text', validate: 'ip_mask', optional: true, placeholder: '10.1.100.1 255.255.255.0', hint: 'Örn: 10.1.100.1 255.255.255.0 — boş bırakılırsa SVI oluşturulmaz' }
                     ]
                 },
                 {
@@ -196,7 +196,7 @@ HuaweiCE.vxlan = {
                         { name: 'vni', why: "VNI, VXLAN kapsüllemesinde L2 segmentini tanımlar ve <b>tüm VTEPlerde aynı</b> olmalıdır. Bir leaf üzerinde farklı VNI kullanmak, sunucuların aynı VLANda görünüp birbirini hiç görememesine yol açar; sorun kablolama hatası gibi teşhis edilir.", label: 'VNI', type: 'number', validate: 'vni', required: true, placeholder: '10100', hint: 'VXLAN Network Identifier — 1–16777215 arası', min: 1, max: 16777215 },
                         { name: 'vlan_id', why: "VLAN, bridge-domain içinde <code>bind vlan</code> ile VNIya eşlenir. Bu eşleme yapılmazsa yerel VLAN trafiği tünele hiç girmez; port üzerinde ayrıca L2 alt arayüz veya VLAN-BD eşlemesi tanımlı olmalıdır.", label: 'VLAN ID', type: 'number', validate: 'vlan', required: true, placeholder: '100', hint: 'VXLAN ile eşlenecek VLAN numarası', min: 1, max: 4094 },
                         { name: 'vtep_lo', why: "VTEP kaynak arayüzü mutlaka Loopback olmalıdır; fiziksel arayüz kullanmak o link düştüğünde tüm VXLAN tünellerinin topluca kopmasına neden olur. Loopback ayrıca underlay yönlendirme protokolüne duyurulmuş olmalıdır.", label: 'VTEP Loopback Interface', type: 'text', required: true, placeholder: 'LoopBack1', hint: 'VTEP kaynak IP\'si için kullanılacak Loopback arayüzü' },
-                        { name: 'vtep_ip', why: "VTEP adresi <b>/32</b> olmalı ve underlay üzerinden tüm diğer VTEPlere ulaşılabilir olmalıdır. Ulaşılamayan bir VTEP adresi EVPN rotalarının gelmesine ama tünelin kurulmamasına yol açar; <code>display vxlan tunnel</code> boş kalır.", label: 'VTEP IP / Mask', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1 255.255.255.255', hint: 'VTEP Loopback IP adresi — /32 host route önerilir' }
+                        { name: 'vtep_ip', why: "VTEP adresi <b>/32</b> olmalı ve underlay üzerinden tüm diğer VTEPlere ulaşılabilir olmalıdır. Ulaşılamayan bir VTEP adresi EVPN rotalarının gelmesine ama tünelin kurulmamasına yol açar; <code>display vxlan tunnel</code> boş kalır.", label: 'VTEP IP / Mask', type: 'text', validate: 'ip_mask', required: true, placeholder: '10.0.0.1 255.255.255.255', hint: 'VTEP Loopback IP adresi — /32 host route önerilir' }
                     ]
                 },
                 {
@@ -284,7 +284,7 @@ HuaweiCE.lacp = {
                             { value: 'access', label: 'Access — tek VLAN' },
                             { value: 'routed', label: 'Routed — Layer-3 (undo portswitch)' }
                         ]},
-                        { name: 'vlan_ip', why: "Eth-Trunk L2 modda VLAN taşır, L3 modda (<code>undo portswitch</code>) IP alır; ikisi aynı anda olmaz. Mod değişimi mevcut yapılandırmayı sildiği için üretim trafiği anında kesilir.", label: 'VLAN / IP', type: 'text', validate: 'ip', optional: true, placeholder: '10 20 100 veya 10.1.1.1 255.255.255.252', hint: 'Trunk: izin verilen VLAN\'lar | Access: VLAN ID | Routed: IP/mask' }
+                        { name: 'vlan_ip', why: "Eth-Trunk L2 modda VLAN taşır, L3 modda (<code>undo portswitch</code>) IP alır; ikisi aynı anda olmaz. Mod değişimi mevcut yapılandırmayı sildiği için üretim trafiği anında kesilir.", label: 'VLAN / IP', type: 'text', validate: 'vlan_list', optional: true, placeholder: '10 20 100 veya 10.1.1.1 255.255.255.252', hint: 'Trunk: izin verilen VLAN\'lar | Access: VLAN ID | Routed: IP/mask' }
                     ]
                 }
             ],
@@ -348,7 +348,7 @@ HuaweiCE.mlag = {
                     icon: 'fas fa-network-wired',
                     info: 'Peer link, iki M-LAG switch arasındaki kontrol ve veri trafiği için kullanılır. Yüksek bant genişliği önerilir.',
                     fields: [
-                        { name: 'peer_link_po', why: "Peer-link M-LAG çiftinin kontrol ve senkronizasyon yoludur ve mutlaka yedekli (çok üyeli Eth-Trunk) olmalıdır. Peer-link koparsa split-brain oluşur: iki cihaz da aktif davranır, aynı MAC adresleri iki yerden duyurulur ve ağ kullanılamaz hale gelir.", label: 'Peer Link Port-Channel', type: 'text', validate: 'ip', required: true, placeholder: 'Eth-Trunk1', hint: 'Peer link olarak kullanılacak Eth-Trunk arayüzü' },
+                        { name: 'peer_link_po', why: "Peer-link M-LAG çiftinin kontrol ve senkronizasyon yoludur ve mutlaka yedekli (çok üyeli Eth-Trunk) olmalıdır. Peer-link koparsa split-brain oluşur: iki cihaz da aktif davranır, aynı MAC adresleri iki yerden duyurulur ve ağ kullanılamaz hale gelir.", label: 'Peer Link Port-Channel', type: 'text', validate: 'iface', required: true, placeholder: 'Eth-Trunk1', hint: 'Peer link olarak kullanılacak Eth-Trunk arayüzü' },
                         { name: 'local_ip', why: "Bu adres M-LAG keepalive (DAD) trafiği içindir ve peer-linkten <b>bağımsız</b> bir yol üzerinden gitmelidir. Aynı fiziksel yolu kullanırsa peer-link arızasında keepalive de kopar ve split-brain koruması devre dışı kalır.", label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Bu switch\'in M-LAG peer iletişim IP adresi' },
                         { name: 'peer_ip', why: "Karşı cihazın keepalive adresi doğru olmalı ve arada filtre bulunmamalıdır. Yanlış adres M-LAG kurulmuş gibi görünmesine ama split-brain tespitinin hiç çalışmamasına yol açar; arıza ancak gerçek bir kesinti anında ortaya çıkar.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'Karşı switch\'in M-LAG IP adresi' }
                     ]

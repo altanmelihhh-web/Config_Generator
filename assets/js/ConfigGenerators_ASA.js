@@ -161,7 +161,7 @@ CiscoASA.acl = {
                     fields: [
                         { name: 'src', why: "8.3 ve sonrasında ACL, NAT’lanmış değil <b>gerçek (real)</b> IP adresine göre yazılır. Eski alışkanlıkla mapped adres yazmak kuralın hiç eşleşmemesine yol açar.", label: 'Kaynak', type: 'text', required: true, placeholder: 'any veya 192.168.1.0 255.255.255.0', hint: 'Kaynak IP adresi veya any' },
                         { name: 'dst', why: "Dışarıdan bir DMZ sunucusuna erişim yazarken hedef, NAT’lı dış IP değil sunucunun <b>gerçek iç IP</b> adresidir. Bu ayrımı kaçırmak port-forward çalışmamasının bir numaralı nedenidir.", label: 'Hedef', type: 'text', required: true, placeholder: 'host 203.0.113.10 veya any', hint: 'Hedef IP adresi veya host' },
-                        { name: 'dst_port', why: "Port yazımı <code>eq 443</code> ya da <code>range 8000 8100</code> biçimindedir; yalnızca sayı girmek satırı geçersiz kılar. FTP, SIP, TFTP gibi dinamik port açan protokollerde ayrıca inspect gerekir.", label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: 'eq 80 veya range 80 443', hint: 'TCP/UDP için port belirtimi' }
+                        { name: 'dst_port', why: "Port yazımı <code>eq 443</code> ya da <code>range 8000 8100</code> biçimindedir; yalnızca sayı girmek satırı geçersiz kılar. FTP, SIP, TFTP gibi dinamik port açan protokollerde ayrıca inspect gerekir.", label: 'Hedef Port', type: 'text', validate: 'port_match', optional: true, placeholder: 'eq 80 veya range 80 443', hint: 'TCP/UDP için port belirtimi' }
                     ]
                 },
                 {
@@ -222,8 +222,8 @@ CiscoASA.vpn = {
                     title: 'Korunan Ağlar',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'local_net', why: "Yerel ve uzak ağ tanımları iki tarafta <b>ayna</b> olmalıdır, yoksa Phase-2 proxy-ID uyuşmaz. Ayrıca bu ağ için NAT-exempt yazılmazsa trafik PAT’lanır ve tünele hiç girmez.", label: 'Yerel Network', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'Yerel korunan ağ (IP + mask)' },
-                        { name: 'remote_net', why: "Uzak ağ, karşı tarafın yerel ağıyla aynı maskeyle tanımlanmalı; /24 yerine /16 yazmak gibi küçük bir fark Phase-2 müzakeresini düşürür ve tünel kurulmuş görünse de trafik geçmez.", label: 'Uzak Network', type: 'text', validate: 'cidr', required: true, placeholder: '10.0.0.0 255.255.255.0', hint: 'Uzak korunan ağ (IP + mask)' }
+                        { name: 'local_net', why: "Yerel ve uzak ağ tanımları iki tarafta <b>ayna</b> olmalıdır, yoksa Phase-2 proxy-ID uyuşmaz. Ayrıca bu ağ için NAT-exempt yazılmazsa trafik PAT’lanır ve tünele hiç girmez.", label: 'Yerel Network', type: 'text', validate: 'ip_mask', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'Yerel korunan ağ (IP + mask)' },
+                        { name: 'remote_net', why: "Uzak ağ, karşı tarafın yerel ağıyla aynı maskeyle tanımlanmalı; /24 yerine /16 yazmak gibi küçük bir fark Phase-2 müzakeresini düşürür ve tünel kurulmuş görünse de trafik geçmez.", label: 'Uzak Network', type: 'text', validate: 'ip_mask', required: true, placeholder: '10.0.0.0 255.255.255.0', hint: 'Uzak korunan ağ (IP + mask)' }
                     ]
                 },
                 {
@@ -448,7 +448,7 @@ CiscoASA.mpfServicePolicy = {
                         { name: 'class_acl', why: "Sınıf bu ACL ile eşleşir; ACL’de deny olan trafik sınıfa <b>girmez</b> ve varsayılan global politikaya düşer. Yani deny burada engelleme değil kapsam dışı bırakma anlamına gelir.", label: 'Match ACL Adı', type: 'text', required: true, placeholder: 'HTTP_ACL', hint: 'Eşleşme kriteri ACL adı' },
                         { name: 'match_src', why: "Kaynak fazla geniş (<code>any</code>) bırakılırsa inspect/QoS tüm trafiğe uygulanır ve CPU beklenmedik şekilde yükselir. Kapsamı daraltmak hem performans hem öngörülebilirlik sağlar.", label: 'Kaynak Network', type: 'text', required: true, placeholder: 'any', hint: 'Kaynak IP (any veya subnet mask formatı)' },
                         { name: 'match_dst', why: "Hedef tanımı NAT sonrası değil <b>gerçek</b> adrese göre yazılmalıdır. Yanlış yazılırsa sınıf hiç hit almaz ve <code>show service-policy</code> çıktısında sayaçlar sıfır kalır.", label: 'Hedef Network', type: 'text', required: true, placeholder: 'any', hint: 'Hedef IP (any veya subnet mask formatı)' },
-                        { name: 'match_port', why: "Port <code>eq 80</code> biçiminde yazılır. Uygulama standart dışı bir portta çalışıyorsa inspect devreye girmez; bu durumda protokolü o porta açıkça eşlemeniz gerekir.", label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: 'eq 80', hint: 'Eşleştirilecek port (ör: eq 80)' }
+                        { name: 'match_port', why: "Port <code>eq 80</code> biçiminde yazılır. Uygulama standart dışı bir portta çalışıyorsa inspect devreye girmez; bu durumda protokolü o porta açıkça eşlemeniz gerekir.", label: 'Hedef Port', type: 'text', validate: 'port_match', optional: true, placeholder: 'eq 80', hint: 'Eşleştirilecek port (ör: eq 80)' }
                     ]
                 },
                 {
