@@ -179,8 +179,8 @@ CgReference.ospf = {
           ['Alan Tipi', 'Özellik', 'Default Route'],
           [
               ['Normal', 'Tüm LSA\'lar geçer', 'Hayır'],
-              ['Stub', 'Tip 5 LSA engellenir', 'Evet (otomat.)'],
-              ['Totally Stub', 'Tip 3,5 LSA engellenir', 'Evet'],
+              ['Stub', 'Tip 4 ve 5 engellenir', 'Evet (otomat.)'],
+              ['Totally Stub', 'Tip 3, 4, 5 engellenir (default yine Tip 3 gelir)', 'Evet'],
               ['NSSA', 'Tip 7 → Tip 5 çevrim', 'Opsiyonel'],
           ]
       ))}
@@ -336,7 +336,7 @@ CgReference.ha = {
         w: 460, h: 240, alt: 'Aktif aktif firewall kumesi',
         nodes: [
           { x: 230, y: 24,  w: 110, h: 32, kind: 'cloud',    label: 'İnternet' },
-          { x: 230, y: 86,  w: 160, h: 34, kind: 'lb',       label: 'Load Balancer' },
+          { x: 230, y: 86,  w: 190, h: 34, kind: 'router',   label: 'ECMP / Cluster dağıtımı' },
           { x: 120, y: 164, w: 130, h: 46, kind: 'firewall', label: 'FW-1', sub: 'Akış 1..N' },
           { x: 340, y: 164, w: 130, h: 46, kind: 'firewall', label: 'FW-2', sub: 'Akış N+1..M' }
         ],
@@ -349,6 +349,7 @@ CgReference.ha = {
         notes: [
           '<strong>Avantaj:</strong> her iki cihaz da trafik taşır',
           '<strong>Dikkat:</strong> asimetrik yönlendirme — gidiş ve dönüş farklı cihazdan geçerse oturum düşer',
+          'Dağıtım normalde ECMP veya cluster ile yapılır; önüne load balancer koymak istisnadır',
           'Stateful oturum senkronizasyonu <strong>şarttır</strong>'
         ]
       }))}
@@ -443,7 +444,7 @@ CgReference.nat = {
   ${cgRefCard('Vendor NAT Komutları', 'fas fa-code', cgRefTable(
       ['Vendor', 'SNAT (Outbound)', 'DNAT (Port Forward)'],
       [
-          ['Cisco IOS', 'ip nat inside source list ACL interface Gi0/0 overload', 'ip nat inside destination list ACL pool DNAT-POOL'],
+          ['Cisco IOS', 'ip nat inside source list ACL interface Gi0/0 overload', 'ip nat inside source static tcp 10.1.1.10 8080 203.0.113.5 80 extendable'],
           ['FortiGate', 'config firewall policy → NAT enable', 'config firewall vip + policy'],
           ['Palo Alto', 'NAT Policy → Dynamic IP/Port (src)', 'NAT Policy → Destination Address'],
           ['Check Point', 'mgmt_cli add nat-rule (hide)', 'mgmt_cli add nat-rule (static)'],
@@ -567,8 +568,10 @@ CgReference.vxlan = {
     links: [
       { x1: 160, y1: 81, x2: 110, y2: 125 }, { x1: 210, y1: 81, x2: 275, y2: 125 },
       { x1: 355, y1: 81, x2: 305, y2: 125 }, { x1: 405, y1: 81, x2: 465, y2: 125 },
-      { x1: 142, y1: 148, x2: 233, y2: 148, dash: true, label: 'VXLAN' },
-      { x1: 337, y1: 148, x2: 428, y2: 148, dash: true, label: 'VXLAN' },
+      { x1: 142, y1: 148, x2: 233, y2: 148, dash: true },
+      { x1: 337, y1: 148, x2: 428, y2: 148, dash: true },
+      { x1: 90,  y1: 171, x2: 480, y2: 171, dash: true, bend: [285, 205],
+        label: 'VXLAN tünelleri full-mesh', lx: 285, ly: 196 },
       { x1: 90,  y1: 171, x2: 90,  y2: 208 },
       { x1: 285, y1: 171, x2: 285, y2: 208 },
       { x1: 480, y1: 171, x2: 480, y2: 208 }
@@ -604,10 +607,10 @@ CgReference.vxlan = {
           ['Tip', 'Ad', 'Kullanım'],
           [
               ['Tip 1', 'Ethernet Auto-Discovery', 'ESI multi-homing'],
-              ['Tip 2', 'MAC/IP Advertisement', 'MAC + ARP öğrenme (L2 VNI)'],
+              ['Tip 2', 'MAC/IP Advertisement', 'MAC + ARP öğrenme (L2 VNI) — <strong>standart fabric\'te en yaygın</strong>'],
               ['Tip 3', 'Inclusive Multicast', 'BUM traffic (broadcast)'],
               ['Tip 4', 'Ethernet Segment', 'DF seçimi'],
-              ['Tip 5', 'IP Prefix', 'L3 VNI routing (en yaygın)'],
+              ['Tip 5', 'IP Prefix', 'L3 VNI routing — harici/özet prefix, silent host (RFC 9136)'],
           ]
       ))}
     </div>
@@ -676,7 +679,7 @@ CgReference.lb = {
           [
               ['Cookie Insert', 'LB, HTTP response\'a cookie ekler (en güvenilir)'],
               ['Source IP', 'Kaynak IP\'ye göre aynı sunucu (NAT sorunları var)'],
-              ['SSL Session', 'SSL session ID ile (SSL offload gerekir)'],
+              ['SSL Session', 'SSL session ID ile — passthrough/L4 senaryosu (offload varsa cookie insert kullanılır; TLS 1.3\'te session ID anlamsızdır)'],
               ['Universal', 'İstenen offset\'ten veri alınır'],
           ]
       ))}
