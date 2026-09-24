@@ -213,16 +213,17 @@ CiscoIOS.nat = {
             configTypes: [
                 { id: 'pat', label: 'PAT / Overload', icon: 'fas fa-compress-arrows-alt', desc: 'Tek genel IP ile tüm iç ağ — en yaygın kullanım', badge: { text: 'En Yaygın', cls: 'recommended' } },
                 { id: 'static', label: 'Static NAT', icon: 'fas fa-arrows-alt-h', desc: '1:1 IP eşleme — sunucu erişimi için', badge: { text: 'Sunucu', cls: 'common' } },
-                { id: 'dynamic', label: 'Dynamic NAT', icon: 'fas fa-random', desc: 'IP havuzundan dinamik atama', badge: { text: 'Havuz', cls: 'advanced' } }
+                { id: 'dynamic', label: 'Dynamic NAT', icon: 'fas fa-random', desc: 'IP havuzundan dinamik atama', badge: { text: 'Havuz', cls: 'advanced' } },
+                { id: 'portfwd', label: 'Port Forwarding', icon: 'fas fa-share', desc: 'Dış port → iç sunucu:port (static PAT)', badge: { text: 'Sunucu', cls: 'common' } }
             ],
             sections: [
                 {
                     title: 'Interface Ayarları',
                     icon: 'fas fa-plug',
-                    showFor: ['pat', 'static', 'dynamic'],
+                    showFor: ['pat', 'static', 'dynamic', 'portfwd'],
                     fields: [
-                        { name: 'inside_if', why: 'NAT çalışması için arayüzlerin <code>ip nat inside</code> / <code>ip nat outside</code> olarak işaretlenmesi <b>zorunludur</b>. Eksikse NAT hiç devreye girmez ve sorun çok geç fark edilir.', label: 'Inside Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/1', hint: 'İç ağa bağlı interface — ip nat inside uygulanır' },
-                        { name: 'outside_if', why: "Dışarı bakan arayüz. Birden fazla WAN varsa yanlış seçim trafiğin NAT'lanmadan çıkmasına ve karşı tarafta düşmesine yol açar.", label: 'Outside Interface', type: 'text', required: true, placeholder: 'GigabitEthernet0/0', hint: 'İnternet/WAN interface — ip nat outside uygulanır' }
+                        { name: 'inside_if', why: 'NAT çalışması için arayüzlerin <code>ip nat inside</code> / <code>ip nat outside</code> olarak işaretlenmesi <b>zorunludur</b>. Eksikse NAT hiç devreye girmez ve sorun çok geç fark edilir.', label: 'Inside Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/1', hint: 'İç ağa bağlı interface — ip nat inside uygulanır' },
+                        { name: 'outside_if', why: "Dışarı bakan arayüz. Birden fazla WAN varsa yanlış seçim trafiğin NAT'lanmadan çıkmasına ve karşı tarafta düşmesine yol açar.", label: 'Outside Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0', hint: 'İnternet/WAN interface — ip nat outside uygulanır' }
                     ]
                 },
                 {
@@ -230,8 +231,8 @@ CiscoIOS.nat = {
                     icon: 'fas fa-network-wired',
                     showFor: ['pat', 'dynamic'],
                     fields: [
-                        { name: 'inside_net', why: "NAT ACL'i <b>hangi kaynakların</b> çevrileceğini belirler. Fazla geniş yazmak (örn. <code>any</code>) VPN trafiğini de NAT'lar ve tünelin içinden hiçbir şey geçmez.", label: 'Inside Network', type: 'text', required: true, placeholder: '192.168.1.0', hint: 'NAT uygulanacak iç ağ adresi' },
-                        { name: 'inside_wild', why: "Burada da wildcard maske kullanılır, subnet maske değil. NAT ACL'i çok geniş olursa istemediğin trafiği de NAT'larsın (ör. VPN trafiği).", label: 'Wildcard Mask', type: 'text', placeholder: '0.0.0.255', hint: 'Boş bırakılırsa 0.0.0.255 kullanılır' }
+                        { name: 'inside_net', why: "NAT ACL'i <b>hangi kaynakların</b> çevrileceğini belirler. Fazla geniş yazmak (örn. <code>any</code>) VPN trafiğini de NAT'lar ve tünelin içinden hiçbir şey geçmez.", label: 'Inside Network', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.0', hint: 'NAT uygulanacak iç ağ adresi' },
+                        { name: 'inside_wild', why: "Burada da wildcard maske kullanılır, subnet maske değil. NAT ACL'i çok geniş olursa istemediğin trafiği de NAT'larsın (ör. VPN trafiği).", label: 'Wildcard Mask', type: 'text', validate: 'wildcard', placeholder: '0.0.0.255', hint: 'Boş bırakılırsa 0.0.0.255 kullanılır' }
                     ]
                 },
                 {
@@ -244,6 +245,26 @@ CiscoIOS.nat = {
                     ]
                 },
                 {
+                    title: 'Port Forwarding',
+                    icon: 'fas fa-share',
+                    showFor: ['portfwd'],
+                    info: 'Dışarıdan gelen <code>genel adres:port</code> isteğini iç sunucunun <code>IP:port</code>\'una yönlendirir. Genel adres olarak outside arayüzünün kendi IP\'si (dinamik IP\'li hatlarda) veya sabit bir genel IP kullanılabilir.',
+                    fields: [
+                        { name: 'pf_proto', label: 'Protokol', type: 'select', options: [
+                            { value: 'tcp', label: 'TCP', selected: true },
+                            { value: 'udp', label: 'UDP' }
+                        ]},
+                        { name: 'pf_local_ip', why: 'Sunucunun iç IP\'si sabit olmalı (statik veya DHCP rezervasyonu); değişirse yönlendirme sessizce boşa düşer.', label: 'İç Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Trafiğin yönlendirileceği iç sunucu' },
+                        { name: 'pf_local_port', label: 'İç Port', type: 'text', validate: 'port', required: true, placeholder: '80', hint: 'Sunucunun dinlediği port' },
+                        { name: 'pf_global', label: 'Genel Adres', type: 'select', options: [
+                            { value: 'interface', label: 'Outside arayüzünün IP\'si', selected: true },
+                            { value: 'ip', label: 'Sabit genel IP' }
+                        ], hint: 'Dinamik IP\'li hatlarda arayüz seçeneği kullanılır' },
+                        { name: 'pf_global_ip', label: 'Genel IP', type: 'text', validate: 'ip', requiredIf: { field: 'pf_global', in: ['ip'] }, placeholder: '203.0.113.5', hint: 'Yalnız "Sabit genel IP" seçiliyken' },
+                        { name: 'pf_global_port', why: 'Dış port iç porttan farklı olabilir (8080 → 80). Aynı iç IP birden fazla kez yönlendirilecekse satır sonuna <code>extendable</code> eklenmesi gerekir.', label: 'Dış Port', type: 'text', validate: 'port', required: true, placeholder: '8080', hint: 'İnternetten erişilecek port' }
+                    ]
+                },
+                {
                     title: 'Dynamic NAT Pool',
                     icon: 'fas fa-layer-group',
                     showFor: ['dynamic'],
@@ -251,7 +272,7 @@ CiscoIOS.nat = {
                     fields: [
                         { name: 'pool_start', why: "Havuzun ilk adresi. Gateway, HSRP sanal IP'si ve statik sunucu adresleri gibi kullanımdaki IP'leri havuza dahil edersen çakışma kaçınılmazdır.", label: 'Pool Başlangıç IP', type: 'text', required: true, validate: 'ip', placeholder: '203.0.113.1', hint: 'Havuzdaki ilk genel IP' },
                         { name: 'pool_end', why: "Havuz tükendiğinde yeni oturumlar <b>sessizce</b> kurulamaz; hata log'da belirgin değildir. <code>show ip nat translations</code> ile doluluğu izle, küçük havuzlarda <code>overload</code> ekle.", label: 'Pool Bitiş IP', type: 'text', required: true, validate: 'ip', placeholder: '203.0.113.10', hint: 'Havuzdaki son genel IP' },
-                        { name: 'pool_mask', why: "Havuz maskesi, adreslerin ait olduğu genel alt ağla eşleşmeli. Yanlış maske ISS'nin bu adresleri yönlendirmemesine ve dönüş trafiğinin kaybolmasına yol açar.", label: 'Pool Netmask', type: 'text', required: true, validate: 'subnet', placeholder: '255.255.255.240', hint: 'Genel IP bloğunun subnet maskı' }
+                        { name: 'pool_mask', why: "Havuz maskesi, adreslerin ait olduğu genel alt ağla eşleşmeli. Yanlış maske ISS'nin bu adresleri yönlendirmemesine ve dönüş trafiğinin kaybolmasına yol açar.", label: 'Pool Netmask', type: 'text', required: true, validate: 'netmask', placeholder: '255.255.255.240', hint: 'Genel IP bloğunun subnet maskı' }
                     ]
                 }
             ],
@@ -269,6 +290,10 @@ CiscoIOS.nat = {
                 config += 'ip nat inside source list NAT_ACL interface ' + outside + ' overload\n';
             } else if (type === 'static') {
                 config += 'ip nat inside source static ' + data.local_ip + ' ' + data.global_ip + '\n';
+            } else if (type === 'portfwd') {
+                const pub = data.pf_global === 'ip' ? data.pf_global_ip : 'interface ' + outside;
+                config += 'ip nat inside source static ' + data.pf_proto + ' ' + data.pf_local_ip + ' ' + data.pf_local_port +
+                          ' ' + pub + ' ' + data.pf_global_port + '\n';
             } else {
                 const net  = data.inside_net;
                 const wild = data.inside_wild || '0.0.0.255';
@@ -2286,3 +2311,93 @@ CiscoIOS.bfd = {
         });
     }
 };
+
+// ── SPAN / RSPAN ──────────────────────────────────────────────────────────────
+CiscoIOS.span = {
+    label: 'SPAN / RSPAN',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-eye',
+                title: 'SPAN / RSPAN — Port Mirroring',
+                desc: 'Bir port veya VLAN trafiğinin kopyasını analiz portuna (Wireshark, IDS, NDR) gönderir. <strong>SPAN</strong> aynı switch içinde, <strong>RSPAN</strong> ayrılmış bir RSPAN VLAN\'ı üzerinden başka bir switch\'e taşır.'
+            },
+            configTypes: [
+                { id: 'local', label: 'Yerel SPAN', icon: 'fas fa-eye', desc: 'Kaynak ve analiz portu aynı switch\'te', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'rspan_src', label: 'RSPAN — Kaynak Switch', icon: 'fas fa-upload', desc: 'Trafiği RSPAN VLAN\'ına kopyalar', badge: { text: 'Uzak', cls: 'common' } },
+                { id: 'rspan_dst', label: 'RSPAN — Hedef Switch', icon: 'fas fa-download', desc: 'RSPAN VLAN\'ından analiz portuna', badge: { text: 'Uzak', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Oturum', icon: 'fas fa-hashtag', showFor: ['local', 'rspan_src', 'rspan_dst'],
+                    fields: [
+                        { name: 'session', why: 'Platform başına eşzamanlı oturum sayısı sınırlıdır (Catalyst\'lerde çoğunlukla 2 yerel/RSPAN kaynak oturumu). Aynı numara başka oturumda kullanılıyorsa üzerine yazılır.', label: 'Oturum No', type: 'text', validate: 'posint', required: true, placeholder: '1', hint: 'monitor session numarası' }
+                    ]
+                },
+                {
+                    title: 'Kaynak', icon: 'fas fa-sign-in-alt', showFor: ['local', 'rspan_src'],
+                    fields: [
+                        { name: 'src_type', label: 'Kaynak Tipi', type: 'select', options: [
+                            { value: 'interface', label: 'Arayüz(ler)', selected: true },
+                            { value: 'vlan', label: 'VLAN(lar)' }
+                        ]},
+                        { name: 'src_ifaces', why: 'Birden fazla portu aynı yönde izlemek analiz portunun bant genişliğini aşabilir; kopyalanamayan paketler sessizce düşer.', label: 'Kaynak Arayüzler', type: 'text', validate: 'iface_range', requiredIf: { field: 'src_type', in: ['interface'] }, placeholder: 'GigabitEthernet1/0/1', hint: 'Virgülle liste veya aralık: Gi1/0/1-4' },
+                        { name: 'src_vlans', label: 'Kaynak VLAN\'lar', type: 'text', validate: 'vlan_list', requiredIf: { field: 'src_type', in: ['vlan'] }, placeholder: '10,20', hint: 'VLAN kaynağında yön genellikle yalnız rx desteklenir' },
+                        { name: 'direction', label: 'Yön', type: 'select', options: [
+                            { value: 'both', label: 'both — giden ve gelen', selected: true },
+                            { value: 'rx', label: 'rx — yalnız gelen' },
+                            { value: 'tx', label: 'tx — yalnız giden' }
+                        ]}
+                    ]
+                },
+                {
+                    title: 'RSPAN VLAN', icon: 'fas fa-route', showFor: ['rspan_src', 'rspan_dst'],
+                    info: 'RSPAN VLAN\'ı kaynak ile hedef arasındaki TÜM switch\'lerde <code>remote-span</code> olarak tanımlı ve trunk\'lardan izinli olmalıdır.',
+                    fields: [
+                        { name: 'rspan_vlan', why: 'Bu VLAN yalnızca yansıtılan trafik için ayrılmalıdır; üzerinde son kullanıcı portu olmamalıdır.', label: 'RSPAN VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '900', hint: 'Yalnızca SPAN trafiği için ayrılmış VLAN' }
+                    ]
+                },
+                {
+                    title: 'Hedef (Analiz Portu)', icon: 'fas fa-sign-out-alt', showFor: ['local', 'rspan_dst'],
+                    fields: [
+                        { name: 'dst_iface', why: 'Hedef port normal trafiği taşımaz; SPAN hedefi olduğu sürece bağlı cihaz ağa erişemez.', label: 'Hedef Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet1/0/24', hint: 'Analiz cihazının bağlı olduğu port' },
+                        { name: 'replicate', label: 'encapsulation replicate (CDP/STP/VTP gibi L2 protokol çerçevelerini de kopyala)', type: 'checkbox' }
+                    ]
+                }
+            ],
+            submit: 'SPAN Konfigürasyonu Oluştur'
+        }, (data) => cgIosSpanGen(data));
+    }
+};
+
+// Kullanicinin 'Gi1/0/1-4, Gi1/0/8' listesini IOS bicimine cevirir:
+// 'Gi1/0/1 - 4 , Gi1/0/8' (aralikta tire, listede virgul, ikisinin cevresinde bosluk).
+function cgIosSpanList(s) {
+    return String(s || '').split(/[,\s]+/).filter(Boolean)
+        .map(p => p.replace(/^(.*\D)(\d+)-(\d+)$/, '$1$2 - $3')).join(' , ');
+}
+
+function cgIosSpanGen(data) {
+    const t = data._cgtype, sid = cgEsc(data.session || '');
+    const src = data.src_type === 'vlan'
+        ? 'vlan ' + cgEsc(data.src_vlans || '')
+        : 'interface ' + cgIosSpanList(cgEsc(data.src_ifaces || ''));
+    const dir = cgEsc(data.direction || 'both'), rv = cgEsc(data.rspan_vlan || '');
+    const dst = cgEsc(data.dst_iface || ''), rep = data.replicate ? ' encapsulation replicate' : '';
+    let c = '! ========================================\n! Cisco IOS SPAN / RSPAN\n! ========================================\n\n';
+    c += 'no monitor session ' + sid + '\n';
+    if (t === 'local') {
+        c += 'monitor session ' + sid + ' source ' + src + ' ' + dir + '\n';
+        c += 'monitor session ' + sid + ' destination interface ' + dst + rep + '\n';
+    } else if (t === 'rspan_src') {
+        c += 'vlan ' + rv + '\n remote-span\n!\n';
+        c += 'monitor session ' + sid + ' source ' + src + ' ' + dir + '\n';
+        c += 'monitor session ' + sid + ' destination remote vlan ' + rv + '\n';
+    } else {
+        c += 'vlan ' + rv + '\n remote-span\n!\n';
+        c += 'monitor session ' + sid + ' source remote vlan ' + rv + '\n';
+        c += 'monitor session ' + sid + ' destination interface ' + dst + rep + '\n';
+    }
+    c += '\n! Doğrulama:\n! show monitor session ' + sid + '\n! show monitor session ' + sid + ' detail\n';
+    return c;
+}

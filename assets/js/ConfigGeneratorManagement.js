@@ -1039,10 +1039,13 @@ function cgFBSelectType(typeId, cardEl) {
         const show = sec.dataset.showfor.split(',').includes(typeId);
         sec.style.display = show ? '' : 'none';
         sec.querySelectorAll('input,select,textarea').forEach(el => {
-            if (el.dataset.reqIf) return;          // cgApplyRequiredIf yonetir
+            // Gizli bolumdeki HER alan devre disi: eskiden yalniz zorunlular
+            // kapatiliyordu. Ayni adli alan iki bolumde varsa (SNMP v3 ve v1/v2c'de
+            // trap_host) gizlideki bos kopya FormData'da gorunenin degerini eziyordu.
+            el.disabled = !show;
+            if (el.dataset.reqIf) return;          // zorunlulugu cgApplyRequiredIf yonetir
             if (el.dataset.origRequired === 'true' || el.required) {
                 if (!el.dataset.origRequired) el.dataset.origRequired = 'true';
-                el.disabled = !show;
                 el.required = show;
             }
         });
@@ -1089,6 +1092,7 @@ const CG_REGISTRY = {
             { id: 'isis',          label: 'IS-IS',               gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.isis },
             { id: 'zbfw',          label: 'Zone-Based Firewall',  gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.zbfw },
             { id: 'bfd',           label: 'BFD',                  gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.bfd },
+            { id: 'span',          label: 'SPAN / RSPAN',         gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.span },
         ]
     },
     'cisco-ftd': {
