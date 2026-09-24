@@ -907,6 +907,7 @@ function ccReadCiscoNXOS(text) {
 
     // vrf context bloğunu satır bazlı skip et
     const filteredLines = [];
+    const droppedLines = [];
     const rawLines = text.split('\n');
     let inVrfContext = false;
 
@@ -916,6 +917,7 @@ function ccReadCiscoNXOS(text) {
         // vrf context bloğu başladı mı?
         if (/^vrf\s+context\s+\S+/.test(t)) {
             inVrfContext = true;
+            droppedLines.push(t);
             continue;
         }
         // Blok içindeyken: boş olmayan, girinti içermeyen satır bloğu bitişini işaret eder
@@ -931,7 +933,7 @@ function ccReadCiscoNXOS(text) {
         for (const pat of nxosSkipPatterns) {
             if (pat.test(line)) { skip = true; break; }
         }
-        if (skip) continue;
+        if (skip) { droppedLines.push(t); continue; }
 
         filteredLines.push(line);
     }
@@ -940,6 +942,12 @@ function ccReadCiscoNXOS(text) {
 
     // IOS reader'ı çalıştır
     const ir = ccReadCiscoIOS(filteredText);
+
+    // On-filtrede atilan NX-OS'a ozgu satirlar (feature / vpc / vrf context) IOS
+    // reader'a hic ulasmadigi icin ir.unknowns'a da girmiyordu: kullaniciya
+    // bildirilmeden, fidelity puanina yansimadan kayboluyorlardi. Cevrilemedikleri
+    // dogru, ancak GORUNUR olmalilar.
+    for (const d of droppedLines) ir.unknowns.push(d);
 
     // NX-OS'a özgü: 'ip route X/prefix NH' (CIDR) — maske dönüşümü
     ir.routes = ir.routes.map(r => {

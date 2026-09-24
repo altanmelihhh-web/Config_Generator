@@ -623,6 +623,35 @@ function ccReadDellOS10(text) {
             i++; continue;
         }
 
+        // banner motd <delim> ... <delim>   (OS10'da delim genellikle literal '^C')
+        if ((m = line.match(/^banner\s+(motd|login|exec)\s+(\S+)/i))) {
+            const _kind = m[1].toLowerCase(), _delim = m[2];
+            // 'banner motd disable' / 'none' bir delimiter DEGIL, banner'i kapatan
+            // komuttur. Delimiter sanilirsa kapanis hic bulunamaz ve dosyanin geri
+            // kalani yutulur (SW01/SW02'de 56 arayuzun kaybolmasinin nedeni buydu).
+            if (/^(disable|none)$/i.test(_delim)) { i++; continue; }
+            // Kapanis delimiter'ini once ARA; yoksa blogu hic tuketme.
+            let _end = -1;
+            for (let k = i + 1; k < lines.length; k++) {
+                if (lines[k].trim() === _delim) { _end = k; break; }
+            }
+            if (_end === -1) { ir.unknowns.push(line); i++; continue; }
+            if (_kind === 'motd') ir.system.banner = lines.slice(i + 1, _end).join('\n');
+            i = _end + 1;
+            continue;
+        }
+
+        // ── Eslesmeyen satir ───────────────────────────────────────────────────
+        // Catch-all ZORUNLUDUR: eslesmeyen satiri sessizce yutmak, parser'i bos
+        // cikti uretirken "hatasiz" gosterir (bkz. arayuz regex'indeki \s+ hatasi —
+        // 196 arayuz kayboldugu halde unknowns=0 cikiyordu). Cevrilemeyen satir
+        // en azindan GORUNUR olmali.
+        if (line &&
+            !line.startsWith('!') &&
+            line !== 'show running-configuration' &&
+            !/^(end|exit)$/i.test(line)) {
+            ir.unknowns.push(line);
+        }
         i++;
     }
     return ir;

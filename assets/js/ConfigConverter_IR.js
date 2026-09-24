@@ -509,11 +509,29 @@ function ccComment(vendor, text) {
   return text.split('\n').map(l => ch + ' ' + l).join('\n');
 }
 
+// Cevrilemeyen satirlar cikti dosyasina YORUM olarak yazilir. Kaynak config'te
+// parola hash'i, PSK, SNMP community ve anahtar bulundugundan bu satirlar oldugu
+// gibi yazilirsa secret'lar donusturulmus config'e sizar. Cikti tek cikis noktasi
+// oldugu icin maskeleme burada yapilir.
+function ccMaskSecrets(line) {
+  let s = String(line == null ? '' : line);
+  // Unix crypt hash'leri: $1$ $5$ $6$ (rounds= varyanti dahil), bcrypt $2a$/$2y$
+  s = s.replace(/\$(?:1|2[aby]?|5|6)\$[^\s]*/g, '<MASKED-HASH>');
+  // Cisco type-5 / type-7 / type-8 / type-9 ve genel 'password|secret|key <deger>'
+  s = s.replace(/\b(password|passwd|secret|psksecret|pre-shared-key|key-string|key)\s+(?:\d+\s+)?(?:ENC\s+)?\S+/gi,
+                (mm, kw) => kw + ' <MASKED>');
+  // SNMP community
+  s = s.replace(/\b(community)\s+\S+/gi, '$1 <MASKED>');
+  // 'set ... ENC <blob>' (FortiOS)
+  s = s.replace(/\bENC\s+\S+/g, 'ENC <MASKED>');
+  return s;
+}
+
 function ccWriteUnknownsFor(vendor, unknowns) {
   if (!unknowns || !unknowns.length) return '';
   const ch = (CC_VENDOR_META[vendor] || {}).commentChar || '!';
   return '\n' + ch + ' ---- Çevrilemeyen satırlar (' + unknowns.length + ') ----\n' +
-    unknowns.map(u => ch + ' ' + u).join('\n') + '\n';
+    unknowns.map(u => ch + ' ' + ccMaskSecrets(u)).join('\n') + '\n';
 }
 
 // =============================================================================
