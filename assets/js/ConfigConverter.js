@@ -18,8 +18,10 @@ const ConfigConverter = {
         <div class="cc-select-group">
           <select id="ccCategory" class="cc-select">${catOptions}</select>
           <select id="ccSrcVendor" class="cc-select"></select>
+          <select id="ccSrcModel" class="cc-select" title="Cihaz modeli — secilirse arayuz adlari ve port sayisi dogrulanir"></select>
         </div>
       </div>
+      <div id="ccModelInfo" class="cc-model-info" style="display:none"></div>
       <textarea id="ccSrcText" class="cc-textarea" placeholder="Config metnini buraya yapıştırın..." spellcheck="false"></textarea>
       <div class="cc-panel-footer">
         <label class="cc-btn cc-btn-ghost cc-file-label"><i class="fas fa-folder-open"></i> Dosya Seç
@@ -110,7 +112,47 @@ const ConfigConverter = {
                 .filter(v => v !== src)
                 .map(v => { const m = CC_VENDOR_META[v] || {}; return `<option value="${v}">${m.label || v}</option>`; }).join('');
             if (prevDst && prevDst !== src && vendors.includes(prevDst)) dstSel.value = prevDst;
+            updateSrcModels();
             updateDstVersions();
+        };
+
+        // Kaynak vendor'a gore tanimli modelleri listele. Model secimi ZORUNLU DEGIL:
+        // config'ten okunabilen tek platform FortiOS oldugu icin digerlerinde
+        // model bilgisi ancak kullanicidan gelebilir.
+        const updateSrcModels = () => {
+            const srcSel   = container.querySelector('#ccSrcVendor');
+            const modelSel = container.querySelector('#ccSrcModel');
+            const info     = container.querySelector('#ccModelInfo');
+            if (!modelSel) return;
+            const models = (typeof ccDeviceTypesFor === 'function')
+                ? ccDeviceTypesFor(srcSel.value) : [];
+            if (!models.length) {
+                modelSel.innerHTML = '<option value="">Model tanimi yok</option>';
+                modelSel.style.display = 'none';
+                if (info) info.style.display = 'none';
+                return;
+            }
+            const prev = modelSel.value;
+            modelSel.innerHTML = '<option value="">Model: otomatik</option>' +
+                models.map(m => `<option value="${m}">${m}</option>`).join('');
+            if (prev && models.includes(prev)) modelSel.value = prev;
+            modelSel.style.display = '';
+            updateModelInfo();
+        };
+
+        const updateModelInfo = () => {
+            const modelSel = container.querySelector('#ccSrcModel');
+            const info     = container.querySelector('#ccModelInfo');
+            if (!modelSel || !info) return;
+            const d = (typeof ccLookupDeviceType === 'function')
+                ? ccLookupDeviceType(modelSel.value) : null;
+            if (!d) { info.style.display = 'none'; info.textContent = ''; return; }
+            const mgmt = d.ports.filter(p => p[2]).length;
+            info.textContent = `${d.part} — ${d.ports.length} port` +
+                (mgmt ? ` (${mgmt} yonetim)` : '') +
+                (d.u ? `, ${d.u}U` : '') +
+                `  ·  saha dogrulamasi %${Math.round(d.match * 100)}`;
+            info.style.display = '';
         };
 
         const updateDstVersions = () => {
@@ -124,6 +166,7 @@ const ConfigConverter = {
         container.querySelector('#ccCategory').addEventListener('change', updateVendors);
         container.querySelector('#ccSrcVendor').addEventListener('change', updateVendors);
         container.querySelector('#ccDstVendor').addEventListener('change', updateDstVersions);
+        container.querySelector('#ccSrcModel').addEventListener('change', updateModelInfo);
         updateVendors();
 
         container.querySelector('#ccFileInput').addEventListener('change', e => {
@@ -168,6 +211,44 @@ const ConfigConverter = {
 
             try {
                 const ir = readerFn(text);
+
+                // Kullanici model sectiyse IR'ye yaz ve donanim tanimini bagla.
+                // Model bilgisi yalnizca FortiOS config'inde bulunur; diger
+                // platformlarda 'show running-config' modeli yazmaz, bu yuzden
+                // kullanici secimi tek kaynaktir. modelSource ikisini ayirir.
+                {
+                    const modelSel = container.querySelector('#ccSrcModel');
+                    const chosen = modelSel && modelSel.value;
+                    if (chosen) {
+                        ir.device = ir.device || {};
+                        ir.device.model = chosen;
+                        ir.device.modelSource = 'kullanici';
+                        if (typeof ccResolveDevice === 'function') ccResolveDevice(ir);
+                    }
+                    // Model biliniyorsa: config'teki fiziksel arayuzler bu modelde
+                    // gercekten var mi? Yanlis model secimi ya da yanlis cihazdan
+                    // alinmis config bu kontrolde yakalanir.
+                    const dt = ir.device && ir.device.type;
+                    if (dt && typeof ccNormIfName === 'function') {
+                        const known = new Set(dt.ports.map(pp => ccNormIfName(pp[0])));
+                        const bilinmeyen = (ir.interfaces || [])
+                            .map(f => f.name)
+                            .filter(n => n && !/^(vlan|port-?channel|loopback|tunnel|null|bvi|irb|ae\d)/i.test(n))
+                            .filter(n => !known.has(ccNormIfName(n)));
+                        if (bilinmeyen.length) {
+                            ir.lostFields = ir.lostFields || [];
+                            ir.lostFields.push({
+                                field: 'device.model',
+                                severity: (typeof CC_SEVERITY !== 'undefined') ? CC_SEVERITY.PARTIAL : 'partial',
+                                value: bilinmeyen.slice(0, 8).join(', ') +
+                                       (bilinmeyen.length > 8 ? ` (+${bilinmeyen.length - 8})` : ''),
+                                note: `Secilen model (${chosen || ir.device.model}) bu arayuzleri icermiyor — ` +
+                                      `model secimi yanlis olabilir veya config baska bir cihazdan alinmis olabilir.`
+                            });
+                        }
+                    }
+                }
+
                 ir._meta.scope = ccDetectScope(ir);
                 // Tek mod: deploy-safe çıktı. Tüm analiz UI panelinde gösterilir.
                 ir._meta.outputMode = 'deploy';
