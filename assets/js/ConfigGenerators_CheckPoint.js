@@ -258,6 +258,12 @@ CheckPoint.policy = {
                     icon: 'fas fa-list-alt',
                     fields: [
                         { name: 'rule_name', why: 'Check Point kural listesi yukarıdan aşağıya değerlendirilir ve <b>ilk eşleşen</b> uygulanır. Ayrıca sonda gizli <code>Cleanup Rule</code> (drop) vardır.', label: 'Kural Adı', type: 'text', required: true, placeholder: 'Allow-HTTPS-to-WebServer', hint: 'Güvenlik kuralının benzersiz adı' },
+                        { name: 'source', why: 'Kaynak nesne adı. <code>Any</code> kuralı her kaynağa açar; yalnızca gerçekten gerekiyorsa kullanın. Nesne SmartConsole\'da önceden tanımlı olmalı.', label: 'Kaynak', type: 'text', required: true, placeholder: 'Internal-Net', hint: 'Kaynak ağ/host nesnesi adı (tüm kaynaklar için Any)' },
+                        { name: 'action', why: '<b>Drop</b> paketi sessizce düşürür, <b>Reject</b> istemciye red yanıtı döner. Kural tabanının sonundaki Cleanup Rule zaten drop\'tur; açık bir drop kuralı, bir istisnayı daha geniş bir accept kuralının üstünde engellemek için kullanılır.', label: 'Aksiyon', type: 'select', options: [
+                            { value: 'Accept', label: 'Accept — izin ver', selected: true },
+                            { value: 'Drop', label: 'Drop — sessizce düşür' },
+                            { value: 'Reject', label: 'Reject — red yanıtı dön' }
+                        ]},
                         { name: 'service', why: 'Servis nesnesi. <code>Any</code> seçmek kuralı tüm portlara açar; ihlal anında yanal hareketi sınırlamak için daraltmak gerekir.', label: 'Servis', type: 'text', required: true, placeholder: 'https', hint: 'İzin verilecek servis adı (örn: https, ssh, http)' },
                         { name: 'policy_pkg', why: "Kural hangi policy package'a yazılacak. Yanlış package'a yazmak, kuralın hiç devreye girmemesine yol açar.", label: 'Policy Package', type: 'text', required: true, placeholder: 'Standard', hint: 'Kuralın ekleneceği policy paketi' },
                         { name: 'gateway', why: 'Kuralın kurulacağı gateway. Birden fazla gateway varsa <code>Install On</code> alanı yanlışsa kural o cihaza hiç gitmez.', label: 'Gateway', type: 'text', validate: 'hostname', required: true, placeholder: 'CP-GW-01', hint: 'Policy\'nin yükleneceği gateway adı' }
@@ -273,16 +279,17 @@ CheckPoint.policy = {
 function cgCpPolicyGen(data) {
     const mgmtIp = cgEsc(data.mgmt_ip || ''), user = cgEsc(data.mgmt_user || ''), pass = cgEsc(data.mgmt_pass || '');
     const hostName = cgEsc(data.host_name || ''), hostIp = cgEsc(data.host_ip || ''), ruleName = cgEsc(data.rule_name || '');
+    const source = cgEsc(data.source || ''), action = cgEsc(data.action || '');
     const service = cgEsc(data.service || ''), policyPkg = cgEsc(data.policy_pkg || ''), gateway = cgEsc(data.gateway || '');
     let c = '#!/bin/bash\n# ========================================\n# Check Point — Security Rule (mgmt_cli)\n# ========================================\n\n';
     c += 'mgmt_cli -r true login user "' + user + '" password "' + pass + '" management "' + mgmtIp + '" > /tmp/sid.txt\n\n';
     c += '# Host nesnesi oluştur\nmgmt_cli add host name "' + hostName + '" ip-address "' + hostIp + '" -s /tmp/sid.txt\n\n';
     c += '# Güvenlik kuralı ekle\nmgmt_cli add access-rule layer "Network" \\\n';
     c += '  name "' + ruleName + '" \\\n';
-    c += '  source "any" \\\n';
+    c += '  source "' + source + '" \\\n';
     c += '  destination "' + hostName + '" \\\n';
     c += '  service "' + service + '" \\\n';
-    c += '  action "accept" \\\n';
+    c += '  action "' + action + '" \\\n';
     c += '  track-settings.type "Log" \\\n';
     c += '  position top \\\n';
     c += '  -s /tmp/sid.txt\n\n';

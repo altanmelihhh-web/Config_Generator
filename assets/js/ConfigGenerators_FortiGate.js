@@ -1389,13 +1389,14 @@ FortiGate.fswport = {
 };
 function cgFgFswportGen(data) {
     const pname        = cgEsc(data.profile_name || '');
-    const nativeVlan   = cgEsc(data.native_vlan || '1');
+    const nativeVlan   = cgEsc(data.native_vlan || '');
     const allowedVlans = cgEsc(data.allowed_vlans || '').split(',').map(s => s.trim()).filter(Boolean);
     let c = '# ========================================\n# FortiGate — FortiSwitch Port Profile\n# ========================================\n\n';
     c += '# Not: FortiGate tarafından yönetilen FortiSwitch için uygulanır.\n\n';
     c += 'config switch-controller vlan-policy\n    edit "' + pname + '"\n';
     c += '        set allowed-vlans ' + allowedVlans.join(' ') + '\n';
-    c += '        set untagged-vlans ' + nativeVlan + '\n    next\nend\n\n';
+    if (nativeVlan) c += '        set untagged-vlans ' + nativeVlan + '\n';
+    c += '    next\nend\n\n';
     c += '# Doğrulama:\n# show switch-controller vlan-policy "' + pname + '"\n';
     return c;
 }

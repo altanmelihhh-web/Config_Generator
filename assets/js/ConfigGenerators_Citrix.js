@@ -54,7 +54,7 @@ CitrixADC.lbvserver = {
                     showFor: ['ssl'],
                     info: 'SSL protokolü seçildiğinde sertifika bağlaması gerekir. TLS 1.2/1.3 zorunlu, SSL3/TLS1.0/1.1 devre dışı bırakılır.',
                     fields: [
-                        { name: 'cert_key', why: "CertKey <code>add ssl certKey</code> ile önceden tanımlanmış olmalı; yoksa bind komutu başarısız olur ve SSL vServer sertifikasız kaldığı için DOWN durumunda kalır. Ara CA zinciri ayrıca <code>link</code> edilmezse mobil istemciler güven hatası alır.", label: 'SSL CertKey Adı', type: 'text', optional: true, placeholder: 'MY_CERTKEY', hint: 'add ssl certKey komutuyla önceden tanımlanmış olmalı' }
+                        { name: 'cert_key', why: "CertKey <code>add ssl certKey</code> ile önceden tanımlanmış olmalı; yoksa bind komutu başarısız olur ve SSL vServer sertifikasız kaldığı için DOWN durumunda kalır. Ara CA zinciri ayrıca <code>link</code> edilmezse mobil istemciler güven hatası alır.", label: 'SSL CertKey Adı', type: 'text', required: true, placeholder: 'MY_CERTKEY', hint: 'add ssl certKey komutuyla önceden tanımlanmış olmalı' }
                     ]
                 }
             ],
@@ -66,7 +66,8 @@ CitrixADC.lbvserver = {
 };
 function cgNsLbGen(data) {
     const vsName = cgEsc(data.vs_name || '');
-    const proto = cgEsc(data.proto || 'SSL');
+    // Protokol configTypes kartindan gelir; gizli 'proto' alani secimi takip etmez.
+    const proto = { ssl: 'SSL', http: 'HTTP', tcp: 'TCP' }[data._cgtype] || 'SSL';
     const vip = cgEsc(data.vip || '');
     const port = cgEsc(data.port || '');
     const lbMethod = cgEsc(data.lb_method || 'LEASTCONNECTION');
@@ -78,9 +79,12 @@ function cgNsLbGen(data) {
     let c = '# ========================================\n# Citrix ADC (NetScaler) — LB vServer\n# ========================================\n\n';
     c += 'add lb vserver ' + vsName + ' ' + proto + ' ' + vip + ' ' + port;
     c += ' -lbMethod ' + lbMethod;
-    if (persist !== 'NONE') c += ' -persistenceType ' + persist;
+    // Cookie persistence HTTP katmani ister; TCP vServer'da kaynak IP'ye dus.
+    const persistEff = (proto === 'TCP' && persist === 'COOKIEINSERT') ? 'SOURCEIP' : persist;
+    if (persistEff !== 'NONE') c += ' -persistenceType ' + persistEff;
     c += '\n\n';
-    c += 'add serviceGroup ' + sgName + ' HTTP -cip ENABLED X-Forwarded-For\n\n';
+    c += proto === 'TCP' ? 'add serviceGroup ' + sgName + ' TCP\n\n'
+                         : 'add serviceGroup ' + sgName + ' HTTP -cip ENABLED X-Forwarded-For\n\n';
     c += 'add server SRV_' + s1.replace(/\./g, '_') + ' ' + s1 + '\n';
     c += 'bind serviceGroup ' + sgName + ' SRV_' + s1.replace(/\./g, '_') + ' ' + s1p + '\n';
     if (s2) {
@@ -88,8 +92,9 @@ function cgNsLbGen(data) {
         c += 'bind serviceGroup ' + sgName + ' SRV_' + s2.replace(/\./g, '_') + ' ' + (s2p || s1p) + '\n';
     }
     c += '\nbind lb vserver ' + vsName + ' ' + sgName + '\n\n';
-    if (proto === 'SSL' && certKey) {
-        c += '# SSL sertifika bağla\nbind ssl vserver ' + vsName + ' -certkeyName ' + certKey + '\n';
+    if (proto === 'SSL') {
+        // Sertlestirme sertifikadan bagimsizdir: certKey bos kalsa bile eski protokoller kapatilir.
+        if (certKey) c += '# SSL sertifika bağla\nbind ssl vserver ' + vsName + ' -certkeyName ' + certKey + '\n';
         c += 'set ssl vserver ' + vsName + ' -ssl3 DISABLED -tls1 DISABLED -tls11 DISABLED -tls12 ENABLED -tls13 ENABLED\n\n';
     }
     c += 'save config\n\n';
@@ -285,7 +290,7 @@ CitrixADC.responder = {
                     icon: 'fas fa-external-link-alt',
                     showFor: ['redirect'],
                     fields: [
-                        { name: 'redirect_url', why: "Hedef URL şema ile birlikte tam verilmelidir; <code>https://</code> unutulursa tarayıcı adresi göreli sanar. Hedef aynı vServer'a çözümleniyorsa istemci sonsuz yönlendirme (ERR_TOO_MANY_REDIRECTS) alır.", label: 'Redirect URL', type: 'text', optional: true, placeholder: 'https://www.example.com', hint: 'HTTP 301 ile yönlendirilecek hedef URL' }
+                        { name: 'redirect_url', why: "Hedef URL şema ile birlikte tam verilmelidir; <code>https://</code> unutulursa tarayıcı adresi göreli sanar. Hedef aynı vServer'a çözümleniyorsa istemci sonsuz yönlendirme (ERR_TOO_MANY_REDIRECTS) alır.", label: 'Redirect URL', type: 'text', required: true, placeholder: 'https://www.example.com', hint: 'HTTP 301 ile yönlendirilecek hedef URL' }
                     ]
                 }
             ],
@@ -297,18 +302,20 @@ CitrixADC.responder = {
 };
 function cgNsRespGen(data) {
     const polName = cgEsc(data.pol_name || '');
-    const actionType = cgEsc(data.action_type || 'redirect');
+    // Tip configTypes kartindan gelir; gizli 'action_type' alani secimi takip etmez.
+    const actionType = data._cgtype === 'drop' ? 'drop' : 'redirect';
     const redirectUrl = cgEsc(data.redirect_url || '');
     const matchExpr = cgEsc(data.match_expr || '');
     const bindVs = cgEsc(data.bind_vs || '');
     const actName = polName + '_ACT';
     let c = '# ========================================\n# Citrix ADC — Responder Policy\n# ========================================\n\n';
+    // DROP yerlesik bir responder aksiyonudur; 'add responder action' ile tanimlanmaz.
+    let polAct = 'DROP';
     if (actionType === 'redirect') {
         c += 'add responder action ' + actName + ' redirect "\\\"' + redirectUrl + '\\\"" -responseStatusCode 301\n\n';
-    } else {
-        c += 'add responder action ' + actName + ' DROP\n\n';
+        polAct = actName;
     }
-    c += 'add responder policy ' + polName + ' \'' + matchExpr + '\' ' + actName + '\n\n';
+    c += 'add responder policy ' + polName + ' \'' + matchExpr + '\' ' + polAct + '\n\n';
     if (bindVs) c += 'bind lb vserver ' + bindVs + ' -policyName ' + polName + ' -type REQUEST -priority 10\n\n';
     c += 'save config\n\n';
     c += '# Doğrulama:\n# show responder policy ' + polName + '\n';

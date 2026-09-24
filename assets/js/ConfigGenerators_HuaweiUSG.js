@@ -81,14 +81,18 @@ HuaweiUSG.policy = {
         }, (data) => {
             const ruleName = cgEsc(data.rule_name || ''), srcZone = cgEsc(data.src_zone || '');
             const dstZone = cgEsc(data.dst_zone || ''), srcIp = cgEsc(data.src_ip || '');
-            const dstIp = cgEsc(data.dst_ip || ''), action = cgEsc(data.action || 'permit');
+            const dstIp = cgEsc(data.dst_ip || ''), action = cgEsc(data.action || '');
+            // USG sozdizimi: 'source-address 192.168.1.0 mask 255.255.255.0'
+            const addr = a => a.split(/\s+/).length === 2 ? a.replace(/\s+/, ' mask ') : a;
             let c = '# ========================================\n# Huawei USG — Security Policy\n# ========================================\n\n';
             c += '[Huawei] system-view\n[Huawei] security-policy\n';
+            if (!srcIp && !dstIp && action === 'permit')
+                c += '# UYARI: kaynak ve hedef adres boş — bu kural ' + srcZone + ' -> ' + dstZone + ' arasında TÜM trafiğe izin verir.\n';
             c += '[Huawei-policy-security] rule name ' + ruleName + '\n';
             c += '[Huawei-policy-security-rule-' + ruleName + '] source-zone ' + srcZone + '\n';
             c += '[Huawei-policy-security-rule-' + ruleName + '] destination-zone ' + dstZone + '\n';
-            if (srcIp) c += '[Huawei-policy-security-rule-' + ruleName + '] source-address ' + srcIp + '\n';
-            if (dstIp) c += '[Huawei-policy-security-rule-' + ruleName + '] destination-address ' + dstIp + '\n';
+            if (srcIp) c += '[Huawei-policy-security-rule-' + ruleName + '] source-address ' + addr(srcIp) + '\n';
+            if (dstIp) c += '[Huawei-policy-security-rule-' + ruleName + '] destination-address ' + addr(dstIp) + '\n';
             c += '[Huawei-policy-security-rule-' + ruleName + '] action ' + action + '\n';
             c += '[Huawei-policy-security-rule-' + ruleName + '] quit\n[Huawei-policy-security] quit\n\n';
             c += '# Doğrulama:\n# display security-policy rule name ' + ruleName + '\n# display firewall session table\n';
