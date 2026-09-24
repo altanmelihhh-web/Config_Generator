@@ -144,9 +144,9 @@ PaloAlto.policy = {
                         { name: 'rule_name', why: 'Kurallar yukarıdan aşağıya değerlendirilir, <b>ilk eşleşen</b> uygulanır. Sonda iki gizli kural vardır: intrazone-default (allow) ve interzone-default (deny).', label: 'Kural Adı', type: 'text', required: true, placeholder: 'Allow_LAN_to_WAN', hint: 'Kural adı boşluk içermemeli (ör: Allow_LAN_to_WAN)' },
                         { name: 'from_zone', why: 'Kaynak zone. Palo Alto kuralları <b>zone bazlıdır</b>, arayüz bazlı değil — yanlış zone kuralın hiç eşleşmemesine yol açar.', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'inside', hint: 'Trafiğin geldiği zone' },
                         { name: 'to_zone', why: "Hedef zone. NAT uygulanıyorsa kuralda <b>çevrilmiş hedefin zone'u</b> değil, orijinal paketin gideceği zone yazılır — en kafa karıştırıcı noktalardan biri.", label: 'Hedef Zone', type: 'text', required: true, placeholder: 'outside', hint: 'Trafiğin gittiği zone' },
-                        { name: 'src_addr', why: "Boş ya da <code>any</code> bırakmak, zone içindeki her cihaza aynı hakkı verir. Palo Alto kuralı zaten zone ile sınırlıdır; adresi daraltmamak bu sınırı anlamsız kılar.", label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya adres nesnesi adı (ör: LAN_SUBNET)' },
-                        { name: 'dst_addr', why: "NAT kuralında hedef adres <b>pre-NAT</b> (çevrilmeden önceki) adrestir, ama zone <b>post-NAT</b> zone'dur. Bu asimetri Palo Alto'daki en klasik NAT hatasıdır.", label: 'Hedef Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya hedef adres nesnesi' },
-                        { name: 'application', why: "App-ID, Palo Alto'nun asıl farkıdır: trafiği porttan değil içeriğinden tanır. <code>any</code> yazmak bu korumayı devre dışı bırakır. Bağımlılıkları da eklemeyi unutma (ör. <code>ssl</code>, <code>web-browsing</code>).", label: 'Uygulama', type: 'text', required: true, placeholder: 'any', hint: '"any" veya App-ID adları boşlukla ayrılmış (ör: web-browsing ssl)' }
+                        { name: 'src_addr', why: "Boş ya da <code>any</code> bırakmak, zone içindeki her cihaza aynı hakkı verir. Palo Alto kuralı zaten zone ile sınırlıdır; adresi daraltmamak bu sınırı anlamsız kılar.", label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'LAN_SUBNET', hint: '"any" veya adres nesnesi adı (ör: LAN_SUBNET)' },
+                        { name: 'dst_addr', why: "NAT kuralında hedef adres <b>pre-NAT</b> (çevrilmeden önceki) adrestir, ama zone <b>post-NAT</b> zone'dur. Bu asimetri Palo Alto'daki en klasik NAT hatasıdır.", label: 'Hedef Adres', type: 'text', required: true, placeholder: 'WEB_SERVERS', hint: '"any" veya hedef adres nesnesi' },
+                        { name: 'application', why: "App-ID, Palo Alto'nun asıl farkıdır: trafiği porttan değil içeriğinden tanır. <code>any</code> yazmak bu korumayı devre dışı bırakır. Bağımlılıkları da eklemeyi unutma (ör. <code>ssl</code>, <code>web-browsing</code>).", label: 'Uygulama', type: 'text', required: true, placeholder: 'web-browsing ssl', hint: '"any" veya App-ID adları boşlukla ayrılmış (ör: web-browsing ssl)' }
                     ]
                 },
                 {
@@ -179,13 +179,15 @@ function cgPaPolicyGen(data) {
     const rname = cgEsc(data.rule_name || '');
     const base = 'set rulebase security rules "' + rname + '"';
     let c = '# ========================================\n# Palo Alto — Security Policy\n# ========================================\n\n';
+    if (data.action === 'allow' && [data.src_addr, data.dst_addr, data.application].every(x => /^any$/i.test(x || '')))
+        c += '# UYARI: kaynak, hedef ve uygulama "any" — bu kural iki zone arasında TÜM trafiğe izin verir.\n';
     c += base + ' from ' + cgEsc(data.from_zone || '') + '\n';
     c += base + ' to ' + cgEsc(data.to_zone || '') + '\n';
     c += base + ' source [ ' + cgEsc(data.src_addr || '') + ' ]\n';
     c += base + ' destination [ ' + cgEsc(data.dst_addr || '') + ' ]\n';
     c += base + ' application [ ' + cgEsc(data.application || '') + ' ]\n';
     c += base + ' service ' + cgEsc(data.service || 'application-default') + '\n';
-    c += base + ' action ' + cgEsc(data.action || 'allow') + '\n';
+    c += base + ' action ' + cgEsc(data.action || '') + '\n';
     c += base + ' log-end ' + cgEsc(data.log_end || 'yes') + '\n\n';
     c += '# Commit gerekli!\n# commit\n\n';
     c += '# Doğrulama:\n# show rulebase security rules "' + rname + '"\n# test security-policy-match from ' + cgEsc(data.from_zone || '') + ' to ' + cgEsc(data.to_zone || '') + ' source <ip> destination <ip>\n';
@@ -215,7 +217,8 @@ PaloAlto.nat = {
                         { name: 'from_zone', why: 'Kaynak zone. Palo Alto kuralları <b>zone bazlıdır</b>, arayüz bazlı değil — yanlış zone kuralın hiç eşleşmemesine yol açar.', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'inside', hint: 'Kaynak zone adı' },
                         { name: 'to_zone', why: "Hedef zone. NAT uygulanıyorsa kuralda <b>çevrilmiş hedefin zone'u</b> değil, orijinal paketin gideceği zone yazılır — en kafa karıştırıcı noktalardan biri.", label: 'Hedef Zone', type: 'text', required: true, placeholder: 'outside', hint: 'Hedef zone adı' },
                         { name: 'src_addr', why: "Boş ya da <code>any</code> bırakmak, zone içindeki her cihaza aynı hakkı verir. Palo Alto kuralı zaten zone ile sınırlıdır; adresi daraltmamak bu sınırı anlamsız kılar.", label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya adres nesnesi' },
-                        { name: 'dst_addr', why: "NAT kuralında hedef adres <b>pre-NAT</b> (çevrilmeden önceki) adrestir, ama zone <b>post-NAT</b> zone'dur. Bu asimetri Palo Alto'daki en klasik NAT hatasıdır.", label: 'Hedef Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya hedef adres nesnesi' }
+                        { name: 'dst_addr', why: "NAT kuralında hedef adres <b>pre-NAT</b> (çevrilmeden önceki) adrestir, ama zone <b>post-NAT</b> zone'dur. Bu asimetri Palo Alto'daki en klasik NAT hatasıdır.", label: 'Hedef Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya hedef adres nesnesi' },
+                        { name: 'service', why: 'NAT kuralının eşleşeceği servis. <code>any</code> kaynak NAT\'ta olağandır; <b>hedef NAT\'ta</b> yayınlanan sunucunun tüm portlarını açar — yalnızca yayınlanan servisi (örn: service-https) yazın.', label: 'Servis', type: 'text', required: true, placeholder: 'any', hint: 'Hedef NAT için yayınlanan servis (örn: service-https)' },
                     ]
                 },
                 {
@@ -255,7 +258,9 @@ function cgPaNatGen(data) {
     c += base + ' to ' + cgEsc(data.to_zone || '') + '\n';
     c += base + ' source [ ' + cgEsc(data.src_addr || '') + ' ]\n';
     c += base + ' destination [ ' + cgEsc(data.dst_addr || '') + ' ]\n';
-    c += base + ' service any\n';
+    const svc = cgEsc(data.service || '');
+    if (type === 'destination' && /^any$/i.test(svc)) c += '# UYARI: hedef NAT servis "any" — sunucunun TÜM portları dışarı açılır.\n';
+    c += base + ' service ' + svc + '\n';
     if (type === 'source') {
         const trans = cgEsc(data.src_trans_type || 'dynamic-ip-and-port interface-address');
         const toIface = cgEsc(data.to_iface || '');
@@ -1053,6 +1058,8 @@ PaloAlto.decryption = {
                         { name: 'policy_name', why: "Politika adını sonradan değiştirmek mümkündür ama log ve raporlardaki geçmiş kayıtlarla bağ kopar. Baştan tutarlı bir isimlendirme şeması seç.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'DECRYPT-OUTBOUND', hint: 'Decryption policy adı' },
                         { name: 'src_zone', why: "Palo Alto kuralları zone bazlıdır, arayüz bazlı değil. Decryption ve DoS politikalarında yanlış zone, kuralın hiç eşleşmemesine yol açar ve bunu ancak olay yaşandığında fark edersin.", label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'trust', hint: 'İç ağ zone adı' },
                         { name: 'dst_zone', why: "Hedef zone <b>post-NAT</b> zone'dur, adres ise pre-NAT. Bu ayrımı kaçırmak, kuralın neden eşleşmediğini saatlerce aratan klasik hatadır.", label: 'Hedef Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Dış ağ zone adı' },
+                        { name: 'src_addr', why: 'Kaynak adres nesnesi. <code>any</code> kapsamı daraltmaz; yalnızca gerçekten gerekiyorsa kullanın.', label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'LAN_USERS', hint: 'Adres nesnesi/grubu veya any' },
+                        { name: 'dst_addr', why: 'Hedef adres nesnesi. <code>any</code> kapsamı daraltmaz; yalnızca gerçekten gerekiyorsa kullanın.', label: 'Hedef Adres', type: 'text', required: true, placeholder: 'any', hint: 'Adres nesnesi/grubu veya any' },
                         { name: 'decrypt_type', why: '<b>SSL Forward Proxy</b> giden kullanıcı trafiğini, <b>SSL Inbound Inspection</b> kendi sunucuna gelen trafiği açar. Forward Proxy için CA sertifikası tüm istemcilere dağıtılmalıdır.', label: 'Decrypt Tipi', type: 'select', options: [
                             { value: 'ssl-forward-proxy', label: 'SSL Forward Proxy (giden trafik)', selected: true },
                             { value: 'ssl-inbound-inspection', label: 'SSL Inbound Inspection (gelen trafik)' }
@@ -1078,8 +1085,8 @@ function cgPaDecryptionGen(data) {
     let c = '# ========================================\n# Palo Alto — Decryption Policy\n# ========================================\n\n';
     c += base + ' from ' + srcZone + '\n';
     c += base + ' to ' + dstZone + '\n';
-    c += base + ' source any\n';
-    c += base + ' destination any\n';
+    c += base + ' source ' + cgEsc(data.src_addr || '') + '\n';
+    c += base + ' destination ' + cgEsc(data.dst_addr || '') + '\n';
     c += base + ' action ' + action + '\n';
     c += base + ' type ' + decryptType + '\n';
     c += base + ' profile "' + profile + '"\n';
@@ -1107,6 +1114,8 @@ PaloAlto.dos = {
                         { name: 'policy_name', why: "Politika adını sonradan değiştirmek mümkündür ama log ve raporlardaki geçmiş kayıtlarla bağ kopar. Baştan tutarlı bir isimlendirme şeması seç.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'DOS-PROTECT', hint: 'DoS koruma policy adı' },
                         { name: 'src_zone', why: "Palo Alto kuralları zone bazlıdır, arayüz bazlı değil. Decryption ve DoS politikalarında yanlış zone, kuralın hiç eşleşmemesine yol açar ve bunu ancak olay yaşandığında fark edersin.", label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Saldırının geldiği zone (genellikle untrust)' },
                         { name: 'dst_zone', why: "Hedef zone <b>post-NAT</b> zone'dur, adres ise pre-NAT. Bu ayrımı kaçırmak, kuralın neden eşleşmediğini saatlerce aratan klasik hatadır.", label: 'Hedef Zone', type: 'text', required: true, placeholder: 'dmz', hint: 'Korunacak zone (ör: dmz, trust)' },
+                        { name: 'src_addr', why: 'Kaynak adres nesnesi. <code>any</code> kapsamı daraltmaz; yalnızca gerçekten gerekiyorsa kullanın.', label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'any', hint: 'Adres nesnesi/grubu veya any' },
+                        { name: 'dst_addr', why: 'Hedef adres nesnesi. <code>any</code> kapsamı daraltmaz; yalnızca gerçekten gerekiyorsa kullanın.', label: 'Hedef Adres', type: 'text', required: true, placeholder: 'DMZ_SERVERS', hint: 'Adres nesnesi/grubu veya any' },
                         { name: 'flood_type', why: 'DoS koruması. Eşikler <b>normal trafiğinizi ölçtükten sonra</b> belirlenmelidir; düşük eşik meşru trafiği keser.', label: 'Flood Tipi', type: 'select', options: [
                             { value: 'syn', label: 'SYN Flood', selected: true },
                             { value: 'udp', label: 'UDP Flood' },
@@ -1130,8 +1139,8 @@ function cgPaDosGen(data) {
     let c = '# ========================================\n# Palo Alto — DoS Protection Policy\n# ========================================\n\n';
     c += base + ' from ' + srcZone + '\n';
     c += base + ' to ' + dstZone + '\n';
-    c += base + ' source any\n';
-    c += base + ' destination any\n';
+    c += base + ' source ' + cgEsc(data.src_addr || '') + '\n';
+    c += base + ' destination ' + cgEsc(data.dst_addr || '') + '\n';
     c += base + ' protection aggregate flood ' + floodType + ' enable yes\n';
     c += base + ' protection aggregate flood ' + floodType + ' alarm-rate ' + alarmRate + '\n';
     c += base + ' protection aggregate flood ' + floodType + ' activate-rate ' + activateRate + '\n';

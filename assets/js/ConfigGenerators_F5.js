@@ -51,6 +51,7 @@ F5LTM.vserver = {
             c += '    profiles add {\n        tcp { }\n';
             if (vs_type === 'http' || vs_type === 'https') c += '        http { }\n';
             if (vs_type === 'https' && ssl_profile) c += '        ' + ssl_profile + ' { context clientside }\n';
+            if (vs_type === 'https' && !ssl_profile) c = '# UYARI: HTTPS seçili ama SSL Client Profile boş — TLS sonlandırılmaz, VS çalışmaz.\n' + c;
             c += '    }\n';
             c += '    pool ' + pool_name + '\n';
             if (persist) c += '    persist replace-all-with { ' + persist + ' { default yes } }\n';
@@ -520,23 +521,28 @@ F5LTM.sslserver = {
                         { name: 'chain', why: "Backend sertifikası doğrulanacaksa zincir eksik olduğunda tüm backend bağlantıları reddedilir. Doğrulama kapalıysa zincir gereksizdir, ancak bu durumda sahte backend'e karşı koruma da kalmaz.", label: 'Chain Sertifika', type: 'text', optional: true, placeholder: '/Common/ca-bundle.crt', hint: 'Ara CA zinciri; opsiyonel.' },
                         { name: 'cipher_string', why: "Backend ile ortak cipher bulunamazsa handshake <b>no shared cipher</b> ile başarısız olur; eski backend'ler modern cipher listesini desteklemeyebilir. SSL bridging senaryosunda iki bacağın cipher politikası ayrı ayrı yönetilir.", label: 'Cipher String', type: 'text', required: true, placeholder: 'DEFAULT:!SSLv3:!RC4', hint: 'İzin verilen şifreleme algoritmaları.' },
                         { name: 'peer_cert_mode', why: "<b>Require</b> seçilirse backend sertifikası doğrulanır; CA bundle eksikse tüm backend bağlantıları kopar. <b>Ignore</b> daha performanslıdır ama sahte backend'e karşı koruma sağlamaz ve uçtan uca şifreleme iddiasını zayıflatır.", label: 'Peer Cert Mode', type: 'select', options: [
-                            { value: 'ignore', label: 'ignore' },
-                            { value: 'require', label: 'require' },
-                            { value: 'request', label: 'request' }
-                        ]}
+                            { value: 'require', label: 'require — backend sertifikasını doğrula', selected: true },
+                            { value: 'request', label: 'request' },
+                            { value: 'ignore', label: 'ignore — doğrulama yok' }
+                        ]},
+                        { name: 'ca_file', why: 'Backend sertifikasını doğrulamak için güvenilen CA paketi. <code>require</code> seçiliyken CA verilmezse backend bağlantısı el sıkışmada düşer.', label: 'CA Dosyası', type: 'text', optional: true, placeholder: '/Common/ca-bundle.crt', hint: 'require/request için gerekir' }
                     ]
                 }
             ],
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
-            const { profile_name, cert, key, chain, cipher_string, peer_cert_mode } = data;
+            const { profile_name, cert, key, chain, cipher_string, peer_cert_mode, ca_file } = data;
             let c = '# ========================================\n# F5 BIG-IP LTM — SSL Server Profile\n# ========================================\n\n';
             c += 'tmsh create ltm profile server-ssl ' + profile_name;
             c += ' cert ' + cert;
             c += ' key ' + key;
             if (chain) c += ' chain ' + chain;
             c += ' ciphers "' + cipher_string + '"';
-            c += ' peer-cert-mode ' + peer_cert_mode + '\n\n';
+            c += ' peer-cert-mode ' + peer_cert_mode;
+            if (ca_file) c += ' ca-file ' + ca_file;
+            c += '\n\n';
+            if (peer_cert_mode === 'ignore') c += '# UYARI: peer-cert-mode ignore — backend sertifikası doğrulanmaz, sahte backend\'e karşı koruma yok.\n\n';
+            else if (!ca_file) c += '# UYARI: ' + peer_cert_mode + ' seçili ama CA dosyası yok — doğrulama için ca-file verin.\n\n';
             c += '# Doğrulama:\n# tmsh list ltm profile server-ssl ' + profile_name + '\n';
             return c;
         });

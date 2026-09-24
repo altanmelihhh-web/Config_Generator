@@ -133,7 +133,7 @@ CitrixADC.monitor = {
                     title: 'ServiceGroup Bağlama',
                     icon: 'fas fa-link',
                     fields: [
-                        { name: 'sg_name', why: "Monitor bir ServiceGroup'a bind edilmediği sürece yalnızca tanım olarak durur; koruduğu sanılan ama hiç çalışmayan monitor en sık yapılan hatadır.", label: 'ServiceGroup Adı', type: 'text', optional: true, placeholder: 'SG_APP_HTTP', hint: 'Monitörü bu ServiceGroup\'a bağla' }
+                        { name: 'sg_name', why: "Monitor bir ServiceGroup'a bind edilmediği sürece yalnızca tanım olarak durur; koruduğu sanılan ama hiç çalışmayan monitor en sık yapılan hatadır.", label: 'ServiceGroup Adı', type: 'text', required: true, placeholder: 'SG_APP_HTTP', hint: 'Monitörü bu ServiceGroup\'a bağla' }
                     ]
                 }
             ],
@@ -804,7 +804,7 @@ CitrixADC.waf = {
                     icon: 'fas fa-file-contract',
                     fields: [
                         { name: 'policy_name', why: "Policy, profili trafiğe bağlayan nesnedir; profil oluşturulup policy ile ilişkilendirilmezse koruma yalnızca kağıt üzerinde kalır ve WAF hiçbir isteği görmez.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'WAF-POLICY-APP' },
-                        { name: 'bind_vs', why: "vServer'a bind edilmeyen WAF policy hiçbir isteği incelemez. SSL trafiği ADC üzerinde sonlandırılmıyorsa WAF şifreli içeriği göremez ve koruma sağlamaz.", label: 'Bağlanacak LB vServer', type: 'text', optional: true, placeholder: 'vs-app-https', hint: 'Boş bırakılırsa manuel bind gerekir' }
+                        { name: 'bind_vs', why: "vServer'a bind edilmeyen WAF policy hiçbir isteği incelemez. SSL trafiği ADC üzerinde sonlandırılmıyorsa WAF şifreli içeriği göremez ve koruma sağlamaz.", label: 'Bağlanacak LB vServer', type: 'text', required: true, placeholder: 'vs-app-https', hint: 'Bağlanmayan WAF policy hiçbir isteği incelemez' }
                     ]
                 }
             ],
@@ -862,7 +862,7 @@ CitrixADC.sslcert = {
                     icon: 'fas fa-link',
                     info: 'Opsiyonel: sertifikayı mevcut bir SSL vServer\'a bağla. SNI domain belirtilirse multi-domain SSL aktif olur.',
                     fields: [
-                        { name: 'vs_name', why: "Sertifika bir SSL vServer'a bind edilmeden hiçbir işe yaramaz; bind edilmemiş SSL vServer sürekli DOWN kalır ve istemciler bağlantı hatası alır.", label: 'LB vServer Adı', type: 'text', optional: true, placeholder: 'vs-app-ssl', hint: 'Sertifikanın bağlanacağı SSL vServer' },
+                        { name: 'vs_name', why: "Sertifika bir SSL vServer'a bind edilmeden hiçbir işe yaramaz; bind edilmemiş SSL vServer sürekli DOWN kalır ve istemciler bağlantı hatası alır.", label: 'LB vServer Adı', type: 'text', required: true, placeholder: 'vs-app-ssl', hint: 'Sertifikanın bağlanacağı SSL vServer' },
                         { name: 'sni_domain', why: "Aynı IP üzerinde çoklu domain barındırılıyorsa SNI domain belirtilmediğinde istemciler varsayılan sertifikayı alır ve isim uyuşmazlığı uyarısı görür. SNI bind için vServer üzerinde SNI özelliğinin açık olması gerekir.", label: 'SNI Domain', type: 'text', optional: true, placeholder: 'app.example.com', hint: 'Multi-domain SSL için SNI domain adı' }
                     ]
                 }
@@ -1034,8 +1034,8 @@ CitrixADC.acl = {
                     title: 'Kaynak',
                     icon: 'fas fa-arrow-right',
                     fields: [
-                        { name: 'src_ip', why: "Kaynak IP <code>0.0.0.0</code> verilirse kural tüm kaynakları kapsar; bu bir DENY kuralında cihazı erişilemez hale getirebilir. Kural yazmadan önce mevcut yönetim oturumunun hangi kaynaktan geldiği mutlaka kontrol edilmelidir.", label: 'Kaynak IP', type: 'text', validate: 'ip', required: true, placeholder: '0.0.0.0', hint: 'Eşleşecek kaynak IP (0.0.0.0 = tümü)' },
-                        { name: 'src_mask', why: "Maske kuralın kaç adresi kapsadığını belirler; yanlış maske beklenenden çok daha geniş bir aralığı kapsar ve istenmeyen trafiği sessizce engeller.", label: 'Kaynak Mask', type: 'text', validate: 'subnet', required: true, placeholder: '0.0.0.0', hint: 'Wildcard mask formatı' }
+                        { name: 'src_ip', why: "Kaynak IP <code>0.0.0.0</code> verilirse kural tüm kaynakları kapsar; bu bir DENY kuralında cihazı erişilemez hale getirebilir. Kural yazmadan önce mevcut yönetim oturumunun hangi kaynaktan geldiği mutlaka kontrol edilmelidir.", label: 'Kaynak IP', type: 'text', validate: 'ip', required: true, placeholder: '10.10.10.0', hint: 'Eşleşecek kaynak ağ (0.0.0.0 tümü demektir — dikkat)' },
+                        { name: 'src_mask', why: "Maske kuralın kaç adresi kapsadığını belirler; yanlış maske beklenenden çok daha geniş bir aralığı kapsar ve istenmeyen trafiği sessizce engeller.", label: 'Kaynak Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Wildcard mask formatı' }
                     ]
                 },
                 {

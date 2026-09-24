@@ -332,6 +332,7 @@ CheckPoint.nat = {
                             { value: 'static', label: 'Static (1-to-1)' }
                         ]},
                         { name: 'src_obj', why: "NAT uygulanacak nesne. Site-to-site VPN trafiğini NAT'lamak, tünelin kurulup trafiğin akmamasının klasik sebebidir.", label: 'Kaynak Nesne', type: 'text', required: true, placeholder: 'LAN_Network', hint: 'NAT uygulanacak kaynak nesne adı' },
+                        { name: 'dst_obj', why: 'Orijinal hedef. Hide NAT\'ta genellikle <code>Any</code>\'dir; ancak site-to-site VPN\'e giden trafik de bu kurala takılıp NAT\'lanır. VPN ağlarını hariç tutmak için ya daha üstte No-NAT kuralı ekleyin ya da hedefi daraltın.', label: 'Hedef Nesne', type: 'text', required: true, placeholder: 'Any', hint: 'Orijinal hedef nesne adı (VPN trafiği için daraltın)' },
                         { name: 'trans_ip', why: "Çevrilecek hedef IP. Static NAT'ta ayrıca <b>ARP tanımı</b> (proxy ARP) gerekebilir, aksi halde dış IP'ye gelen paketler cevapsız kalır.", label: 'Translated IP', type: 'text', validate: 'ip', optional: true, placeholder: '203.0.113.10', hint: 'Static NAT için hedef public IP (Hide modunda kullanılmaz)' },
                         { name: 'policy_pkg', why: "Kural hangi policy package'a yazılacak. Yanlış package'a yazmak, kuralın hiç devreye girmemesine yol açar.", label: 'Policy Package', type: 'text', required: true, placeholder: 'Standard', hint: 'NAT kuralının ekleneceği policy paketi' }
                     ]
@@ -347,19 +348,20 @@ function cgCpNatGen(data) {
     const mgmtIp = cgEsc(data.mgmt_ip || ''), user = cgEsc(data.mgmt_user || ''), pass = cgEsc(data.mgmt_pass || '');
     const natType = cgEsc(data.nat_type || 'hide'), srcObj = cgEsc(data.src_obj || '');
     const transIp = cgEsc(data.trans_ip || ''), pkg = cgEsc(data.policy_pkg || '');
+    const dstObj = cgEsc(data.dst_obj || '');
     let c = '#!/bin/bash\n# ========================================\n# Check Point — NAT Rule (mgmt_cli)\n# ========================================\n\n';
     c += 'mgmt_cli -r true login user "' + user + '" password "' + pass + '" management "' + mgmtIp + '" > /tmp/sid.txt\n\n';
     if (natType === 'hide') {
         c += 'mgmt_cli add nat-rule package "' + pkg + '" \\\n';
         c += '  original-source "' + srcObj + '" \\\n';
-        c += '  original-destination "Any" \\\n';
+        c += '  original-destination "' + dstObj + '" \\\n';
         c += '  translated-source "Hide" \\\n';
         c += '  method "hide" \\\n';
         c += '  -s /tmp/sid.txt\n\n';
     } else {
         c += 'mgmt_cli add nat-rule package "' + pkg + '" \\\n';
         c += '  original-source "' + srcObj + '" \\\n';
-        c += '  original-destination "Any" \\\n';
+        c += '  original-destination "' + dstObj + '" \\\n';
         c += '  translated-source "' + transIp + '" \\\n';
         c += '  method "static" \\\n';
         c += '  -s /tmp/sid.txt\n\n';
@@ -986,7 +988,7 @@ CheckPoint.httpsinspect = {
                     fields: [
                         { name: 'policy_name', why: "HTTPS Inspection politikası. Oluşturmak yetmez, <b>policy install</b> yapılmadan gateway'de devreye girmez.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'HTTPS-INSPECT', hint: 'HTTPS inspection kural adı' },
                         { name: 'ca_cert', why: "HTTPS Inspection için gateway'in CA sertifikası <b>tüm istemcilere dağıtılmalıdır</b> (GPO ile). Dağıtılmazsa her sitede sertifika uyarısı çıkar.", label: 'CA Sertifikası', type: 'text', required: true, placeholder: 'CP-INTERNAL-CA', hint: 'HTTPS denetimi için kullanılacak CA sertifikası adı' },
-                        { name: 'bypass_categories', why: 'Bankacılık ve sağlık gibi kategoriler yasal nedenlerle inspection dışında bırakılmalıdır. Ayrıca sertifika sabitleme (pinning) kullanan uygulamalar bypass edilmezse çalışmaz.', label: 'Bypass Kategoriler', type: 'text', required: true, placeholder: 'Finance,Health', hint: 'Denetimden muaf tutulacak uygulama kategorileri (virgülle ayrılmış)' },
+                        { name: 'bypass_categories', why: 'Bankacılık ve sağlık gibi kategoriler yasal nedenlerle inspection dışında bırakılmalıdır. Ayrıca sertifika sabitleme (pinning) kullanan uygulamalar bypass edilmezse çalışmaz.', label: 'Bypass Kategoriler', type: 'text', optional: true, placeholder: 'Finance,Health', hint: 'Denetimden muaf tutulacak uygulama kategorileri (virgülle ayrılmış)' },
                         { name: 'action', why: '<code>Accept</code> geçirir, <code>Drop</code> sessizce düşürür, <code>Reject</code> ise RST/ICMP döner. Drop kuralında <b>log açmazsan</b> neyin engellendiğini göremezsin.', label: 'Aksiyon', type: 'select', options: [
                             { value: 'Inspect', label: 'Inspect (Denetle)', selected: true },
                             { value: 'Bypass', label: 'Bypass (Atla)' }
@@ -1009,7 +1011,7 @@ function cgCpHttpsInspectGen(data) {
     c += 'mgmt_cli set https-inspection-rule name "' + policyName + '" \\\n';
     c += '  source ' + srcZone + ' \\\n';
     c += '  track log \\\n';
-    c += '  action inspect \\\n';
+    c += '  action "' + action + '" \\\n';
     c += '  certificate "' + caCert + '"\n\n';
     if (bypassCategories.length > 0) {
         c += '# Bypass kategorileri:\n';
@@ -1019,7 +1021,6 @@ function cgCpHttpsInspectGen(data) {
         c += '\n';
     }
     c += 'mgmt_cli publish\n\n';
-    c += '# Aksiyon: ' + action + '\n\n';
     c += '# Doğrulama:\n# mgmt_cli show https-inspection-rule name "' + policyName + '"\n';
     return c;
 }

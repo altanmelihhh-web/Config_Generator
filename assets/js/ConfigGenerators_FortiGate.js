@@ -171,8 +171,8 @@ FortiGate.policy = {
                         { name: 'srcintf', why: 'Trafiğin <b>girdiği</b> interface. Yanlış yön seçmek kuralın hiç eşleşmemesine yol açar — en sık yapılan hatalardan biri.', label: 'Kaynak Interface', type: 'text',   required: true, placeholder: 'port2',            hint: 'Trafiğin geldiği arayüz' },
                         { name: 'dstintf', why: 'Trafiğin <b>çıktığı</b> interface. VPN trafiği için tünel arayüzünü seçmelisin, fiziksel portu değil.', label: 'Hedef Interface',  type: 'text',   required: true, placeholder: 'port1',            hint: 'Trafiğin çıktığı arayüz' },
                         { name: 'srcaddr', why: 'Önceden tanımlı adres nesnesi olmalı. <code>all</code> seçmek kuralı tüm kaynaklara açar — gerçekten gerekli mi düşün.', label: 'Kaynak Adres',     type: 'text',   required: true, placeholder: 'LAN_SUBNET',       hint: 'Address Object adı veya "all"' },
-                        { name: 'dstaddr', why: 'Hedef adres. <code>all</code> + <code>ALL</code> servis kombinasyonu, kural listesindeki en tehlikeli satırdır.', label: 'Hedef Adres',      type: 'text',   required: true, placeholder: 'all',              hint: 'Address Object adı veya "all"' },
-                        { name: 'service', why: 'Port/protokol kısıtı. <code>ALL</code> yerine yalnızca gereken servisi seçmek, ihlal anında yanal hareketi sınırlar.', label: 'Servis',           type: 'text',   required: true, placeholder: 'ALL',              hint: 'Servis nesnesi: ALL, HTTP, HTTPS vb.' }
+                        { name: 'dstaddr', why: 'Hedef adres. <code>all</code> + <code>ALL</code> servis kombinasyonu, kural listesindeki en tehlikeli satırdır.', label: 'Hedef Adres',      type: 'text',   required: true, placeholder: 'WEB_SERVERS',              hint: 'Address Object adı veya "all"' },
+                        { name: 'service', why: 'Port/protokol kısıtı. <code>ALL</code> yerine yalnızca gereken servisi seçmek, ihlal anında yanal hareketi sınırlar.', label: 'Servis',           type: 'text',   required: true, placeholder: 'HTTPS',              hint: 'Servis nesnesi: ALL, HTTP, HTTPS vb.' }
                     ]
                 },
                 {
@@ -204,13 +204,15 @@ FortiGate.policy = {
 function cgFgPolicyGen(data) {
     const rid = cgEsc(data.rule_id || ''), rname = cgEsc(data.rule_name || '');
     let c = '# ========================================\n# FortiGate — Security Policy\n# ========================================\n\n';
+    if (data.action === 'accept' && /^all$/i.test(data.srcaddr || '') && /^all$/i.test(data.dstaddr || '') && /^all$/i.test(data.service || ''))
+        c += '# UYARI: kaynak, hedef ve servis "all" — bu kural iki arayüz arasında TÜM trafiğe izin verir.\n';
     c += 'config firewall policy\n    edit ' + rid + '\n';
     c += '        set name "' + rname + '"\n';
     c += '        set srcintf "' + cgEsc(data.srcintf || '') + '"\n';
     c += '        set dstintf "' + cgEsc(data.dstintf || '') + '"\n';
     c += '        set srcaddr "' + cgEsc(data.srcaddr || '') + '"\n';
     c += '        set dstaddr "' + cgEsc(data.dstaddr || '') + '"\n';
-    c += '        set action ' + cgEsc(data.action || 'accept') + '\n';
+    c += '        set action ' + cgEsc(data.action || '') + '\n';
     c += '        set schedule "always"\n';
     c += '        set service "' + cgEsc(data.service || '') + '"\n';
     c += '        set logtraffic ' + cgEsc(data.logtraffic || 'all') + '\n';
@@ -412,6 +414,8 @@ FortiGate.sslvpn = {
                     title: 'Portal & Grup Ayarları',
                     icon: 'fas fa-users',
                     fields: [
+                        { name: 'src_addr',     why: 'SSL-VPN portalına bağlanabilecek kaynak adresler. <code>all</code> portalı tüm internete açar; brute-force ve zafiyet taramalarının büyük kısmı buradan gelir. Coğrafi (geography) veya IP adres nesnesiyle daraltın.', label: 'İzinli Kaynak Adres', type: 'text', required: true, placeholder: 'VPN_ALLOWED_SRC', hint: 'Adres nesnesi veya grubu (herkese açmak için all)' },
+                        { name: 'server_cert',  why: '<code>Fortinet_Factory</code> self-signed fabrika sertifikasıdır; istemciler sertifika uyarısı alır ve kullanıcıları uyarıyı geçmeye alıştırır — MITM\'e kapı açar. Güvenilir bir CA\'dan alınmış sertifika yükleyin.', label: 'Sunucu Sertifikası', type: 'text', required: true, placeholder: 'SSLVPN_CERT', hint: 'Yüklenmiş sertifika adı (Fortinet_Factory değil)' },
                         { name: 'portal_name', why: 'Portal, kullanıcının hangi kaynaklara ve hangi modda (web/tunnel) erişeceğini belirler. Kullanıcı grubuna atanmazsa erişim olmaz.', label: 'Portal Adı',      type: 'text', required: true, placeholder: 'full-access', hint: 'Web portal şablonu adı' },
                         { name: 'vpn_group', why: 'Erişim yetkisi kullanıcı grubuna göre verilir. Grubu geniş tutmak, ayrılan çalışanların erişiminin sürmesine yol açar. LDAP/RADIUS entegrasyonu merkezi yönetim sağlar.',   label: 'VPN User Group',  type: 'text', required: true, placeholder: 'VPN_USERS',   hint: 'Kullanıcı grubunun portal erişimini bağlar' }
                     ]
@@ -430,25 +434,26 @@ function cgFgSslvpnGen(data) {
     const range  = cgEsc(data.pool_range || '');
     const portal = cgEsc(data.portal_name || '');
     const grp    = cgEsc(data.vpn_group || '');
+    const srcAddr = cgEsc(data.src_addr || ''), cert = cgEsc(data.server_cert || '');
     let c = '# ========================================\n# FortiGate — SSL-VPN Configuration\n# ========================================\n\n';
-    c += '! 1. Tunnel IP Havuzu\nconfig firewall address\n    edit "' + pool + '"\n        set type iprange\n';
+    c += '# 1. Tunnel IP Havuzu\nconfig firewall address\n    edit "' + pool + '"\n        set type iprange\n';
     const parts = range.split('-');
     if (parts.length === 2) {
         c += '        set start-ip ' + parts[0].trim() + '\n        set end-ip ' + parts[1].trim() + '\n';
     }
     c += '    next\nend\n\n';
-    c += '! 2. SSL-VPN Portal\nconfig vpn ssl web portal\n    edit "' + portal + '"\n';
+    c += '# 2. SSL-VPN Portal\nconfig vpn ssl web portal\n    edit "' + portal + '"\n';
     c += '        set tunnel-mode enable\n        set web-mode enable\n';
     c += '        set ip-pools "' + pool + '"\n    next\nend\n\n';
-    c += '! 3. SSL-VPN Ayarları\nconfig vpn ssl settings\n';
-    c += '    set servercert "Fortinet_Factory"\n';
+    c += '# 3. SSL-VPN Ayarları (kimlik doğrulama kuralı dahil)\nconfig vpn ssl settings\n';
+    c += '    set servercert "' + cert + '"\n';
     c += '    set tunnel-ip-pools "' + pool + '"\n';
     c += '    set source-interface "' + iface + '"\n';
-    c += '    set source-address "all"\n';
+    c += '    set source-address "' + srcAddr + '"\n';
     c += '    set default-portal "' + portal + '"\n';
-    c += '    set port ' + port + '\nend\n\n';
-    c += '! 4. SSL-VPN Authentication (Grup → Portal)\nconfig vpn ssl web portal\n    edit "' + portal + '"\n';
-    c += '        config authentication-rule\n            edit 1\n                set groups "' + grp + '"\n                set portal "' + portal + '"\n            next\n        end\n    next\nend\n\n';
+    c += '    set port ' + port + '\n';
+    // authentication-rule 'vpn ssl settings' altindadir, portal altinda degil
+    c += '    config authentication-rule\n        edit 1\n            set groups "' + grp + '"\n            set portal "' + portal + '"\n        next\n    end\nend\n\n';
     c += '# Doğrulama:\n# get vpn ssl monitor\n# diagnose vpn ssl list\n# diagnose vpn ssl hw-acceleration-status\n';
     return c;
 }
@@ -899,7 +904,7 @@ FortiGate.webfilter = {
                             { value: 'enable',  label: 'Enable',  selected: true },
                             { value: 'disable', label: 'Disable' }
                         ]},
-                        { name: 'block_categories', why: "Kategori engelleme. Engellenen kategorinin kullanıcıya nasıl bildirileceğini (block page) ayarlamazsan kullanıcı 'internet çalışmıyor' der.",  label: 'Engellenen Kategoriler', type: 'text',   optional: true,  placeholder: 'gambling,malware', hint: 'Virgülle ayrılmış FortiGuard kategori adları' }
+                        { name: 'block_categories', why: "Kategori engelleme. Engellenen kategorinin kullanıcıya nasıl bildirileceğini (block page) ayarlamazsan kullanıcı 'internet çalışmıyor' der.",  label: 'Engellenen Kategoriler', type: 'text',   required: true,  placeholder: '26,61', hint: 'FortiGuard kategori NUMARALARI, virgülle (26 Malicious Websites, 61 Phishing). Liste: get webfilter categories' }
                     ]
                 }
             ],
@@ -912,16 +917,22 @@ FortiGate.webfilter = {
 function cgFgWebfilterGen(data) {
     const pname      = cgEsc(data.profile_name || '');
     const safeSearch = cgEsc(data.action_safesearch || 'enable');
-    const blockCats  = cgEsc(data.block_categories || '').split(',').map(s => s.trim()).filter(Boolean);
+    const catsIn     = cgEsc(data.block_categories || '').split(',').map(s => s.trim()).filter(Boolean);
+    // FortiOS 'set category' sayisal ID bekler; ad yazilirsa komut reddedilir.
+    const blockCats  = catsIn.filter(x => /^\d+$/.test(x));
+    const badCats    = catsIn.filter(x => !/^\d+$/.test(x));
     let c = '# ========================================\n# FortiGate — Web Filter Profile\n# ========================================\n\n';
+    if (badCats.length) c += '# UYARI: sayısal olmayan kategori atlandı: ' + badCats.join(', ') + ' — numarasını "get webfilter categories" ile bulun.\n';
+    if (!blockCats.length) c += '# UYARI: engellenen kategori yok — bu profil hiçbir siteyi engellemez.\n';
     c += 'config webfilter profile\n    edit "' + pname + '"\n';
     c += '        set web-content-log enable\n        set web-filter-command-log enable\n        set web-url-log enable\n';
     if (blockCats.length > 0) {
-        c += '        config filters\n';
-        blockCats.forEach((cat, i) => { c += '            edit ' + (i+1) + '\n                set category ' + cat + '\n                set action block\n            next\n'; });
-        c += '        end\n';
+        c += '        config ftgd-wf\n            config filters\n';
+        blockCats.forEach((cat, i) => { c += '                edit ' + (i+1) + '\n                    set category ' + cat + '\n                    set action block\n                next\n'; });
+        c += '            end\n        end\n';
     }
-    c += '        set safe-search ' + safeSearch + '\n    next\nend\n\n';
+    if (safeSearch === 'enable') c += '        config web\n            set safe-search url header\n        end\n';
+    c += '    next\nend\n\n';
     c += '# Doğrulama:\n# show webfilter profile "' + pname + '"\n';
     return c;
 }
