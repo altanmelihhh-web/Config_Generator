@@ -319,6 +319,20 @@ CiscoNXOS.vpc = {
                     ]
                 },
                 {
+                    // Sözdizimi: canlı config (peer-switch 10, peer-gateway 8, delay restore 8, ip arp synchronize 6, system-priority 6 cihaz)
+                    // + https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/103x/configuration/interfaces/cisco-nexus-9000-nx-os-interfaces-configuration-guide-103x/b-cisco-nexus-9000-nx-os-interfaces-configuration-guide-93x_chapter_01000.html
+                    title: 'vPC Domain — Ek Ayarlar',
+                    icon: 'fas fa-sliders-h',
+                    info: 'Bu ayarlar iki vPC peer’da <b>aynı</b> girilmelidir (system-priority ve peer-switch uyuşmazlığı consistency hatası verir).',
+                    fields: [
+                        { name: 'vpc_peer_gw', why: "Bazı sunucular/depolama cihazları cevabı ARP’taki MAC yerine gelen paketin kaynak MAC’ine gönderir. peer-gateway kapalıyken peer’ın MAC’ine giden paket peer-link’ten geçmek zorunda kalır ve vPC döngü önleme kuralı yüzünden <b>düşebilir</b>.", label: 'peer-gateway', type: 'checkbox', checked: true },
+                        { name: 'vpc_arp_sync', why: "Peer-link veya peer geri geldiğinde ARP tablosunun peer’dan hızlıca kopyalanmasını sağlar; kapalıyken SVI’larda ARP yeniden öğrenilene kadar trafik kaybı yaşanır.", label: 'ip arp synchronize', type: 'checkbox', checked: true },
+                        { name: 'vpc_peer_switch', why: "vPC çiftini STP’de tek bir root köprü olarak gösterir; primary değiştiğinde STP yeniden hesaplanmaz. Cisco: yalnız iki peer’da <b>aynı STP önceliği</b> varsa ve ikisi de tüm VLAN’lar için root ise yapılandırılabilir.", label: 'peer-switch', type: 'checkbox', checked: false },
+                        { name: 'vpc_delay', why: "Yeniden başlayan peer, routing tablosu dolmadan vPC portlarını açarsa trafik kara deliğe düşer. delay restore portların açılmasını bu süre kadar geciktirir.", label: 'delay restore (sn)', type: 'text', min: 1, max: 3600, placeholder: '150', hint: 'Boş = varsayılan' },
+                        { name: 'vpc_sys_prio', why: "LACP pazarlığında vPC çiftinin sistem önceliğidir; iki peer’da farklı olursa vPC port-channel’ları kurulmaz.", label: 'system-priority', type: 'text', min: 1, max: 65535, placeholder: '2000', hint: 'Boş = varsayılan' }
+                    ]
+                },
+                {
                     title: 'Peer-Keepalive',
                     icon: 'fas fa-heartbeat',
                     fields: [
@@ -359,6 +373,11 @@ function cgNxosVpcGen(data) {
     if (data.vpc_mac) c += '  system-mac ' + cgEsc(data.vpc_mac) + '\n';
     if (data.vpc_autorecovery === 'yes') c += '  auto-recovery\n';
     if (data.vpc_gcc === 'no') c += '  no graceful consistency-check\n';
+    if (data.vpc_peer_switch) c += '  peer-switch\n';
+    if (data.vpc_sys_prio) c += '  system-priority ' + cgEsc(data.vpc_sys_prio) + '\n';
+    if (data.vpc_delay) c += '  delay restore ' + cgEsc(data.vpc_delay) + '\n';
+    if (data.vpc_peer_gw) c += '  peer-gateway\n';
+    if (data.vpc_arp_sync) c += '  ip arp synchronize\n';
     const kavrf = cgEsc(data.ka_vrf || '');
     c += '  peer-keepalive destination ' + cgEsc(data.ka_dst || '') + ' source ' + cgEsc(data.ka_src || '');
     if (kavrf) c += ' vrf ' + kavrf;
@@ -375,6 +394,8 @@ function cgNxosVpcGen(data) {
             c += 'interface ' + iface + '\n  switchport\n  switchport mode trunk\n  channel-group ' + vpo + ' mode active\n\n';
         });
     }
+    if (data.vpc_peer_switch) c += '! UYARI: peer-switch için iki peer’da STP önceliği aynı olmalı (spanning-tree vlan X priority N).\n';
+    c += '! Doğrulama:\n! show vpc brief\n! show vpc peer-keepalive\n! show vpc consistency-parameters global\n! show vpc role\n';
     return c;
 }
 
@@ -981,3 +1002,1015 @@ function cgNxNtpGen(data) {
     c += '! Doğrulama:\n! show ntp status\n! show ntp peers\n! show clock detail\n';
     return c;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Yeni araçlar — temel L2/L3 ve yönetim düzlemi
+// ════════════════════════════════════════════════════════════════════════════
+
+// Ortak yardımcılar (yalnız bu dosyada kullanılır)
+function cgNxList(s) { return String(s || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean); }
+function cgNxHdr(t) { return '! ========================================\n! Cisco NX-OS — ' + t + '\n! ========================================\n\n'; }
+
+// ── NX-OS: Feature Yönetimi ──────────────────────────────────────────────────
+// Sözdizimi: canlı config (14 cihaz: feature scheduler/lldp/lacp/interface-vlan 14, vpc 13, scp-server 11,
+//   private-vlan 9, bash-shell 7, ssh 4, ntp 4, vrrp 3, netflow 3, sftp-server 1, dhcp 1;
+//   no feature telnet 4, no feature nxapi 4, no feature bash-shell 2)
+// feature hsrp/ospf/bgp: bu dosyadaki mevcut araçlar; feature tacacs+:
+//   https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/103x/configuration/security/cisco-nexus-9000-nx-os-security-configuration-guide-103x/m-configuring-tacacs.html
+CiscoNXOS.features = {
+    label: 'Feature Yönetimi',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-puzzle-piece', title: 'Feature Yönetimi (NX-OS)', desc: 'NX-OS’ta her protokol/servis <code>feature</code> komutuyla açılmadan ilgili komutlar <b>kabul edilmez</b>. Kullanılmayan servisleri (telnet, bash-shell, NX-API) kapatmak saldırı yüzeyini küçültür.' },
+            sections: [
+                {
+                    title: 'L2 / Arayüz', icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'f_ifvlan', why: 'SVI (interface VlanX) oluşturmak için şarttır; kapalıyken interface Vlan komutu reddedilir.', label: 'interface-vlan (SVI)', type: 'checkbox', checked: true },
+                        { name: 'f_lacp', why: 'channel-group ... mode active için gereklidir; kapalıyken LACP port-channel kurulamaz.', label: 'lacp', type: 'checkbox', checked: true },
+                        { name: 'f_vpc', label: 'vpc', type: 'checkbox', checked: false },
+                        { name: 'f_lldp', label: 'lldp', type: 'checkbox', checked: true },
+                        { name: 'f_pvlan', label: 'private-vlan', type: 'checkbox', checked: false }
+                    ]
+                },
+                {
+                    title: 'L3 / Yedeklilik', icon: 'fas fa-route',
+                    fields: [
+                        { name: 'f_hsrp', label: 'hsrp', type: 'checkbox', checked: false },
+                        { name: 'f_vrrp', label: 'vrrp', type: 'checkbox', checked: false },
+                        { name: 'f_ospf', label: 'ospf', type: 'checkbox', checked: false },
+                        { name: 'f_bgp', label: 'bgp', type: 'checkbox', checked: false },
+                        { name: 'f_dhcp', why: 'DHCP relay (ip dhcp relay address) ve DHCP snooping için gereklidir.', label: 'dhcp', type: 'checkbox', checked: false }
+                    ]
+                },
+                {
+                    title: 'Yönetim Servisleri', icon: 'fas fa-tools',
+                    fields: [
+                        { name: 'f_sched', why: 'Otomatik config yedeği (scheduler job) için gereklidir.', label: 'scheduler', type: 'checkbox', checked: true },
+                        { name: 'f_ssh', label: 'ssh', type: 'checkbox', checked: true },
+                        { name: 'f_scp', why: 'Cihaza SCP ile dosya (imaj, config) kopyalanmasına izin verir; yalnız ihtiyaç varsa açın.', label: 'scp-server', type: 'checkbox', checked: false },
+                        { name: 'f_sftp', label: 'sftp-server', type: 'checkbox', checked: false },
+                        { name: 'f_ntp', label: 'ntp', type: 'checkbox', checked: false },
+                        { name: 'f_tacacs', label: 'tacacs+', type: 'checkbox', checked: false },
+                        { name: 'f_netflow', label: 'netflow', type: 'checkbox', checked: false }
+                    ]
+                },
+                {
+                    title: 'Kapatılacak Servisler (Sertleştirme)', icon: 'fas fa-ban',
+                    warn: 'NX-API veya bash-shell’i otomasyon araçlarınız (Ansible nxapi bağlantısı, betikler) kullanıyorsa kapatmadan önce kontrol edin.',
+                    fields: [
+                        { name: 'x_telnet', why: 'Telnet parolaları açık metin taşır; yönetim yalnız SSH ile yapılmalıdır.', label: 'no feature telnet', type: 'checkbox', checked: true },
+                        { name: 'x_bash', why: 'bash-shell, NX-OS CLI yetkilendirmesini (RBAC) atlayan bir Linux kabuğu açar.', label: 'no feature bash-shell', type: 'checkbox', checked: true },
+                        { name: 'x_nxapi', label: 'no feature nxapi', type: 'checkbox', checked: false }
+                    ]
+                }
+            ],
+            submit: 'Feature Listesi Oluştur'
+        }, (data) => {
+            const on = [['f_ifvlan', 'interface-vlan'], ['f_lacp', 'lacp'], ['f_vpc', 'vpc'], ['f_lldp', 'lldp'], ['f_pvlan', 'private-vlan'],
+                ['f_hsrp', 'hsrp'], ['f_vrrp', 'vrrp'], ['f_ospf', 'ospf'], ['f_bgp', 'bgp'], ['f_dhcp', 'dhcp'],
+                ['f_sched', 'scheduler'], ['f_ssh', 'ssh'], ['f_scp', 'scp-server'], ['f_sftp', 'sftp-server'], ['f_ntp', 'ntp'],
+                ['f_tacacs', 'tacacs+'], ['f_netflow', 'netflow']];
+            const off = [['x_telnet', 'telnet'], ['x_bash', 'bash-shell'], ['x_nxapi', 'nxapi']];
+            let c = cgNxHdr('Feature Yönetimi');
+            let n = 0;
+            on.forEach(([k, f]) => { if (data[k]) { c += 'feature ' + f + '\n'; n++; } });
+            off.forEach(([k, f]) => { if (data[k]) { c += 'no feature ' + f + '\n'; n++; } });
+            if (!n) c += '! Hiçbir feature seçilmedi.\n';
+            c += '\n! Doğrulama:\n! show feature\n! show running-config | include feature\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: Temel Sistem ──────────────────────────────────────────────────────
+// Sözdizimi: canlı config (hostname 14, ip domain-lookup 14 / no ip domain-lookup 6, ip domain-name 12,
+//   ip name-server 2, system jumbomtu 10, cli alias name wr copy running-config startup-config 6 cihaz)
+// ip name-server ... use-vrf: https://github.com/ipspace/netlab/blob/dev/netsim/ansible/templates/services/nxos.j2
+CiscoNXOS.system = {
+    label: 'Temel Sistem',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-server', title: 'Temel Sistem (NX-OS)', desc: 'Hostname, DNS, jumbo MTU ve kısa komut takma adı. Yeni kurulan bir Nexus’un ilk satırları.' },
+            sections: [
+                {
+                    title: 'Kimlik ve DNS', icon: 'fas fa-id-card',
+                    fields: [
+                        { name: 'hostname', why: 'Hostname log, SNMP ve yedek dosya adlarında ($(SWITCHNAME)) kullanılır; aynı adlı iki cihaz yedeklerin birbirinin üzerine yazılmasına yol açar.', label: 'Hostname', type: 'text', validate: 'hostname', required: true, placeholder: 'CORE-SW1' },
+                        { name: 'domain', label: 'Domain Adı', type: 'text', placeholder: 'example.com', hint: 'ip domain-name' },
+                        { name: 'lookup', why: 'DNS sunucusu yokken domain-lookup açık kalırsa yanlış yazılan her komut bir DNS sorgusu gibi yorumlanıp CLI’yi saniyelerce bekletir.', label: 'DNS Sorgusu', type: 'select', options: [
+                            { value: 'keep', label: 'Değiştirme', selected: true },
+                            { value: 'on', label: 'Açık — ip domain-lookup' },
+                            { value: 'off', label: 'Kapalı — no ip domain-lookup' }
+                        ]},
+                        { name: 'dns1', label: 'DNS Sunucusu 1', type: 'text', validate: 'ip', placeholder: '192.0.2.53' },
+                        { name: 'dns2', label: 'DNS Sunucusu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.54' },
+                        { name: 'dns_vrf', why: 'DNS sunucusuna yalnız mgmt0 üzerinden ulaşılıyorsa sorgu management VRF’inden çıkmalıdır; aksi halde varsayılan VRF’te yol bulunamaz ve çözümleme sessizce başarısız olur.', label: 'DNS VRF', type: 'text', placeholder: 'management', hint: 'Boş = varsayılan VRF' }
+                    ]
+                },
+                {
+                    title: 'Diğer', icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'jumbo', why: 'Arayüzlere 1500 üstü MTU verebilmek için sistem jumbo MTU üst sınırını belirler. Arayüz MTU’su bu değeri aşamaz.', label: 'system jumbomtu', type: 'text', min: 1500, max: 9216, placeholder: '9216', hint: 'Boş = dokunma' },
+                        { name: 'alias_wr', label: '"wr" takma adı (cli alias name wr copy running-config startup-config)', type: 'checkbox', checked: false }
+                    ]
+                }
+            ],
+            submit: 'Sistem Konfigürasyonu Oluştur'
+        }, (data) => {
+            const h = cgEsc(data.hostname || ''), dom = cgEsc(data.domain || '');
+            const d1 = cgEsc(data.dns1 || ''), d2 = cgEsc(data.dns2 || ''), dv = cgEsc(data.dns_vrf || ''), j = cgEsc(data.jumbo || '');
+            let c = cgNxHdr('Temel Sistem');
+            c += 'hostname ' + h + '\n';
+            if (data.lookup === 'on') c += 'ip domain-lookup\n'; else if (data.lookup === 'off') c += 'no ip domain-lookup\n';
+            if (dom) c += 'ip domain-name ' + dom + '\n';
+            const ns = [d1, d2].filter(Boolean);
+            if (ns.length) c += 'ip name-server ' + ns.join(' ') + (dv ? ' use-vrf ' + dv : '') + '\n';
+            if (j) c += 'system jumbomtu ' + j + '\n';
+            if (data.alias_wr) c += 'cli alias name wr copy running-config startup-config\n';
+            c += '\n! Doğrulama:\n! show hostname\n! show hosts\n! show running-config | include jumbomtu\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: VLAN ──────────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (vlan N / name X: 11 cihaz, 764 satır)
+CiscoNXOS.vlan = {
+    label: 'VLAN',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-tags', title: 'VLAN (NX-OS)', desc: 'VLAN oluşturma ve adlandırma. SVI için <b>Arayüz</b> aracındaki SVI tipini, private VLAN için <b>Private VLAN</b> aracını kullanın.' },
+            sections: [
+                {
+                    title: 'VLAN Listesi', icon: 'fas fa-list',
+                    fields: [
+                        { name: 'vlan_rows', why: 'VLAN adı, trunk ve SNMP çıktılarında VLAN’ın ne olduğunu gösteren tek bilgidir. NX-OS varsayılan olarak 3968–4094 aralığını iç kullanıma ayırır; bu aralıkta VLAN oluşturulamaz.', label: 'VLAN’lar', type: 'textarea', required: true, placeholder: '10 USERS\n20 SERVERS', hint: 'Her satır: VLAN-ID ve ad (ad boşluksuz). Ad boş bırakılabilir.' }
+                    ]
+                }
+            ],
+            submit: 'VLAN Konfigürasyonu Oluştur'
+        }, (data) => {
+            let c = cgNxHdr('VLAN');
+            const ids = [];
+            String(data.vlan_rows || '').split('\n').map(l => l.trim()).filter(Boolean).forEach(l => {
+                const m = l.match(/^(\d{1,4})(?:\s+(\S+))?\s*$/);
+                const id = m ? parseInt(m[1], 10) : 0;
+                if (!m || id < 1 || id > 4094) { c += '! UYARI: geçersiz satır atlandı: ' + cgEsc(l) + '\n'; return; }
+                ids.push(id);
+                c += 'vlan ' + id + '\n';
+                if (m[2] && id !== 1) c += '  name ' + cgEsc(m[2]) + '\n';
+            });
+            c += '\n! Doğrulama:\n! show vlan brief\n';
+            if (ids.length) c += '! show vlan id ' + ids[0] + '\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: Arayüz (L2 access/trunk, L3 routed, SVI) ──────────────────────────
+// Sözdizimi: canlı config (interface Ethernet/port-channel: description 11, mtu 11, switchport access vlan 11,
+//   switchport mode trunk 10, switchport trunk allowed vlan 7, switchport trunk native vlan 6, channel-group N mode active 9,
+//   spanning-tree port type edge/edge trunk/network, spanning-tree bpduguard enable, shutdown/no shutdown;
+//   interface Vlan: no ip redirects / no ipv6 redirects 10, mtu 8; vrf member 11)
+CiscoNXOS.interface = {
+    label: 'Arayüz',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-ethernet', title: 'Arayüz (NX-OS)', desc: 'Fiziksel port ve port-channel için L2 access/trunk veya L3 routed ayarı; SVI (interface Vlan) oluşturma. Nexus portları platforma göre varsayılan olarak L2 veya L3 gelir; araç modu açıkça yazar.' },
+            configTypes: [
+                { id: 'access', label: 'L2 Access', icon: 'fas fa-desktop', desc: 'Tek VLAN, sunucu/uç cihaz portu', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'trunk', label: 'L2 Trunk', icon: 'fas fa-stream', desc: 'Çoklu VLAN, switch/hipervizör bağlantısı' },
+                { id: 'routed', label: 'L3 Routed', icon: 'fas fa-route', desc: 'no switchport + IP adresi' },
+                { id: 'svi', label: 'SVI (interface Vlan)', icon: 'fas fa-layer-group', desc: 'VLAN gateway arayüzü' }
+            ],
+            sections: [
+                {
+                    title: 'Port', icon: 'fas fa-plug', showFor: ['access', 'trunk', 'routed'],
+                    fields: [
+                        { name: 'if_names', why: 'Aynı ayar listedeki her arayüze ayrı ayrı yazılır. Adı NX-OS biçiminde girin (Ethernet1/1, port-channel10); yanlış yazılan arayüz adı komut satırında reddedilir.', label: 'Arayüz(ler)', type: 'text', validate: 'iface_range', required: true, placeholder: 'Ethernet1/1', hint: 'Virgülle liste, örn: Ethernet1/1,Ethernet1/2' },
+                        { name: 'if_desc', label: 'Açıklama', type: 'text', placeholder: 'SRV01-NIC1' },
+                        { name: 'if_mtu', why: 'Jumbo frame (vMotion, iSCSI, NFS) için yolun tamamında aynı MTU gerekir; bir cihazda eksik kalırsa büyük paketler sessizce düşer. Önce system jumbomtu ayarlı olmalıdır.', label: 'MTU', type: 'text', min: 576, max: 9216, placeholder: '9216', hint: 'Boş = varsayılan' },
+                        { name: 'if_state', label: 'Durum', type: 'select', options: [
+                            { value: 'up', label: 'Açık — no shutdown', selected: true },
+                            { value: 'down', label: 'Kapalı — shutdown' }
+                        ]}
+                    ]
+                },
+                {
+                    title: 'Access Ayarları', icon: 'fas fa-desktop', showFor: ['access'],
+                    fields: [
+                        { name: 'acc_vlan', why: 'Access VLAN yoksa (oluşturulmamışsa) port VLAN’sız kalır ve trafik geçmez; önce VLAN aracıyla VLAN’ı oluşturun.', label: 'Access VLAN', type: 'text', validate: 'vlan', required: true, placeholder: '10' },
+                        { name: 'acc_edge', why: 'Edge port STP’de beklemeden forwarding’e geçer; sunucu portlarında DHCP/PXE zaman aşımlarını önler. Switch bağlanan porta edge vermek döngü riskidir.', label: 'STP Port Tipi', type: 'select', options: [
+                            { value: 'edge', label: 'edge (uç cihaz)', selected: true },
+                            { value: 'none', label: 'Değiştirme' }
+                        ]},
+                        { name: 'acc_bpdug', why: 'Edge porta yanlışlıkla bir switch takılırsa BPDU guard portu err-disable yapar ve döngüyü engeller.', label: 'spanning-tree bpduguard enable', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'Trunk Ayarları', icon: 'fas fa-stream', showFor: ['trunk'],
+                    fields: [
+                        { name: 'tr_allowed', why: 'İzin verilen VLAN listesi yazılmazsa trunk tüm VLAN’ları taşır; gereksiz yayın trafiği ve STP kapsamı büyür. Listeyi iki uçta aynı tutun.', label: 'İzinli VLAN’lar', type: 'text', validate: 'vlan_list', required: true, placeholder: '10,20,30-40' },
+                        { name: 'tr_native', why: 'Native VLAN iki uçta farklıysa etiketsiz trafik yanlış VLAN’a karışır (VLAN sızıntısı).', label: 'Native VLAN', type: 'text', validate: 'vlan', placeholder: '1', hint: 'Boş = varsayılan (1)' },
+                        { name: 'tr_ptype', why: '<b>network</b> tipi Bridge Assurance’ı açar: karşı uç BPDU göndermezse port bloklanır, bu yüzden yalnız iki ucu da NX-OS olan switch bağlantılarında kullanın. <b>edge trunk</b> hipervizör/sunucu trunk’ları içindir.', label: 'STP Port Tipi', type: 'select', options: [
+                            { value: 'none', label: 'Değiştirme', selected: true },
+                            { value: 'edge trunk', label: 'edge trunk (hipervizör/sunucu)' },
+                            { value: 'network', label: 'network (switch-switch)' }
+                        ]}
+                    ]
+                },
+                {
+                    title: 'Port-Channel Üyeliği', icon: 'fas fa-link', showFor: ['access', 'trunk'],
+                    info: 'Doldurulursa önce <code>interface port-channelN</code> aynı L2 ayarlarıyla yazılır, sonra üye portlara <code>channel-group N mode active</code> eklenir. <code>feature lacp</code> açık olmalıdır.',
+                    fields: [
+                        { name: 'chan_grp', why: 'Üye portların L2 ayarları port-channel ile birebir aynı olmalıdır; farklıysa üye port suspend edilir.', label: 'Port-Channel No', type: 'text', min: 1, max: 4096, placeholder: '10', hint: 'Boş = port-channel yok' }
+                    ]
+                },
+                {
+                    title: 'L3 Ayarları', icon: 'fas fa-route', showFor: ['routed'],
+                    fields: [
+                        { name: 'rt_ip', label: 'IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.0.0.1/30' },
+                        { name: 'rt_vrf', why: 'vrf member komutu arayüzdeki IP adresini siler; bu yüzden araç önce vrf member, sonra ip address yazar.', label: 'VRF', type: 'text', placeholder: 'TENANT-A', hint: 'Boş = varsayılan VRF' },
+                        { name: 'rt_noredir', why: 'ICMP redirect üretimi CPU’ya yük bindirir ve saldırgana topoloji bilgisi verir.', label: 'no ip redirects', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'SVI Ayarları', icon: 'fas fa-layer-group', showFor: ['svi'],
+                    info: 'SVI için <code>feature interface-vlan</code> gereklidir; araç bu satırı ekler.',
+                    fields: [
+                        { name: 'svi_vlan', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '10' },
+                        { name: 'svi_ip', why: 'Bu adres VLAN’daki cihazların varsayılan ağ geçididir. vPC/HSRP çiftinde her switch farklı fiziksel IP almalıdır.', label: 'IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '198.51.100.2/24' },
+                        { name: 'svi_desc', label: 'Açıklama', type: 'text', placeholder: 'USERS-GW' },
+                        { name: 'svi_mtu', label: 'MTU', type: 'text', min: 576, max: 9216, placeholder: '9216', hint: 'Boş = varsayılan' },
+                        { name: 'svi_vrf', label: 'VRF', type: 'text', placeholder: 'TENANT-A', hint: 'Boş = varsayılan VRF' },
+                        { name: 'svi_noredir', why: 'vPC ortamında Cisco SVI’larda redirect’in kapatılmasını önerir; aksi halde peer-link üzerinden gelen paketler için gereksiz ICMP redirect üretilir.', label: 'no ip redirects + no ipv6 redirects', type: 'checkbox', checked: true }
+                    ]
+                }
+            ],
+            submit: 'Arayüz Konfigürasyonu Oluştur'
+        }, (data) => {
+            const ty = data._cgtype || 'access';
+            let c = cgNxHdr('Arayüz');
+            if (ty === 'svi') {
+                const v = cgEsc(data.svi_vlan || ''), ip = cgEsc(data.svi_ip || ''), ds = cgEsc(data.svi_desc || ''), mtu = cgEsc(data.svi_mtu || ''), vrf = cgEsc(data.svi_vrf || '');
+                c += 'feature interface-vlan\n\n';
+                c += 'interface Vlan' + v + '\n';
+                if (ds) c += '  description ' + ds + '\n';
+                if (mtu) c += '  mtu ' + mtu + '\n';
+                if (vrf) c += '  vrf member ' + vrf + '\n';
+                if (data.svi_noredir) c += '  no ip redirects\n';
+                c += '  ip address ' + ip + '\n';
+                if (data.svi_noredir) c += '  no ipv6 redirects\n';
+                c += '  no shutdown\n\n';
+                c += '! Doğrulama:\n! show interface Vlan' + v + '\n! show ip interface brief' + (vrf ? ' vrf ' + vrf : '') + '\n';
+                return c;
+            }
+            const ifs = cgNxList(cgEsc(data.if_names || ''));
+            const ds = cgEsc(data.if_desc || ''), mtu = cgEsc(data.if_mtu || '');
+            const st = data.if_state === 'down' ? '  shutdown\n' : '  no shutdown\n';
+            let l2 = '';
+            if (ty === 'access') {
+                l2 = '  switchport\n  switchport mode access\n  switchport access vlan ' + cgEsc(data.acc_vlan || '') + '\n';
+                if (data.acc_edge === 'edge') l2 += '  spanning-tree port type edge\n';
+                if (data.acc_bpdug) l2 += '  spanning-tree bpduguard enable\n';
+            } else if (ty === 'trunk') {
+                l2 = '  switchport\n  switchport mode trunk\n';
+                if (data.tr_native) l2 += '  switchport trunk native vlan ' + cgEsc(data.tr_native) + '\n';
+                l2 += '  switchport trunk allowed vlan ' + cgEsc(data.tr_allowed || '') + '\n';
+                if (data.tr_ptype && data.tr_ptype !== 'none') l2 += '  spanning-tree port type ' + cgEsc(data.tr_ptype) + '\n';
+            }
+            if (ty === 'routed') {
+                const ip = cgEsc(data.rt_ip || ''), vrf = cgEsc(data.rt_vrf || '');
+                if (ifs.length > 1) c += '! UYARI: aynı IP birden çok arayüze yazılamaz; yalnız ilk arayüz yapılandırıldı.\n';
+                const i = ifs[0] || '';
+                c += 'interface ' + i + '\n';
+                if (ds) c += '  description ' + ds + '\n';
+                c += '  no switchport\n';
+                if (mtu) c += '  mtu ' + mtu + '\n';
+                if (vrf) c += '  vrf member ' + vrf + '\n';
+                if (data.rt_noredir) c += '  no ip redirects\n';
+                c += '  ip address ' + ip + '\n' + st + '\n';
+                c += '! Doğrulama:\n! show interface ' + i + '\n! show ip interface brief' + (vrf ? ' vrf ' + vrf : '') + '\n';
+                return c;
+            }
+            const po = cgEsc(data.chan_grp || '');
+            if (po) {
+                c += 'feature lacp\n\n';
+                c += 'interface port-channel' + po + '\n';
+                if (ds) c += '  description ' + ds + '\n';
+                c += l2;
+                if (mtu) c += '  mtu ' + mtu + '\n';
+                c += st + '\n';
+            }
+            ifs.forEach(i => {
+                c += 'interface ' + i + '\n';
+                if (ds) c += '  description ' + ds + '\n';
+                c += l2;
+                if (mtu) c += '  mtu ' + mtu + '\n';
+                if (po) c += '  channel-group ' + po + ' mode active\n';
+                c += st + '\n';
+            });
+            c += '! Doğrulama:\n! show interface status\n! show interface switchport\n';
+            if (po) c += '! show port-channel summary\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: SNMP ──────────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (snmp-server user X <rol> auth md5|sha|sha-256 ... priv aes-128 ...: 14 cihaz;
+//   community X group network-operator 3; host IP traps version 3 priv USER udp-port N 1; location 8; globalEnforcePriv 3;
+//   enable traps link/bridge/stpx/snmp authentication/config ccmCLIRunningConfigChanged/aaa server-state-change 5)
+// + https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/103x/configuration/system-management/cisco-nexus-9000-series-nx-os-system-management-configuration-guide-103x/m-configuring-snmp-10x.html
+//   (host ... version 2c, host ... use-vrf, source-interface traps, contact, community ... use-ipv4acl, enable traps link linkDown/linkUp)
+CiscoNXOS.snmp = {
+    label: 'SNMP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-chart-line', title: 'SNMP (NX-OS)', desc: 'SNMPv3 kullanıcı veya v2c community, trap alıcısı ve trap türleri. NX-OS’ta SNMP kullanıcısı bir <b>rol</b> (network-operator/network-admin) ile tanımlanır.' },
+            configTypes: [
+                { id: 'v3', label: 'SNMPv3', icon: 'fas fa-lock', desc: 'Kimlik doğrulama + şifreleme', badge: { text: 'Önerilen', cls: 'recommended' } },
+                { id: 'v2c', label: 'SNMPv2c', icon: 'fas fa-unlock', desc: 'Community tabanlı, açık metin' }
+            ],
+            sections: [
+                {
+                    title: 'SNMPv3 Kullanıcı', icon: 'fas fa-user-lock', showFor: ['v3'],
+                    fields: [
+                        { name: 'v3_user', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'nmsuser' },
+                        { name: 'v3_role', why: 'network-admin rolündeki SNMP kullanıcısı SNMP SET ile config değiştirebilir. İzleme için network-operator yeterlidir.', label: 'Rol', type: 'select', options: [
+                            { value: 'network-operator', label: 'network-operator (salt okuma)', selected: true },
+                            { value: 'network-admin', label: 'network-admin (okuma/yazma)' }
+                        ]},
+                        { name: 'v3_auth', why: 'MD5 zayıf kabul edilir; NMS destekliyorsa sha-256 seçin. İki tarafta algoritma aynı olmalıdır.', label: 'Auth Algoritması', type: 'select', options: [
+                            { value: 'sha', label: 'SHA', selected: true },
+                            { value: 'sha-256', label: 'SHA-256' },
+                            { value: 'md5', label: 'MD5 (eski NMS)' }
+                        ]},
+                        { name: 'v3_authpw', label: 'Auth Parolası', type: 'text', required: true, placeholder: 'AuthPass123!', hint: 'En az 8 karakter' },
+                        { name: 'v3_privpw', why: 'Priv parolası verilmezse SNMP sorguları şifrelenmeden gider; aşağıdaki globalEnforcePriv açıkken şifresiz istekler reddedilir.', label: 'Priv (AES-128) Parolası', type: 'text', required: true, placeholder: 'PrivPass123!' },
+                        { name: 'v3_enforce', label: 'Şifrelemeyi zorunlu kıl (snmp-server globalEnforcePriv)', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'SNMPv2c Community', icon: 'fas fa-users', showFor: ['v2c'],
+                    warn: 'v2c community ağda açık metin gider. Mümkünse v3 kullanın; v2c zorunluysa community’yi bir ACL ile NMS adresine sınırlayın.',
+                    fields: [
+                        { name: 'v2_comm', why: '"public"/"private" gibi varsayılan değerler taramalarda ilk denenenlerdir.', label: 'Community', type: 'text', required: true, placeholder: 'n0tPubl1c' },
+                        { name: 'v2_group', label: 'Grup (rol)', type: 'select', options: [
+                            { value: 'network-operator', label: 'network-operator (salt okuma)', selected: true },
+                            { value: 'network-admin', label: 'network-admin (okuma/yazma)' }
+                        ]},
+                        { name: 'v2_acl', why: 'ACL bağlanmazsa community’yi bilen her adres cihazı sorgulayabilir. ACL ayrıca ip access-list ile tanımlanmalıdır.', label: 'IPv4 ACL Adı', type: 'text', placeholder: 'ACL_SNMP', hint: 'Boş = ACL yok' }
+                    ]
+                },
+                {
+                    title: 'Trap Alıcısı', icon: 'fas fa-bell',
+                    fields: [
+                        { name: 'host_ip', label: 'NMS IP', type: 'text', validate: 'ip', placeholder: '192.0.2.50', hint: 'Boş = trap alıcısı yok' },
+                        { name: 'host_port', label: 'UDP Port', type: 'text', validate: 'port', placeholder: '162', hint: 'Boş = 162' },
+                        { name: 'host_vrf', why: 'NMS’e yalnız mgmt0 üzerinden ulaşılıyorsa trap management VRF’inden gönderilmelidir; aksi halde trap’ler varsayılan VRF’te yol bulamaz.', label: 'VRF', type: 'text', placeholder: 'management', hint: 'Boş = varsayılan VRF' },
+                        { name: 'src_if', why: 'Kaynak arayüz sabitlenmezse NMS aynı cihazdan farklı IP’lerle trap alır ve cihazı tanıyamaz.', label: 'Trap Kaynak Arayüzü', type: 'text', validate: 'iface', placeholder: 'mgmt0' }
+                    ]
+                },
+                {
+                    title: 'Cihaz Bilgisi ve Trap Türleri', icon: 'fas fa-info-circle',
+                    fields: [
+                        { name: 'location', label: 'Konum', type: 'text', placeholder: 'DC1-ROW3-RACK12' },
+                        { name: 'contact', label: 'İletişim', type: 'text', placeholder: 'noc@example.com' },
+                        { name: 't_link', label: 'Link up/down (link linkDown / linkUp)', type: 'checkbox', checked: true },
+                        { name: 't_bridge', label: 'STP root / topoloji değişimi (bridge newroot / topologychange)', type: 'checkbox', checked: true },
+                        { name: 't_stpx', label: 'STP tutarsızlık (stpx inconsistency / root- / loop-inconsistency)', type: 'checkbox', checked: false },
+                        { name: 't_auth', why: 'Yanlış community/kullanıcıyla yapılan sorguları bildirir; tarama girişimlerini fark etmenin en kolay yoludur.', label: 'SNMP kimlik doğrulama hatası (snmp authentication)', type: 'checkbox', checked: true },
+                        { name: 't_cfg', label: 'Running-config değişikliği (config ccmCLIRunningConfigChanged)', type: 'checkbox', checked: false },
+                        { name: 't_aaa', label: 'AAA sunucu durum değişimi (aaa server-state-change)', type: 'checkbox', checked: false }
+                    ]
+                }
+            ],
+            submit: 'SNMP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const ty = data._cgtype || 'v3';
+            const hip = cgEsc(data.host_ip || ''), hport = cgEsc(data.host_port || ''), hvrf = cgEsc(data.host_vrf || ''), sif = cgEsc(data.src_if || '');
+            const loc = cgEsc(data.location || ''), con = cgEsc(data.contact || '');
+            let c = cgNxHdr('SNMP');
+            let who = '';
+            if (ty === 'v3') {
+                const u = cgEsc(data.v3_user || '');
+                who = u;
+                c += 'snmp-server user ' + u + ' ' + cgEsc(data.v3_role || 'network-operator') + ' auth ' + cgEsc(data.v3_auth || 'sha') + ' ' + cgEsc(data.v3_authpw || '') + ' priv aes-128 ' + cgEsc(data.v3_privpw || '') + '\n';
+                if (data.v3_enforce) c += 'snmp-server globalEnforcePriv\n';
+            } else {
+                const cm = cgEsc(data.v2_comm || ''), acl = cgEsc(data.v2_acl || '');
+                who = cm;
+                c += 'snmp-server community ' + cm + ' group ' + cgEsc(data.v2_group || 'network-operator') + '\n';
+                if (acl) c += 'snmp-server community ' + cm + ' use-ipv4acl ' + acl + '\n';
+            }
+            if (loc) c += 'snmp-server location ' + loc + '\n';
+            if (con) c += 'snmp-server contact ' + con + '\n';
+            if (hip) {
+                c += 'snmp-server host ' + hip + ' traps version ' + (ty === 'v3' ? '3 priv ' : '2c ') + who + (hport ? ' udp-port ' + hport : '') + '\n';
+                if (hvrf) c += 'snmp-server host ' + hip + ' use-vrf ' + hvrf + '\n';
+            }
+            if (sif) c += 'snmp-server source-interface traps ' + sif + '\n';
+            const tr = [];
+            if (data.t_link) tr.push('link linkDown', 'link linkUp');
+            if (data.t_bridge) tr.push('bridge newroot', 'bridge topologychange');
+            if (data.t_stpx) tr.push('stpx inconsistency', 'stpx root-inconsistency', 'stpx loop-inconsistency');
+            if (data.t_auth) tr.push('snmp authentication');
+            if (data.t_cfg) tr.push('config ccmCLIRunningConfigChanged');
+            if (data.t_aaa) tr.push('aaa server-state-change');
+            tr.forEach(t => { c += 'snmp-server enable traps ' + t + '\n'; });
+            c += '\n! Doğrulama:\n! show snmp user\n! show snmp community\n! show snmp host\n! show running-config snmp\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: Statik Rota ───────────────────────────────────────────────────────
+// Sözdizimi: canlı config (ip route P/L NH: 14 cihaz; ip route ... name X [pref]: 3; vrf context X / '  ip route': 1)
+// + https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/102x/configuration/Unicast-routing/cisco-nexus-9000-series-nx-os-unicast-routing-configuration-guide-release-102x/m_configuring_static_routing.html
+//   (ip route prefix nexthop [name X] [tag N] [preference]; Null0: netlab routing/nxos/static.j2)
+CiscoNXOS.staticRoute = {
+    label: 'Statik Rota',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-directions', title: 'Statik Rota (NX-OS)', desc: 'Varsayılan veya VRF içinde statik rota. NX-OS prefix’i <b>CIDR</b> biçiminde ister (0.0.0.0/0). VRF rotaları <code>vrf context</code> altında yazılır.' },
+            sections: [
+                {
+                    title: 'Rota', icon: 'fas fa-route',
+                    fields: [
+                        { name: 'sr_prefix', label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '0.0.0.0/0' },
+                        { name: 'sr_nh', why: 'Next-hop doğrudan bağlı bir alt ağda olmalıdır; ulaşılamayan next-hop ile rota tabloya hiç girmez. Null0 trafiği sessizce atar (özetleme/kara delik rotası).', label: 'Next-hop', type: 'text', validate: 'nexthop', required: true, placeholder: '192.0.2.1', hint: 'IP adresi veya Null0' },
+                        { name: 'sr_vrf', why: 'VRF yazılırsa rota o VRF’in tablosuna girer; mgmt0 için VRF adı "management"tır. Yanlış VRF’e yazılan rota beklenen trafiği hiç etkilemez.', label: 'VRF', type: 'text', placeholder: 'management', hint: 'Boş = varsayılan VRF' },
+                        { name: 'sr_name', label: 'Next-hop Adı', type: 'text', placeholder: 'ISP-GW', hint: 'name — show çıktısında görünür' },
+                        { name: 'sr_tag', why: 'Tag, rotayı yeniden dağıtımda (route-map match tag) seçmek için kullanılır.', label: 'Tag', type: 'text', validate: 'posint', placeholder: '100' },
+                        { name: 'sr_pref', why: 'Varsayılan uzaklık 1’dir. Dinamik rotaya yedek (floating) statik rota için daha yüksek değer (örn. 250) verin.', label: 'Tercih (AD)', type: 'text', min: 1, max: 255, placeholder: '250', hint: 'Boş = 1' }
+                    ]
+                },
+                {
+                    title: 'Ek Rotalar (aynı VRF)', icon: 'fas fa-list',
+                    fields: [
+                        { name: 'sr_more', label: 'Ek Rotalar', type: 'textarea', placeholder: '198.51.100.0/24 192.0.2.1', hint: 'Her satır: prefix next-hop' }
+                    ]
+                }
+            ],
+            submit: 'Statik Rota Oluştur'
+        }, (data) => {
+            const vrf0 = cgEsc(data.sr_vrf || ''), vrf = /^default$/i.test(vrf0) ? '' : vrf0, ind = vrf ? '  ' : '';
+            const nm = cgEsc(data.sr_name || ''), tg = cgEsc(data.sr_tag || ''), pf = cgEsc(data.sr_pref || '');
+            let c = cgNxHdr('Statik Rota');
+            if (vrf) c += 'vrf context ' + vrf + '\n';
+            c += ind + 'ip route ' + cgEsc(data.sr_prefix || '') + ' ' + cgEsc(data.sr_nh || '') + (nm ? ' name ' + nm : '') + (tg ? ' tag ' + tg : '') + (pf ? ' ' + pf : '') + '\n';
+            const cidr = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/;
+            const ip = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+            String(data.sr_more || '').split('\n').map(l => l.trim()).filter(Boolean).forEach(l => {
+                const p = l.split(/\s+/);
+                if (p.length === 2 && cidr.test(p[0]) && (ip.test(p[1]) || /^null0$/i.test(p[1]))) c += ind + 'ip route ' + cgEsc(p[0]) + ' ' + cgEsc(p[1]) + '\n';
+                else c += '! UYARI: geçersiz satır atlandı: ' + cgEsc(l) + '\n';
+            });
+            c += '\n! Doğrulama:\n! show ip static-route' + (vrf ? ' vrf ' + vrf : '') + '\n! show ip route' + (vrf ? ' vrf ' + vrf : '') + '\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: VRF Context ───────────────────────────────────────────────────────
+// Sözdizimi: canlı config (vrf context management 11; interface mgmt0 → vrf member management + ip address 10;
+//   vrf context X → '  ip route' 1; vrf member X)
+// + https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus9000/sw/6-x/unicast/configuration/guide/l3_cli_nxos/l3_virtual.html
+CiscoNXOS.vrf = {
+    label: 'VRF Context',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-layer-group', title: 'VRF Context (NX-OS)', desc: 'Yönetim VRF’i (mgmt0) veya VRF-lite. MPLS/EVPN için RD/RT gereken VRF’ler <b>MPLS</b> ve <b>VXLAN/EVPN</b> araçlarındadır.' },
+            configTypes: [
+                { id: 'mgmt', label: 'Yönetim (mgmt0)', icon: 'fas fa-tools', desc: 'mgmt0 + management VRF varsayılan rota', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'lite', label: 'VRF-Lite', icon: 'fas fa-project-diagram', desc: 'Yeni VRF, arayüz ataması, varsayılan rota' }
+            ],
+            sections: [
+                {
+                    title: 'mgmt0', icon: 'fas fa-tools', showFor: ['mgmt'],
+                    info: 'mgmt0 her zaman <code>management</code> VRF’indedir; yönetim trafiği veri düzleminden ayrılır. NTP/syslog/SNMP/TACACS gibi servislerde <code>use-vrf management</code> gerekir.',
+                    fields: [
+                        { name: 'mg_ip', label: 'mgmt0 IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '192.0.2.10/24' },
+                        { name: 'mg_gw', why: 'management VRF’inin kendi rota tablosu vardır; varsayılan rota yazılmazsa mgmt0 yalnız kendi alt ağına ulaşır ve uzak yönetim istasyonları cihaza erişemez.', label: 'Yönetim Ağ Geçidi', type: 'text', validate: 'ip', placeholder: '192.0.2.1' }
+                    ]
+                },
+                {
+                    title: 'VRF-Lite', icon: 'fas fa-project-diagram', showFor: ['lite'],
+                    fields: [
+                        { name: 'tv_name', why: 'VRF adı büyük/küçük harf duyarlıdır; arayüzdeki vrf member adıyla birebir aynı olmalıdır.', label: 'VRF Adı', type: 'text', required: true, placeholder: 'TENANT-A' },
+                        { name: 'tv_ifaces', why: 'vrf member komutu arayüzdeki mevcut IP’yi <b>siler</b>. IP’yi VRF atamasından sonra yeniden girin (araç tek arayüzde bunu yapar).', label: 'Üye Arayüzler', type: 'text', validate: 'iface_range', required: true, placeholder: 'Vlan100', hint: 'Virgülle liste' },
+                        { name: 'tv_ip', label: 'Arayüz IP / Prefix', type: 'text', validate: 'cidr', placeholder: '10.100.0.1/24', hint: 'Yalnız tek arayüz girildiğinde uygulanır' },
+                        { name: 'tv_gw', label: 'VRF Varsayılan Rota Next-hop', type: 'text', validate: 'ip', placeholder: '10.100.0.254' }
+                    ]
+                }
+            ],
+            submit: 'VRF Konfigürasyonu Oluştur'
+        }, (data) => {
+            const ty = data._cgtype || 'mgmt';
+            let c = cgNxHdr('VRF Context');
+            if (ty === 'mgmt') {
+                const gw = cgEsc(data.mg_gw || '');
+                c += 'vrf context management\n';
+                if (gw) c += '  ip route 0.0.0.0/0 ' + gw + '\n';
+                c += '\ninterface mgmt0\n  vrf member management\n  ip address ' + cgEsc(data.mg_ip || '') + '\n\n';
+                c += '! Doğrulama:\n! show vrf management\n! show ip route vrf management\n';
+                if (gw) c += '! ping ' + gw + ' vrf management\n';
+                return c;
+            }
+            const v = cgEsc(data.tv_name || ''), ip = cgEsc(data.tv_ip || ''), gw = cgEsc(data.tv_gw || '');
+            const ifs = cgNxList(cgEsc(data.tv_ifaces || ''));
+            c += 'vrf context ' + v + '\n';
+            if (gw) c += '  ip route 0.0.0.0/0 ' + gw + '\n';
+            c += '\n';
+            if (ip && ifs.length > 1) c += '! UYARI: IP yalnız tek arayüz girildiğinde uygulanır; arayüz IP’lerini ayrıca girin.\n';
+            ifs.forEach(i => {
+                c += 'interface ' + i + '\n';
+                if (/^(ethernet|port-channel)/i.test(i)) c += '  no switchport\n';
+                c += '  vrf member ' + v + '\n';
+                if (ip && ifs.length === 1) c += '  ip address ' + ip + '\n';
+                c += '  no shutdown\n\n';
+            });
+            c += '! Doğrulama:\n! show vrf ' + v + '\n! show vrf ' + v + ' interface\n! show ip route vrf ' + v + '\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: Spanning Tree ─────────────────────────────────────────────────────
+// Sözdizimi: canlı config (spanning-tree mode rapid-pvst 4, spanning-tree vlan L priority N 12, loopguard default 6,
+//   port type network/edge/edge trunk, bpduguard enable)
+// + https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/102x/configuration/layer-2-switching/cisco-nexus-9000-nx-os-layer-2-switching-configuration-guide-102x/m-configuring-stp-extensions.html
+//   (port type edge bpduguard/bpdufilter default, guard root)
+// + https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/102x/configuration/layer-2-switching/cisco-nexus-9000-nx-os-layer-2-switching-configuration-guide-102x/m-configuring-mst.html
+CiscoNXOS.stp = {
+    label: 'Spanning Tree',
+    init(container) {
+        const prio = (sel) => [4096, 8192, 16384, 24576, 28672, 32768].map(p => ({ value: String(p), label: String(p) + (p === 32768 ? ' (varsayılan)' : ''), selected: p === sel }));
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-sitemap', title: 'Spanning Tree (NX-OS)', desc: 'Rapid PVST+ (NX-OS varsayılanı) veya MST; root önceliği, edge/network port tipleri ve BPDU/loop/root koruması.' },
+            configTypes: [
+                { id: 'rpvst', label: 'Rapid PVST+', icon: 'fas fa-bolt', desc: 'VLAN başına STP (varsayılan mod)', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'mst', label: 'MST', icon: 'fas fa-object-group', desc: 'VLAN gruplarını instance’lara eşle' }
+            ],
+            sections: [
+                {
+                    title: 'Rapid PVST+ Root Önceliği', icon: 'fas fa-crown', showFor: ['rpvst'],
+                    fields: [
+                        { name: 'rp_vlans', why: 'Root köprü planlı seçilmezse en düşük MAC’li (genelde en eski) switch root olur ve trafik verimsiz yollardan akar. vPC peer-switch kullanıyorsanız iki peer’da aynı öncelik girilmelidir.', label: 'VLAN’lar', type: 'text', validate: 'vlan_list', required: true, placeholder: '1-3967' },
+                        { name: 'rp_prio', label: 'Öncelik', type: 'select', options: prio(24576) }
+                    ]
+                },
+                {
+                    title: 'MST Bölgesi', icon: 'fas fa-object-group', showFor: ['mst'],
+                    warn: 'Bölge adı, revizyon ve VLAN→instance eşlemesi bölgedeki <b>tüm</b> switch’lerde aynı olmalıdır; tek fark switch’i ayrı bölgeye düşürür. Eşleme değişikliği MST’nin yeniden yakınsamasına yol açar.',
+                    fields: [
+                        { name: 'mst_name', label: 'Bölge Adı', type: 'text', required: true, placeholder: 'REGION1' },
+                        { name: 'mst_rev', label: 'Revizyon', type: 'text', min: 0, max: 65535, required: true, placeholder: '1' },
+                        { name: 'mst_inst', label: 'Instance No', type: 'text', min: 1, max: 4094, required: true, placeholder: '1' },
+                        { name: 'mst_vlans', label: 'Instance VLAN’ları', type: 'text', validate: 'vlan_list', required: true, placeholder: '10-20' },
+                        { name: 'mst_prio', label: 'Instance Önceliği', type: 'select', options: prio(24576) }
+                    ]
+                },
+                {
+                    title: 'Global Koruma', icon: 'fas fa-shield-alt',
+                    fields: [
+                        { name: 'pr_bpdug', why: 'Edge porta switch takılırsa port err-disable olur; döngü oluşmadan kesilir.', label: 'Edge portlarda BPDU guard (spanning-tree port type edge bpduguard default)', type: 'checkbox', checked: true },
+                        { name: 'pr_loopg', why: 'Tek yönlü link arızasında BPDU kesilen blok port forwarding’e geçip döngü yaratabilir; loop guard bunu engeller.', label: 'Loop guard (spanning-tree loopguard default)', type: 'checkbox', checked: false },
+                        { name: 'pr_bpduf', why: 'BPDU filter edge portlarda BPDU gönderimini keser; yanlış kullanımda döngü tespitini de kapatır. Emin değilseniz açmayın.', label: 'Edge portlarda BPDU filter (spanning-tree port type edge bpdufilter default)', type: 'checkbox', checked: false }
+                    ]
+                },
+                {
+                    title: 'Port Tipleri', icon: 'fas fa-plug',
+                    info: 'Boş bırakılan satır için arayüz komutu yazılmaz.',
+                    fields: [
+                        { name: 'pt_edge', label: 'Edge (access) portlar', type: 'text', validate: 'iface_range', placeholder: 'Ethernet1/10', hint: 'spanning-tree port type edge' },
+                        { name: 'pt_edget', label: 'Edge trunk portlar', type: 'text', validate: 'iface_range', placeholder: 'Ethernet1/11', hint: 'Hipervizör/sunucu trunk’ı' },
+                        { name: 'pt_net', why: 'network tipi Bridge Assurance’ı açar; karşı uç BPDU göndermezse port bloklanır. Yalnız iki ucu da destekleyen switch bağlantılarında kullanın.', label: 'Network portlar', type: 'text', validate: 'iface_range', placeholder: 'port-channel1', hint: 'Switch-switch bağlantısı' },
+                        { name: 'pt_root', why: 'Root guard, erişim katmanından daha iyi öncelikli bir switch’in root olmaya çalışmasını engeller (port root-inconsistent olur).', label: 'Root guard portlar', type: 'text', validate: 'iface_range', placeholder: 'Ethernet1/48', hint: 'spanning-tree guard root' }
+                    ]
+                }
+            ],
+            submit: 'STP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const ty = data._cgtype || 'rpvst';
+            let c = cgNxHdr('Spanning Tree');
+            if (ty === 'mst') {
+                const inst = cgEsc(data.mst_inst || '');
+                c += 'spanning-tree mode mst\n';
+                c += 'spanning-tree mst configuration\n';
+                c += '  name ' + cgEsc(data.mst_name || '') + '\n';
+                c += '  revision ' + cgEsc(data.mst_rev || '') + '\n';
+                c += '  instance ' + inst + ' vlan ' + cgEsc(data.mst_vlans || '') + '\n';
+                c += '  exit\n';
+                c += 'spanning-tree mst ' + inst + ' priority ' + cgEsc(data.mst_prio || '24576') + '\n';
+            } else {
+                c += 'spanning-tree mode rapid-pvst\n';
+                c += 'spanning-tree vlan ' + cgEsc(data.rp_vlans || '') + ' priority ' + cgEsc(data.rp_prio || '24576') + '\n';
+            }
+            if (data.pr_bpdug) c += 'spanning-tree port type edge bpduguard default\n';
+            if (data.pr_bpduf) c += 'spanning-tree port type edge bpdufilter default\n';
+            if (data.pr_loopg) c += 'spanning-tree loopguard default\n';
+            c += '\n';
+            [['pt_edge', 'spanning-tree port type edge'], ['pt_edget', 'spanning-tree port type edge trunk'],
+             ['pt_net', 'spanning-tree port type network'], ['pt_root', 'spanning-tree guard root']].forEach(([k, cmd]) => {
+                cgNxList(cgEsc(data[k] || '')).forEach(i => { c += 'interface ' + i + '\n  ' + cmd + '\n\n'; });
+            });
+            c += '! Doğrulama:\n! show spanning-tree summary\n';
+            if (ty === 'mst') c += '! show spanning-tree mst configuration\n! show spanning-tree mst\n';
+            c += '! show running-config spanning-tree\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: Kullanıcı ve RBAC ─────────────────────────────────────────────────
+// Sözdizimi: canlı config (username X password 5 ... role R 14 cihaz; role name X / rule N permit command ... 10;
+//   rule N permit read 2; password strength-check / no password strength-check; userpassphrase min-length N max-length N 4)
+// + https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/103x/configuration/security/cisco-nexus-9000-nx-os-security-configuration-guide-103x/m-configuring-user-accounts-and-rbac.html
+//   (username ... expire YYYY-MM-DD, role description)
+CiscoNXOS.users = {
+    label: 'Kullanıcı / RBAC',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-users-cog', title: 'Yerel Kullanıcı ve RBAC (NX-OS)', desc: 'Yerel kullanıcı, parola politikası ve özel rol. Özel rolde kurallar <b>büyükten küçüğe</b> değerlendirilir; araç ilk satıra en büyük numarayı verir.' },
+            sections: [
+                {
+                    title: 'Parola Politikası', icon: 'fas fa-key',
+                    fields: [
+                        { name: 'pw_strength', why: 'Kapalıyken "admin123" gibi zayıf parolalar kabul edilir.', label: 'password strength-check', type: 'checkbox', checked: true },
+                        { name: 'pw_min', label: 'En Az Uzunluk', type: 'text', min: 4, max: 127, placeholder: '12', hint: 'min ve max birlikte girilmeli' },
+                        { name: 'pw_max', label: 'En Fazla Uzunluk', type: 'text', min: 4, max: 127, placeholder: '127' }
+                    ]
+                },
+                {
+                    title: 'Kullanıcı', icon: 'fas fa-user',
+                    fields: [
+                        { name: 'u_name', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netadmin' },
+                        { name: 'u_pass', why: 'Parola config’e açık metin girilir, cihaz saklarken hash’ler (password 5). Üretilen çıktıyı paylaşmadan önce parolayı silin.', label: 'Parola', type: 'text', required: true, placeholder: 'Str0ng!Passw0rd' },
+                        { name: 'u_role', why: 'network-admin tüm config’i değiştirebilir. İzleme hesapları (NMS, yedekleme) için network-operator veya özel rol yeterlidir.', label: 'Rol', type: 'select', options: [
+                            { value: 'network-operator', label: 'network-operator (salt okuma)', selected: true },
+                            { value: 'network-admin', label: 'network-admin (tam yetki)' },
+                            { value: 'custom', label: 'Özel rol (aşağıda)' }
+                        ]},
+                        { name: 'u_expire', label: 'Son Geçerlilik Tarihi', type: 'text', placeholder: '2027-12-31', hint: 'YYYY-MM-DD; boş = süresiz' }
+                    ]
+                },
+                {
+                    title: 'Özel Rol', icon: 'fas fa-user-tag',
+                    info: 'Yalnız Rol = "Özel rol" seçildiğinde yazılır.',
+                    fields: [
+                        { name: 'r_name', label: 'Rol Adı', type: 'text', requiredIf: { field: 'u_role', in: ['custom'] }, placeholder: 'NOC-RO' },
+                        { name: 'r_desc', label: 'Açıklama', type: 'text', placeholder: 'NOC salt okuma' },
+                        { name: 'r_read', why: 'Tüm show komutlarına izin verir; yalnız belirli komutlara izin vermek istiyorsanız kapatıp aşağıya komutları yazın.', label: 'Tüm okuma komutlarına izin (rule N permit read)', type: 'checkbox', checked: false },
+                        { name: 'r_cmds', label: 'İzin Verilen Komutlar', type: 'textarea', placeholder: 'show running-config\nshow version', hint: 'Her satır bir komut (rule N permit command ...)' }
+                    ]
+                }
+            ],
+            submit: 'Kullanıcı Konfigürasyonu Oluştur'
+        }, (data) => {
+            const mn = cgEsc(data.pw_min || ''), mx = cgEsc(data.pw_max || '');
+            const role = data.u_role === 'custom' ? cgEsc(data.r_name || '') : cgEsc(data.u_role || 'network-operator');
+            const exp = cgEsc(data.u_expire || '');
+            let c = cgNxHdr('Kullanıcı / RBAC');
+            if (data.pw_strength) c += 'password strength-check\n';
+            if (mn && mx) c += 'userpassphrase min-length ' + mn + ' max-length ' + mx + '\n';
+            else if (mn || mx) c += '! UYARI: userpassphrase için en az ve en fazla uzunluk birlikte girilmeli; satır yazılmadı.\n';
+            if (data.u_role === 'custom') {
+                const cmds = String(data.r_cmds || '').split('\n').map(l => l.trim()).filter(Boolean);
+                const rules = [];
+                if (data.r_read) rules.push('permit read');
+                cmds.forEach(x => rules.push('permit command ' + cgEsc(x)));
+                c += '\nrole name ' + role + '\n';
+                if (data.r_desc) c += '  description ' + cgEsc(data.r_desc) + '\n';
+                rules.forEach((r, i) => { c += '  rule ' + (rules.length - i) + ' ' + r + '\n'; });
+                if (!rules.length) c += '! UYARI: rol için kural girilmedi; bu rol hiçbir komuta izin vermez.\n';
+            }
+            c += '\nusername ' + cgEsc(data.u_name || '') + ' password ' + cgEsc(data.u_pass || '') + ' role ' + role + (exp ? ' expire ' + exp : '') + '\n\n';
+            c += '! Doğrulama:\n! show user-account\n! show role' + (data.u_role === 'custom' ? ' name ' + role : '') + '\n! show password strength-check\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: Yönetim Erişimi (Banner / Line / SSH) ─────────────────────────────
+// Sözdizimi: canlı config (banner motd ^ ... ^ 10 cihaz; line console/line vty 14; exec-timeout 7, session-limit 4,
+//   access-class X in 3; feature ssh 4; no feature telnet 4; ssh key rsa 2048 4; ssh login-attempts 4;
+//   ssh idle-timeout N keepalive-count N 6; system login block-for N attempts N within N 8)
+// banner metin biçimi: https://github.com/ansible-collections/cisco.nxos/blob/main/plugins/modules/nxos_banner.py
+CiscoNXOS.mgmtAccess = {
+    label: 'Banner / Line / SSH',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-terminal', title: 'Yönetim Erişimi — Banner, Line, SSH (NX-OS)', desc: 'Giriş uyarısı, konsol/VTY oturum sınırları ve SSH sertleştirme. VTY ACL’i ayrıca <b>ACL</b> aracıyla tanımlanmalıdır.' },
+            sections: [
+                {
+                    title: 'Banner', icon: 'fas fa-flag',
+                    fields: [
+                        { name: 'banner', why: 'Hukuki uyarı metni yetkisiz erişimde kovuşturma için çoğu mevzuatta beklenir. Metinde ^ karakteri kullanmayın (sınırlayıcıdır).', label: 'MOTD Metni', type: 'textarea', placeholder: 'Yetkisiz erisim yasaktir.', hint: 'Boş = banner yazılmaz' }
+                    ]
+                },
+                {
+                    title: 'Line', icon: 'fas fa-keyboard',
+                    fields: [
+                        { name: 'con_to', why: 'Zaman aşımı olmayan konsol oturumu açık kalır ve fiziksel erişimi olan herkes yetkili oturumu kullanabilir.', label: 'Konsol exec-timeout (dk)', type: 'text', min: 0, max: 525600, placeholder: '10' },
+                        { name: 'vty_to', label: 'VTY exec-timeout (dk)', type: 'text', min: 0, max: 525600, placeholder: '10' },
+                        { name: 'vty_limit', why: 'Eşzamanlı oturum sayısını sınırlar; kaba kuvvet denemelerinin tüm VTY’leri doldurmasını zorlaştırır. Çok düşük değer acil durumda sizin girişinizi engelleyebilir.', label: 'VTY session-limit', type: 'text', min: 1, placeholder: '8' },
+                        { name: 'vty_acl', why: 'VTY’ye yalnız yönetim ağlarından erişim izni verir. ACL cihazda tanımlı değilse ve kendi adresiniz yoksa oturumunuz kesilebilir.', label: 'VTY access-class (ACL adı)', type: 'text', placeholder: 'ACL_VTY_IN' }
+                    ]
+                },
+                {
+                    title: 'SSH', icon: 'fas fa-lock',
+                    fields: [
+                        { name: 'ssh_on', label: 'feature ssh', type: 'checkbox', checked: true },
+                        { name: 'tel_off', why: 'Telnet parolaları açık metin taşır.', label: 'no feature telnet', type: 'checkbox', checked: true },
+                        { name: 'ssh_key', why: 'Anahtar yeniden üretilirse cihazın SSH parmak izi değişir; istemciler "host key changed" uyarısı verir. Cihazda zaten anahtar varsa komut reddedilebilir; önce <code>show ssh key</code> ile kontrol edin.', label: 'SSH Anahtarı', type: 'select', options: [
+                            { value: 'none', label: 'Dokunma', selected: true },
+                            { value: '2048', label: 'ssh key rsa 2048' }
+                        ]},
+                        { name: 'ssh_att', label: 'ssh login-attempts', type: 'text', min: 1, placeholder: '3' },
+                        { name: 'ssh_idle', why: 'Boşta kalan SSH oturumlarını keser.', label: 'ssh idle-timeout (dk)', type: 'text', min: 0, placeholder: '30', hint: 'keepalive-count ile birlikte' },
+                        { name: 'ssh_ka', label: 'keepalive-count', type: 'text', min: 0, placeholder: '3' }
+                    ]
+                },
+                {
+                    title: 'Giriş Engelleme', icon: 'fas fa-user-slash',
+                    fields: [
+                        { name: 'blk_on', why: 'Kısa sürede çok sayıda başarısız girişte yeni girişleri belirli süre engeller; parola tahmin saldırısını yavaşlatır.', label: 'system login block-for', type: 'checkbox', checked: false },
+                        { name: 'blk_for', label: 'Engelleme Süresi (sn)', type: 'text', min: 1, max: 65535, requiredIf: { field: 'blk_on', checked: true }, placeholder: '120' },
+                        { name: 'blk_att', label: 'Deneme Sayısı', type: 'text', min: 1, max: 65535, requiredIf: { field: 'blk_on', checked: true }, placeholder: '5' },
+                        { name: 'blk_win', label: 'Pencere (sn)', type: 'text', min: 1, max: 65535, requiredIf: { field: 'blk_on', checked: true }, placeholder: '60' }
+                    ]
+                }
+            ],
+            submit: 'Erişim Konfigürasyonu Oluştur'
+        }, (data) => {
+            const ct = cgEsc(data.con_to || ''), vt = cgEsc(data.vty_to || ''), vl = cgEsc(data.vty_limit || ''), va = cgEsc(data.vty_acl || '');
+            const att = cgEsc(data.ssh_att || ''), idle = cgEsc(data.ssh_idle || ''), ka = cgEsc(data.ssh_ka || '');
+            let c = cgNxHdr('Banner / Line / SSH');
+            if (data.ssh_on) c += 'feature ssh\n';
+            if (data.tel_off) c += 'no feature telnet\n';
+            if (data.ssh_key === '2048') c += 'ssh key rsa 2048\n';
+            if (att) c += 'ssh login-attempts ' + att + '\n';
+            if (idle && ka) c += 'ssh idle-timeout ' + idle + ' keepalive-count ' + ka + '\n';
+            else if (idle || ka) c += '! UYARI: ssh idle-timeout ve keepalive-count birlikte girilmeli; satır yazılmadı.\n';
+            if (data.blk_on) c += 'system login block-for ' + cgEsc(data.blk_for || '') + ' attempts ' + cgEsc(data.blk_att || '') + ' within ' + cgEsc(data.blk_win || '') + '\n';
+            const bl = String(data.banner || '').split('\n').map(l => l.replace(/\s+$/, '')).filter((l, i, a) => l || (i > 0 && i < a.length - 1));
+            if (bl.length) {
+                if (bl.some(l => l.indexOf('^') >= 0)) c += '! UYARI: banner metnindeki ^ karakterleri çıkarıldı (sınırlayıcı).\n';
+                c += '\nbanner motd ^\n' + bl.map(l => cgEsc(l.replace(/\^/g, ''))).join('\n') + '\n^\n';
+            }
+            if (ct) c += '\nline console\n  exec-timeout ' + ct + '\n';
+            if (vt || vl || va) {
+                c += '\nline vty\n';
+                if (vt) c += '  exec-timeout ' + vt + '\n';
+                if (vl) c += '  session-limit ' + vl + '\n';
+                if (va) c += '  access-class ' + va + ' in\n';
+            }
+            c += '\n! Doğrulama:\n! show ssh server\n! show ssh key\n! show banner motd\n! show users\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: Scheduler ile Otomatik Config Yedeği ──────────────────────────────
+// Sözdizimi: canlı config (feature scheduler 14; scheduler job name X / copy running-config scp://...$(SWITCHNAME)-cfg.$(TIMESTAMP) vrf default / end-job 6;
+//   scheduler schedule name X / job name X / time daily HH:MM 6; scheduler logfile size N 2; copy running-config startup-config 1)
+// + https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/103x/configuration/system-management/cisco-nexus-9000-series-nx-os-system-management-configuration-guide-103x/m-configuring-the-scheduler-10x.html
+//   (scheduler aaa-authentication, komutları ' ; ' ile ayırma, etkileşimsiz çalışma notu)
+CiscoNXOS.scheduler = {
+    label: 'Otomatik Yedek (Scheduler)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-calendar-check', title: 'Otomatik Config Yedeği — Scheduler (NX-OS)', desc: 'Running-config’i her gün belirlenen saatte uzak sunucuya kopyalar. <code>$(SWITCHNAME)</code> ve <code>$(TIMESTAMP)</code> NX-OS tarafından hostname ve zaman damgasıyla değiştirilir.' },
+            sections: [
+                {
+                    title: 'Yedek Hedefi', icon: 'fas fa-hdd',
+                    warn: 'Scheduler işleri <b>etkileşimsiz</b> çalışır: parola istemi yanıtlanamaz. Kopyalamanın gerçekten çalıştığını ilk tetiklemeden sonra <code>show scheduler logfile</code> ile doğrulayın.',
+                    fields: [
+                        { name: 'sc_job', label: 'İş (Job) Adı', type: 'text', required: true, placeholder: 'CFG-BACKUP' },
+                        { name: 'sc_url', why: 'Yedek cihazın kendi bootflash’ında kalırsa cihaz arızasında yedek de kaybolur; uzak hedef tercih edin. Yol / ile bitmelidir.', label: 'Hedef Dizin (URL)', type: 'text', required: true, placeholder: 'scp://backup@192.0.2.20/nxos/', hint: 'scp://, sftp:// veya tftp:// ; sonunda /' },
+                        { name: 'sc_fname', label: 'Dosya Adı Kalıbı', type: 'text', required: true, placeholder: '$(SWITCHNAME)-cfg.$(TIMESTAMP)' },
+                        { name: 'sc_vrf', why: 'Yedek sunucusuna mgmt0 üzerinden gidiliyorsa VRF management olmalıdır; yanlış VRF’te kopyalama "no route" ile sessizce başarısız olur.', label: 'VRF', type: 'select', options: [
+                            { value: 'management', label: 'management (mgmt0)', selected: true },
+                            { value: 'default', label: 'default' }
+                        ]},
+                        { name: 'sc_save', why: 'Yedekten önce running-config’i startup’a da kaydeder; kaydedilmemiş değişiklikler yeniden başlatmada kaybolmaz.', label: 'Önce copy running-config startup-config', type: 'checkbox', checked: false }
+                    ]
+                },
+                {
+                    title: 'Zamanlama', icon: 'fas fa-clock',
+                    fields: [
+                        { name: 'sc_sched', label: 'Zamanlama Adı', type: 'text', required: true, placeholder: 'DAILY-BACKUP' },
+                        { name: 'sc_time', why: 'Saat cihaz saatine göredir; NTP ve saat dilimi doğru değilse yedek beklenmedik saatte alınır.', label: 'Günlük Saat (HH:MM)', type: 'text', required: true, placeholder: '02:00' },
+                        { name: 'sc_log', label: 'scheduler logfile size (KB)', type: 'text', min: 16, max: 1024, placeholder: '1024', hint: 'Boş = varsayılan' }
+                    ]
+                },
+                {
+                    title: 'Uzak Kullanıcı Kimliği (opsiyonel)', icon: 'fas fa-user-lock',
+                    info: 'Cisco: uzak (AAA) kullanıcıyla oluşturulan işlerin çalışması için scheduler’a yerel olarak parola tanımlanmalıdır.',
+                    fields: [
+                        { name: 'sc_aaa_user', label: 'Kullanıcı', type: 'text', placeholder: 'netbackup' },
+                        { name: 'sc_aaa_pass', label: 'Parola', type: 'text', placeholder: 'Backup!Pass1' }
+                    ]
+                }
+            ],
+            submit: 'Scheduler Konfigürasyonu Oluştur'
+        }, (data) => {
+            const job = cgEsc(data.sc_job || ''), url = cgEsc(data.sc_url || ''), fn = cgEsc(data.sc_fname || ''), vrf = cgEsc(data.sc_vrf || 'management');
+            const sch = cgEsc(data.sc_sched || ''), tm = cgEsc(data.sc_time || ''), lg = cgEsc(data.sc_log || '');
+            const au = cgEsc(data.sc_aaa_user || ''), ap = cgEsc(data.sc_aaa_pass || '');
+            let c = cgNxHdr('Scheduler — Otomatik Yedek');
+            c += 'feature scheduler\n';
+            if (lg) c += 'scheduler logfile size ' + lg + '\n';
+            if (ap) c += 'scheduler aaa-authentication ' + (au ? 'username ' + au + ' ' : '') + 'password ' + ap + '\n';
+            else if (au) c += '! UYARI: scheduler aaa-authentication için parola girilmedi; satır yazılmadı.\n';
+            if (url && !/\/$/.test(url)) c += '! UYARI: hedef dizin / ile bitmiyor; dosya adı dizine bitişik yazılacak.\n';
+            const cmds = [];
+            if (data.sc_save) cmds.push('copy running-config startup-config');
+            cmds.push('copy running-config ' + url + fn + ' vrf ' + vrf);
+            c += '\nscheduler job name ' + job + '\n  ' + cmds.join(' ; ') + '\nend-job\n';
+            c += '\nscheduler schedule name ' + sch + '\n  job name ' + job + '\n  time daily ' + tm + '\n\n';
+            c += '! Doğrulama:\n! show scheduler config\n! show scheduler schedule\n! show scheduler logfile\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: Private VLAN ──────────────────────────────────────────────────────
+// Sözdizimi: canlı config (feature private-vlan 9; vlan → private-vlan primary 4 / isolated 12 / community 36 satır;
+//   private-vlan association L 4)
+// + https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/103x/configuration/layer-2-switching/cisco-nexus-9000-nx-os-layer-2-switching-configuration-guide-103x/m-configuring-private-vlans.html
+//   (switchport mode private-vlan host / promiscuous, host-association, mapping, SVI private-vlan mapping)
+CiscoNXOS.pvlan = {
+    label: 'Private VLAN',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-user-secret', title: 'Private VLAN (NX-OS)', desc: 'Aynı alt ağdaki cihazları L2’de birbirinden yalıtır: <b>isolated</b> portlar yalnız promiscuous porta (gateway), <b>community</b> portları kendi grubuyla ve promiscuous portla konuşur.' },
+            sections: [
+                {
+                    title: 'VLAN’lar', icon: 'fas fa-tags',
+                    warn: 'Cisco: secondary VLAN’a dönüştürülecek VLAN’ın SVI’ı kapalı olmalıdır; vPC peer-link arayüzlerinde PVLAN desteklenmez (9.3(9)+).',
+                    fields: [
+                        { name: 'pv_primary', label: 'Primary VLAN', type: 'text', validate: 'vlan', required: true, placeholder: '100' },
+                        { name: 'pv_iso', why: 'Isolated VLAN’daki portlar birbirini hiç göremez; sunucular arası yanal hareketi keser. Primary başına tek isolated VLAN olur.', label: 'Isolated VLAN', type: 'text', validate: 'vlan', placeholder: '101' },
+                        { name: 'pv_comm', label: 'Community VLAN(lar)', type: 'text', validate: 'vlan_list', placeholder: '102,103' }
+                    ]
+                },
+                {
+                    title: 'Host Portları', icon: 'fas fa-desktop',
+                    fields: [
+                        { name: 'pv_host_ifs', label: 'Host Arayüzleri', type: 'text', validate: 'iface_range', placeholder: 'Ethernet1/10', hint: 'Boş = host portu yazılmaz' },
+                        { name: 'pv_host_sec', why: 'Host portu tek bir secondary (isolated veya community) VLAN’a bağlanır; bu VLAN primary ile ilişkilendirilmiş olmalıdır.', label: 'Host Secondary VLAN', type: 'text', validate: 'vlan', placeholder: '101' }
+                    ]
+                },
+                {
+                    title: 'Promiscuous Port ve SVI', icon: 'fas fa-door-open',
+                    fields: [
+                        { name: 'pv_prom_ifs', why: 'Promiscuous port (router/firewall bağlantısı) tüm secondary VLAN’larla konuşabilir; eşleme listesinde olmayan secondary VLAN çıkışsız kalır.', label: 'Promiscuous Arayüzler', type: 'text', validate: 'iface_range', placeholder: 'Ethernet1/48' },
+                        { name: 'pv_svi', why: 'Gateway bu switch’teki SVI ise secondary VLAN’lar primary SVI’a eşlenmelidir; aksi halde hostlar gateway’e ulaşamaz.', label: 'Primary SVI’a secondary eşlemesi (interface Vlan primary / private-vlan mapping)', type: 'checkbox', checked: false }
+                    ]
+                }
+            ],
+            submit: 'Private VLAN Oluştur'
+        }, (data) => {
+            const p = cgEsc(data.pv_primary || ''), iso = cgEsc(data.pv_iso || ''), comm = cgNxList(cgEsc(data.pv_comm || '')).join(',');
+            const secs = [iso, comm].filter(Boolean).join(',');
+            const hifs = cgNxList(cgEsc(data.pv_host_ifs || '')), hsec = cgEsc(data.pv_host_sec || '');
+            const pifs = cgNxList(cgEsc(data.pv_prom_ifs || ''));
+            let c = cgNxHdr('Private VLAN');
+            c += 'feature private-vlan\n';
+            if (data.pv_svi) c += 'feature interface-vlan\n';
+            c += '\n';
+            if (!secs) {
+                c += '! UYARI: en az bir isolated veya community VLAN girilmeli; ilişkilendirme yazılmadı.\n';
+            } else {
+                if (iso) c += 'vlan ' + iso + '\n  private-vlan isolated\n';
+                cgNxList(comm).forEach(v => { c += 'vlan ' + v + '\n  private-vlan community\n'; });
+            }
+            c += 'vlan ' + p + '\n  private-vlan primary\n';
+            if (secs) c += '  private-vlan association ' + secs + '\n';
+            c += '\n';
+            if (hifs.length && !hsec) c += '! UYARI: host arayüzleri için secondary VLAN girilmedi; host portları yazılmadı.\n';
+            if (hsec) hifs.forEach(i => {
+                c += 'interface ' + i + '\n  switchport\n  switchport mode private-vlan host\n  switchport private-vlan host-association ' + p + ' ' + hsec + '\n  no shutdown\n\n';
+            });
+            if (secs) pifs.forEach(i => {
+                c += 'interface ' + i + '\n  switchport\n  switchport mode private-vlan promiscuous\n  switchport private-vlan mapping ' + p + ' ' + secs + '\n  no shutdown\n\n';
+            });
+            if (data.pv_svi && secs) c += 'interface Vlan' + p + '\n  private-vlan mapping ' + secs + '\n  no shutdown\n\n';
+            c += '! Doğrulama:\n! show vlan private-vlan\n! show interface switchport\n';
+            if (data.pv_svi) c += '! show interface vlan ' + p + ' private-vlan mapping\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: LLDP / CDP ────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (feature lldp 14; lldp timer/holdtime/reinit, cdp enable (global+arayüz): 4 cihaz, run-config-all)
+// + https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/102x/configuration/system-management/cisco-nexus-9000-series-nx-os-system-management-configuration-guide-102x/m-configuring-lldp-10x.html
+//   (holdtime 10-255, timer 5-254, reinit 1-10, no lldp transmit/receive)
+CiscoNXOS.lldp = {
+    label: 'LLDP / CDP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-project-diagram', title: 'LLDP / CDP — Komşu Keşfi (NX-OS)', desc: 'LLDP (IEEE 802.1AB) ve Cisco CDP. Topoloji keşfi ve NMS envanteri için gereklidir; güvenilmeyen portlarda (internet, misafir, üçüncü taraf) kapatılmalıdır.' },
+            sections: [
+                {
+                    title: 'Global', icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'lldp_on', label: 'LLDP', type: 'select', options: [
+                            { value: 'on', label: 'Açık — feature lldp', selected: true },
+                            { value: 'off', label: 'Kapalı — no feature lldp' }
+                        ]},
+                        { name: 'lldp_timer', label: 'LLDP Gönderim Aralığı (sn)', type: 'text', min: 5, max: 254, placeholder: '30', hint: 'Boş = varsayılan 30' },
+                        { name: 'lldp_hold', why: 'Holdtime gönderim aralığından büyük olmalıdır; aksi halde komşu kayıtları yenilenmeden silinir ve NMS’de komşular gidip gelir.', label: 'LLDP Holdtime (sn)', type: 'text', min: 10, max: 255, placeholder: '120', hint: 'Boş = varsayılan 120' },
+                        { name: 'lldp_reinit', label: 'LLDP Reinit (sn)', type: 'text', min: 1, max: 10, placeholder: '2', hint: 'Boş = varsayılan 2' },
+                        { name: 'cdp', why: 'CDP cihaz modeli, NX-OS sürümü ve yönetim IP’sini açık metinle yayınlar; saldırgan için hazır keşif bilgisidir.', label: 'CDP (global)', type: 'select', options: [
+                            { value: 'keep', label: 'Değiştirme', selected: true },
+                            { value: 'on', label: 'Açık — cdp enable' },
+                            { value: 'off', label: 'Kapalı — no cdp enable' }
+                        ]}
+                    ]
+                },
+                {
+                    title: 'Güvenilmeyen Portlarda Kapat', icon: 'fas fa-ban',
+                    fields: [
+                        { name: 'off_ifs', why: 'Bu portlarda keşif protokolü bilgi sızdırır. Port-channel’a yazılan lldp ayarı üye portları etkilemez; üye portları ayrıca girin.', label: 'Arayüzler', type: 'text', validate: 'iface_range', placeholder: 'Ethernet1/48', hint: 'Virgülle liste; boş = dokunma' }
+                    ]
+                }
+            ],
+            submit: 'LLDP/CDP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const t = cgEsc(data.lldp_timer || ''), h = cgEsc(data.lldp_hold || ''), r = cgEsc(data.lldp_reinit || '');
+            const lon = data.lldp_on !== 'off';
+            let c = cgNxHdr('LLDP / CDP');
+            c += (lon ? 'feature lldp' : 'no feature lldp') + '\n';
+            if (lon && t) c += 'lldp timer ' + t + '\n';
+            if (lon && h) c += 'lldp holdtime ' + h + '\n';
+            if (lon && r) c += 'lldp reinit ' + r + '\n';
+            if (data.cdp === 'on') c += 'cdp enable\n'; else if (data.cdp === 'off') c += 'no cdp enable\n';
+            c += '\n';
+            cgNxList(cgEsc(data.off_ifs || '')).forEach(i => {
+                if (!lon && data.cdp === 'off') return;
+                c += 'interface ' + i + '\n';
+                if (lon) c += '  no lldp transmit\n  no lldp receive\n';
+                if (data.cdp !== 'off') c += '  no cdp enable\n';
+                c += '\n';
+            });
+            c += '! Doğrulama:\n! show lldp neighbors\n! show lldp timers\n! show cdp neighbors\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: CoPP ──────────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (copp profile strict: 11 cihaz)
+// + https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/103x/configuration/security/cisco-nexus-9000-nx-os-security-configuration-guide-103x/m-configuring-copp.html
+//   (strict|moderate|lenient|dense; copp copy profile ... prefix|suffix; onay istemi)
+CiscoNXOS.copp = {
+    label: 'CoPP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-shield-alt', title: 'CoPP — Control Plane Policing (NX-OS)', desc: 'Supervisor CPU’ya giden trafiği sınıf bazında hız sınırıyla korur (DoS, yanlış yapılandırılmış komşu, döngü). NX-OS hazır profillerle gelir; ilk kurulumda <b>strict</b> uygulanır.' },
+            sections: [
+                {
+                    title: 'Profil', icon: 'fas fa-sliders-h',
+                    warn: 'Profil değişikliği kontrol düzlemi trafiğinde kısa bir kesinti yaratabilir; komut <code>Proceed (y/n)?</code> onayı ister. Bakım penceresinde uygulayın.',
+                    fields: [
+                        { name: 'cp_profile', why: 'strict en düşük burst değerleriyle en güçlü korumayı verir. Çok sayıda BGP/OSPF komşusu veya yüksek ARP yükü olan cihazlarda protokol paketleri düşerse moderate/lenient değerlendirilebilir.', label: 'CoPP Profili', type: 'select', options: [
+                            { value: 'strict', label: 'strict (varsayılan, önerilen)', selected: true },
+                            { value: 'moderate', label: 'moderate' },
+                            { value: 'lenient', label: 'lenient' },
+                            { value: 'dense', label: 'dense (yoğun kart/port)' }
+                        ]}
+                    ]
+                },
+                {
+                    title: 'Özelleştirme (opsiyonel)', icon: 'fas fa-copy',
+                    info: 'Hazır profiller salt okunurdur. Değiştirmek için profilin kopyası alınır; kopyadaki class-map/policy-map adlarına verilen önek/sonek eklenir.',
+                    fields: [
+                        { name: 'cp_copy', label: 'Profilin düzenlenebilir kopyasını al (copp copy profile)', type: 'checkbox', checked: false },
+                        { name: 'cp_mode', label: 'Ad Ekleme Biçimi', type: 'select', options: [
+                            { value: 'prefix', label: 'prefix (önek)', selected: true },
+                            { value: 'suffix', label: 'suffix (sonek)' }
+                        ]},
+                        { name: 'cp_name', label: 'Önek / Sonek', type: 'text', requiredIf: { field: 'cp_copy', checked: true }, placeholder: 'CUSTOM' }
+                    ]
+                }
+            ],
+            submit: 'CoPP Konfigürasyonu Oluştur'
+        }, (data) => {
+            const pr = cgEsc(data.cp_profile || 'strict');
+            let c = cgNxHdr('CoPP');
+            c += 'copp profile ' + pr + '\n';
+            if (data.cp_copy) {
+                c += '\n! Özelleştirme kopyası — EXEC modunda (config dışında) çalıştırın:\n';
+                c += '! copp copy profile ' + pr + ' ' + cgEsc(data.cp_mode || 'prefix') + ' ' + cgEsc(data.cp_name || '') + '\n';
+            }
+            c += '\n! Doğrulama:\n! show copp status\n! show copp profile ' + pr + '\n! show policy-map interface control-plane\n';
+            return c;
+        });
+    }
+};

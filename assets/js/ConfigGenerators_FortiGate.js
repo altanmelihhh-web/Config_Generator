@@ -193,6 +193,17 @@ FortiGate.policy = {
                             { value: 'disable', label: 'Disable' }
                         ]}
                     ]
+                },
+                {
+                    // Sözdizimi: canlı config (5 cihaz — comments/groups/users/status) + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/333889629/config-firewall-policy
+                    title: 'Kimlik & Ek Ayarlar',
+                    icon: 'fas fa-user-shield',
+                    fields: [
+                        { name: 'pol_comments', why: 'Kuralın neden var olduğunu (talep/ticket no, sahibi) yazmak, kural temizliğinde "bunu silebilir miyiz?" sorusunu cevaplar.', label: 'Açıklama (comments)', type: 'text', placeholder: 'CHG-1234 web erişimi', hint: 'Kural açıklaması' },
+                        { name: 'pol_groups', why: 'Kullanıcı grubu verilirse kural yalnız kimliği doğrulanmış o grup üyeleri için eşleşir. Grup adı <code>config user group</code> altında tanımlı olmalı.', label: 'Kullanıcı Grupları', type: 'text', placeholder: 'VPN_USERS', hint: 'Virgülle ayrılmış grup adları' },
+                        { name: 'pol_users', why: 'Tek tek kullanıcıya bağlanan kural, grup tabanlı kurala göre bakımı zordur; mümkünse grup kullan.', label: 'Kullanıcılar', type: 'text', placeholder: 'user1', hint: 'Virgülle ayrılmış yerel kullanıcı adları' },
+                        { name: 'pol_disabled', why: 'Kuralı devre dışı oluşturmak, bakım penceresinde tek komutla (<code>set status enable</code>) açmayı sağlar.', label: 'Kuralı devre dışı oluştur', type: 'checkbox', checked: false, hint: 'set status disable' }
+                    ]
                 }
             ],
             submit: 'Konfigürasyon Oluştur'
@@ -217,6 +228,11 @@ function cgFgPolicyGen(data) {
     c += '        set service "' + cgEsc(data.service || '') + '"\n';
     c += '        set logtraffic ' + cgEsc(data.logtraffic || 'all') + '\n';
     if ((data.nat || 'enable') === 'enable') c += '        set nat enable\n';
+    const pGroups = cgFgQList(data.pol_groups), pUsers = cgFgQList(data.pol_users);
+    if (pGroups) c += '        set groups ' + pGroups + '\n';
+    if (pUsers) c += '        set users ' + pUsers + '\n';
+    if (data.pol_comments) c += '        set comments "' + cgEsc(data.pol_comments) + '"\n';
+    if (data.pol_disabled) c += '        set status disable\n';
     c += '    next\nend\n\n';
     c += '# Doğrulama:\n# show firewall policy ' + rid + '\n# diagnose firewall iprope show 00100004 ' + rid + '\n';
     return c;
@@ -344,8 +360,49 @@ FortiGate.ipsec = {
                     icon: 'fas fa-tunnel',
                     fields: [
                         { name: 'p2_name', why: "Phase 2, hangi trafiğin şifreleneceğini belirler. Phase 1 kurulup Phase 2 kurulmazsa tünel 'up' görünür ama trafik geçmez.",       label: 'Phase 2 Adı',      type: 'text', required: true, placeholder: 'VPN_P2',                       hint: 'Her tünel için benzersiz ad' },
-                        { name: 'local_subnet', why: "Bu tarafın şifrelenecek ağı. Trafik seçicileri iki tarafta <b>ayna</b> olmalı: senin local'in karşının remote'u olmalı.",  label: 'Yerel Subnet',     type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0',     hint: 'Nokta-ondalık: IP MASK formatı' },
-                        { name: 'remote_subnet', why: 'Karşı tarafın ağı. Bu subnet için <b>statik rota</b> ve <b>iki yönlü firewall kuralı</b> da gerekir — tünel kurulup trafiğin akmamasının en yaygın sebebi budur.', label: 'Uzak Subnet',      type: 'text', required: true, placeholder: '10.0.0.0 255.255.255.0',        hint: 'Karşı tarafın iç ağı' }
+                        { name: 'p2_sel', why: "Seçici tipi: <code>subnet</code> tek bir ağ; <code>name</code> ise bir adres nesnesi veya grubu (birden fazla ağı tek phase2'de taşır). İki tarafın proxy-ID'leri birebir eşleşmeli.", label: 'Trafik Seçici Tipi', type: 'select', options: [
+                            { value: 'subnet', label: 'Subnet (IP MASK)', selected: true },
+                            { value: 'name',   label: 'Adres nesnesi / grubu' }
+                        ]},
+                        { name: 'local_subnet', why: "Bu tarafın şifrelenecek ağı. Trafik seçicileri iki tarafta <b>ayna</b> olmalı: senin local'in karşının remote'u olmalı.",  label: 'Yerel Subnet',     type: 'text', requiredIf: { field: 'p2_sel', in: ['subnet'] }, validate: 'ip_mask', placeholder: '192.168.1.0 255.255.255.0',     hint: 'Nokta-ondalık: IP MASK formatı' },
+                        { name: 'remote_subnet', why: 'Karşı tarafın ağı. Bu subnet için <b>statik rota</b> ve <b>iki yönlü firewall kuralı</b> da gerekir — tünel kurulup trafiğin akmamasının en yaygın sebebi budur.', label: 'Uzak Subnet',      type: 'text', requiredIf: { field: 'p2_sel', in: ['subnet'] }, validate: 'ip_mask', placeholder: '10.0.0.0 255.255.255.0',        hint: 'Karşı tarafın iç ağı' },
+                        { name: 'p2_src_name', why: 'Yerel tarafı temsil eden adres nesnesi/grubu. Önceden <code>config firewall address</code> / <code>addrgrp</code> altında tanımlı olmalı.', label: 'Yerel Adres Nesnesi', type: 'text', requiredIf: { field: 'p2_sel', in: ['name'] }, placeholder: 'LAN_NETS', hint: 'src-name' },
+                        { name: 'p2_dst_name', why: 'Karşı tarafı temsil eden adres nesnesi/grubu. Karşı cihazdaki yerel seçiciyle aynı ağları içermeli.', label: 'Uzak Adres Nesnesi', type: 'text', requiredIf: { field: 'p2_sel', in: ['name'] }, placeholder: 'REMOTE_NETS', hint: 'dst-name' },
+                        { name: 'p2_keylife', why: 'Phase 2 anahtar ömrü (saniye). Varsayılan 43200. İki tarafta farklıysa çoğu cihaz küçüğü kabul eder ama bazı üçüncü taraf cihazlar reddeder — eşit tut.', label: 'Phase 2 Key Life (sn)', type: 'text', min: 120, max: 172800, placeholder: '3600', hint: '120–172800 (keylifeseconds)' },
+                        { name: 'p2_autoneg', why: 'Açıkken SA trafik beklemeden kurulur ve süresi dolmadan yenilenir; ilk paketin düşmesini ve "tünel ilk pingte gelmiyor" şikâyetini önler.', label: 'Auto-negotiate', type: 'checkbox', checked: false, hint: 'set auto-negotiate enable' },
+                        { name: 'p2_pfs', why: 'PFS her phase2 yenilemesinde yeni DH değişimi yapar; bir anahtarın ele geçmesi eski trafiği açmaz. Karşı taraf PFS desteklemiyorsa kapatmak gerekir — güvenliği düşürür.', label: 'PFS', type: 'select', options: [
+                            { value: '',        label: 'Varsayılan (enable)', selected: true },
+                            { value: 'disable', label: 'Disable (karşı taraf desteklemiyorsa)' }
+                        ]},
+                        { name: 'p2_replay', why: 'Replay tespiti aynı ESP paketinin tekrar gönderilmesini engeller. Yalnız sıra dışı paket üreten yollarda (ör. bazı SD-WAN/yük dengeleme) kapatılır.', label: 'Replay Tespiti', type: 'select', options: [
+                            { value: '',        label: 'Varsayılan (enable)', selected: true },
+                            { value: 'disable', label: 'Disable' }
+                        ]},
+                        { name: 'p2_comments', why: 'Karşı kurum/devre bilgisi yazmak, çok tünelli cihazda doğru phase2\'yi bulmayı kolaylaştırır.', label: 'Phase 2 Açıklama', type: 'text', placeholder: 'Merkez-Şube tüneli', hint: 'comments' }
+                    ]
+                },
+                {
+                    // Sözdizimi: canlı config (5 cihaz) + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/305883427/config-vpn-ipsec-phase1-interface
+                    title: 'Phase 1 — Ek Ayarlar',
+                    icon: 'fas fa-sliders-h',
+                    fields: [
+                        { name: 'p1_dpd', why: 'Dead Peer Detection karşı tarafın düştüğünü algılar ve SA\'yı temizler. Kapalıysa karşı taraf yeniden başladığında tünel uzun süre "up" görünüp trafik geçirmez.', label: 'DPD', type: 'select', options: [
+                            { value: '',          label: 'Varsayılan (on-demand)', selected: true },
+                            { value: 'on-idle',   label: 'on-idle' },
+                            { value: 'disable',   label: 'disable' }
+                        ]},
+                        { name: 'p1_nat', why: 'NAT-T, IPsec\'i UDP 4500 içine alarak NAT arkasından geçirir. İki uç da genel IP ise kapatılabilir; <code>forced</code> NAT olmasa da UDP kapsüllemeyi zorlar.', label: 'NAT Traversal', type: 'select', options: [
+                            { value: '',        label: 'Varsayılan (enable)', selected: true },
+                            { value: 'disable', label: 'disable' },
+                            { value: 'forced',  label: 'forced' }
+                        ]},
+                        { name: 'p1_netdevice', why: 'Her tünel için ayrı çekirdek arayüzü oluşturur. Dial-up (çok istemcili) tünellerde ölçeklenmeyi etkiler; site-to-site için genelde varsayılan yeterlidir.', label: 'net-device', type: 'select', options: [
+                            { value: '',        label: 'Varsayılan', selected: true },
+                            { value: 'enable',  label: 'enable' },
+                            { value: 'disable', label: 'disable' }
+                        ]},
+                        { name: 'p1_keylife', why: 'Phase 1 anahtar ömrü (saniye). Varsayılan 86400. İki tarafta aynı değer yeniden anahtarlama sürprizlerini önler.', label: 'Phase 1 Key Life (sn)', type: 'text', min: 120, max: 172800, placeholder: '28800', hint: '120–172800 (keylife)' },
+                        { name: 'p1_comments', why: 'Karşı taraf kurum/iletişim bilgisi, arıza anında kimi arayacağını söyler.', label: 'Phase 1 Açıklama', type: 'text', placeholder: 'Şube-01 VPN', hint: 'comments' }
                     ]
                 }
             ],
@@ -376,13 +433,34 @@ function cgFgIpsecGen(data) {
     c += '        set ike-version ' + ikever + '\n';
     c += '        set proposal ' + proposal + '\n';
     c += '        set dhgrp ' + dhgrp + '\n';
+    if (data.p1_dpd) c += '        set dpd ' + cgEsc(data.p1_dpd) + '\n';
+    if (data.p1_nat) c += '        set nattraversal ' + cgEsc(data.p1_nat) + '\n';
+    if (data.p1_netdevice) c += '        set net-device ' + cgEsc(data.p1_netdevice) + '\n';
+    if (data.p1_keylife) c += '        set keylife ' + cgEsc(data.p1_keylife) + '\n';
+    if (data.p1_comments) c += '        set comments "' + cgEsc(data.p1_comments) + '"\n';
     c += '    next\nend\n\n';
+    const p2sel = data.p2_sel === 'name' ? 'name' : 'subnet';
+    const pfsOff = data.p2_pfs === 'disable';
+    if (pfsOff) c += '# UYARI: PFS kapalı — yalnız karşı taraf desteklemiyorsa kullanın.\n';
+    if (data.p2_replay === 'disable') c += '# UYARI: replay tespiti kapalı — tekrar gönderilen ESP paketleri kabul edilir.\n';
     c += 'config vpn ipsec phase2-interface\n    edit "' + p2 + '"\n';
     c += '        set phase1name "' + p1 + '"\n';
     c += '        set proposal ' + proposal + '\n';
-    c += '        set dhgrp ' + dhgrp + '\n';
-    c += '        set src-subnet ' + lsub + '\n';
-    c += '        set dst-subnet ' + rsub + '\n';
+    if (pfsOff) c += '        set pfs disable\n';
+    else c += '        set dhgrp ' + dhgrp + '\n';
+    if (data.p2_replay === 'disable') c += '        set replay disable\n';
+    if (data.p2_autoneg) c += '        set auto-negotiate enable\n';
+    if (data.p2_keylife) c += '        set keylifeseconds ' + cgEsc(data.p2_keylife) + '\n';
+    if (p2sel === 'name') {
+        c += '        set src-addr-type name\n';
+        c += '        set dst-addr-type name\n';
+        c += '        set src-name "' + cgEsc(data.p2_src_name || '') + '"\n';
+        c += '        set dst-name "' + cgEsc(data.p2_dst_name || '') + '"\n';
+    } else {
+        c += '        set src-subnet ' + lsub + '\n';
+        c += '        set dst-subnet ' + rsub + '\n';
+    }
+    if (data.p2_comments) c += '        set comments "' + cgEsc(data.p2_comments) + '"\n';
     c += '    next\nend\n\n';
     c += '# Tunnel interface routing\'i de ayarla:\n# config router static\n#     edit 0\n#         set dst <remote-net>\n#         set device "' + p1 + '"\n#     next\n# end\n\n';
     c += '# Doğrulama:\n# get vpn ipsec tunnel summary\n# diagnose vpn ike gateway list\n# diagnose vpn tunnel list\n';
@@ -1410,5 +1488,1107 @@ function cgFgFswportGen(data) {
     if (nativeVlan) c += '        set untagged-vlans ' + nativeVlan + '\n';
     c += '    next\nend\n\n';
     c += '# Doğrulama:\n# show switch-controller vlan-policy "' + pname + '"\n';
+    return c;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Ortak yardımcılar (yeni araçlar)
+// ══════════════════════════════════════════════════════════════════════════════
+// Virgül / satır sonu ile ayrılmış nesne adlarını '"a" "b"' biçimine çevirir.
+// Nesne adları boşluk içerebildiği için boşluk ayraç DEĞİLDİR.
+function cgFgQList(s) {
+    return String(s || '').split(/[,\n]+/).map(x => x.trim()).filter(Boolean)
+        .map(x => '"' + cgEsc(x) + '"').join(' ');
+}
+// Arayüz adları boşluk içermez: virgül / boşluk / satır sonu ayraçtır.
+function cgFgIfList(s) {
+    return String(s || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean)
+        .map(x => '"' + cgEsc(x) + '"').join(' ');
+}
+// FortiOS port aralığı listesi: '443 8443 1000-2000' → geçerli parçalar + hatalı parçalar.
+function cgFgPortRanges(s) {
+    const ok = [], bad = [];
+    String(s || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean).forEach(p => {
+        const m = p.match(/^(\d{1,5})(?:-(\d{1,5}))?$/);
+        if (m && +m[1] >= 1 && +m[1] <= 65535 && (!m[2] || (+m[2] <= 65535 && +m[1] <= +m[2]))) ok.push(p);
+        else bad.push(p);
+    });
+    return { ok, bad };
+}
+const CG_FG_IPRE = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+
+// ── FortiGate: Static Route ───────────────────────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — dst/gateway/device/distance/priority/comment/status)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/200835411/config-router-static (blackhole)
+FortiGate.static = {
+    label: 'Static Route',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Static Route (FortiGate)',
+                desc: 'IPv4 statik rota: gateway üzerinden veya blackhole (trafiği düşüren) rota.<br><code>config router static\n  edit 10\n    set dst 10.20.0.0 255.255.0.0\n    set gateway 192.0.2.1\n    set device "port1"\n  next\nend</code>'
+            },
+            configTypes: [
+                { id: 'gw',        label: 'Gateway Rotası',  icon: 'fas fa-arrow-right', desc: 'Next-hop IP + çıkış arayüzü', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'tunnel',    label: 'Tünel / Arayüz',  icon: 'fas fa-lock',        desc: 'Yalnız çıkış arayüzü (IPsec tüneli)' },
+                { id: 'blackhole', label: 'Blackhole',       icon: 'fas fa-ban',         desc: 'Eşleşen trafiği sessizce düşürür' }
+            ],
+            sections: [
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'seq', why: 'FortiOS statik rotaları sıra numarasıyla (<code>edit N</code>) tutar. Var olan bir numarayı yazarsan o rotanın üzerine yazılır — önce <code>show router static</code> ile boş numara seç.', label: 'Sıra No (seq-num)', type: 'text', required: true, validate: 'posint', placeholder: '10', hint: 'edit numarası' },
+                        { name: 'dst', why: 'Hedef ağ ve maskesi. Varsayılan rota için <code>0.0.0.0 0.0.0.0</code>. Yanlış maske (ör. /16 yerine /24) trafiğin bir kısmını başka rotaya kaçırır.', label: 'Hedef (IP MASK)', type: 'text', required: true, validate: 'ip_mask', placeholder: '10.20.0.0 255.255.0.0', hint: 'Nokta-ondalık: IP MASK' }
+                    ]
+                },
+                {
+                    title: 'Next-hop',
+                    icon: 'fas fa-arrow-right',
+                    showFor: ['gw', 'tunnel'],
+                    fields: [
+                        { name: 'gateway', why: 'Sonraki atlama IP\'si, çıkış arayüzüyle aynı ağda olmalı. Aksi halde rota tabloya girmez (inactive kalır).', label: 'Gateway', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['gw'] }, placeholder: '192.0.2.1', hint: 'Next-hop IP' },
+                        { name: 'device', why: 'FortiOS statik rotada çıkış arayüzü ister. IPsec tüneli için tünelin phase1 adı yazılır; gateway gerekmez.', label: 'Çıkış Arayüzü (device)', type: 'text', requiredIf: { field: '_cgtype', in: ['gw', 'tunnel'] }, placeholder: 'port1', hint: 'Arayüz veya tünel adı' }
+                    ]
+                },
+                {
+                    title: 'Tercih & Açıklama',
+                    icon: 'fas fa-sort-amount-down',
+                    fields: [
+                        { name: 'distance', why: 'Yönetimsel mesafe (varsayılan 10). Küçük olan kazanır; yedek (floating) rota için daha büyük değer ver. Eşit distance\'ta <code>priority</code> devreye girer.', label: 'Distance', type: 'text', min: 1, max: 255, placeholder: '20', hint: '1–255 (varsayılan 10)' },
+                        { name: 'priority', why: 'Aynı distance\'taki rotalar arasında tercih (küçük olan tercih edilir, varsayılan 1). İki rota da tabloda kalır — ECMP yerine aktif/yedek yapmak için kullanılır.', label: 'Priority', type: 'text', min: 1, max: 65535, placeholder: '5', hint: '1–65535 (varsayılan 1)' },
+                        { name: 'comment', why: 'Yüzlerce statik rotası olan cihazda rotanın kime ait olduğunu açıklama söyler.', label: 'Açıklama', type: 'text', placeholder: 'Şube-01 ağı', hint: 'comment' },
+                        { name: 'disabled', why: 'Rotayı pasif oluşturur; bakım penceresinde <code>set status enable</code> ile açılır.', label: 'Devre dışı oluştur', type: 'checkbox', checked: false, hint: 'set status disable' }
+                    ]
+                }
+            ],
+            submit: 'Rota Oluştur'
+        }, (data) => cgFgStaticGen(data));
+    }
+};
+function cgFgStaticGen(data) {
+    const ty = data._cgtype || 'gw';
+    const seq = cgEsc(data.seq || '');
+    let c = '# ========================================\n# FortiGate — Static Route\n# ========================================\n\n';
+    if (ty === 'blackhole') c += '# Not: blackhole rota eşleşen trafiği sessizce düşürür (özet/sinkhole rota).\n';
+    c += 'config router static\n    edit ' + seq + '\n';
+    c += '        set dst ' + cgEsc(data.dst || '') + '\n';
+    if (ty === 'blackhole') {
+        c += '        set blackhole enable\n';
+    } else {
+        if (ty === 'gw') c += '        set gateway ' + cgEsc(data.gateway || '') + '\n';
+        c += '        set device "' + cgEsc(data.device || '') + '"\n';
+    }
+    if (data.distance) c += '        set distance ' + cgEsc(data.distance) + '\n';
+    if (data.priority) c += '        set priority ' + cgEsc(data.priority) + '\n';
+    if (data.comment) c += '        set comment "' + cgEsc(data.comment) + '"\n';
+    if (data.disabled) c += '        set status disable\n';
+    c += '    next\nend\n\n';
+    c += '# Doğrulama:\n# show router static ' + seq + '\n# get router info routing-table static\n# get router info routing-table database\n';
+    return c;
+}
+
+// ── FortiGate: Service Object / Service Group ─────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — tcp-portrange/udp-portrange/protocol ICMP|IP/icmptype/protocol-number/category/comment; service group member)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/198499981/config-firewall-service-custom
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/242456538/config-firewall-service-group
+FortiGate.service = {
+    label: 'Service Object / Group',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-plug',
+                title: 'Servis Nesnesi & Grubu (FortiGate)',
+                desc: 'Policy\'lerde kullanılacak özel TCP/UDP, ICMP, IP protokol servisleri ve servis grupları.<br><code>config firewall service custom\n  edit "TCP_8443"\n    set tcp-portrange 8443\n  next\nend</code>'
+            },
+            configTypes: [
+                { id: 'tcpudp', label: 'TCP / UDP',      icon: 'fas fa-exchange-alt', desc: 'Port veya port aralığı', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'icmp',   label: 'ICMP',           icon: 'fas fa-satellite-dish', desc: 'ICMP tipi (ör. 8 = echo)' },
+                { id: 'ip',     label: 'IP Protokol No', icon: 'fas fa-hashtag',     desc: 'GRE (47), ESP (50) gibi' },
+                { id: 'group',  label: 'Servis Grubu',   icon: 'fas fa-layer-group', desc: 'Mevcut servisleri gruplar' }
+            ],
+            sections: [
+                {
+                    title: 'Servis',
+                    icon: 'fas fa-tag',
+                    showFor: ['tcpudp', 'icmp', 'ip'],
+                    fields: [
+                        { name: 'svc_name', why: 'Adda protokol ve portu taşımak (<code>TCP_8443</code>) kural okumasını hızlandırır. Hazır servislerle (HTTPS, SSH) aynı adı verme.', label: 'Servis Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['tcpudp', 'icmp', 'ip'] }, placeholder: 'TCP_8443', hint: 'Policy service alanında kullanılacak ad' },
+                        { name: 'svc_category', why: 'GUI\'deki servis kategorisi; yalnız görünümü düzenler. Var olmayan kategori adı hataya yol açar — boş bırakabilirsin.', label: 'Kategori', type: 'text', placeholder: 'Network Services', hint: 'Mevcut kategori adı (opsiyonel)' },
+                        { name: 'svc_comment', why: 'Portun hangi uygulamaya ait olduğunu yazmak, ileride "bu port neden açık?" sorusunu cevaplar.', label: 'Açıklama', type: 'text', placeholder: 'Uygulama yönetim portu', hint: 'comment' }
+                    ]
+                },
+                {
+                    title: 'TCP / UDP Portları',
+                    icon: 'fas fa-exchange-alt',
+                    showFor: ['tcpudp'],
+                    fields: [
+                        { name: 'svc_l4', why: 'TCP ve UDP aynı servis nesnesinde birlikte tanımlanabilir (ör. DNS 53, LDAP 389). Gerekmeyen protokolü eklemek kuralı gereksiz genişletir.', label: 'L4 Protokol', type: 'select', options: [
+                            { value: 'tcp',  label: 'TCP', selected: true },
+                            { value: 'udp',  label: 'UDP' },
+                            { value: 'both', label: 'TCP + UDP' }
+                        ]},
+                        { name: 'svc_ports', why: 'Hedef port(lar). Birden çok port/aralık boşlukla: <code>443 8443 1000-2000</code>. Geniş aralık (<code>1-65535</code>) servisi <code>ALL</code> ile eşdeğer yapar — kuralı daraltmanın anlamı kalmaz.', label: 'Port(lar)', type: 'text', requiredIf: { field: '_cgtype', in: ['tcpudp'] }, placeholder: '8443', hint: 'ör: 443 8443 1000-2000' }
+                    ]
+                },
+                {
+                    title: 'ICMP',
+                    icon: 'fas fa-satellite-dish',
+                    showFor: ['icmp'],
+                    fields: [
+                        { name: 'icmp_type', why: 'ICMP tipi: 8 = echo request, 0 = echo reply, 3 = unreachable. Boş bırakılırsa tüm ICMP tipleri eşleşir.', label: 'ICMP Tipi', type: 'text', min: 0, max: 255, placeholder: '8', hint: '0–255 (boş = tümü)' }
+                    ]
+                },
+                {
+                    title: 'IP Protokolü',
+                    icon: 'fas fa-hashtag',
+                    showFor: ['ip'],
+                    fields: [
+                        { name: 'proto_num', why: 'IANA protokol numarası: 47 = GRE, 50 = ESP, 89 = OSPF. TCP (6) / UDP (17) için TCP/UDP tipini kullan.', label: 'Protokol No', type: 'text', min: 0, max: 255, requiredIf: { field: '_cgtype', in: ['ip'] }, placeholder: '47', hint: '0–255' }
+                    ]
+                },
+                {
+                    title: 'Servis Grubu',
+                    icon: 'fas fa-layer-group',
+                    showFor: ['group'],
+                    fields: [
+                        { name: 'grp_name', why: 'Grup, birden fazla servisi tek policy satırında toplar; kural sayısını azaltır.', label: 'Grup Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['group'] }, placeholder: 'WEB_SERVICES', hint: 'Servis grubu adı' },
+                        { name: 'grp_members', why: 'Üyeler önceden tanımlı servisler olmalı (hazır: HTTP, HTTPS, SSH… veya özel). Yazım hatası tüm komutu reddettirir.', label: 'Üyeler', type: 'textarea', requiredIf: { field: '_cgtype', in: ['group'] }, placeholder: 'HTTP\nHTTPS\nTCP_8443', hint: 'Her satıra bir servis (veya virgülle)' },
+                        { name: 'grp_comment', why: 'Grubun hangi uygulama için olduğunu yaz.', label: 'Açıklama', type: 'text', placeholder: 'Web uygulama servisleri', hint: 'comment' }
+                    ]
+                }
+            ],
+            submit: 'Servis Oluştur'
+        }, (data) => cgFgServiceGen(data));
+    }
+};
+function cgFgServiceGen(data) {
+    const ty = data._cgtype || 'tcpudp';
+    let c = '# ========================================\n# FortiGate — Service Object\n# ========================================\n\n';
+    if (ty === 'group') {
+        const name = cgEsc(data.grp_name || '');
+        const mem = cgFgQList(data.grp_members);
+        if (!mem) c += '# UYARI: üye listesi boş — member satırı yazılmadı.\n';
+        c += 'config firewall service group\n    edit "' + name + '"\n';
+        if (mem) c += '        set member ' + mem + '\n';
+        if (data.grp_comment) c += '        set comment "' + cgEsc(data.grp_comment) + '"\n';
+        c += '    next\nend\n\n';
+        c += '# Doğrulama:\n# show firewall service group "' + name + '"\n';
+        return c;
+    }
+    const name = cgEsc(data.svc_name || '');
+    let body = '';
+    if (ty === 'tcpudp') {
+        const pr = cgFgPortRanges(data.svc_ports), l4 = data.svc_l4 || 'tcp';
+        if (pr.bad.length) c += '# UYARI: geçersiz port ifadesi atlandı: ' + cgEsc(pr.bad.join(' ')) + '\n';
+        if (!pr.ok.length) return c + '\n# Servis yazılmadı: en az bir geçerli port (1-65535) girin.\n';
+        if (pr.ok.indexOf('1-65535') !== -1) c += '# UYARI: 1-65535 aralığı tüm portları kapsar (ALL ile eşdeğer).\n';
+        if (l4 === 'tcp' || l4 === 'both') body += '        set tcp-portrange ' + pr.ok.join(' ') + '\n';
+        if (l4 === 'udp' || l4 === 'both') body += '        set udp-portrange ' + pr.ok.join(' ') + '\n';
+    } else if (ty === 'icmp') {
+        body += '        set protocol ICMP\n';
+        if (data.icmp_type !== undefined && String(data.icmp_type).trim() !== '') body += '        set icmptype ' + cgEsc(data.icmp_type) + '\n';
+    } else {
+        body += '        set protocol IP\n';
+        body += '        set protocol-number ' + cgEsc(data.proto_num || '') + '\n';
+    }
+    c += 'config firewall service custom\n    edit "' + name + '"\n' + body;
+    if (data.svc_category) c += '        set category "' + cgEsc(data.svc_category) + '"\n';
+    if (data.svc_comment) c += '        set comment "' + cgEsc(data.svc_comment) + '"\n';
+    c += '    next\nend\n\n';
+    c += '# Doğrulama:\n# show firewall service custom "' + name + '"\n';
+    return c;
+}
+
+// ── FortiGate: Address Group + toplu adres ────────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — addrgrp member/comment/allow-routing; address subnet/start-ip/end-ip)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/301511994/config-firewall-addrgrp
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/306021697/config-firewall-address
+FortiGate.addrgrp = {
+    label: 'Address Group / Toplu Adres',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-object-group',
+                title: 'Adres Grubu & Toplu Adres (FortiGate)',
+                desc: 'Mevcut adres nesnelerinden grup oluşturur veya IP listesinden tek seferde adres nesneleri + grup üretir.<br><code>config firewall addrgrp\n  edit "WEB_SERVERS"\n    set member "SRV_10.0.0.10" "SRV_10.0.0.11"\n  next\nend</code>'
+            },
+            configTypes: [
+                { id: 'bulk',  label: 'IP Listesinden', icon: 'fas fa-list', desc: 'IP/CIDR/aralık listesi → adres + grup', badge: { text: 'Toplu', cls: 'recommended' } },
+                { id: 'group', label: 'Mevcut Nesneler', icon: 'fas fa-object-group', desc: 'Tanımlı adres nesnelerini grupla' }
+            ],
+            sections: [
+                {
+                    title: 'Grup',
+                    icon: 'fas fa-object-group',
+                    fields: [
+                        { name: 'ag_name', why: 'Grup adı policy\'de srcaddr/dstaddr olarak kullanılır. Grup üyeliğini değiştirmek, kuralı değiştirmeden erişimi günceller.', label: 'Grup Adı', type: 'text', required: true, placeholder: 'WEB_SERVERS', hint: 'addrgrp adı' },
+                        { name: 'ag_comment', why: 'Grubun amacını (hangi uygulama, kim talep etti) yazmak denetimde işe yarar.', label: 'Açıklama', type: 'text', placeholder: 'Web sunucuları', hint: 'comment' },
+                        { name: 'ag_routing', why: 'Açıksa grup statik rota / SD-WAN hedefi olarak da kullanılabilir. Yalnız policy için gerekmez.', label: 'Rotalamada kullanılabilir (allow-routing)', type: 'checkbox', checked: false, hint: 'set allow-routing enable' }
+                    ]
+                },
+                {
+                    title: 'IP Listesi',
+                    icon: 'fas fa-list',
+                    showFor: ['bulk'],
+                    info: 'Her satıra bir girdi: <code>10.0.0.10</code> · <code>10.0.1.0/24</code> · <code>10.0.2.0 255.255.255.0</code> · <code>10.0.3.10-10.0.3.20</code>. Tekrarlar atlanır.',
+                    fields: [
+                        { name: 'ag_list', why: 'Her satır ayrı <code>firewall address</code> nesnesi olur ve gruba eklenir. Geçersiz satırlar atlanır ve çıktıda UYARI olarak listelenir.', label: 'IP / Ağ Listesi', type: 'textarea', requiredIf: { field: '_cgtype', in: ['bulk'] }, placeholder: '10.0.0.10\n10.0.1.0/24', hint: 'Satır satır' },
+                        { name: 'ag_prefix', why: 'Nesne adı = önek + adres (ör. <code>SRV_10.0.0.10</code>, ağlar için <code>SRV_10.0.1.0_24</code>). Önek, nesneyi hangi amaçla açtığını gösterir.', label: 'Nesne Adı Öneki', type: 'text', placeholder: 'SRV_', hint: 'Boşsa ad = adres' }
+                    ]
+                },
+                {
+                    title: 'Üyeler',
+                    icon: 'fas fa-list',
+                    showFor: ['group'],
+                    fields: [
+                        { name: 'ag_members', why: 'Üyeler önceden tanımlı adres nesnesi/grubu olmalı. Olmayan ad yazılırsa FortiOS tüm satırı reddeder.', label: 'Üye Nesneler', type: 'textarea', requiredIf: { field: '_cgtype', in: ['group'] }, placeholder: 'SRV_WEB01\nSRV_WEB02', hint: 'Her satıra bir nesne (veya virgülle)' }
+                    ]
+                }
+            ],
+            submit: 'Grup Oluştur'
+        }, (data) => cgFgAddrgrpGen(data));
+    }
+};
+function cgFgAddrgrpGen(data) {
+    const ty = data._cgtype || 'bulk';
+    const gname = cgEsc(data.ag_name || '');
+    let c = '# ========================================\n# FortiGate — Address Group\n# ========================================\n\n';
+    let members = [];
+    if (ty === 'bulk') {
+        const prefix = String(data.ag_prefix || '').trim();
+        const seen = new Set(), bad = [];
+        let addr = '';
+        String(data.ag_list || '').split(/\n+/).map(x => x.trim()).filter(Boolean).forEach(line => {
+            let name = '', body = '', m;
+            if (CG_FG_IPRE.test(line)) {
+                name = line; body = '        set subnet ' + line + ' 255.255.255.255\n';
+            } else if ((m = line.match(/^(\S+)\/(\d{1,2})$/)) && CG_FG_IPRE.test(m[1]) && +m[2] <= 32) {
+                const len = +m[2];
+                const mask = [0, 1, 2, 3].map(i => { const b = Math.max(0, Math.min(8, len - i * 8)); return 256 - Math.pow(2, 8 - b); }).join('.');
+                name = len === 32 ? m[1] : m[1] + '_' + len; body = '        set subnet ' + m[1] + ' ' + mask + '\n';
+            } else if ((m = line.match(/^(\S+)\s+(\S+)$/)) && CG_FG_IPRE.test(m[1]) && cgMaskLen(m[2]) !== '') {
+                const len = cgMaskLen(m[2]);
+                name = String(len) === '32' ? m[1] : m[1] + '_' + len; body = '        set subnet ' + m[1] + ' ' + m[2] + '\n';
+            } else if ((m = line.match(/^(\S+)\s*-\s*(\S+)$/)) && CG_FG_IPRE.test(m[1]) && CG_FG_IPRE.test(m[2])) {
+                name = m[1] + '-' + m[2]; body = '        set type iprange\n        set start-ip ' + m[1] + '\n        set end-ip ' + m[2] + '\n';
+            } else { bad.push(line); return; }
+            name = cgEsc(prefix + name);
+            if (seen.has(name)) return;
+            seen.add(name); members.push(name);
+            addr += '    edit "' + name + '"\n' + body + '    next\n';
+        });
+        if (bad.length) c += '# UYARI: tanınmayan satır atlandı: ' + cgEsc(bad.join(' | ')) + '\n';
+        if (addr) c += 'config firewall address\n' + addr + 'end\n\n';
+    } else {
+        members = String(data.ag_members || '').split(/[,\n]+/).map(x => x.trim()).filter(Boolean).map(cgEsc);
+    }
+    if (!members.length) {
+        c += '# UYARI: geçerli üye yok — boş grup oluşturulamaz, addrgrp yazılmadı.\n';
+        return c;
+    }
+    c += 'config firewall addrgrp\n    edit "' + gname + '"\n';
+    c += '        set member ' + members.map(x => '"' + x + '"').join(' ') + '\n';
+    if (data.ag_comment) c += '        set comment "' + cgEsc(data.ag_comment) + '"\n';
+    if (data.ag_routing) c += '        set allow-routing enable\n';
+    c += '    next\nend\n\n';
+    c += '# Doğrulama:\n# show firewall addrgrp "' + gname + '"\n# show firewall address\n';
+    return c;
+}
+
+// ── FortiGate: Zone ───────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — interface/intrazone) + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/314783845/config-system-zone
+FortiGate.zone = {
+    label: 'Zone',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-th-large',
+                title: 'Zone (FortiGate)',
+                desc: 'Birden çok arayüzü tek bir zone altında toplar; policy\'ler arayüz yerine zone\'a yazılır.<br><code>config system zone\n  edit "INTERNAL"\n    set interface "port2" "port3"\n    set intrazone deny\n  next\nend</code>'
+            },
+            sections: [
+                {
+                    title: 'Zone',
+                    icon: 'fas fa-th-large',
+                    warn: 'Bir arayüz zone\'a eklenmeden önce ona doğrudan referans veren policy/rota olmamalıdır; aksi halde FortiOS ekleme işlemini reddeder.',
+                    fields: [
+                        { name: 'zone_name', why: 'Zone adı policy\'de <code>srcintf</code>/<code>dstintf</code> olarak kullanılır (en fazla 35 karakter).', label: 'Zone Adı', type: 'text', required: true, placeholder: 'INTERNAL', hint: 'Zone adı' },
+                        { name: 'zone_ifaces', why: 'Zone üyesi arayüzler. Bir arayüz yalnız bir zone\'da olabilir.', label: 'Arayüzler', type: 'text', required: true, validate: 'iface_range', placeholder: 'port2 port3', hint: 'Boşluk veya virgülle ayrılmış' },
+                        { name: 'intrazone', why: '<code>deny</code> (varsayılan): aynı zone\'daki arayüzler arası trafik için ayrıca policy gerekir. <code>allow</code>: zone içi trafik policy olmadan geçer — segmentasyonu kaldırır.', label: 'Zone İçi Trafik', type: 'select', options: [
+                            { value: 'deny',  label: 'deny (policy gerekir)', selected: true },
+                            { value: 'allow', label: 'allow (serbest)' }
+                        ]},
+                        { name: 'zone_desc', why: 'Zone\'un hangi ağları kapsadığını açıklar.', label: 'Açıklama', type: 'text', placeholder: 'Kullanıcı VLANları', hint: 'description' }
+                    ]
+                }
+            ],
+            submit: 'Zone Oluştur'
+        }, (data) => cgFgZoneGen(data));
+    }
+};
+function cgFgZoneGen(data) {
+    const name = cgEsc(data.zone_name || '');
+    const ifs = cgFgIfList(data.zone_ifaces);
+    const intra = data.intrazone === 'allow' ? 'allow' : 'deny';
+    let c = '# ========================================\n# FortiGate — Zone\n# ========================================\n\n';
+    if (intra === 'allow') c += '# UYARI: intrazone allow — zone içindeki arayüzler arası trafik policy olmadan geçer.\n';
+    c += 'config system zone\n    edit "' + name + '"\n';
+    if (data.zone_desc) c += '        set description "' + cgEsc(data.zone_desc) + '"\n';
+    if (ifs) c += '        set interface ' + ifs + '\n';
+    c += '        set intrazone ' + intra + '\n';
+    c += '    next\nend\n\n';
+    c += '# Doğrulama:\n# show system zone "' + name + '"\n';
+    return c;
+}
+
+// ── FortiGate: Traffic Shaping ────────────────────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — traffic-shaper bandwidth-unit/guaranteed/maximum/priority/per-policy;
+//            shaping-policy name/srcintf/dstintf/srcaddr/dstaddr/service/traffic-shaper/traffic-shaper-reverse/comment/status)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/315847846/config-firewall-shaper-traffic-shaper
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/968775025/config-firewall-shaping-policy
+FortiGate.shaper = {
+    label: 'Traffic Shaping',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-tachometer-alt',
+                title: 'Traffic Shaper & Shaping Policy (FortiGate)',
+                desc: 'Paylaşımlı trafik şekillendirici (garanti / üst sınır / öncelik) ve onu trafiğe bağlayan shaping policy.<br><code>config firewall shaper traffic-shaper\n  edit "LIMIT_50M"\n    set bandwidth-unit mbps\n    set maximum-bandwidth 50\n  next\nend</code>'
+            },
+            sections: [
+                {
+                    title: 'Traffic Shaper',
+                    icon: 'fas fa-tachometer-alt',
+                    fields: [
+                        { name: 'sh_name', why: 'Shaper adında limiti taşımak (<code>LIMIT_50M</code>) policy okurken değeri hemen gösterir.', label: 'Shaper Adı', type: 'text', required: true, placeholder: 'LIMIT_50M', hint: 'traffic-shaper adı' },
+                        { name: 'sh_unit', why: 'Garanti ve üst sınır bu birimle yorumlanır. Varsayılan kbps\'dir — birimi yazmayı unutup 50 girmek 50 kbps demektir.', label: 'Birim', type: 'select', options: [
+                            { value: 'mbps', label: 'Mbps', selected: true },
+                            { value: 'kbps', label: 'Kbps' },
+                            { value: 'gbps', label: 'Gbps' }
+                        ]},
+                        { name: 'sh_max', why: 'Üst sınır: trafik bu değeri aşamaz. 0 = sınır yok.', label: 'Maksimum Bant', type: 'text', required: true, min: 0, max: 80000000, placeholder: '50', hint: 'Seçilen birimde' },
+                        { name: 'sh_guar', why: 'Garanti edilen bant; tıkanıklıkta bu trafiğe öncelikle ayrılır. Tüm shaper garantilerinin toplamı hat kapasitesini aşmamalı.', label: 'Garanti Bant', type: 'text', min: 0, max: 80000000, placeholder: '10', hint: 'Seçilen birimde (opsiyonel)' },
+                        { name: 'sh_prio', why: 'Garanti ile maksimum arasındaki bant paylaşımında öncelik. Ses/video için <code>high</code>, yedekleme için <code>low</code>.', label: 'Öncelik', type: 'select', options: [
+                            { value: 'high',   label: 'high (varsayılan)', selected: true },
+                            { value: 'medium', label: 'medium' },
+                            { value: 'low',    label: 'low' }
+                        ]},
+                        { name: 'sh_perpolicy', why: 'Kapalıyken shaper\'ı kullanan tüm policy\'ler aynı bandı paylaşır. Açıkken her policy kendi ayrı limitini alır.', label: 'Policy başına ayrı (per-policy)', type: 'checkbox', checked: false, hint: 'set per-policy enable' }
+                    ]
+                },
+                {
+                    title: 'Shaping Policy',
+                    icon: 'fas fa-filter',
+                    info: 'Shaper tek başına etkisizdir; bir shaping policy trafiği ona bağlar.',
+                    fields: [
+                        { name: 'sp_enable', why: 'Shaper\'ı trafiğe bağlayan policy\'yi de üretir. Kapalıysa yalnız shaper nesnesi oluşur (mevcut bir policy\'de kullanmak için).', label: 'Shaping policy de oluştur', type: 'checkbox', checked: true, hint: 'config firewall shaping-policy' },
+                        { name: 'sp_id', why: 'Shaping policy\'ler de yukarıdan aşağı ilk eşleşme ile çalışır. Var olan bir ID üzerine yazar.', label: 'Policy ID', type: 'text', validate: 'posint', requiredIf: { field: 'sp_enable', checked: true }, placeholder: '1', hint: 'edit numarası' },
+                        { name: 'sp_name', why: 'Policy\'yi listede tanımayı sağlar.', label: 'Policy Adı', type: 'text', placeholder: 'YEDEKLEME_LIMIT', hint: 'name (opsiyonel)' },
+                        { name: 'sp_srcintf', why: 'Trafiğin girdiği arayüz (opsiyonel). Boşsa tüm girişler eşleşir.', label: 'Kaynak Arayüz', type: 'text', placeholder: 'port2', hint: 'srcintf (opsiyonel)' },
+                        { name: 'sp_dstintf', why: 'Şekillendirme çıkış arayüzünde uygulanır; genelde WAN arayüzü.', label: 'Hedef Arayüz', type: 'text', requiredIf: { field: 'sp_enable', checked: true }, placeholder: 'port1', hint: 'dstintf' },
+                        { name: 'sp_srcaddr', why: 'Kaynak adres nesnesi. <code>all</code> tüm kaynakları şekillendirir.', label: 'Kaynak Adres', type: 'text', requiredIf: { field: 'sp_enable', checked: true }, placeholder: 'LAN_SUBNET', hint: 'Adres nesnesi (virgülle çoklu)' },
+                        { name: 'sp_dstaddr', why: 'Hedef adres nesnesi.', label: 'Hedef Adres', type: 'text', requiredIf: { field: 'sp_enable', checked: true }, placeholder: 'all', hint: 'Adres nesnesi (virgülle çoklu)' },
+                        { name: 'sp_service', why: 'Şekillendirilecek servis. Yalnız belirli bir uygulamayı sınırlamak için daraltın.', label: 'Servis', type: 'text', requiredIf: { field: 'sp_enable', checked: true }, placeholder: 'ALL', hint: 'Servis nesnesi (virgülle çoklu)' },
+                        { name: 'sp_reverse', why: 'Reverse shaper dönüş (indirme) yönünü şekillendirir. Çoğu senaryoda iki yönün de sınırlanması istenir.', label: 'Dönüş yönünde de uygula', type: 'checkbox', checked: true, hint: 'traffic-shaper-reverse' }
+                    ]
+                }
+            ],
+            submit: 'Shaper Oluştur'
+        }, (data) => cgFgShaperGen(data));
+    }
+};
+function cgFgShaperGen(data) {
+    const name = cgEsc(data.sh_name || '');
+    const max = String(data.sh_max || '').trim(), guar = String(data.sh_guar || '').trim();
+    let c = '# ========================================\n# FortiGate — Traffic Shaping\n# ========================================\n\n';
+    if (guar && max && +max > 0 && +guar > +max) c += '# UYARI: garanti bant maksimumdan büyük — FortiOS bu değeri kabul etmez.\n';
+    c += 'config firewall shaper traffic-shaper\n    edit "' + name + '"\n';
+    c += '        set bandwidth-unit ' + cgEsc(data.sh_unit || 'mbps') + '\n';
+    if (guar) c += '        set guaranteed-bandwidth ' + cgEsc(guar) + '\n';
+    c += '        set maximum-bandwidth ' + cgEsc(max) + '\n';
+    if (data.sh_prio && data.sh_prio !== 'high') c += '        set priority ' + cgEsc(data.sh_prio) + '\n';
+    if (data.sh_perpolicy) c += '        set per-policy enable\n';
+    c += '    next\nend\n\n';
+    const spid = String(data.sp_id || '').trim();
+    if (data.sp_enable) {
+        const need = { 'Policy ID': spid, 'Hedef Arayüz': data.sp_dstintf, 'Kaynak Adres': data.sp_srcaddr, 'Hedef Adres': data.sp_dstaddr, 'Servis': data.sp_service };
+        const miss = Object.keys(need).filter(k => !String(need[k] || '').trim());
+        if (miss.length) {
+            c += '# Shaping policy yazılmadı — eksik alan: ' + miss.join(', ') + '\n\n';
+        } else {
+            c += 'config firewall shaping-policy\n    edit ' + cgEsc(spid) + '\n';
+            if (data.sp_name) c += '        set name "' + cgEsc(data.sp_name) + '"\n';
+            if (data.sp_srcintf) c += '        set srcintf ' + cgFgIfList(data.sp_srcintf) + '\n';
+            c += '        set dstintf ' + cgFgIfList(data.sp_dstintf) + '\n';
+            c += '        set srcaddr ' + cgFgQList(data.sp_srcaddr) + '\n';
+            c += '        set dstaddr ' + cgFgQList(data.sp_dstaddr) + '\n';
+            c += '        set service ' + cgFgQList(data.sp_service) + '\n';
+            c += '        set traffic-shaper "' + name + '"\n';
+            if (data.sp_reverse) c += '        set traffic-shaper-reverse "' + name + '"\n';
+            c += '    next\nend\n\n';
+        }
+    }
+    c += '# Doğrulama:\n# show firewall shaper traffic-shaper "' + name + '"\n# show firewall shaping-policy\n# diagnose firewall shaper traffic-shaper list\n';
+    return c;
+}
+
+// ── FortiGate: Log (Syslog / FortiAnalyzer) ───────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — syslogd..syslogd4 setting status/server/source-ip/facility;
+//            fortianalyzer setting status/server/serial/source-ip/upload-option/reliable/enc-algorithm/certificate-verification)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/141516630/config-log-syslogd-setting (mode/port/format)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/269170403/config-log-fortianalyzer-setting
+FortiGate.logging = {
+    label: 'Log (Syslog / FortiAnalyzer)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-file-alt',
+                title: 'Uzak Log Hedefi (FortiGate)',
+                desc: 'Syslog sunucusu (4 slota kadar) veya FortiAnalyzer\'a log gönderimi.<br><code>config log syslogd setting\n  set status enable\n  set server "192.0.2.50"\nend</code>'
+            },
+            configTypes: [
+                { id: 'syslog', label: 'Syslog',        icon: 'fas fa-server',    desc: 'SIEM / syslog sunucusu', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'faz',    label: 'FortiAnalyzer', icon: 'fas fa-chart-bar', desc: 'FortiAnalyzer / FAZ Cloud' }
+            ],
+            sections: [
+                {
+                    title: 'Syslog',
+                    icon: 'fas fa-server',
+                    showFor: ['syslog'],
+                    fields: [
+                        { name: 'sl_slot', why: 'FortiOS dört bağımsız syslog hedefi tutar (<code>syslogd</code> … <code>syslogd4</code>). Dolu bir slotu seçersen mevcut hedefin üzerine yazarsın.', label: 'Slot', type: 'select', options: [
+                            { value: 'syslogd',  label: 'syslogd (1)', selected: true },
+                            { value: 'syslogd2', label: 'syslogd2' },
+                            { value: 'syslogd3', label: 'syslogd3' },
+                            { value: 'syslogd4', label: 'syslogd4' }
+                        ]},
+                        { name: 'sl_server', why: 'Syslog sunucusunun IP\'si veya FQDN\'i.', label: 'Sunucu', type: 'text', requiredIf: { field: '_cgtype', in: ['syslog'] }, placeholder: '192.0.2.50', hint: 'IP veya FQDN' },
+                        { name: 'sl_mode', why: 'UDP kayıpsızlık garantisi vermez; denetim logları için TCP tabanlı <code>reliable</code> (RFC 6587) daha güvenlidir. Sunucu tarafı da TCP dinlemeli.', label: 'Taşıma', type: 'select', options: [
+                            { value: 'udp',      label: 'UDP (varsayılan)', selected: true },
+                            { value: 'reliable', label: 'reliable (TCP, RFC 6587)' }
+                        ]},
+                        { name: 'sl_port', why: 'Varsayılan 514. SIEM farklı port dinliyorsa değiştir.', label: 'Port', type: 'text', validate: 'port', placeholder: '514', hint: 'Boşsa 514' },
+                        { name: 'sl_facility', why: 'SIEM tarafında kaynak ayırmak için facility kullanılır (varsayılan local7).', label: 'Facility', type: 'select', options: [
+                            { value: '',       label: 'Varsayılan (local7)', selected: true },
+                            { value: 'local0', label: 'local0' }, { value: 'local1', label: 'local1' },
+                            { value: 'local2', label: 'local2' }, { value: 'local3', label: 'local3' },
+                            { value: 'local4', label: 'local4' }, { value: 'local5', label: 'local5' },
+                            { value: 'local6', label: 'local6' }
+                        ]},
+                        { name: 'sl_format', why: 'SIEM ayrıştırıcısı hangi biçimi bekliyorsa onu seç; yanlış format logların parse edilmemesine yol açar.', label: 'Format', type: 'select', options: [
+                            { value: '',        label: 'Varsayılan', selected: true },
+                            { value: 'cef',     label: 'CEF' },
+                            { value: 'rfc5424', label: 'RFC 5424' },
+                            { value: 'csv',     label: 'CSV' },
+                            { value: 'json',    label: 'JSON' }
+                        ]},
+                        { name: 'sl_srcip', why: 'Logların hangi kaynak IP ile çıkacağı. SIEM tarafında cihaz IP ile tanınıyorsa sabitle.', label: 'Kaynak IP', type: 'text', validate: 'ip', placeholder: '10.0.0.1', hint: 'source-ip (opsiyonel)' }
+                    ]
+                },
+                {
+                    title: 'FortiAnalyzer',
+                    icon: 'fas fa-chart-bar',
+                    showFor: ['faz'],
+                    fields: [
+                        { name: 'fz_server', why: 'FortiAnalyzer IP\'si veya FQDN\'i.', label: 'Sunucu', type: 'text', requiredIf: { field: '_cgtype', in: ['faz'] }, placeholder: '192.0.2.60', hint: 'IP veya FQDN' },
+                        { name: 'fz_serial', why: 'FAZ seri numarası yazılırsa FortiGate yalnız bu cihaza bağlanır; ortadaki adam riskini azaltır.', label: 'FAZ Seri No', type: 'text', placeholder: 'FAZ-VMTM00000000', hint: 'serial (opsiyonel)' },
+                        { name: 'fz_srcip', why: 'FAZ\'a bağlanırken kullanılacak kaynak IP.', label: 'Kaynak IP', type: 'text', validate: 'ip', placeholder: '10.0.0.1', hint: 'source-ip (opsiyonel)' },
+                        { name: 'fz_upload', why: '<code>realtime</code> logları anında gönderir; hat kesintisinde kayıp olmaması için diskli cihazlarda <code>store-and-upload</code> seçilebilir.', label: 'Gönderim', type: 'select', options: [
+                            { value: 'realtime',         label: 'realtime', selected: true },
+                            { value: '1-minute',         label: '1-minute' },
+                            { value: '5-minute',         label: '5-minute (varsayılan)' },
+                            { value: 'store-and-upload', label: 'store-and-upload' }
+                        ]},
+                        { name: 'fz_certverify', why: 'Kapatmak, FAZ kimliğinin sertifikayla doğrulanmasını devre dışı bırakır; araya giren bir cihaz logları toplayabilir.', label: 'Sertifika Doğrulama', type: 'select', options: [
+                            { value: 'enable',  label: 'enable (önerilen)', selected: true },
+                            { value: 'disable', label: 'disable' }
+                        ]},
+                        { name: 'fz_reliable', why: 'Log bağlantısını güvenilir (TCP) moda alır; kayıp log riskini azaltır.', label: 'Reliable', type: 'checkbox', checked: true, hint: 'set reliable enable' }
+                    ]
+                }
+            ],
+            submit: 'Log Ayarı Oluştur'
+        }, (data) => cgFgLoggingGen(data));
+    }
+};
+function cgFgLoggingGen(data) {
+    let c = '# ========================================\n# FortiGate — Remote Logging\n# ========================================\n\n';
+    if ((data._cgtype || 'syslog') === 'faz') {
+        if (data.fz_certverify === 'disable') c += '# UYARI: certificate-verification disable — FAZ kimliği doğrulanmaz.\n';
+        c += 'config log fortianalyzer setting\n';
+        c += '    set status enable\n';
+        c += '    set server "' + cgEsc(data.fz_server || '') + '"\n';
+        if (data.fz_serial) c += '    set serial "' + cgEsc(data.fz_serial) + '"\n';
+        c += '    set certificate-verification ' + (data.fz_certverify === 'disable' ? 'disable' : 'enable') + '\n';
+        if (data.fz_srcip) c += '    set source-ip "' + cgEsc(data.fz_srcip) + '"\n';
+        c += '    set upload-option ' + cgEsc(data.fz_upload || 'realtime') + '\n';
+        if (data.fz_reliable) c += '    set reliable enable\n';
+        c += 'end\n\n';
+        c += '# Doğrulama:\n# get log fortianalyzer setting\n# execute log fortianalyzer test-connectivity\n# diagnose log test\n';
+        return c;
+    }
+    const slot = ['syslogd', 'syslogd2', 'syslogd3', 'syslogd4'].indexOf(data.sl_slot) !== -1 ? data.sl_slot : 'syslogd';
+    if ((data.sl_mode || 'udp') === 'udp') c += '# Not: UDP syslog kayıpsızlık garantisi vermez; denetim için reliable (TCP) önerilir.\n';
+    c += 'config log ' + slot + ' setting\n';
+    c += '    set status enable\n';
+    c += '    set server "' + cgEsc(data.sl_server || '') + '"\n';
+    if (data.sl_mode === 'reliable') c += '    set mode reliable\n';
+    if (data.sl_port) c += '    set port ' + cgEsc(data.sl_port) + '\n';
+    if (data.sl_facility) c += '    set facility ' + cgEsc(data.sl_facility) + '\n';
+    if (data.sl_format) c += '    set format ' + cgEsc(data.sl_format) + '\n';
+    if (data.sl_srcip) c += '    set source-ip "' + cgEsc(data.sl_srcip) + '"\n';
+    c += 'end\n\n';
+    c += '# Doğrulama:\n# get log ' + slot + ' setting\n# diagnose log test\n';
+    return c;
+}
+
+// ── FortiGate: NTP ────────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — ntpsync/type custom/config ntpserver server)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/105110478/config-system-ntp (source-ip/server-mode/interface)
+FortiGate.ntp = {
+    label: 'NTP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clock',
+                title: 'NTP (FortiGate)',
+                desc: 'Sistem saatini NTP ile eşitler; isteğe bağlı olarak FortiGate\'i iç ağa NTP sunucusu yapar.<br><code>config system ntp\n  set ntpsync enable\n  set type custom\n  config ntpserver\n    edit 1\n      set server "192.0.2.123"\n    next\n  end\nend</code>'
+            },
+            configTypes: [
+                { id: 'custom',     label: 'Özel Sunucular', icon: 'fas fa-server', desc: 'Kurum içi / belirli NTP sunucuları', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'fortiguard', label: 'FortiGuard',     icon: 'fas fa-cloud',  desc: 'Fortinet NTP servisi' }
+            ],
+            sections: [
+                {
+                    title: 'NTP Sunucuları',
+                    icon: 'fas fa-server',
+                    showFor: ['custom'],
+                    fields: [
+                        { name: 'ntp1', why: 'Saat yanlışsa log korelasyonu, sertifika doğrulaması ve FortiToken kodları bozulur.', label: 'NTP Sunucu 1', type: 'text', requiredIf: { field: '_cgtype', in: ['custom'] }, placeholder: '192.0.2.123', hint: 'IP veya FQDN' },
+                        { name: 'ntp2', why: 'İkinci sunucu tek kaynağa bağımlılığı kaldırır.', label: 'NTP Sunucu 2', type: 'text', placeholder: '192.0.2.124', hint: 'Opsiyonel' },
+                        { name: 'ntp3', why: 'Üç kaynak, bir sunucunun sapmasını çoğunlukla ayırt etmeyi sağlar.', label: 'NTP Sunucu 3', type: 'text', placeholder: '', hint: 'Opsiyonel' },
+                        { name: 'ntp_srcip', why: 'NTP isteklerinin kaynak IP\'si; sunucu tarafında ACL varsa sabitlenmeli.', label: 'Kaynak IP', type: 'text', validate: 'ip', placeholder: '10.0.0.1', hint: 'source-ip (opsiyonel)' }
+                    ]
+                },
+                {
+                    title: 'NTP Sunucu Modu',
+                    icon: 'fas fa-broadcast-tower',
+                    fields: [
+                        { name: 'ntp_srvmode', why: 'Açıkken FortiGate, seçilen arayüzlerdeki istemcilere NTP hizmeti verir. Yalnız iç arayüzlerde açın; WAN\'da açmak cihazı NTP yansıtma saldırılarına açar.', label: 'FortiGate NTP sunucusu olsun', type: 'checkbox', checked: false, hint: 'set server-mode enable' },
+                        { name: 'ntp_srvif', why: 'NTP hizmetinin verileceği arayüzler.', label: 'Hizmet Arayüzleri', type: 'text', requiredIf: { field: 'ntp_srvmode', checked: true }, validate: 'iface_range', placeholder: 'port2', hint: 'Boşluk veya virgülle' }
+                    ]
+                }
+            ],
+            submit: 'NTP Oluştur'
+        }, (data) => cgFgNtpGen(data));
+    }
+};
+function cgFgNtpGen(data) {
+    const ty = data._cgtype === 'fortiguard' ? 'fortiguard' : 'custom';
+    let c = '# ========================================\n# FortiGate — NTP\n# ========================================\n\n';
+    c += 'config system ntp\n    set ntpsync enable\n    set type ' + ty + '\n';
+    if (ty === 'custom') {
+        const srv = [data.ntp1, data.ntp2, data.ntp3].map(x => String(x || '').trim()).filter(Boolean);
+        c += '    config ntpserver\n';
+        srv.forEach((s, i) => { c += '        edit ' + (i + 1) + '\n            set server "' + cgEsc(s) + '"\n        next\n'; });
+        c += '    end\n';
+        if (data.ntp_srcip) c += '    set source-ip ' + cgEsc(data.ntp_srcip) + '\n';
+    }
+    const ifs = cgFgIfList(data.ntp_srvif);
+    if (data.ntp_srvmode && ifs) c += '    set server-mode enable\n    set interface ' + ifs + '\n';
+    c += 'end\n\n';
+    if (data.ntp_srvmode && !ifs) c += '# UYARI: sunucu modu için arayüz girilmedi — server-mode yazılmadı.\n\n';
+    c += '# Doğrulama:\n# show system ntp\n# diagnose sys ntp status\n';
+    return c;
+}
+
+// ── FortiGate: DNS ────────────────────────────────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — primary/secondary/domain)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/190194324/config-system-dns (protocol/server-hostname/source-ip)
+FortiGate.dns = {
+    label: 'DNS',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-globe',
+                title: 'Sistem DNS (FortiGate)',
+                desc: 'FortiGate\'in kendi DNS çözümlemesi (FortiGuard, FQDN adres nesneleri, güncellemeler bunu kullanır).<br><code>config system dns\n  set primary 192.0.2.53\n  set secondary 192.0.2.54\nend</code>'
+            },
+            sections: [
+                {
+                    title: 'DNS Sunucuları',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'dns1', why: 'DNS çözülemezse FQDN adres nesneleri boş kalır, FortiGuard web filtreleme ve imza güncellemeleri durur.', label: 'Birincil DNS', type: 'text', required: true, validate: 'ip', placeholder: '192.0.2.53', hint: 'primary' },
+                        { name: 'dns2', why: 'Tek DNS sunucusu tek hata noktasıdır.', label: 'İkincil DNS', type: 'text', validate: 'ip', placeholder: '192.0.2.54', hint: 'secondary (opsiyonel)' },
+                        { name: 'dns_domain', why: 'Kısa adların tamamlanacağı yerel alan adı.', label: 'Yerel Alan Adı', type: 'text', placeholder: 'corp.example.com', hint: 'domain (opsiyonel)' },
+                        { name: 'dns_srcip', why: 'DNS sorgularının kaynak IP\'si; iç DNS sunucusunda ACL varsa sabitle.', label: 'Kaynak IP', type: 'text', validate: 'ip', placeholder: '10.0.0.1', hint: 'source-ip (opsiyonel)' },
+                        { name: 'dns_proto', why: 'DoT/DoH sorguları şifreler ve yolda değiştirilmesini önler; sunucunun bu protokolleri desteklemesi ve sertifika adının (server-hostname) doğru olması gerekir.', label: 'Protokol', type: 'select', options: [
+                            { value: 'cleartext', label: 'cleartext (UDP/TCP 53, varsayılan)', selected: true },
+                            { value: 'dot',       label: 'DoT (TLS/853)' },
+                            { value: 'doh',       label: 'DoH (HTTPS/443)' }
+                        ]},
+                        { name: 'dns_host', why: 'DoT/DoH sunucusunun sertifikasındaki ad. Yanlışsa TLS doğrulaması başarısız olur ve çözümleme durur.', label: 'Sunucu Adı (DoT/DoH)', type: 'text', requiredIf: { field: 'dns_proto', in: ['dot', 'doh'] }, placeholder: 'dns.example.com', hint: 'server-hostname' }
+                    ]
+                }
+            ],
+            submit: 'DNS Oluştur'
+        }, (data) => cgFgDnsGen(data));
+    }
+};
+function cgFgDnsGen(data) {
+    const proto = ['dot', 'doh'].indexOf(data.dns_proto) !== -1 ? data.dns_proto : 'cleartext';
+    let c = '# ========================================\n# FortiGate — System DNS\n# ========================================\n\n';
+    c += 'config system dns\n';
+    c += '    set primary ' + cgEsc(data.dns1 || '') + '\n';
+    if (data.dns2) c += '    set secondary ' + cgEsc(data.dns2) + '\n';
+    if (proto !== 'cleartext') {
+        c += '    set protocol ' + proto + '\n';
+        if (data.dns_host) c += '    set server-hostname "' + cgEsc(data.dns_host) + '"\n';
+    }
+    if (data.dns_domain) c += '    set domain "' + cgEsc(data.dns_domain) + '"\n';
+    if (data.dns_srcip) c += '    set source-ip ' + cgEsc(data.dns_srcip) + '\n';
+    c += 'end\n\n';
+    c += '# Doğrulama:\n# show system dns\n# diagnose test application dnsproxy 3\n';
+    return c;
+}
+
+// ── FortiGate: Admin + Access Profile (sertleştirme) ──────────────────────────
+// Sözdizimi: canlı config (5 cihaz — admin accprofile/vdom/trusthost1-3; accprofile *grp read|read-write;
+//            global admintimeout/admin-lockout-threshold/admin-lockout-duration/admin-https-ssl-versions/pre-login-banner)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/390485493/config-system-admin (password/two-factor/fortitoken/email-to/force-password-change)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/309990135/config-system-accprofile
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/339914554/config-system-global (admin-telnet)
+const CG_FG_ACCGRP = ['secfabgrp', 'ftviewgrp', 'authgrp', 'sysgrp', 'netgrp', 'loggrp', 'fwgrp', 'vpngrp', 'utmgrp', 'wanoptgrp', 'wifi'];
+FortiGate.admin = {
+    label: 'Admin & Access Profile',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-lock',
+                title: 'Yönetici Hesabı & Erişim Profili (FortiGate)',
+                desc: 'Trusted host kısıtlı yönetici hesabı, isteğe bağlı rol profili, 2FA ve yönetim düzlemi sertleştirmesi.<br><code>config system admin\n  edit "netops1"\n    set accprofile "RO_PROFILE"\n    set vdom "root"\n    set trusthost1 10.0.0.0 255.255.255.0\n  next\nend</code>'
+            },
+            configTypes: [
+                { id: 'existing', label: 'Mevcut Profil', icon: 'fas fa-id-badge', desc: 'super_admin, prof_admin veya tanımlı bir profil', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'newprof',  label: 'Yeni Profil',   icon: 'fas fa-user-cog', desc: 'Salt-okur veya ağ operatörü profili de üret' }
+            ],
+            sections: [
+                {
+                    title: 'Erişim Profili',
+                    icon: 'fas fa-id-badge',
+                    fields: [
+                        { name: 'ad_prof', why: 'Profil, yöneticinin hangi menüleri okuyup yazabileceğini belirler. Herkese <code>super_admin</code> vermek en az yetki ilkesini bozar ve hesap ele geçtiğinde tüm cihazı açar.', label: 'Profil Adı', type: 'text', required: true, placeholder: 'RO_PROFILE', hint: 'accprofile' }
+                    ]
+                },
+                {
+                    title: 'Profil Şablonu',
+                    icon: 'fas fa-user-cog',
+                    showFor: ['newprof'],
+                    fields: [
+                        { name: 'ad_preset', why: '<b>Salt-okur</b>: tüm bölümler read. <b>Ağ operatörü</b>: ağ, firewall ve VPN read-write; sistem ve diğerleri read. Sistem ayarlarına yazma yetkisi yalnız gerçekten gerekenlere verilmeli.', label: 'Profil Şablonu', type: 'select', options: [
+                            { value: 'ro',    label: 'Salt-okur (tüm bölümler read)', selected: true },
+                            { value: 'netop', label: 'Ağ operatörü (net/fw/vpn read-write)' }
+                        ]}
+                    ]
+                },
+                {
+                    title: 'Yönetici',
+                    icon: 'fas fa-user',
+                    fields: [
+                        { name: 'ad_user', why: 'Kişiye özel hesap aç; paylaşılan <code>admin</code> hesabı denetim izini yok eder.', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netops1', hint: 'Yönetici adı' },
+                        { name: 'ad_pass', why: 'Parola config\'e düz metin girilir, cihaz kaydederken şifreler. <code>system password-policy</code> tanımlıysa kurallara uymayan parola reddedilir.', label: 'Parola', type: 'text', required: true, placeholder: 'Degistir-Beni-2026!', hint: 'Güçlü, benzersiz parola' },
+                        { name: 'ad_vdom', why: 'VDOM kapalı cihazlarda da yönetici <code>root</code> VDOM\'a atanır.', label: 'VDOM', type: 'text', required: true, placeholder: 'root', hint: 'Genelde root' },
+                        { name: 'ad_th1', why: 'Trusted host, yöneticinin yalnız bu ağlardan giriş yapmasını sağlar; başka kaynaktan doğru parolayla bile giriş reddedilir. Hiç trusted host tanımlamamak her yerden girişe izin verir.', label: 'Trusted Host 1', type: 'text', validate: 'ip_mask', placeholder: '10.0.0.0 255.255.255.0', hint: 'IP MASK (önerilir)' },
+                        { name: 'ad_th2', why: 'İkinci yönetim ağı (ör. VPN havuzu).', label: 'Trusted Host 2', type: 'text', validate: 'ip_mask', placeholder: '', hint: 'IP MASK (opsiyonel)' },
+                        { name: 'ad_th3', why: 'Üçüncü yönetim ağı (ör. jump sunucusu /32).', label: 'Trusted Host 3', type: 'text', validate: 'ip_mask', placeholder: '', hint: 'IP MASK (opsiyonel)' },
+                        { name: 'ad_forcechg', why: 'Hesabı başkası için açıyorsan, ilk girişte parola değişimini zorlamak parolanın yalnız sahibince bilinmesini sağlar.', label: 'İlk girişte parola değiştirt', type: 'checkbox', checked: false, hint: 'set force-password-change enable' }
+                    ]
+                },
+                {
+                    title: 'İki Faktörlü Doğrulama',
+                    icon: 'fas fa-mobile-alt',
+                    fields: [
+                        { name: 'ad_2fa', why: 'Parola sızsa bile ikinci faktör olmadan giriş yapılamaz. FortiToken seri numarası önce <code>config user fortitoken</code> altına kayıtlı olmalı; e-posta 2FA için <code>system email-server</code> çalışmalı.', label: '2FA Yöntemi', type: 'select', options: [
+                            { value: 'disable',    label: 'Kapalı', selected: true },
+                            { value: 'fortitoken', label: 'FortiToken' },
+                            { value: 'email',      label: 'E-posta' }
+                        ]},
+                        { name: 'ad_token', why: 'Yöneticiye atanacak FortiToken (Mobile) seri numarası.', label: 'FortiToken Seri No', type: 'text', requiredIf: { field: 'ad_2fa', in: ['fortitoken'] }, placeholder: 'FTKMOB0000000000', hint: 'fortitoken' },
+                        { name: 'ad_email', why: 'Tek kullanımlık kodun gönderileceği adres.', label: 'E-posta', type: 'text', requiredIf: { field: 'ad_2fa', in: ['email'] }, placeholder: 'netops@example.com', hint: 'email-to' }
+                    ]
+                },
+                {
+                    title: 'Yönetim Düzlemi Sertleştirme (system global)',
+                    icon: 'fas fa-shield-alt',
+                    fields: [
+                        { name: 'gl_enable', why: 'Tüm yöneticileri etkileyen global ayarlar: oturum zaman aşımı, hatalı girişte kilitleme, yalnız TLS 1.2/1.3, telnet kapalı ve giriş öncesi uyarı metni.', label: 'Global sertleştirme ayarlarını ekle', type: 'checkbox', checked: true, hint: 'config system global' },
+                        { name: 'gl_timeout', why: 'Boşta kalan yönetici oturumu bu kadar dakika sonra kapanır (varsayılan 5). Uzun süre açık kalan oturum, kilitlenmemiş bir ekranda cihazı açık bırakır.', label: 'Oturum Zaman Aşımı (dk)', type: 'text', min: 1, max: 480, requiredIf: { field: 'gl_enable', checked: true }, placeholder: '10', hint: '1–480' },
+                        { name: 'gl_lockthr', why: 'Bu kadar hatalı denemeden sonra hesap kilitlenir (1–10, varsayılan 3). Kaba kuvvet denemelerini yavaşlatır.', label: 'Kilitleme Eşiği', type: 'text', min: 1, max: 10, requiredIf: { field: 'gl_enable', checked: true }, placeholder: '3', hint: '1–10 deneme' },
+                        { name: 'gl_lockdur', why: 'Kilit süresi (saniye, varsayılan 60). Çok kısa süre kaba kuvveti durdurmaz.', label: 'Kilit Süresi (sn)', type: 'text', validate: 'posint', requiredIf: { field: 'gl_enable', checked: true }, placeholder: '300', hint: 'saniye' },
+                        { name: 'gl_banner', why: 'Giriş sayfasında yasal uyarı metni gösterir; birçok denetim standardı ister.', label: 'Giriş öncesi uyarı (pre-login-banner)', type: 'checkbox', checked: true, hint: 'set pre-login-banner enable' }
+                    ]
+                }
+            ],
+            submit: 'Yönetici Oluştur'
+        }, (data) => cgFgAdminGen(data));
+    }
+};
+function cgFgAdminGen(data) {
+    const prof = cgEsc(data.ad_prof || ''), user = cgEsc(data.ad_user || '');
+    const th = [data.ad_th1, data.ad_th2, data.ad_th3].map(x => String(x || '').trim().replace(/\s+/g, ' ')).filter(Boolean);
+    let c = '# ========================================\n# FortiGate — Admin & Access Profile\n# ========================================\n\n';
+    if (/[?\s]/.test(data.ad_pass || '')) c += '# UYARI: parolada boşluk veya "?" var — FortiOS CLI\'de "?" yardım menüsünü açar, boşluk parolayı böler.\n';
+    if (!th.length) c += '# UYARI: trusted host tanımlanmadı — bu yönetici her kaynaktan giriş yapabilir.\n';
+    if ((data.ad_2fa || 'disable') === 'disable') c += '# Not: 2FA kapalı. Yönetici hesapları için FortiToken önerilir.\n';
+    if (/^super_admin$/i.test(data.ad_prof || '')) c += '# UYARI: super_admin profili tam yetki verir — en az yetki ilkesine göre daha dar bir profil seçin.\n';
+    c += '\n';
+    if ((data._cgtype || 'existing') === 'newprof') {
+        const rw = data.ad_preset === 'netop' ? ['netgrp', 'fwgrp', 'vpngrp'] : [];
+        c += 'config system accprofile\n    edit "' + prof + '"\n';
+        CG_FG_ACCGRP.forEach(g => { c += '        set ' + g + ' ' + (rw.indexOf(g) !== -1 ? 'read-write' : 'read') + '\n'; });
+        c += '    next\nend\n\n';
+    }
+    c += 'config system admin\n    edit "' + user + '"\n';
+    c += '        set accprofile "' + prof + '"\n';
+    c += '        set vdom "' + cgEsc(data.ad_vdom || '') + '"\n';
+    c += '        set password ' + cgEsc(data.ad_pass || '') + '\n';
+    th.forEach((t, i) => { c += '        set trusthost' + (i + 1) + ' ' + cgEsc(t) + '\n'; });
+    if (data.ad_2fa === 'fortitoken') {
+        c += '        set two-factor fortitoken\n        set fortitoken "' + cgEsc(data.ad_token || '') + '"\n';
+    } else if (data.ad_2fa === 'email') {
+        c += '        set two-factor email\n        set email-to "' + cgEsc(data.ad_email || '') + '"\n';
+    }
+    if (data.ad_forcechg) c += '        set force-password-change enable\n';
+    c += '    next\nend\n\n';
+    if (data.gl_enable) {
+        c += 'config system global\n';
+        if (data.gl_timeout) c += '    set admintimeout ' + cgEsc(data.gl_timeout) + '\n';
+        if (data.gl_lockthr) c += '    set admin-lockout-threshold ' + cgEsc(data.gl_lockthr) + '\n';
+        if (data.gl_lockdur) c += '    set admin-lockout-duration ' + cgEsc(data.gl_lockdur) + '\n';
+        c += '    set admin-https-ssl-versions tlsv1-2 tlsv1-3\n';
+        c += '    set admin-telnet disable\n';
+        if (data.gl_banner) c += '    set pre-login-banner enable\n';
+        c += 'end\n\n';
+    }
+    c += '# Doğrulama:\n# show system admin "' + user + '"\n# show system accprofile "' + prof + '"\n# get system global\n';
+    return c;
+}
+
+// ── FortiGate: Local User + User Group ────────────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — user local type password|radius|ldap/passwd/radius-server/ldap-server/two-factor fortitoken/fortitoken/email-to/status;
+//            user group member)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/109120963/config-user-local
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/328136827/config-user-group
+FortiGate.user = {
+    label: 'Local User & Group',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-users',
+                title: 'Yerel Kullanıcı & Kullanıcı Grubu (FortiGate)',
+                desc: 'SSL-VPN, IPsec dial-up ve kimlik tabanlı policy\'ler için kullanıcı ve grup.<br><code>config user local\n  edit "ayse"\n    set type password\n    set passwd ...\n  next\nend\nconfig user group\n  edit "VPN_USERS"\n    set member "ayse"\n  next\nend</code>'
+            },
+            configTypes: [
+                { id: 'password', label: 'Yerel Parola', icon: 'fas fa-key',       desc: 'Parola FortiGate üzerinde', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'radius',   label: 'RADIUS',       icon: 'fas fa-server',    desc: 'Parola RADIUS sunucusunda' },
+                { id: 'ldap',     label: 'LDAP',         icon: 'fas fa-sitemap',   desc: 'Parola LDAP/AD üzerinde' }
+            ],
+            sections: [
+                {
+                    title: 'Kullanıcı',
+                    icon: 'fas fa-user',
+                    fields: [
+                        { name: 'us_name', why: 'Kullanıcı adı, RADIUS/LDAP türünde sunucudaki hesap adıyla aynı olmalı.', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'user1', hint: 'user local adı' },
+                        { name: 'us_pass', why: 'Yerel parola cihazda şifrelenerek saklanır. <code>user password-policy</code> ile süre/uzunluk kuralı bağlanabilir.', label: 'Parola', type: 'text', requiredIf: { field: '_cgtype', in: ['password'] }, placeholder: 'Degistir-Beni-2026!', hint: 'passwd' },
+                        { name: 'us_server', why: 'Kimlik doğrulamanın yapılacağı sunucunun FortiGate\'teki adı (<code>config user radius</code> / <code>config user ldap</code>). Önceden tanımlı olmalı.', label: 'Sunucu Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['radius', 'ldap'] }, placeholder: 'AUTH_SRV', hint: 'radius-server / ldap-server' },
+                        { name: 'us_disabled', why: 'Hesabı pasif oluşturur (ör. işe başlama tarihinden önce).', label: 'Devre dışı oluştur', type: 'checkbox', checked: false, hint: 'set status disable' }
+                    ]
+                },
+                {
+                    title: 'İki Faktörlü Doğrulama',
+                    icon: 'fas fa-mobile-alt',
+                    fields: [
+                        { name: 'us_2fa', why: 'Uzaktan erişim (SSL-VPN) kullanıcıları için 2FA, çalınan parolayla girişi engelleyen en etkili kontroldür. FortiToken önce <code>config user fortitoken</code> altına kayıtlı olmalı.', label: '2FA Yöntemi', type: 'select', options: [
+                            { value: 'disable',    label: 'Kapalı', selected: true },
+                            { value: 'fortitoken', label: 'FortiToken' },
+                            { value: 'email',      label: 'E-posta' }
+                        ]},
+                        { name: 'us_token', why: 'Kullanıcıya atanacak FortiToken (Mobile) seri numarası.', label: 'FortiToken Seri No', type: 'text', requiredIf: { field: 'us_2fa', in: ['fortitoken'] }, placeholder: 'FTKMOB0000000000', hint: 'fortitoken' },
+                        { name: 'us_email', why: 'FortiToken Mobile aktivasyonu veya e-posta kodu bu adrese gider.', label: 'E-posta', type: 'text', requiredIf: { field: 'us_2fa', in: ['email'] }, placeholder: 'user1@example.com', hint: 'email-to' }
+                    ]
+                },
+                {
+                    title: 'Kullanıcı Grubu',
+                    icon: 'fas fa-users',
+                    fields: [
+                        { name: 'ug_name', why: 'Policy ve SSL-VPN kuralları kullanıcıya değil gruba bağlanmalı; kullanıcı eklemek/çıkarmak kuralı değiştirmeden yapılır.', label: 'Grup Adı', type: 'text', placeholder: 'VPN_USERS', hint: 'Boşsa grup üretilmez' },
+                        { name: 'ug_extra', why: 'Gruba eklenecek diğer mevcut kullanıcılar (yukarıdaki kullanıcı otomatik eklenir).', label: 'Ek Üyeler', type: 'text', placeholder: 'user2, user3', hint: 'Virgülle ayrılmış' }
+                    ]
+                }
+            ],
+            submit: 'Kullanıcı Oluştur'
+        }, (data) => cgFgUserGen(data));
+    }
+};
+function cgFgUserGen(data) {
+    const ty = ['radius', 'ldap'].indexOf(data._cgtype) !== -1 ? data._cgtype : 'password';
+    const name = cgEsc(data.us_name || '');
+    let c = '# ========================================\n# FortiGate — Local User & Group\n# ========================================\n\n';
+    if (ty === 'password' && /[?\s]/.test(data.us_pass || '')) c += '# UYARI: parolada boşluk veya "?" var — FortiOS CLI\'de "?" yardım menüsünü açar, boşluk parolayı böler.\n';
+    c += 'config user local\n    edit "' + name + '"\n';
+    c += '        set type ' + ty + '\n';
+    if (ty === 'password') c += '        set passwd ' + cgEsc(data.us_pass || '') + '\n';
+    else c += '        set ' + ty + '-server "' + cgEsc(data.us_server || '') + '"\n';
+    if (data.us_2fa === 'fortitoken') {
+        c += '        set two-factor fortitoken\n        set fortitoken "' + cgEsc(data.us_token || '') + '"\n';
+        if (data.us_email) c += '        set email-to "' + cgEsc(data.us_email) + '"\n';
+    } else if (data.us_2fa === 'email') {
+        c += '        set two-factor email\n        set email-to "' + cgEsc(data.us_email || '') + '"\n';
+    }
+    if (data.us_disabled) c += '        set status disable\n';
+    c += '    next\nend\n\n';
+    const g = String(data.ug_name || '').trim();
+    if (g) {
+        const extra = cgFgQList(data.ug_extra);
+        c += 'config user group\n    edit "' + cgEsc(g) + '"\n';
+        c += '        set member "' + name + '"' + (extra ? ' ' + extra : '') + '\n';
+        c += '    next\nend\n\n';
+    }
+    c += '# Doğrulama:\n# show user local "' + name + '"\n' + (g ? '# show user group "' + cgEsc(g) + '"\n' : '') + '# diagnose firewall auth list\n';
+    return c;
+}
+
+// ── FortiGate: DoS Policy ─────────────────────────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — name/interface/srcaddr/dstaddr/service/comments;
+//            config anomaly > edit "tcp_syn_flood" … status/log/action/threshold)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/561707922/config-firewall-dos-policy
+const CG_FG_DOS = [
+    { id: 'tcp_syn_flood', f: 'dos_syn',  ph: '2000', lbl: 'tcp_syn_flood (yeni SYN/sn)' },
+    { id: 'tcp_port_scan', f: 'dos_scan', ph: '1000', lbl: 'tcp_port_scan (SYN/sn, tek kaynak)' },
+    { id: 'udp_flood',     f: 'dos_udp',  ph: '2000', lbl: 'udp_flood (paket/sn)' },
+    { id: 'icmp_flood',    f: 'dos_icmp', ph: '250',  lbl: 'icmp_flood (paket/sn)' }
+];
+FortiGate.dos = {
+    label: 'DoS Policy',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-bolt',
+                title: 'DoS Policy (FortiGate)',
+                desc: 'Giriş arayüzünde, firewall policy\'lerinden ÖNCE uygulanan anomali (flood / scan) koruması.<br><code>config firewall DoS-policy\n  edit 1\n    set interface "port1"\n    config anomaly\n      edit "tcp_syn_flood"\n        set status enable\n        set log enable\n        set action block\n      next\n    end\n  next\nend</code>'
+            },
+            sections: [
+                {
+                    title: 'Kapsam',
+                    icon: 'fas fa-crosshairs',
+                    fields: [
+                        { name: 'dos_id', why: 'DoS policy\'ler ID sırasıyla eşleşir; var olan ID\'nin üzerine yazar.', label: 'Policy ID', type: 'text', required: true, validate: 'posint', placeholder: '1', hint: 'edit numarası' },
+                        { name: 'dos_name', why: 'Policy\'yi listede tanımayı sağlar.', label: 'Ad', type: 'text', placeholder: 'WAN_DOS', hint: 'name (opsiyonel)' },
+                        { name: 'dos_if', why: 'DoS koruması trafiğin <b>girdiği</b> arayüzde uygulanır; genelde internete bakan WAN arayüzü.', label: 'Giriş Arayüzü', type: 'text', required: true, validate: 'iface', placeholder: 'port1', hint: 'interface' },
+                        { name: 'dos_src', why: 'Korunacak trafiğin kaynağı; internet için <code>all</code>.', label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'all', hint: 'Adres nesnesi (virgülle çoklu)' },
+                        { name: 'dos_dst', why: 'Korunan hedef (ör. yayınlanan sunucular / VIP\'ler).', label: 'Hedef Adres', type: 'text', required: true, placeholder: 'all', hint: 'Adres nesnesi (virgülle çoklu)' },
+                        { name: 'dos_svc', why: 'Kapsanan servisler; tüm anomali tipleri için <code>ALL</code>.', label: 'Servis', type: 'text', required: true, placeholder: 'ALL', hint: 'Servis nesnesi (virgülle çoklu)' },
+                        { name: 'dos_comment', why: 'Eşik değerlerinin hangi ölçüme dayandığını yazmak ileride ayar yaparken işe yarar.', label: 'Açıklama', type: 'text', placeholder: 'Baseline 2 hafta izlendi', hint: 'comments' }
+                    ]
+                },
+                {
+                    title: 'Anomaliler',
+                    icon: 'fas fa-bolt',
+                    info: 'Eşik boş bırakılırsa cihaz varsayılanı kullanılır. Fortinet önerisi: önce <b>pass</b> (yalnız log) ile normal trafiği ölçün, eşikleri ayarlayın, sonra <b>block</b>\'a geçin.',
+                    fields: [
+                        { name: 'dos_action', why: '<code>block</code> eşik aşıldığında trafiği keser; eşik düşük seçilirse meşru yoğun trafik (ör. kampanya günü) de kesilir. <code>pass</code> yalnız loglar.', label: 'Aksiyon (seçili anomaliler)', type: 'select', options: [
+                            { value: 'pass',  label: 'pass — yalnız log (izleme)', selected: true },
+                            { value: 'block', label: 'block — engelle' }
+                        ]}
+                    ].concat(CG_FG_DOS.map(a => ({ name: a.f, why: 'Eşik saniye başına değerdir. Normal tepe trafiğin üzerinde bir değer seçin; ölçmeden verilen düşük eşik kesintiye yol açar.', label: a.lbl, type: 'text', validate: 'posint', placeholder: a.ph, hint: 'Boş = cihaz varsayılanı' })))
+                }
+            ],
+            submit: 'DoS Policy Oluştur'
+        }, (data) => cgFgDosGen(data));
+    }
+};
+function cgFgDosGen(data) {
+    const id = cgEsc(data.dos_id || '');
+    const act = data.dos_action === 'block' ? 'block' : 'pass';
+    let c = '# ========================================\n# FortiGate — DoS Policy\n# ========================================\n\n';
+    if (act === 'pass') c += '# Not: aksiyon pass — anomaliler yalnız loglanır, engellenmez (izleme modu).\n';
+    c += 'config firewall DoS-policy\n    edit ' + id + '\n';
+    if (data.dos_name) c += '        set name "' + cgEsc(data.dos_name) + '"\n';
+    if (data.dos_comment) c += '        set comments "' + cgEsc(data.dos_comment) + '"\n';
+    c += '        set interface "' + cgEsc(data.dos_if || '') + '"\n';
+    c += '        set srcaddr ' + cgFgQList(data.dos_src) + '\n';
+    c += '        set dstaddr ' + cgFgQList(data.dos_dst) + '\n';
+    c += '        set service ' + cgFgQList(data.dos_svc) + '\n';
+    c += '        config anomaly\n';
+    CG_FG_DOS.forEach(a => {
+        c += '            edit "' + a.id + '"\n';
+        c += '                set status enable\n';
+        c += '                set log enable\n';
+        c += '                set action ' + act + '\n';
+        if (data[a.f]) c += '                set threshold ' + cgEsc(data[a.f]) + '\n';
+        c += '            next\n';
+    });
+    c += '        end\n    next\nend\n\n';
+    c += '# Doğrulama:\n# show firewall DoS-policy ' + id + '\n';
+    return c;
+}
+
+// ── FortiGate: Local-in Policy ────────────────────────────────────────────────
+// Sözdizimi: https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/185227842/config-firewall-local-in-policy
+//            (canlı config'lerde bu blok yok — yalnız resmi CLI Reference'tan)
+FortiGate.localin = {
+    label: 'Local-in Policy',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-door-closed',
+                title: 'Local-in Policy (FortiGate)',
+                desc: 'FortiGate\'in <b>kendisine</b> gelen trafiği (yönetim, SNMP, BGP, IKE…) kısıtlar; geçen trafiği etkilemez.<br><code>config firewall local-in-policy\n  edit 1\n    set intf "port1"\n    set srcaddr "MGMT_NET"\n    set dstaddr "all"\n    set action accept\n    set service "SSH" "HTTPS"\n    set schedule "always"\n  next\nend</code>'
+            },
+            configTypes: [
+                { id: 'restrict', label: 'İzinli Kaynak + Geri Kalanı Reddet', icon: 'fas fa-user-check', desc: 'Yönetimi yalnız belirli ağlara aç', badge: { text: 'Önerilen', cls: 'recommended' } },
+                { id: 'deny',     label: 'Yalnız Reddet',                     icon: 'fas fa-ban',        desc: 'Belirli kaynak/servisi kapat' }
+            ],
+            sections: [
+                {
+                    title: 'Kapsam',
+                    icon: 'fas fa-crosshairs',
+                    warn: 'Yanlış kural sizi cihazdan kilitleyebilir. Önce izinli kaynağın doğru olduğunu doğrulayın; konsol erişiminiz olmadan WAN yönetim servislerini kapatmayın.',
+                    fields: [
+                        { name: 'li_id', why: 'Local-in policy\'ler ID sırasıyla değerlendirilir: izin kuralı, reddetme kuralından ÖNCE (daha küçük ID) olmalı.', label: 'Policy ID', type: 'text', required: true, validate: 'posint', placeholder: '1', hint: 'İlk kuralın edit numarası' },
+                        { name: 'li_if', why: 'Kuralın uygulanacağı gelen arayüz (genelde WAN).', label: 'Arayüz', type: 'text', required: true, validate: 'iface_range', placeholder: 'port1', hint: 'intf (boşluk/virgülle çoklu)' },
+                        { name: 'li_dst', why: 'FortiGate üzerindeki hedef adres; arayüz IP\'sini temsil eden nesne veya <code>all</code>.', label: 'Hedef Adres', type: 'text', required: true, placeholder: 'all', hint: 'Adres nesnesi (virgülle çoklu)' },
+                        { name: 'li_svc', why: 'Kısıtlanacak servisler. Yalnız yönetim servislerini (SSH, HTTPS, SNMP) seçin; <code>ALL</code> seçerseniz IPsec (IKE), BGP gibi kontrol trafiği de etkilenir.', label: 'Servis', type: 'text', required: true, placeholder: 'SSH, HTTPS', hint: 'Servis nesnesi (virgülle çoklu)' },
+                        { name: 'li_comment', why: 'Kuralın amacı; local-in kuralları GUI\'de az görünür olduğu için açıklama önemlidir.', label: 'Açıklama', type: 'text', placeholder: 'Yönetim erişim kısıtı', hint: 'comments' }
+                    ]
+                },
+                {
+                    title: 'İzinli Kaynak',
+                    icon: 'fas fa-user-check',
+                    showFor: ['restrict'],
+                    fields: [
+                        { name: 'li_src', why: 'Yönetime izin verilen kaynak ağ(lar)ın adres nesnesi. <code>all</code> yazmak kısıtı anlamsız kılar.', label: 'İzinli Kaynak Adres', type: 'text', requiredIf: { field: '_cgtype', in: ['restrict'] }, placeholder: 'MGMT_NET', hint: 'Adres nesnesi/grubu' },
+                        { name: 'li_denyid', why: 'Geri kalan kaynakları reddeden ikinci kuralın ID\'si; izin kuralından büyük olmalı.', label: 'Reddet Kuralı ID', type: 'text', validate: 'posint', requiredIf: { field: '_cgtype', in: ['restrict'] }, placeholder: '2', hint: 'edit numarası' }
+                    ]
+                },
+                {
+                    title: 'Reddedilecek Kaynak',
+                    icon: 'fas fa-ban',
+                    showFor: ['deny'],
+                    fields: [
+                        { name: 'li_denysrc', why: 'Reddedilecek kaynak; tüm kaynaklar için <code>all</code>.', label: 'Kaynak Adres', type: 'text', requiredIf: { field: '_cgtype', in: ['deny'] }, placeholder: 'all', hint: 'Adres nesnesi (virgülle çoklu)' }
+                    ]
+                }
+            ],
+            submit: 'Local-in Policy Oluştur'
+        }, (data) => cgFgLocalinGen(data));
+    }
+};
+function cgFgLocalinGen(data) {
+    const ty = data._cgtype === 'deny' ? 'deny' : 'restrict';
+    const id = String(data.li_id || '').trim(), did = String(data.li_denyid || '').trim();
+    const intf = cgFgIfList(data.li_if), dst = cgFgQList(data.li_dst), svc = cgFgQList(data.li_svc);
+    const cm = data.li_comment ? '        set comments "' + cgEsc(data.li_comment) + '"\n' : '';
+    const rule = (rid, src, action) => '    edit ' + cgEsc(rid) + '\n        set intf ' + intf + '\n        set srcaddr ' + src + '\n        set dstaddr ' + dst +
+        '\n        set action ' + action + '\n        set service ' + svc + '\n        set schedule "always"\n' + cm + '    next\n';
+    let c = '# ========================================\n# FortiGate — Local-in Policy\n# ========================================\n\n';
+    if (ty === 'restrict') {
+        if (/^all$/i.test(String(data.li_src || '').trim())) c += '# UYARI: izinli kaynak "all" — kısıt etkisiz.\n';
+        if (did && id && +did <= +id) c += '# UYARI: reddet kuralı ID\'si izin kuralından büyük olmalı; aksi halde izinli kaynak da reddedilir.\n';
+        c += 'config firewall local-in-policy\n';
+        c += rule(id, cgFgQList(data.li_src), 'accept');
+        c += rule(did, '"all"', 'deny');
+        c += 'end\n\n';
+    } else {
+        c += 'config firewall local-in-policy\n' + rule(id, cgFgQList(data.li_denysrc), 'deny') + 'end\n\n';
+    }
+    c += '# Doğrulama:\n# show firewall local-in-policy\n';
+    return c;
+}
+
+// ── FortiGate: Automation Stitch ──────────────────────────────────────────────
+// Sözdizimi: canlı config (5 cihaz — automation-trigger event-type/logid/license-type; automation-action action-type email/email-to/email-subject;
+//            automation-stitch trigger/description/config actions > action)
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/878454488/config-system-automation-stitch
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/160942731/config-system-automation-trigger
+//            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/332365236/config-system-automation-action
+//            + https://docs.fortinet.com/document/fortigate/7.4.0/administration-guide/921599/diagnosing-automation-stitches (diagnose automation test)
+FortiGate.automation = {
+    label: 'Automation Stitch (E-posta Uyarısı)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-robot',
+                title: 'Automation Stitch (FortiGate)',
+                desc: 'Olay tetikleyici (config değişikliği, HA failover, yeniden başlama…) → e-posta aksiyonu. EEM\'in FortiOS karşılığı.<br><code>config system automation-stitch\n  edit "CFG_CHANGE_MAIL"\n    set trigger "CFG_CHANGE"\n    config actions\n      edit 1\n        set action "MAIL_NOC"\n      next\n    end\n  next\nend</code>'
+            },
+            sections: [
+                {
+                    title: 'Tetikleyici',
+                    icon: 'fas fa-bell',
+                    fields: [
+                        { name: 'at_trig', why: 'Tetikleyici nesnesinin adı; birden çok stitch aynı tetikleyiciyi kullanabilir.', label: 'Tetikleyici Adı', type: 'text', required: true, placeholder: 'CFG_CHANGE', hint: 'automation-trigger adı' },
+                        { name: 'at_event', why: 'Hangi olayda çalışacağı. <code>config-change</code> yetkisiz değişikliği fark etmenin en ucuz yoludur; <code>event-log</code> belirli bir log ID\'sine bağlanır.', label: 'Olay', type: 'select', options: [
+                            { value: 'config-change',       label: 'config-change (yapılandırma değişti)', selected: true },
+                            { value: 'ha-failover',         label: 'ha-failover' },
+                            { value: 'reboot',              label: 'reboot' },
+                            { value: 'high-cpu',            label: 'high-cpu' },
+                            { value: 'low-memory',          label: 'low-memory' },
+                            { value: 'license-near-expiry', label: 'license-near-expiry (tüm lisanslar)' },
+                            { value: 'event-log',           label: 'event-log (log ID ile)' }
+                        ]},
+                        { name: 'at_logid', why: 'Tetikleyecek log ID(ler)i; birden fazlası boşlukla. Yanlış ID stitch\'in hiç çalışmamasına yol açar — <b>Log & Report</b> ekranından doğrulayın.', label: 'Log ID', type: 'text', requiredIf: { field: 'at_event', in: ['event-log'] }, placeholder: '32002', hint: 'Boşlukla ayrılmış log ID' }
+                    ]
+                },
+                {
+                    title: 'E-posta Aksiyonu',
+                    icon: 'fas fa-envelope',
+                    info: 'E-posta gönderimi için <code>config system email-server</code> çalışır durumda olmalıdır.',
+                    fields: [
+                        { name: 'at_act', why: 'Aksiyon nesnesinin adı; farklı stitch\'lerde tekrar kullanılabilir.', label: 'Aksiyon Adı', type: 'text', required: true, placeholder: 'MAIL_NOC', hint: 'automation-action adı' },
+                        { name: 'at_to', why: 'Uyarının gideceği adres; kişi yerine ekip/dağıtım listesi kullanın.', label: 'Alıcı', type: 'text', required: true, placeholder: 'noc@example.com', hint: 'email-to' },
+                        { name: 'at_subj', why: 'Konu satırı; e-posta kurallarıyla filtrelemeyi kolaylaştırır.', label: 'Konu', type: 'text', required: true, placeholder: 'FortiGate uyarısı', hint: 'email-subject' }
+                    ]
+                },
+                {
+                    title: 'Stitch',
+                    icon: 'fas fa-link',
+                    fields: [
+                        { name: 'at_stitch', why: 'Stitch, tetikleyici ile aksiyonu bağlar; ancak stitch varsa bir şey olur.', label: 'Stitch Adı', type: 'text', required: true, placeholder: 'CFG_CHANGE_MAIL', hint: 'automation-stitch adı' },
+                        { name: 'at_desc', why: 'Stitch\'in amacını açıklar.', label: 'Açıklama', type: 'text', placeholder: 'Config değişikliği bildirimi', hint: 'description' }
+                    ]
+                }
+            ],
+            submit: 'Stitch Oluştur'
+        }, (data) => cgFgAutomationGen(data));
+    }
+};
+function cgFgAutomationGen(data) {
+    const ev = ['config-change', 'ha-failover', 'reboot', 'high-cpu', 'low-memory', 'license-near-expiry', 'event-log'].indexOf(data.at_event) !== -1 ? data.at_event : 'config-change';
+    const trig = cgEsc(data.at_trig || ''), act = cgEsc(data.at_act || ''), st = cgEsc(data.at_stitch || '');
+    let c = '# ========================================\n# FortiGate — Automation Stitch\n# ========================================\n\n';
+    c += 'config system automation-trigger\n    edit "' + trig + '"\n';
+    c += '        set event-type ' + ev + '\n';
+    if (ev === 'license-near-expiry') c += '        set license-type any\n';
+    if (ev === 'event-log') {
+        const ids = String(data.at_logid || '').split(/[,\s]+/).filter(x => /^\d+$/.test(x));
+        if (ids.length) c += '        set logid ' + ids.join(' ') + '\n';
+        else c += '        # UYARI: geçerli log ID girilmedi\n';
+    }
+    c += '    next\nend\n\n';
+    c += 'config system automation-action\n    edit "' + act + '"\n';
+    c += '        set action-type email\n';
+    c += '        set email-to "' + cgEsc(data.at_to || '') + '"\n';
+    c += '        set email-subject "' + cgEsc(data.at_subj || '') + '"\n';
+    c += '    next\nend\n\n';
+    c += 'config system automation-stitch\n    edit "' + st + '"\n';
+    if (data.at_desc) c += '        set description "' + cgEsc(data.at_desc) + '"\n';
+    c += '        set trigger "' + trig + '"\n';
+    c += '        config actions\n            edit 1\n                set action "' + act + '"\n            next\n        end\n';
+    c += '    next\nend\n\n';
+    c += '# Doğrulama:\n# show system automation-stitch "' + st + '"\n# diagnose automation test ' + st + '\n';
     return c;
 }
