@@ -1027,7 +1027,7 @@ JuniperMX.snmp = {
                     title: 'Trap Hedefi',
                     icon: 'fas fa-bullseye',
                     fields: [
-                        { name: 'trap_group', why: 'Trap group hem sürümü hem alıcıları belirler. <code>categories</code> eklemezseniz grup tanımlı görünür ama hiçbir trap gönderilmez.', label: 'Trap Group Adı', type: 'text', required: true, placeholder: 'TRAPS', hint: 'SNMP trap group adı' },
+                        { name: 'trap_group', why: 'Trap group hem sürümü hem alıcıları belirler. <code>categories</code> verilmezse (timing-events dışında) tüm trap kategorileri gönderilir; NMS\'i gereksiz trap\'le boğmamak için ihtiyaç duyulan kategorilere daraltın.', label: 'Trap Group Adı', type: 'text', required: true, placeholder: 'TRAPS', hint: 'SNMP trap group adı' },
                         { name: 'target_ip', why: "Alıcı adres yönlendirilebilir olmalı ve trap'lerin çıkacağı kaynak adres NMS tarafında tanımlı olmalıdır; tanımadığı kaynaktan gelen trap'i NMS sessizce düşürür.", label: 'Target IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap alıcısı IP adresi' }
                     ]
                 }
@@ -1045,6 +1045,1207 @@ JuniperMX.snmp = {
             c += 'set snmp trap-group ' + trapGroup + ' version v3\n';
             c += 'set snmp trap-group ' + trapGroup + ' targets ' + targetIp + '\n';
             c += '\n# Doğrulama:\n# show snmp v3\n';
+            return c;
+        });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Juniper JunOS (EX/QFX, ELS) — yönetim, L2 koruma ve yönlendirme araçları
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Virgül/boşluk ayrılmış listeyi temiz diziye çevirir.
+function cgJnpList(s) {
+    return String(s || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+}
+// 'ge-0/0/1.0' → ['ge-0/0/1', '0'];  'ge-0/0/1' → ['ge-0/0/1', '0']
+function cgJnpIfUnit(i) {
+    const m = String(i).match(/^(.+?)\.(\d+)$/);
+    return m ? [m[1], m[2]] : [String(i), '0'];
+}
+// Serbest metni çift tırnak içine güvenle koymak için içteki çift tırnakları temizler.
+function cgJnpTxt(s) {
+    return String(s || '').replace(/"/g, "'").replace(/\s+/g, ' ').trim();
+}
+function cgJnpHdr(t) {
+    return '# ========================================\n# Juniper JunOS — ' + t + '\n# ========================================\n\n';
+}
+const CG_JNP_SEV = [
+    { value: 'emergency', label: 'emergency' },
+    { value: 'alert', label: 'alert' },
+    { value: 'critical', label: 'critical' },
+    { value: 'error', label: 'error' },
+    { value: 'warning', label: 'warning' },
+    { value: 'notice', label: 'notice' },
+    { value: 'info', label: 'info' },
+    { value: 'any', label: 'any (tüm seviyeler)' }
+];
+function cgJnpSev(def) { return CG_JNP_SEV.map(o => Object.assign({}, o, o.value === def ? { selected: true } : {})); }
+
+// ── Juniper JunOS: Sistem Temeli (DNS / NTP / Banner) ────────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: ntp server … prefer, ntp boot-server,
+//   name-server, time-zone) + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/ntp-edit-system.html
+//   (ntp source-address) + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/domain-name-edit-system.html
+//   + https://www.juniper.net/documentation/us/en/software/junos/user-access/topics/topic-map/junos-os-login-settings.html (login message / announcement)
+Juniper.system = {
+    label: 'Sistem Temeli (DNS/NTP/Banner)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-server',
+                title: 'Juniper JunOS — Sistem Temeli',
+                desc: 'NTP, DNS, domain-name, saat dilimi ve login banner (message / announcement). Hostname için <b>Genel</b> aracını kullanın.<br><small>Örn: <code>set system ntp server 192.0.2.10 prefer</code> &nbsp;|&nbsp; <code>set system name-server 192.0.2.53</code></small>'
+            },
+            sections: [
+                {
+                    title: 'NTP',
+                    icon: 'fas fa-clock',
+                    fields: [
+                        { name: 'ntp1', label: 'NTP Sunucu 1', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.10', hint: 'Birincil NTP sunucusu (IPv4)', why: 'Saat kayarsa syslog zaman damgaları olaylarla eşleşmez, sertifika/SSH anahtar doğrulaması ve commit geçmişi yanıltıcı olur. Olay incelemesinde ilk bakılan şey doğru saattir.' },
+                        { name: 'ntp1_prefer', label: 'Sunucu 1 tercihli (prefer)', type: 'checkbox', checked: true, why: '<code>prefer</code> işaretli sunucu, eşit kalitedeki adaylar arasında seçilir. İki sunucu farklı saat verirse cihazın hangisine kilitleneceği belirsiz kalmaz.' },
+                        { name: 'ntp2', label: 'NTP Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.11', hint: 'Yedek NTP sunucusu', why: 'Tek NTP sunucusu tekil arıza noktasıdır; o sunucu kapanınca saat sessizce kaymaya başlar. En az iki (tercihen üç) kaynak önerilir.' },
+                        { name: 'boot_srv', label: 'Sunucu 1 aynı zamanda boot-server olsun', type: 'checkbox', checked: true, why: '<code>boot-server</code>, açılışta saatin bir kerede ayarlandığı sunucudur. Tanımlı değilse cihaz saati çok farklı başlatıp NTP senkronunu uzun süre kuramayabilir.' },
+                        { name: 'ntp_src', label: 'NTP Kaynak Adresi', type: 'text', validate: 'ip', placeholder: '10.0.0.1', hint: 'NTP paketlerinin çıkacağı yerel adres (loopback/mgmt)', why: 'NTP sunucusu veya firewall yalnız belirli kaynak adreslere izin veriyorsa, cihaz farklı bir arayüzden çıktığında istekler sessizce düşer.' }
+                    ]
+                },
+                {
+                    title: 'DNS & Saat Dilimi',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'dns1', label: 'DNS Sunucu 1', type: 'text', validate: 'ip', placeholder: '192.0.2.53', hint: 'name-server', why: 'DNS yoksa <code>ping</code>/<code>ssh</code> ad ile çalışmaz ve ad kullanan NTP/syslog hedefleri çözülemez. Ulaşılamayan DNS ise CLI komutlarını çözümleme zaman aşımı kadar yavaşlatır.' },
+                        { name: 'dns2', label: 'DNS Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.54', hint: 'Yedek name-server', why: 'İkinci sunucu, birincisi yanıt vermediğinde devreye girer; tek DNS ile her çözümleme o sunucunun erişilebilirliğine bağlı kalır.' },
+                        { name: 'domain', label: 'Domain Adı', type: 'text', validate: 'hostname', placeholder: 'example.net', hint: 'Tam nitelenmemiş adlara eklenecek alan adı', why: 'Kısa adlar (ör. <code>ntp1</code>) bu alan adıyla tamamlanır. Yanlış domain, kısa adların hiç çözülmemesine veya başka bir hosta çözülmesine yol açar.' },
+                        { name: 'tz', label: 'Saat Dilimi', type: 'text', placeholder: 'Europe/Istanbul', hint: 'Bölge/Şehir biçiminde (ör. Europe/Istanbul, UTC)', why: 'Log ve <code>show system uptime</code> çıktıları bu dilimde gösterilir. Farklı cihazlarda farklı dilim kullanmak olay korelasyonunu zorlaştırır; merkezi logda genelde UTC tercih edilir.' }
+                    ]
+                },
+                {
+                    title: 'Login Banner',
+                    icon: 'fas fa-comment-alt',
+                    fields: [
+                        { name: 'login_msg', label: 'Login Mesajı (giriş öncesi)', type: 'text', placeholder: 'Yetkisiz erisim yasaktir. Tum oturumlar kayit altindadir.', hint: 'Kullanıcı adı sorulmadan önce gösterilir', why: 'Giriş öncesi uyarı, yetkisiz erişimde hukuki dayanak sağlar ve birçok denetim standardında zorunludur. İç sistem bilgisi (model, sürüm, lokasyon) yazmayın; saldırgana keşif bilgisi verir.' },
+                        { name: 'announce', label: 'Duyuru (giriş sonrası)', type: 'text', placeholder: 'Degisiklikler icin commit confirmed kullanin.', hint: 'Başarılı girişten sonra gösterilir', why: 'Operatörlere bakım penceresi, değişiklik kuralı gibi notları iletmek için kullanılır; giriş öncesi mesajdan farklı olarak yalnız yetkili kullanıcılar görür.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const ntp1 = cgEsc(data.ntp1 || ''), ntp2 = cgEsc(data.ntp2 || ''), src = cgEsc(data.ntp_src || '');
+            const dns1 = cgEsc(data.dns1 || ''), dns2 = cgEsc(data.dns2 || ''), dom = cgEsc(data.domain || ''), tz = cgEsc(data.tz || '');
+            const msg = cgEsc(cgJnpTxt(data.login_msg)), ann = cgEsc(cgJnpTxt(data.announce));
+            let c = cgJnpHdr('Sistem Temeli');
+            c += '# NTP\n';
+            if (data.boot_srv) c += 'set system ntp boot-server ' + ntp1 + '\n';
+            c += 'set system ntp server ' + ntp1 + (data.ntp1_prefer ? ' prefer' : '') + '\n';
+            if (ntp2) c += 'set system ntp server ' + ntp2 + '\n';
+            if (src) c += 'set system ntp source-address ' + src + '\n';
+            if (dns1 || dns2 || dom || tz) {
+                c += '\n# DNS / Saat dilimi\n';
+                if (dns1) c += 'set system name-server ' + dns1 + '\n';
+                if (dns2) c += 'set system name-server ' + dns2 + '\n';
+                if (dom) c += 'set system domain-name ' + dom + '\n';
+                if (tz) c += 'set system time-zone ' + tz + '\n';
+            }
+            if (msg || ann) {
+                c += '\n# Login banner\n';
+                if (msg) c += 'set system login message "' + msg + '"\n';
+                if (ann) c += 'set system login announcement "' + ann + '"\n';
+            }
+            c += '\n# Doğrulama:\n# show ntp associations\n# show ntp status\n# show system uptime\n# show configuration system\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: Syslog ─────────────────────────────────────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: syslog host … any any, host … source-address,
+//   file … any notice, file … interactive-commands info, file … authorization info,
+//   file … archive files N, file … structured-data)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/syslog-edit-system.html
+Juniper.syslog = {
+    label: 'Syslog',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-file-alt',
+                title: 'Juniper JunOS — Syslog',
+                desc: 'Uzak syslog sunucuları, kaynak adres ve yerel log dosyası (CLI komut kaydı dahil).<br><small>Örn: <code>set system syslog host 192.0.2.20 any info</code> &nbsp;|&nbsp; <code>set system syslog file CHANGES interactive-commands info</code></small>'
+            },
+            sections: [
+                {
+                    title: 'Uzak Syslog',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'host1', label: 'Syslog Sunucu 1', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.20', hint: 'Merkezi log sunucusu', why: 'Cihazın yerel log alanı küçüktür ve dönerek silinir; bir arıza veya yetkisiz erişim sonrası kanıt çoğunlukla yalnız merkezi sunucuda kalır.' },
+                        { name: 'host1_sev', label: 'Sunucu 1 Seviye (facility any)', type: 'select', options: cgJnpSev('info'), why: 'Seçilen seviye ve üstü gönderilir. <b>any</b> hata ayıklama seviyesini de içerir ve log sunucusunu gereksiz yere doldurabilir; <b>info</b> operasyon için genelde yeterlidir.' },
+                        { name: 'host2', label: 'Syslog Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.21', hint: 'Yedek log sunucusu (aynı seviye)', why: 'Syslog UDP ile gider ve teslim onayı yoktur; tek sunucu bakımdayken üretilen loglar kalıcı olarak kaybolur.' },
+                        { name: 'src', label: 'Kaynak Adres', type: 'text', validate: 'ip', placeholder: '10.0.0.1', hint: 'Log paketlerinin kaynak IP\'si (loopback/mgmt)', why: 'Log sunucusu kaydı kaynak IP ile cihaza eşler. Kaynak sabitlenmezse çıkış arayüzüne göre farklı IP\'lerden gelir ve aynı cihaz iki ayrı kaynak gibi görünür.' }
+                    ]
+                },
+                {
+                    title: 'Yerel Log Dosyası',
+                    icon: 'fas fa-hdd',
+                    fields: [
+                        { name: 'file_en', label: 'Yerel log dosyası tanımla', type: 'checkbox', why: 'Uzak sunucuya erişim kesildiğinde olayları cihaz üzerinde görebilmenin tek yolu yerel dosyadır.' },
+                        { name: 'file_name', label: 'Dosya Adı', type: 'text', requiredIf: { field: 'file_en', checked: true }, placeholder: 'SYSLOG-LOCAL', hint: '/var/log altında oluşturulur', why: 'Varsayılan <code>messages</code> dosyasından ayrı tutmak, ilgili kayıtları <code>show log DOSYA</code> ile hızlıca süzmeyi sağlar.' },
+                        { name: 'file_sev', label: 'Dosya Seviyesi (facility any)', type: 'select', options: cgJnpSev('notice'), why: 'Yerel disk sınırlıdır; düşük seviye (<b>info/any</b>) dosyayı hızla döndürür ve eski kayıtlar kaybolur.' },
+                        { name: 'file_cmds', label: 'CLI komutlarını da kaydet (interactive-commands info)', type: 'checkbox', checked: true, why: 'Kim hangi komutu ne zaman çalıştırdı sorusunun cevabıdır. Değişiklik sonrası kesintilerde kök nedeni bulmayı çok hızlandırır.' },
+                        { name: 'file_auth', label: 'Kimlik doğrulama olaylarını kaydet (authorization info)', type: 'checkbox', checked: true, why: 'Başarısız giriş denemeleri ve yetki hataları bu facility ile gelir; kaba kuvvet denemesini ancak bu kayıtla fark edersiniz.' },
+                        { name: 'file_files', label: 'Arşiv Dosya Sayısı', type: 'text', validate: 'posint', placeholder: '10', hint: 'Döndürmede tutulacak eski dosya sayısı', why: 'Dosya dolunca sıkıştırılıp döndürülür; bu sayı aşılınca en eski arşiv silinir. Az tutmak geçmişe dönük incelemeyi kısaltır.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const h1 = cgEsc(data.host1 || ''), h2 = cgEsc(data.host2 || ''), sev = cgEsc(data.host1_sev || 'info');
+            const src = cgEsc(data.src || '');
+            let c = cgJnpHdr('Syslog');
+            c += 'set system syslog host ' + h1 + ' any ' + sev + '\n';
+            if (src) c += 'set system syslog host ' + h1 + ' source-address ' + src + '\n';
+            if (h2) {
+                c += 'set system syslog host ' + h2 + ' any ' + sev + '\n';
+                if (src) c += 'set system syslog host ' + h2 + ' source-address ' + src + '\n';
+            }
+            const fname = cgEsc(data.file_name || ''), fsev = cgEsc(data.file_sev || 'notice'), files = cgEsc(data.file_files || '');
+            if (data.file_en && fname) {
+                c += '\n# Yerel log dosyası\n';
+                c += 'set system syslog file ' + fname + ' any ' + fsev + '\n';
+                if (data.file_auth) c += 'set system syslog file ' + fname + ' authorization info\n';
+                if (data.file_cmds) c += 'set system syslog file ' + fname + ' interactive-commands info\n';
+                if (files) c += 'set system syslog file ' + fname + ' archive files ' + files + '\n';
+            }
+            c += '\n# Doğrulama:\n# show configuration system syslog\n';
+            if (data.file_en && fname) c += '# show log ' + fname + '\n';
+            c += '# show log messages\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: Kullanıcı & Login Class ────────────────────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: login user … class super-user,
+//   authentication encrypted-password, root-authentication encrypted-password,
+//   login class … permissions view / view-configuration, login idle-timeout,
+//   retry-options tries-before-disconnect/backoff-threshold/backoff-factor/lockout-period)
+//   + https://www.juniper.net/documentation/us/en/software/junos/user-access/topics/topic-map/junos-os-user-accounts.html
+//   (authentication ssh-ed25519|ssh-rsa|ssh-ecdsa, plain-text-password, class … permissions [ ... ])
+//   + https://www.juniper.net/documentation/us/en/software/junos/user-access/topics/topic-map/junos-os-login-settings.html (class idle-timeout)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/retry-options-edit-system.html (aralıklar)
+Juniper.users = {
+    label: 'Kullanıcı & Login Class',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-shield',
+                title: 'Juniper JunOS — Kullanıcı & Login Class',
+                desc: 'Yerel kullanıcı, hazır veya özel login class, parola/SSH anahtarı, oturum zaman aşımı ve başarısız giriş (retry-options) koruması.<br><small>Örn: <code>set system login user netops class super-user authentication ssh-ed25519 "..."</code></small>'
+            },
+            configTypes: [
+                { id: 'builtin', label: 'Hazır Sınıf', icon: 'fas fa-user', desc: 'super-user / operator / read-only', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'custom', label: 'Özel Sınıf', icon: 'fas fa-user-cog', desc: 'Kendi yetki setiniz + idle-timeout', badge: { text: 'En Az Yetki', cls: 'security' } }
+            ],
+            sections: [
+                {
+                    title: 'Kullanıcı',
+                    icon: 'fas fa-user',
+                    fields: [
+                        { name: 'user', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netops', hint: 'Küçük harf, rakam, tire', why: 'Ortak hesap (ör. herkesin kullandığı <code>admin</code>) yerine kişiye özel hesap açmak, <code>interactive-commands</code> loglarında değişikliği kimin yaptığını görmenin tek yoludur.' },
+                        { name: 'auth', label: 'Kimlik Doğrulama', type: 'select', options: [
+                            { value: 'sshkey', label: 'SSH açık anahtarı', selected: true },
+                            { value: 'hash', label: 'Şifrelenmiş parola (hash)' },
+                            { value: 'plain', label: 'Düz parola (CLI sorar)' }
+                        ], why: 'SSH anahtarı parola tahmin saldırılarını anlamsız kılar. Hash seçeneği parolayı konfig metnine düz yazmadan taşımanızı sağlar; düz parola seçeneğinde CLI parolayı etkileşimli sorar, bu yüzden <code>load set</code> ile toplu yüklemede çalışmaz.' },
+                        { name: 'key_type', label: 'Anahtar Tipi', type: 'select', options: [
+                            { value: 'ssh-ed25519', label: 'ssh-ed25519', selected: true },
+                            { value: 'ssh-ecdsa', label: 'ssh-ecdsa' },
+                            { value: 'ssh-rsa', label: 'ssh-rsa' }
+                        ], why: 'Anahtar tipi, yapıştırdığınız açık anahtarın başındaki türle aynı olmalı; uyuşmazsa commit hata verir veya anahtar hiç eşleşmez.' },
+                        { name: 'ssh_key', label: 'SSH Açık Anahtarı', type: 'text', requiredIf: { field: 'auth', in: ['sshkey'] }, placeholder: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExampl netops@example', hint: '~/.ssh/id_ed25519.pub içeriğinin tamamı (tek satır)', why: 'Yalnız <b>açık</b> (.pub) anahtar yapıştırılır. Özel anahtarı yapıştırmak onu konfig yedeklerine ve log sunucularına sızdırır.' },
+                        { name: 'pw_hash', label: 'Parola Hash', type: 'text', requiredIf: { field: 'auth', in: ['hash'] }, placeholder: '$6$EXAMPLEsalt$ExampleHashValueOnlyForPreview0123456789', hint: 'Başka bir Junos cihazdaki encrypted-password değeri veya $6$ (SHA-512) hash', why: 'Hash konfigde düz parola bırakmaz; yine de yedek dosyaları çalınırsa çevrimdışı kırılabilir. Güçlü ve benzersiz parola kullanın.' }
+                    ]
+                },
+                {
+                    title: 'Hazır Sınıf',
+                    icon: 'fas fa-id-badge',
+                    showFor: ['builtin'],
+                    fields: [
+                        { name: 'builtin_class', label: 'Hazır Sınıf', type: 'select', options: [
+                            { value: 'read-only', label: 'read-only', selected: true },
+                            { value: 'operator', label: 'operator' },
+                            { value: 'super-user', label: 'super-user' }
+                        ], why: 'En az yetki ilkesi: izleme yapacak kişiye <b>super-user</b> vermek, yanlışlıkla <code>delete</code> veya <code>request system reboot</code> çalıştırabilmesi demektir. Not: operator ve read-only sınıflarında SCP/SFTP kapalıdır.' }
+                    ]
+                },
+                {
+                    title: 'Özel Login Class',
+                    icon: 'fas fa-user-cog',
+                    showFor: ['custom'],
+                    fields: [
+                        { name: 'class_name', label: 'Sınıf Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['custom'] }, placeholder: 'NOC-RO', hint: 'Hazır sınıf adlarını (super-user, operator, read-only, unauthorized) kullanmayın', why: 'Hazır sınıflar değiştirilemez; kendi yetki setiniz ve zaman aşımınız için yeni bir sınıf gerekir. RADIUS/TACACS ile gelen kullanıcılar da bu ada eşlenebilir.' },
+                        { name: 'perms', label: 'Yetki Seti', type: 'select', options: [
+                            { value: 'view view-configuration', label: 'İzleme: view + view-configuration', selected: true },
+                            { value: 'clear network reset trace view', label: 'Operatör: clear network reset trace view' },
+                            { value: 'all', label: 'Tam yetki: all' }
+                        ], why: '<code>view-configuration</code> konfigi görmeyi sağlar ama değiştirmeyi değil. <code>all</code> super-user ile eşdeğerdir; özel sınıf açmanın amacı genelde yetkiyi daraltmaktır.' },
+                        { name: 'class_idle', label: 'Idle Timeout (dk)', type: 'text', validate: 'posint', placeholder: '15', hint: 'Boşta kalan oturum bu süre sonunda kapatılır', why: 'Açık bırakılmış bir terminal, oturumu devralan herkese o kullanıcının yetkisini verir. Zaman aşımı bu riski sınırlar.' }
+                    ]
+                },
+                {
+                    title: 'Genel Login Koruması',
+                    icon: 'fas fa-lock',
+                    fields: [
+                        { name: 'global_idle', label: 'Global Idle Timeout (dk)', type: 'text', validate: 'posint', placeholder: '30', hint: 'Tüm oturumlar için (system login idle-timeout)', why: 'Sınıf bazlı zaman aşımı olmayan hazır sınıflardaki oturumları da kapsar; boşta unutulan SSH oturumlarını temizler.' },
+                        { name: 'tries', label: 'Bağlantı Başına Deneme', type: 'text', min: 2, max: 10, placeholder: '3', hint: 'tries-before-disconnect (2–10)', why: 'Bu sayıda başarısız parola sonrası bağlantı kesilir; kaba kuvvet denemesini yavaşlatır.' },
+                        { name: 'backoff_th', label: 'Gecikme Eşiği', type: 'text', min: 1, max: 3, placeholder: '2', hint: 'backoff-threshold (1–3)', why: 'Bu sayıda hatadan sonra her yeni denemeden önce bekleme eklenir; otomatik tahmin araçlarının hızını düşürür.' },
+                        { name: 'backoff_f', label: 'Gecikme Artışı (sn)', type: 'text', min: 5, max: 10, placeholder: '5', hint: 'backoff-factor (5–10)', why: 'Eşikten sonraki her denemede bekleme bu kadar artar.' },
+                        { name: 'lockout', label: 'Kilitleme Süresi (dk)', type: 'text', min: 1, max: 43200, placeholder: '15', hint: 'lockout-period (1–43200)', why: 'Deneme limiti dolunca hesap bu süre kilitlenir. Çok uzun tutmak, tek yönetici hesabının saldırgan tarafından bilerek kilitlenmesine (DoS) yol açabilir; konsol erişimini unutmayın.' }
+                    ]
+                },
+                {
+                    title: 'Root Parolası',
+                    icon: 'fas fa-key',
+                    fields: [
+                        { name: 'root_hash', label: 'Root Parola Hash', type: 'text', placeholder: '$6$EXAMPLEsalt$RootHashValueOnlyForPreview0123456789ab', hint: 'Boş bırakılırsa root parolasına dokunulmaz', why: 'Junos root parolası tanımlanmadan commit kabul etmez; mevcut cihazda boş bırakın. Root yalnız konsol/acil durum içindir, günlük iş için kişisel hesap kullanın.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const type = data._cgtype || 'builtin';
+            const user = cgEsc(data.user || ''), auth = data.auth || 'sshkey';
+            const ktype = cgEsc(data.key_type || 'ssh-ed25519'), key = cgEsc(cgJnpTxt(data.ssh_key)), hash = cgEsc(cgJnpTxt(data.pw_hash));
+            const cname = cgEsc(data.class_name || ''), perms = cgEsc(data.perms || 'view view-configuration'), cidle = cgEsc(data.class_idle || '');
+            const cls = type === 'custom' ? cname : cgEsc(data.builtin_class || 'read-only');
+            let c = cgJnpHdr('Kullanıcı & Login Class');
+            if (type === 'custom' && cname) {
+                c += '# Özel login class\n';
+                c += 'set system login class ' + cname + ' permissions [ ' + perms + ' ]\n';
+                if (cidle) c += 'set system login class ' + cname + ' idle-timeout ' + cidle + '\n';
+                c += '\n';
+            }
+            c += '# Kullanıcı\n';
+            if (cls) c += 'set system login user ' + user + ' class ' + cls + '\n';
+            if (auth === 'sshkey' && key) c += 'set system login user ' + user + ' authentication ' + ktype + ' "' + key + '"\n';
+            else if (auth === 'hash' && hash) c += 'set system login user ' + user + ' authentication encrypted-password "' + hash + '"\n';
+            else if (auth === 'plain') c += '# NOT: Aşağıdaki satır parolayı etkileşimli sorar; load set ile toplu yüklemede kullanılamaz.\nset system login user ' + user + ' authentication plain-text-password\n';
+            const gidle = cgEsc(data.global_idle || ''), tries = cgEsc(data.tries || ''), bth = cgEsc(data.backoff_th || '');
+            const bf = cgEsc(data.backoff_f || ''), lock = cgEsc(data.lockout || '');
+            if (gidle || tries || bth || bf || lock) {
+                c += '\n# Login koruması\n';
+                if (gidle) c += 'set system login idle-timeout ' + gidle + '\n';
+                if (tries) c += 'set system login retry-options tries-before-disconnect ' + tries + '\n';
+                if (bth) c += 'set system login retry-options backoff-threshold ' + bth + '\n';
+                if (bf) c += 'set system login retry-options backoff-factor ' + bf + '\n';
+                if (lock) c += 'set system login retry-options lockout-period ' + lock + '\n';
+            }
+            const root = cgEsc(cgJnpTxt(data.root_hash));
+            if (root) c += '\n# Root parolası\nset system root-authentication encrypted-password "' + root + '"\n';
+            c += '\n# Doğrulama:\n# show system users\n# show configuration system login\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: SSH Servisi ────────────────────────────────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: services ssh protocol-version v2,
+//   root-login, ciphers, macs, connection-limit, rate-limit)
+//   + https://www.juniper.net/documentation/us/en/software/junos/user-access/topics/topic-map/junos-software-remote-access-overview.html
+//   (root-login allow|deny|deny-password, ciphers [ ... ], connection-limit/rate-limit 1–250)
+//   + https://www.juniper.net/documentation/en_US/junos/topics/reference/configuration-statement/system-edit-ssh-macs.html
+Juniper.ssh = {
+    label: 'SSH Servisi',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-terminal',
+                title: 'Juniper JunOS — SSH Servisi',
+                desc: 'SSH sürümü, root girişi, şifreleme/MAC algoritmaları ve bağlantı sınırları.<br><small>Örn: <code>set system services ssh root-login deny</code> &nbsp;|&nbsp; <code>set system services ssh protocol-version v2</code></small>'
+            },
+            sections: [
+                {
+                    title: 'Erişim',
+                    icon: 'fas fa-door-closed',
+                    fields: [
+                        { name: 'root_login', label: 'Root SSH Girişi', type: 'select', options: [
+                            { value: 'deny', label: 'deny (root SSH ile giremez)', selected: true },
+                            { value: 'deny-password', label: 'deny-password (yalnız anahtarla)' },
+                            { value: 'allow', label: 'allow (önerilmez)' }
+                        ], why: 'Root herkesin bildiği bir hesap adıdır ve kaba kuvvet saldırılarının ilk hedefidir. <b>deny</b> ile root yalnız konsoldan kullanılır; kişisel hesaplar sayesinde her değişiklik bir kişiye bağlanır. Varsayılan <b>deny-password</b>dır.' },
+                        { name: 'v2', label: 'Yalnız SSHv2 (protocol-version v2)', type: 'checkbox', checked: true, why: 'SSHv1 kriptografik olarak kırılmıştır; açık bırakmak oturumun ele geçirilmesine izin verir.' },
+                        { name: 'conn_limit', label: 'Eşzamanlı Bağlantı Limiti', type: 'text', min: 1, max: 250, placeholder: '10', hint: 'connection-limit (1–250, varsayılan 75)', why: 'Limit, oturum doldurma (resource exhaustion) saldırısında Routing Engine\'in korunmasına yardım eder. Çok düşük tutmak otomasyon araçlarının bağlanamamasına yol açar.' },
+                        { name: 'rate_limit', label: 'Dakikalık Bağlantı Denemesi', type: 'text', min: 1, max: 250, placeholder: '5', hint: 'rate-limit (1–250, varsayılan 150)', why: 'Dakikada kabul edilen yeni bağlantı sayısını sınırlar; parola tahmin betiklerini ciddi ölçüde yavaşlatır.' }
+                    ]
+                },
+                {
+                    title: 'Algoritmalar',
+                    icon: 'fas fa-lock',
+                    warn: 'Algoritma listesi tanımlanınca varsayılan set yerine yalnız bu liste kullanılır. Eski SSH istemcileri (ve bazı otomasyon kütüphaneleri) bağlanamayabilir — önce bir oturumu açık tutarak test edin.',
+                    fields: [
+                        { name: 'ciphers', label: 'Şifreleme (ciphers)', type: 'select', options: [
+                            { value: '', label: 'Varsayılan (dokunma)', selected: true },
+                            { value: 'aes256-ctr aes192-ctr aes128-ctr', label: 'Yalnız AES-CTR' },
+                            { value: 'aes256-gcm@openssh.com aes128-gcm@openssh.com aes256-ctr aes192-ctr aes128-ctr', label: 'AES-GCM + AES-CTR' }
+                        ], why: 'CBC ve arcfour gibi zayıf şifreler güvenlik taramalarında bulgu olarak çıkar. Listeyi daraltmak bu bulguları kapatır ama istemcinin desteklediği en az bir ortak şifre kalmalıdır.' },
+                        { name: 'macs', label: 'MAC Algoritmaları', type: 'select', options: [
+                            { value: '', label: 'Varsayılan (dokunma)', selected: true },
+                            { value: 'hmac-sha2-512 hmac-sha2-256', label: 'Yalnız HMAC-SHA2' }
+                        ], why: 'MD5 ve SHA1 tabanlı MAC\'ler zayıf kabul edilir. SHA2 dışı MAC\'leri kaldırmak bütünlük korumasını güçlendirir.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const rl = cgEsc(data.root_login || 'deny'), cl = cgEsc(data.conn_limit || ''), rt = cgEsc(data.rate_limit || '');
+            const ci = cgEsc(data.ciphers || ''), ma = cgEsc(data.macs || '');
+            let c = cgJnpHdr('SSH Servisi');
+            if (rl === 'allow') c += '# UYARI: root-login allow — root hesabı SSH ile parola denemesine açık olur.\n';
+            c += 'set system services ssh root-login ' + rl + '\n';
+            if (data.v2) c += 'set system services ssh protocol-version v2\n';
+            if (cl) c += 'set system services ssh connection-limit ' + cl + '\n';
+            if (rt) c += 'set system services ssh rate-limit ' + rt + '\n';
+            if (ci) c += 'set system services ssh ciphers [ ' + ci + ' ]\n';
+            if (ma) c += 'set system services ssh macs [ ' + ma + ' ]\n';
+            c += '\n# Doğrulama:\n# show configuration system services ssh\n# show system connections\n# show system users\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: SNMP (v2c + client-list / v3 USM+VACM) ────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: snmp community … authorization read-only,
+//   contact, location, view … oid .1 include, v3 usm local-engine user … authentication-sha,
+//   v3 vacm security-to-group security-model usm security-name … group …,
+//   v3 vacm access group … default-context-prefix security-model usm security-level privacy read-view …)
+//   + https://www.juniper.net/documentation/us/en/software/junos/network-mgmt/topics/topic-map/snmp-communities.html (client-list, client-list-name)
+//   + https://www.juniper.net/documentation/us/en/software/junos/network-mgmt/topics/topic-map/configure-snmpv3.html (authentication-password, privacy-password)
+//   + https://www.juniper.net/documentation/us/en/software/junos/network-mgmt/topics/topic-map/configure-the-snmpv3-authentication-type-and-encryption-type.html
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/trap-group-edit-snmp.html (trap-group version/targets)
+Juniper.snmp = {
+    label: 'SNMP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-chart-line',
+                title: 'Juniper JunOS — SNMP',
+                desc: 'SNMPv2c (client-list ile kaynak kısıtlı, salt okunur) veya SNMPv3 (USM kullanıcı + VACM grup/view). İsteğe bağlı v2c trap hedefi.<br><small>Örn: <code>set snmp community N0C-RO client-list-name NMS-HOSTS</code> &nbsp;|&nbsp; <code>set snmp v3 usm local-engine user nms-user authentication-sha authentication-password "..."</code></small>'
+            },
+            configTypes: [
+                { id: 'v3', label: 'SNMPv3', icon: 'fas fa-lock', desc: 'Kimlik doğrulama + şifreleme', badge: { text: 'Güvenli', cls: 'security' } },
+                { id: 'v2c', label: 'SNMPv2c', icon: 'fas fa-unlock', desc: 'Community + client-list', badge: { text: 'Yaygın', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Sistem Bilgisi',
+                    icon: 'fas fa-info-circle',
+                    fields: [
+                        { name: 'contact', label: 'Contact', type: 'text', placeholder: 'noc@example.net', hint: 'sysContact', why: 'NMS ekranında cihazdan kimin sorumlu olduğunu gösterir; alarm anında doğru ekibe ulaşmayı hızlandırır.' },
+                        { name: 'location', label: 'Location', type: 'text', placeholder: 'DC1-Kabin-A12', hint: 'sysLocation', why: 'Sahada fiziksel müdahale gerektiğinde cihazın hangi kabinde olduğunu envanter açmadan gösterir.' }
+                    ]
+                },
+                {
+                    title: 'SNMPv2c',
+                    icon: 'fas fa-users',
+                    showFor: ['v2c'],
+                    warn: 'v2c community ağda düz metin gider. Mümkünse SNMPv3 kullanın; v2c gerekiyorsa yalnız salt okunur ve client-list ile kısıtlı açın.',
+                    fields: [
+                        { name: 'community', label: 'Community', type: 'text', requiredIf: { field: '_cgtype', in: ['v2c'] }, placeholder: 'N0c-R3ad-2026', hint: 'Tahmin edilmesi zor bir değer', why: 'Community parola işlevi görür. <code>public</code>/<code>private</code> gibi bilinen değerler internet taramalarında ilk denenenlerdir.' },
+                        { name: 'authz', label: 'Yetki', type: 'select', options: [
+                            { value: 'read-only', label: 'read-only', selected: true },
+                            { value: 'read-write', label: 'read-write (önerilmez)' }
+                        ], why: '<b>read-write</b> community\'yi bilen herkes SNMP SET ile arayüz kapatabilir veya konfig değiştirebilir. İzleme için read-only yeterlidir.' },
+                        { name: 'cl_name', label: 'Client-List Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['v2c'] }, placeholder: 'NMS-HOSTS', hint: 'İzin verilen NMS adres listesinin adı', why: 'Client-list olmadan community\'yi bilen <b>her</b> adres cihazı sorgulayabilir. Liste, community sızsa bile erişimi yalnız NMS sunucularıyla sınırlar.' },
+                        { name: 'cl_prefixes', label: 'İzinli NMS Adresleri', type: 'text', requiredIf: { field: '_cgtype', in: ['v2c'] }, placeholder: '192.0.2.30/32, 192.0.2.31/32', hint: 'Virgülle ayrılmış IP/prefix listesi', why: 'Tek NMS için <code>/32</code> yazın. Geniş bir subnet (ör. /16) yazmak kısıtlamayı fiilen etkisiz kılar.' }
+                    ]
+                },
+                {
+                    title: 'SNMPv2c Trap (opsiyonel)',
+                    icon: 'fas fa-bell',
+                    showFor: ['v2c'],
+                    fields: [
+                        { name: 'trap_group', label: 'Trap Group Adı', type: 'text', placeholder: 'NMS-TRAPS', hint: 'Boş bırakılırsa trap tanımlanmaz', why: 'v1/v2c trap\'lerinde trap-group adı community olarak gönderilir; NMS tarafında beklenen community ile aynı olmalı, yoksa trap\'ler reddedilir.' },
+                        { name: 'trap_target', label: 'Trap Hedefi', type: 'text', validate: 'ip', placeholder: '192.0.2.30', hint: 'Trap alıcısı IPv4 (hostname değil)', why: 'Trap hedefi IP adresi olmalıdır; kategori belirtilmezse (timing-events hariç) tüm trap türleri gönderilir.' }
+                    ]
+                },
+                {
+                    title: 'SNMPv3 Kullanıcı',
+                    icon: 'fas fa-user-lock',
+                    showFor: ['v3'],
+                    fields: [
+                        { name: 'v3_user', label: 'USM Kullanıcı', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'nms-user', hint: 'NMS\'te tanımlı kullanıcı adıyla aynı', why: 'SNMPv3 kimliği bu kullanıcıdır; NMS\'teki kullanıcı adı, algoritma ve parolalar birebir aynı olmalı, yoksa sorgular <b>unknown user name</b> ile düşer.' },
+                        { name: 'v3_auth', label: 'Auth Algoritması', type: 'select', options: [
+                            { value: 'sha', label: 'SHA', selected: true },
+                            { value: 'sha256', label: 'SHA-256' }
+                        ], why: 'MD5 zayıf kabul edilir. SHA-256 daha güçlüdür ama eski NMS yazılımları desteklemeyebilir; iki tarafın aynı algoritmayı kullandığından emin olun.' },
+                        { name: 'v3_auth_pw', label: 'Auth Parolası', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'AuthPass-Example1', hint: 'En az 8 karakter', why: 'Junos 8 karakterden kısa parolayı commit\'te reddeder. Anahtar, yerel engine-id\'den türetilir; engine-id değişirse kullanıcıların yeniden tanımlanması gerekir.' },
+                        { name: 'v3_priv', label: 'Privacy Algoritması', type: 'select', options: [
+                            { value: 'aes128', label: 'AES-128', selected: true },
+                            { value: '3des', label: '3DES' }
+                        ], why: 'Privacy olmadan SNMP yanıtları (arayüz adları, route tablosu) ağda düz metin gider. AES-128 önerilir.' },
+                        { name: 'v3_priv_pw', label: 'Privacy Parolası', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'PrivPass-Example2', hint: 'En az 8 karakter; auth parolasından farklı', why: 'Auth ile aynı parolayı kullanmak, tek sızıntıda hem doğrulamayı hem şifrelemeyi aynı anda çökertir.' },
+                        { name: 'v3_group', label: 'VACM Grup', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'NMS-RO', hint: 'Kullanıcının bağlanacağı erişim grubu', why: 'VACM\'de yetki kullanıcıya değil gruba verilir. Kullanıcı bir gruba bağlanmazsa kimlik doğrulama başarılı olsa bile hiçbir OID okunamaz.' },
+                        { name: 'v3_view', label: 'Read View Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['v3'] }, placeholder: 'ALL-MIB', hint: 'oid .1 include ile tüm MIB ağacı', why: 'View, grubun görebileceği OID ağacını belirler. Grup yalnız okuma view\'ı ile tanımlanır; write-view verilmediği için SET yapılamaz.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const type = data._cgtype || 'v3';
+            const contact = cgEsc(cgJnpTxt(data.contact)), loc = cgEsc(cgJnpTxt(data.location));
+            let c = cgJnpHdr('SNMP');
+            if (contact) c += 'set snmp contact "' + contact + '"\n';
+            if (loc) c += 'set snmp location "' + loc + '"\n';
+            if (contact || loc) c += '\n';
+            if (type === 'v2c') {
+                const com = cgEsc(data.community || ''), authz = cgEsc(data.authz || 'read-only'), cl = cgEsc(data.cl_name || '');
+                const pfx = cgJnpList(data.cl_prefixes).map(cgEsc);
+                if (authz === 'read-write') c += '# UYARI: read-write community SNMP SET ile konfig değişikliğine izin verir.\n';
+                if (cl && pfx.length) {
+                    c += '# İzinli NMS adresleri\n';
+                    pfx.forEach(p => c += 'set snmp client-list ' + cl + ' ' + p + '\n');
+                }
+                if (com) {
+                    c += 'set snmp community ' + com + ' authorization ' + authz + '\n';
+                    if (cl) c += 'set snmp community ' + com + ' client-list-name ' + cl + '\n';
+                }
+                const tg = cgEsc(data.trap_group || ''), tt = cgEsc(data.trap_target || '');
+                if (tg && tt) {
+                    c += '\n# Trap\nset snmp trap-group ' + tg + ' version v2\nset snmp trap-group ' + tg + ' targets ' + tt + '\n';
+                }
+            } else {
+                const u = cgEsc(data.v3_user || ''), au = cgEsc(data.v3_auth || 'sha'), apw = cgEsc(cgJnpTxt(data.v3_auth_pw));
+                const pr = cgEsc(data.v3_priv || 'aes128'), ppw = cgEsc(cgJnpTxt(data.v3_priv_pw));
+                const g = cgEsc(data.v3_group || ''), v = cgEsc(data.v3_view || '');
+                if (v) c += 'set snmp view ' + v + ' oid .1 include\n';
+                if (u && apw) c += 'set snmp v3 usm local-engine user ' + u + ' authentication-' + au + ' authentication-password "' + apw + '"\n';
+                if (u && ppw) c += 'set snmp v3 usm local-engine user ' + u + ' privacy-' + pr + ' privacy-password "' + ppw + '"\n';
+                if (u && g) c += 'set snmp v3 vacm security-to-group security-model usm security-name ' + u + ' group ' + g + '\n';
+                if (g && v) c += 'set snmp v3 vacm access group ' + g + ' default-context-prefix security-model usm security-level privacy read-view ' + v + '\n';
+            }
+            c += '\n# Doğrulama:\n# show snmp statistics\n';
+            if (type === 'v3') c += '# show snmp v3\n';
+            c += '# show configuration snmp\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: LLDP / LLDP-MED ────────────────────────────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: protocols lldp interface all, protocols lldp-med interface all)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/lldp-edit-protocols.html
+//   (advertisement-interval 5–32768, hold-multiplier 2–10, interface … disable, port-id-subtype interface-name)
+Juniper.lldp = {
+    label: 'LLDP / LLDP-MED',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'Juniper JunOS — LLDP / LLDP-MED',
+                desc: 'Komşu keşfi (LLDP) ve IP telefon/uç cihaz için LLDP-MED.<br><small>Örn: <code>set protocols lldp interface all</code> &nbsp;|&nbsp; <code>set protocols lldp interface ge-0/0/47 disable</code></small>'
+            },
+            sections: [
+                {
+                    title: 'LLDP',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'scope', label: 'Etkin Arayüzler', type: 'select', options: [
+                            { value: 'all', label: 'Tüm arayüzler (interface all)', selected: true },
+                            { value: 'list', label: 'Belirli arayüzler' }
+                        ], why: 'LLDP kablolama hatalarını ve topolojiyi <code>show lldp neighbors</code> ile görmenin en hızlı yoludur. Tüm arayüzlerde açıp güvenilmeyen portlarda tek tek kapatmak yaygın yaklaşımdır.' },
+                        { name: 'ifaces', label: 'Arayüz Listesi', type: 'text', validate: 'iface_range', requiredIf: { field: 'scope', in: ['list'] }, placeholder: 'ge-0/0/0, xe-0/1/0', hint: 'Virgülle ayrılmış fiziksel arayüzler', why: 'Yalnız listelenen arayüzlerde LLDP çalışır; uplink\'i atlamak komşu switch\'in görünmemesine yol açar.' },
+                        { name: 'disable_ifaces', label: 'LLDP Kapalı Arayüzler', type: 'text', validate: 'iface_range', placeholder: 'ge-0/0/47', hint: 'İnternet/misafir gibi güvenilmeyen portlar', why: 'LLDP cihaz modelini, yazılım sürümünü ve yönetim adresini karşı tarafa duyurur. Güvenilmeyen taraflara bakan portlarda bu bilgi keşif için kullanılabilir.' },
+                        { name: 'adv_int', label: 'Duyuru Aralığı (sn)', type: 'text', min: 5, max: 32768, placeholder: '30', hint: 'advertisement-interval (varsayılan 30)', why: 'Kısa aralık komşu değişikliğini daha hızlı gösterir ama CPU ve kontrol trafiğini artırır; varsayılan çoğu ortam için uygundur.' },
+                        { name: 'hold_mult', label: 'Hold Çarpanı', type: 'text', min: 2, max: 10, placeholder: '4', hint: 'hold-multiplier (varsayılan 4)', why: 'Komşu bilgisinin tutulma süresi = aralık × çarpan. Çok düşük çarpan, tek kayıp pakette komşunun tablodan düşmesine yol açar.' },
+                        { name: 'port_id', label: 'Port ID Biçimi', type: 'select', options: [
+                            { value: '', label: 'Varsayılan (locally-assigned / SNMP index)', selected: true },
+                            { value: 'interface-name', label: 'interface-name (ge-0/0/1 gibi)' }
+                        ], why: 'Karşı cihaz (özellikle başka üretici) port ID\'yi SNMP index olarak gösterirse hangi porta bağlı olduğunuzu anlamak zorlaşır; <b>interface-name</b> okunabilir ad gönderir.' }
+                    ]
+                },
+                {
+                    title: 'LLDP-MED',
+                    icon: 'fas fa-phone',
+                    fields: [
+                        { name: 'med', label: 'LLDP-MED etkin (aynı arayüz kapsamında)', type: 'checkbox', why: 'IP telefonlar ses VLAN\'ı, PoE ve konum bilgisini LLDP-MED ile öğrenir. Kapalıysa telefon yanlış VLAN\'a düşebilir veya PoE pazarlığı yapılamaz.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const scope = data.scope || 'all';
+            const list = scope === 'list' ? cgJnpList(data.ifaces).map(cgEsc) : ['all'];
+            const dis = cgJnpList(data.disable_ifaces).map(cgEsc);
+            const ai = cgEsc(data.adv_int || ''), hm = cgEsc(data.hold_mult || ''), pid = cgEsc(data.port_id || '');
+            let c = cgJnpHdr('LLDP / LLDP-MED');
+            list.forEach(i => c += 'set protocols lldp interface ' + i + '\n');
+            dis.forEach(i => c += 'set protocols lldp interface ' + i + ' disable\n');
+            if (ai) c += 'set protocols lldp advertisement-interval ' + ai + '\n';
+            if (hm) c += 'set protocols lldp hold-multiplier ' + hm + '\n';
+            if (pid) c += 'set protocols lldp port-id-subtype ' + pid + '\n';
+            if (data.med) {
+                c += '\n# LLDP-MED\n';
+                list.forEach(i => c += 'set protocols lldp-med interface ' + i + '\n');
+            }
+            c += '\n# Doğrulama:\n# show lldp\n# show lldp neighbors\n# show lldp local-information\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: Static Route ───────────────────────────────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: routing-options static route … next-hop …)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/static-edit-routing-options.html
+//   (preference, qualified-next-hop … preference, discard, no-readvertise)
+Juniper.staticroute = {
+    label: 'Static Route',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Juniper JunOS — Static Route',
+                desc: 'Tek next-hop, yedekli (floating — qualified-next-hop) veya discard (blackhole) statik rota.<br><small>Örn: <code>set routing-options static route 10.100.0.0/16 next-hop 10.0.0.2</code> &nbsp;|&nbsp; <code>… qualified-next-hop 10.0.1.2 preference 10</code></small>'
+            },
+            configTypes: [
+                { id: 'nh', label: 'Next-Hop', icon: 'fas fa-arrow-right', desc: 'Tek sonraki atlama', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'float', label: 'Yedekli (Floating)', icon: 'fas fa-random', desc: 'Birincil + yüksek preference\'lı yedek', badge: { text: 'Yedeklilik', cls: 'advanced' } },
+                { id: 'discard', label: 'Discard', icon: 'fas fa-ban', desc: 'Sessizce düşür (blackhole)', badge: { text: 'Özetleme', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'prefix', label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.100.0.0/16', hint: 'Default için 0.0.0.0/0', why: 'Ağ adresini yazın (host bitleri sıfır). En uzun eşleşme kazandığı için dar bir prefix (ör. /24) aynı aralığı kapsayan geniş rotayı (ör. /16) o aralık için ezer.' },
+                        { name: 'nh', label: 'Next-Hop', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['nh', 'float'] }, placeholder: '10.0.0.2', hint: 'Doğrudan bağlı bir subnet içinde olmalı', why: 'Next-hop doğrudan bağlı değilse rota <b>hidden</b> kalır ve trafik akmaz; <code>show route hidden</code> ile görülür.' },
+                        { name: 'pref', label: 'Preference', type: 'text', min: 0, max: 4294967295, placeholder: '5', hint: 'Junos statik varsayılanı 5; düşük olan kazanır', why: 'Aynı prefix OSPF/BGP\'den de öğreniliyorsa hangi kaynağın kazanacağını preference belirler. Statik 5, OSPF iç 10, BGP 170 varsayılandır.' },
+                        { name: 'no_readv', label: 'Diğer protokollere dağıtma (no-readvertise)', type: 'checkbox', why: 'Yönetim ağına giden statik rotanın export policy ile yanlışlıkla OSPF/BGP\'ye sızmasını engeller.' }
+                    ]
+                },
+                {
+                    title: 'Yedek Next-Hop',
+                    icon: 'fas fa-random',
+                    showFor: ['float'],
+                    fields: [
+                        { name: 'bk_nh', label: 'Yedek Next-Hop', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['float'] }, placeholder: '10.0.1.2', hint: 'qualified-next-hop olarak eklenir', why: 'Birincil next-hop erişilemez olunca (arayüz düşünce) rota bu next-hop\'a geçer. Not: yalnız arayüz kopmasında devreye girer; uzaktaki arızayı algılamak için BFD gerekir.' },
+                        { name: 'bk_pref', label: 'Yedek Preference', type: 'text', min: 0, max: 4294967295, requiredIf: { field: '_cgtype', in: ['float'] }, placeholder: '10', hint: 'Birincilden BÜYÜK olmalı', why: 'Yedeğin preference\'ı birincilden küçük veya eşit olursa trafik yedek hatta akar ya da iki hat arasında bölünür.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const type = data._cgtype || 'nh';
+            const p = cgEsc(data.prefix || ''), nh = cgEsc(data.nh || ''), pref = cgEsc(data.pref || '');
+            const base = 'set routing-options static route ' + p;
+            let c = cgJnpHdr('Static Route');
+            if (type === 'discard') {
+                c += base + ' discard\n';
+            } else if (nh) {
+                c += base + ' next-hop ' + nh + '\n';
+            }
+            if (pref) c += base + ' preference ' + pref + '\n';
+            if (type === 'float') {
+                const bnh = cgEsc(data.bk_nh || ''), bp = cgEsc(data.bk_pref || '');
+                if (bnh && bp && pref && +bp <= +pref) c += '# UYARI: yedek preference (' + bp + ') birincilden (' + pref + ') büyük değil.\n';
+                if (bnh) c += base + ' qualified-next-hop ' + bnh + (bp ? ' preference ' + bp : '') + '\n';
+            }
+            if (data.no_readv) c += base + ' no-readvertise\n';
+            c += '\n# Doğrulama:\n# show route ' + p + ' exact detail\n# show route protocol static\n# show route hidden\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: RSTP / MSTP ────────────────────────────────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: protocols rstp bridge-priority 4k,
+//   rstp interface all, rstp interface ae1)
+//   + https://www.juniper.net/documentation/us/en/software/junos/stp-l2/topics/topic-map/spanning-tree-bpdu-protection.html
+//   (rstp interface … edge, rstp|mstp bpdu-block-on-edge)
+//   + https://www.juniper.net/documentation/us/en/software/junos/stp-l2/topics/topic-map/spanning-tree-configuring-mstp.html
+//   (mstp configuration-name, msti N vlan [ … ], msti N bridge-priority, mstp bridge-priority)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/mstp-edit-protocols.html (revision-level)
+function cgJnpBrPrio(def) {
+    const o = [{ value: '', label: 'Varsayılan (32k)' }];
+    ['0', '4k', '8k', '12k', '16k', '20k', '24k', '28k', '32k', '36k', '40k', '44k', '48k', '52k', '56k', '60k']
+        .forEach(v => o.push({ value: v, label: v }));
+    return o.map(x => Object.assign({}, x, x.value === def ? { selected: true } : {}));
+}
+Juniper.stp = {
+    label: 'RSTP / MSTP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-sitemap',
+                title: 'Juniper JunOS — RSTP / MSTP',
+                desc: 'Root köprü önceliği, edge portlar ve BPDU koruması; MSTP için bölge adı, revizyon ve MSTI–VLAN eşlemesi.<br><small>Örn: <code>set protocols rstp bridge-priority 4k</code> &nbsp;|&nbsp; <code>set protocols rstp bpdu-block-on-edge</code></small>'
+            },
+            configTypes: [
+                { id: 'rstp', label: 'RSTP', icon: 'fas fa-sitemap', desc: 'Tek ağaç, hızlı yakınsama', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'mstp', label: 'MSTP', icon: 'fas fa-stream', desc: 'VLAN gruplarına ayrı ağaç', badge: { text: 'Yük Paylaşımı', cls: 'advanced' } }
+            ],
+            sections: [
+                {
+                    title: 'Köprü & Edge Portlar',
+                    icon: 'fas fa-crown',
+                    fields: [
+                        { name: 'prio', label: 'Bridge Priority (CIST)', type: 'select', options: cgJnpBrPrio(''), why: 'En düşük öncelikli switch root olur. Öncelik bırakılırsa root, MAC adresi en küçük (genelde en eski) switch olur ve trafik beklenmedik yollardan akar. Çekirdekte 4k, yedek çekirdekte 8k yaygındır.' },
+                        { name: 'edge_ifaces', label: 'Edge (uç cihaz) Arayüzleri', type: 'text', validate: 'iface_range', placeholder: 'ge-0/0/0, ge-0/0/1', hint: 'Yalnız PC/sunucu/yazıcı bağlı erişim portları', why: 'Edge port, listening/learning beklemeden hemen forwarding\'e geçer; DHCP zaman aşımlarını önler. Switch bağlı bir portu edge yapmak geçici döngü riskidir.' },
+                        { name: 'bpdu_block', label: 'Edge portta BPDU gelirse portu kapat (bpdu-block-on-edge)', type: 'checkbox', checked: true, why: 'Kullanıcının erişim portuna taktığı yönetilmeyen bir switch veya kötü niyetli cihaz BPDU gönderip root olmaya çalışabilir. Bu koruma portu hata durumuna alır; <code>clear error bpdu interface</code> ile açılır.' }
+                    ]
+                },
+                {
+                    title: 'RSTP Kapsamı',
+                    icon: 'fas fa-ethernet',
+                    showFor: ['rstp'],
+                    fields: [
+                        { name: 'all_if', label: 'Tüm arayüzlerde çalıştır (interface all) — yalnız RSTP', type: 'checkbox', checked: true, why: 'STP çalışmayan bir port döngüye karşı korumasızdır. Özel bir neden yoksa tüm arayüzlerde açık tutun.' }
+                    ]
+                },
+                {
+                    title: 'MSTP Bölge',
+                    icon: 'fas fa-stream',
+                    showFor: ['mstp'],
+                    info: 'Bölgedeki TÜM switch\'lerde configuration-name, revision-level ve MSTI–VLAN eşlemesi birebir aynı olmalıdır.',
+                    fields: [
+                        { name: 'region', label: 'Configuration Name', type: 'text', requiredIf: { field: '_cgtype', in: ['mstp'] }, placeholder: 'REGION1', hint: 'Bölge adı (büyük/küçük harf duyarlı)', why: 'Ad, revizyon veya VLAN eşlemesinde tek fark switch\'i ayrı bir bölgeye düşürür; bölge sınırında tüm VLAN\'lar tek ağaç (CIST) gibi davranır ve yük paylaşımı bozulur.' },
+                        { name: 'revision', label: 'Revision Level', type: 'text', min: 0, max: 65535, placeholder: '1', hint: 'Varsayılan 0', why: 'Eşleme değiştiğinde revizyonu artırmak, bölgeyi bilinçli olarak güncellemenin işaretidir; ama tüm switch\'lerde aynı anda değişmezse bölge bölünür.' },
+                        { name: 'msti1_vlans', label: 'MSTI 1 VLAN\'ları', type: 'text', validate: 'vlan_list', requiredIf: { field: '_cgtype', in: ['mstp'] }, placeholder: '10,20,30-40', hint: 'Virgülle ayrılmış VLAN ID / aralık', why: 'MSTI\'ye atanmayan VLAN\'lar CIST (MSTI 0) üzerinde kalır. Bir VLAN yalnız bir MSTI\'ye ait olabilir; eşleme bölgedeki tüm switch\'lerde aynı olmalıdır.' },
+                        { name: 'msti1_prio', label: 'MSTI 1 Bridge Priority', type: 'select', options: cgJnpBrPrio(''), why: 'Yük paylaşımı için MSTI 1\'in root\'unu bir çekirdeğe, MSTI 2\'ninkini diğerine verin; ikisi de aynı switch\'te root olursa MSTP\'nin avantajı kalmaz.' },
+                        { name: 'msti2_vlans', label: 'MSTI 2 VLAN\'ları', type: 'text', validate: 'vlan_list', placeholder: '50,60', hint: 'Opsiyonel ikinci instance', why: 'İkinci instance, yedek uplink\'i boşta bekletmek yerine bir VLAN grubunu o yoldan taşımayı sağlar.' },
+                        { name: 'msti2_prio', label: 'MSTI 2 Bridge Priority', type: 'select', options: cgJnpBrPrio(''), why: 'Diğer çekirdekte düşük öncelik vererek MSTI 2 trafiğini o yöne çekin.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const type = data._cgtype || 'rstp', proto = type === 'mstp' ? 'mstp' : 'rstp';
+            const P = 'set protocols ' + proto;
+            const prio = cgEsc(data.prio || ''), edges = cgJnpList(data.edge_ifaces).map(cgEsc);
+            let c = cgJnpHdr(proto.toUpperCase());
+            c += '# NOT: Aynı anda yalnız bir spanning-tree protokolü (rstp veya mstp) etkin olabilir.\n';
+            if (type === 'mstp') {
+                const reg = cgEsc(data.region || ''), rev = cgEsc(data.revision || '');
+                if (reg) c += P + ' configuration-name ' + reg + '\n';
+                if (rev) c += P + ' revision-level ' + rev + '\n';
+            }
+            if (prio) c += P + ' bridge-priority ' + prio + '\n';
+            if (type === 'rstp' && data.all_if) c += P + ' interface all\n';
+            edges.forEach(i => c += P + ' interface ' + i + ' edge\n');
+            if (data.bpdu_block) c += P + ' bpdu-block-on-edge\n';
+            if (type === 'mstp') {
+                [['1', data.msti1_vlans, data.msti1_prio], ['2', data.msti2_vlans, data.msti2_prio]].forEach(([id, vl, pr]) => {
+                    const v = cgJnpList(vl).map(cgEsc);
+                    if (!v.length) return;
+                    c += P + ' msti ' + id + ' vlan [ ' + v.join(' ') + ' ]\n';
+                    if (pr) c += P + ' msti ' + id + ' bridge-priority ' + cgEsc(pr) + '\n';
+                });
+            }
+            c += '\n# Doğrulama:\n# show spanning-tree bridge\n# show spanning-tree interface\n# show ethernet-switching interfaces\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: OSPF (EX/QFX) ──────────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/topic-map/configuring-ospf-interfaces.html
+//   (protocols ospf area … interface …, … passive) + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/interface-type-edit-protocols-ospf.html (interface-type p2p)
+//   + https://www.juniper.net/documentation/us/en/software/junos/ospf/topics/topic-map/configuring-ospf-authentication.html (authentication md5 N key …, key-id 0–255)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/reference-bandwidth-edit-protocols-ospf.html (bps)
+Juniper.ospf = {
+    label: 'OSPF',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'Juniper JunOS — OSPF',
+                desc: 'Router-ID, area, IRB/uplink arayüzleri, passive arayüzler, point-to-point tip, MD5 kimlik doğrulama ve export policy.<br><small>Örn: <code>set protocols ospf area 0.0.0.0 interface irb.10 passive</code> &nbsp;|&nbsp; <code>set protocols ospf area 0.0.0.0 interface ae0.0 interface-type p2p</code></small>'
+            },
+            sections: [
+                {
+                    title: 'Temel',
+                    icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'rid', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.255.1', hint: 'Genelde lo0 adresi', why: 'Router-ID verilmezse Junos ilk uygun arayüz adresini seçer; o adres değişince OSPF komşulukları yeniden kurulur. İki cihazda aynı ID, LSA\'ların sürekli ezilmesine ve kararsız yönlendirmeye yol açar.' },
+                        { name: 'area', label: 'Area', type: 'text', validate: 'ip', required: true, placeholder: '0.0.0.0', hint: 'Noktalı biçim; backbone 0.0.0.0', why: 'Linkin iki ucu aynı area\'da olmalıdır; farklı area\'da link up görünür ama komşuluk hiç kurulmaz. Backbone dışı area\'lar 0.0.0.0\'a bağlı olmalıdır.' },
+                        { name: 'ifaces', label: 'OSPF Arayüzleri', type: 'text', validate: 'iface_range', required: true, placeholder: 'ae0.0, irb.10, lo0.0', hint: 'Unit ile birlikte (ae0.0, irb.10)', why: 'Junos\'ta OSPF logical unit üzerinde çalışır; <code>.0</code> gibi unit yazılmazsa commit kabul edebilir ama arayüz OSPF\'e girmez. Loopback eklenmezse router-ID prefix\'i duyurulmaz.' },
+                        { name: 'passive', label: 'Passive Arayüzler', type: 'text', validate: 'iface_range', placeholder: 'irb.10, lo0.0', hint: 'Prefix duyurulur, komşuluk aranmaz', why: 'Kullanıcı VLAN\'ı (IRB) ve loopback passive olmalı: prefix duyurulur ama hello gönderilmez. Aksi halde o VLAN\'daki herhangi bir cihaz OSPF komşusu olup sahte rota enjekte edebilir.' },
+                        { name: 'p2p', label: 'Point-to-Point Arayüzler', type: 'text', validate: 'iface_range', placeholder: 'ae0.0', hint: 'İki cihazlı uplink/LAG\'ler', why: 'İki uçlu Ethernet linkte broadcast tipi gereksiz DR/BDR seçimi ve Type-2 LSA üretir; p2p yakınsamayı hızlandırır. İki uçta aynı tip olmalıdır, yoksa komşuluk FULL olmaz.' }
+                    ]
+                },
+                {
+                    title: 'Kimlik Doğrulama & Politika',
+                    icon: 'fas fa-key',
+                    fields: [
+                        { name: 'auth_en', label: 'MD5 kimlik doğrulama (passive olmayan arayüzlerde)', type: 'checkbox', why: 'Kimlik doğrulamasız OSPF\'te aynı segmente bağlanan her cihaz komşu olup rota enjekte edebilir. MD5 iki uçta aynı key-id ve anahtarla tanımlanmalıdır.' },
+                        { name: 'key_id', label: 'MD5 Key ID', type: 'text', min: 0, max: 255, requiredIf: { field: 'auth_en', checked: true }, placeholder: '1', hint: '0–255, iki uçta aynı', why: 'Anahtar değiştirirken yeni key-id ile ikinci anahtar eklenip geçiş kesintisiz yapılabilir; key-id uyuşmazsa komşuluk düşer.' },
+                        { name: 'md5_key', label: 'MD5 Anahtarı', type: 'text', requiredIf: { field: 'auth_en', checked: true }, placeholder: 'Ospf-Key-Example', hint: 'İki uçta birebir aynı', why: 'Anahtar konfigde $9$ biçiminde saklanır ancak bu biçim geri çözülebilir; konfig yedeklerini gizli tutun.' },
+                        { name: 'ref_bw', label: 'Reference Bandwidth', type: 'select', options: [
+                            { value: '', label: 'Varsayılan (100 Mbps)', selected: true },
+                            { value: '10000000000', label: '10 Gbps' },
+                            { value: '100000000000', label: '100 Gbps' },
+                            { value: '400000000000', label: '400 Gbps' }
+                        ], why: 'Varsayılan 100 Mbps ile 1G, 10G ve 100G linklerin hepsi maliyet 1 alır ve OSPF en hızlı yolu seçemez. Değer ağdaki TÜM cihazlarda aynı olmalıdır.' },
+                        { name: 'export', label: 'Export Policy', type: 'text', placeholder: 'OSPF-EXPORT', hint: 'Önceden tanımlı policy-statement (Policy-Options aracı)', why: 'Statik veya direct rotaları OSPF\'e dağıtmanın yolu export policy\'dir. Filtresiz bir policy tüm statikleri (default route dahil) domaine yayabilir.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const rid = cgEsc(data.rid || ''), area = cgEsc(data.area || '');
+            const ifs = cgJnpList(data.ifaces).map(cgEsc), pas = cgJnpList(data.passive).map(cgEsc), p2p = cgJnpList(data.p2p).map(cgEsc);
+            const kid = cgEsc(data.key_id || ''), key = cgEsc(cgJnpTxt(data.md5_key)), rbw = cgEsc(data.ref_bw || ''), exp = cgEsc(data.export || '');
+            const A = 'set protocols ospf area ' + area + ' interface ';
+            let c = cgJnpHdr('OSPF');
+            c += 'set routing-options router-id ' + rid + '\n\n';
+            const all = ifs.slice(); pas.concat(p2p).forEach(i => { if (!all.includes(i)) all.push(i); });
+            all.forEach(i => c += A + i + '\n');
+            pas.forEach(i => c += A + i + ' passive\n');
+            p2p.forEach(i => c += A + i + ' interface-type p2p\n');
+            if (data.auth_en && kid && key) {
+                all.filter(i => !pas.includes(i)).forEach(i => c += A + i + ' authentication md5 ' + kid + ' key "' + key + '"\n');
+            }
+            if (rbw) c += 'set protocols ospf reference-bandwidth ' + rbw + '\n';
+            if (exp) c += 'set protocols ospf export ' + exp + '\n';
+            c += '\n# Doğrulama:\n# show ospf neighbor\n# show ospf interface\n# show route protocol ospf\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: BGP (EX/QFX) ───────────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/routing-policy/topics/example/policy-prefix-list.html
+//   (bgp group … type external|internal, neighbor, peer-as, local-address)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/neighbor-edit-protocols-bgp.html
+//   (description, authentication-key, import, export, peer-as)
+Juniper.bgp = {
+    label: 'BGP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-globe',
+                title: 'Juniper JunOS — BGP',
+                desc: 'Yerel AS, router-ID, BGP grubu, komşu, MD5 kimlik doğrulama ve import/export policy.<br><small>Örn: <code>set protocols bgp group UPSTREAM type external</code> &nbsp;|&nbsp; <code>set protocols bgp group UPSTREAM neighbor 192.0.2.1 peer-as 64500</code></small>'
+            },
+            sections: [
+                {
+                    title: 'Yerel',
+                    icon: 'fas fa-home',
+                    fields: [
+                        { name: 'las', label: 'Yerel AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'routing-options autonomous-system', why: 'Karşı tarafın beklediği AS ile farklıysa OPEN mesajı <b>bad peer AS</b> ile reddedilir ve oturum Active/Connect arasında döner.' },
+                        { name: 'rid', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.255.1', hint: 'Genelde lo0 adresi', why: 'Router-ID BGP\'de en iyi yol seçiminde eşitlik bozucudur ve iki cihazda aynıysa oturum kurulmaz. OSPF aracında da tanımlıysa aynı değeri kullanın.' }
+                    ]
+                },
+                {
+                    title: 'Grup & Komşu',
+                    icon: 'fas fa-users',
+                    fields: [
+                        { name: 'group', label: 'Grup Adı', type: 'text', required: true, placeholder: 'UPSTREAM', hint: 'Aynı politikayı paylaşan komşular', why: 'Junos\'ta komşu her zaman bir grup altında tanımlanır; policy ve tip gruptan miras alınır. Farklı politikaya ihtiyacı olan komşuyu aynı gruba koymak ona da grubun export policy\'sini uygular.' },
+                        { name: 'gtype', label: 'Tip', type: 'select', options: [
+                            { value: 'external', label: 'external (eBGP)', selected: true },
+                            { value: 'internal', label: 'internal (iBGP)' }
+                        ], why: 'iBGP\'de öğrenilen rotalar diğer iBGP komşulara duyurulmaz (full-mesh veya route-reflector gerekir). eBGP\'de komşu AS\'ı zorunludur.' },
+                        { name: 'nbr', label: 'Komşu IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', hint: 'BGP komşusunun adresi', why: 'Komşu, oturumu bu adresten gelen TCP/179 bağlantısıyla eşler. Loopback\'ten kurulan oturumlarda <code>local-address</code> verilmezse kaynak adres uyuşmaz ve oturum Idle\'da kalır.' },
+                        { name: 'pas', label: 'Komşu AS', type: 'text', validate: 'asn', requiredIf: { field: 'gtype', in: ['external'] }, placeholder: '64500', hint: 'eBGP için zorunlu; iBGP\'de yerel AS kullanılır', why: 'Yanlış komşu AS, OPEN aşamasında oturumun reddedilmesine yol açar.' },
+                        { name: 'laddr', label: 'Local Address', type: 'text', validate: 'ip', placeholder: '10.255.255.1', hint: 'iBGP loopback oturumlarında önerilir', why: 'Oturumu loopback\'ten kurmak, fiziksel link düştüğünde alternatif yoldan oturumun ayakta kalmasını sağlar.' },
+                        { name: 'desc', label: 'Açıklama', type: 'text', placeholder: 'ISP-A transit', hint: 'Komşu açıklaması', why: '<code>show bgp summary</code> çıktısında yalnız IP görünür; açıklama hangi devrenin/sağlayıcının olduğunu hızlıca gösterir.' },
+                        { name: 'md5', label: 'MD5 Anahtarı', type: 'text', placeholder: 'Bgp-Key-Example', hint: 'Karşı tarafla birebir aynı', why: 'TCP-MD5, sahte RST ile oturum düşürme ve oturum ele geçirme saldırılarını engeller. Anahtar uyuşmazsa oturum hiç kurulmaz ve log\'da yalnız MD5 hatası görünür.' }
+                    ]
+                },
+                {
+                    title: 'Politikalar',
+                    icon: 'fas fa-filter',
+                    fields: [
+                        { name: 'imp', label: 'Import Policy', type: 'text', placeholder: 'UPSTREAM-IN', hint: 'Önceden tanımlı policy-statement', why: 'Import policy olmadan komşunun gönderdiği tüm rotalar kabul edilir; yanlış bir duyuru (ör. default veya sizin prefix\'iniz) trafiği ele geçirebilir.' },
+                        { name: 'exp', label: 'Export Policy', type: 'text', placeholder: 'UPSTREAM-OUT', hint: 'Önceden tanımlı policy-statement', why: 'Export policy olmadan Junos aktif BGP rotalarını komşulara yeniden duyurur; eBGP\'de iki sağlayıcı arasında istemeden transit AS olabilirsiniz.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const las = cgEsc(data.las || ''), rid = cgEsc(data.rid || ''), g = cgEsc(data.group || ''), t = cgEsc(data.gtype || 'external');
+            const nbr = cgEsc(data.nbr || ''), pas = cgEsc(data.pas || ''), la = cgEsc(data.laddr || ''), desc = cgEsc(cgJnpTxt(data.desc));
+            const md5 = cgEsc(cgJnpTxt(data.md5)), imp = cgEsc(data.imp || ''), exp = cgEsc(data.exp || '');
+            const G = 'set protocols bgp group ' + g, N = G + ' neighbor ' + nbr;
+            let c = cgJnpHdr('BGP');
+            c += 'set routing-options autonomous-system ' + las + '\nset routing-options router-id ' + rid + '\n\n';
+            if (t === 'external' && !imp) c += '# UYARI: eBGP grubunda import policy yok — komşudan gelen tüm rotalar kabul edilir.\n';
+            if (t === 'external' && !exp) c += '# UYARI: eBGP grubunda export policy yok — aktif BGP rotaları komşuya duyurulur.\n';
+            c += G + ' type ' + t + '\n';
+            if (la) c += G + ' local-address ' + la + '\n';
+            if (imp) c += G + ' import ' + imp + '\n';
+            if (exp) c += G + ' export ' + exp + '\n';
+            c += N + (t === 'external' && pas ? ' peer-as ' + pas : '') + '\n';
+            if (desc) c += N + ' description "' + desc + '"\n';
+            if (md5) c += N + ' authentication-key "' + md5 + '"\n';
+            c += '\n# Doğrulama:\n# show bgp summary\n# show bgp neighbor ' + nbr + '\n# show route receive-protocol bgp ' + nbr + '\n# show route advertising-protocol bgp ' + nbr + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: Policy-Options (Prefix-List + Policy-Statement) ────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: policy-options prefix-list … <prefix>)
+//   + https://www.juniper.net/documentation/us/en/software/junos/routing-policy/topics/example/policy-prefix-list.html
+//   (policy-statement … term … from prefix-list, from protocol static, then accept|reject)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/prefix-list-filter-edit-policy-options.html (exact|longer|orlonger)
+Juniper.policy = {
+    label: 'Policy-Options',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-filter',
+                title: 'Juniper JunOS — Prefix-List & Policy-Statement',
+                desc: 'Prefix-list tanımı ve onu kullanan tek term\'li policy-statement (OSPF/BGP export/import için).<br><small>Örn: <code>set policy-options prefix-list CUSTOMER 10.200.0.0/16</code> &nbsp;|&nbsp; <code>set policy-options policy-statement BGP-OUT term T1 from prefix-list CUSTOMER</code></small>'
+            },
+            sections: [
+                {
+                    title: 'Prefix-List',
+                    icon: 'fas fa-list',
+                    fields: [
+                        { name: 'pl', label: 'Prefix-List Adı', type: 'text', required: true, placeholder: 'CUSTOMER-NETS', hint: 'Policy içinde bu adla anılır', why: 'Prefix-list hem routing policy\'de hem firewall filter\'da yeniden kullanılabilir; aynı listeyi iki yerde ayrı ayrı yazıp zamanla farklılaşmasını önler.' },
+                        { name: 'pfx', label: 'Prefix\'ler', type: 'text', required: true, placeholder: '10.200.0.0/16, 172.16.0.0/12', hint: 'Virgülle ayrılmış CIDR listesi', why: 'Geçersiz biçimdeki satırlar çıktıda UYARI olarak işaretlenir ve yazılmaz. Boş kalan bir prefix-list\'e başvuran term hiçbir şeyle eşleşmez.' }
+                    ]
+                },
+                {
+                    title: 'Policy-Statement',
+                    icon: 'fas fa-code-branch',
+                    fields: [
+                        { name: 'pol', label: 'Policy Adı', type: 'text', required: true, placeholder: 'BGP-OUT', hint: 'BGP/OSPF export/import\'ta kullanılacak ad', why: 'Policy tanımlandığı yerde değil uygulandığı yerde (bgp group export, ospf export) çalışır; uygulanmayan policy etkisizdir.' },
+                        { name: 'term', label: 'Term Adı', type: 'text', required: true, placeholder: 'ALLOW-CUSTOMER', hint: 'Term\'ler yazılış sırasıyla değerlendirilir', why: 'İlk eşleşen term (accept/reject) değerlendirmeyi bitirir. Sonradan eklenen term\'ler en alta gider; araya almak için <code>insert</code> gerekir.' },
+                        { name: 'match', label: 'Eşleşme', type: 'select', options: [
+                            { value: 'exact', label: 'Tam eşleşme (from prefix-list)', selected: true },
+                            { value: 'orlonger', label: 'Kendisi + alt prefix\'ler (prefix-list-filter orlonger)' },
+                            { value: 'longer', label: 'Yalnız alt prefix\'ler (prefix-list-filter longer)' }
+                        ], why: '<code>from prefix-list</code> yalnız birebir aynı prefix\'i eşler; /16 listesi /24 duyurusunu yakalamaz. <b>orlonger</b> geniş kapsar ve istemediğiniz alt ağları da geçirebilir.' },
+                        { name: 'proto', label: 'Protokol Koşulu', type: 'select', options: [
+                            { value: '', label: 'Yok', selected: true },
+                            { value: 'direct', label: 'direct' },
+                            { value: 'static', label: 'static' },
+                            { value: 'ospf', label: 'ospf' },
+                            { value: 'bgp', label: 'bgp' }
+                        ], why: 'Protokol koşulu eklemek, aynı prefix başka bir kaynaktan öğrenildiğinde yanlışlıkla duyurulmasını engeller (ör. yalnız statik olarak tanımlı müşteri ağlarını duyur).' },
+                        { name: 'action', label: 'Aksiyon', type: 'select', options: [
+                            { value: 'accept', label: 'accept', selected: true },
+                            { value: 'reject', label: 'reject' }
+                        ], why: 'accept/reject değerlendirmeyi bitirir. Hiçbir term eşleşmezse protokolün varsayılan politikası uygulanır (BGP export\'ta aktif BGP rotaları duyurulur).' },
+                        { name: 'final_reject', label: 'Sona "diğer her şeyi reddet" term\'i ekle', type: 'checkbox', checked: true, why: 'Açık reject term\'i olmadan eşleşmeyen rotalar protokol varsayılanına düşer; BGP export\'ta bu, beklenmedik rotaların duyurulması demektir.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const pl = cgEsc(data.pl || ''), pol = cgEsc(data.pol || ''), term = cgEsc(data.term || '');
+            const match = data.match || 'exact', proto = cgEsc(data.proto || ''), act = cgEsc(data.action || 'accept');
+            const re = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/;
+            const items = cgJnpList(data.pfx), ok = items.filter(p => re.test(p)).map(cgEsc), bad = items.filter(p => !re.test(p)).map(cgEsc);
+            const T = 'set policy-options policy-statement ' + pol + ' term ' + term;
+            let c = cgJnpHdr('Policy-Options');
+            bad.forEach(p => c += '# UYARI: geçersiz prefix atlandı: ' + p + '\n');
+            ok.forEach(p => c += 'set policy-options prefix-list ' + pl + ' ' + p + '\n');
+            c += '\n';
+            if (match === 'exact') c += T + ' from prefix-list ' + pl + '\n';
+            else c += T + ' from prefix-list-filter ' + pl + ' ' + cgEsc(match) + '\n';
+            if (proto) c += T + ' from protocol ' + proto + '\n';
+            c += T + ' then ' + act + '\n';
+            if (data.final_reject) c += 'set policy-options policy-statement ' + pol + ' term REJECT-REST then reject\n';
+            c += '\n# Doğrulama:\n# show policy ' + pol + '\n# show configuration policy-options\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: VRRP (IRB üzerinde) ────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/high-availability/topics/topic-map/vrrp-configuring.html
+//   (family inet address … vrrp-group N virtual-address / priority / accept-data / track interface … priority-cost,
+//    no-preempt, authentication-type/-key, protocols vrrp version-3, show vrrp / show vrrp track detail)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/security-interfaces-unit-family-inet-address-vrrp-group.html
+Juniper.vrrp = {
+    label: 'VRRP (IRB)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'Juniper JunOS — VRRP (IRB)',
+                desc: 'İki switch arasında IRB (VLAN gateway) için sanal IP. Her switch\'te kendi gerçek adresiyle ayrı ayrı üretin.<br><small>Örn: <code>set interfaces irb unit 10 family inet address 10.0.10.2/24 vrrp-group 10 virtual-address 10.0.10.1</code></small>'
+            },
+            sections: [
+                {
+                    title: 'IRB & Sanal IP',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'unit', label: 'IRB Unit (VLAN ID)', type: 'text', validate: 'vlan', required: true, placeholder: '10', hint: 'irb.<unit>; VLAN altında l3-interface irb.<unit> tanımlı olmalı', why: 'VRRP IRB\'nin logical unit\'inde çalışır. VLAN\'a <code>l3-interface irb.X</code> bağlanmamışsa IRB up olmaz ve VRRP hiç başlamaz.' },
+                        { name: 'real', label: 'Bu Switch\'in IRB Adresi', type: 'text', validate: 'cidr', required: true, placeholder: '10.0.10.2/24', hint: 'Her switch\'te farklı', why: 'VRRP grubu bu adresin altına tanımlanır. Adres satırı konfigdekiyle birebir aynı olmalıdır; farklı yazılırsa ikinci bir adres eklenir ve VRRP yanlış adrese bağlanır.' },
+                        { name: 'grp', label: 'VRRP Grup ID', type: 'text', min: 0, max: 255, required: true, placeholder: '10', hint: 'İki switch\'te aynı; aynı L2\'de diğer gruplardan farklı', why: 'Grup ID sanal MAC\'i belirler (00:00:5e:00:01:XX). Aynı VLAN\'da iki ayrı grup aynı ID\'yi kullanırsa sanal MAC çakışır.' },
+                        { name: 'vip', label: 'Sanal IP (Gateway)', type: 'text', validate: 'ip', required: true, placeholder: '10.0.10.1', hint: 'İstemcilerin default gateway\'i', why: 'İki switch\'te aynı olmalı ve IRB subnet\'i içinde bulunmalıdır. İstemcilere DHCP ile bu adres gateway olarak verilir.' }
+                    ]
+                },
+                {
+                    title: 'Öncelik & Davranış',
+                    icon: 'fas fa-sort-amount-up',
+                    fields: [
+                        { name: 'prio', label: 'Priority', type: 'text', min: 1, max: 254, placeholder: '200', hint: 'Varsayılan 100; yüksek olan master', why: 'Master olması istenen switch\'e yüksek öncelik verin. İki tarafta eşitse gerçek IP\'si büyük olan kazanır; bu da genelde planlanmamış bir seçimdir.' },
+                        { name: 'preempt', label: 'Preempt', type: 'select', options: [
+                            { value: 'preempt', label: 'preempt (varsayılan)', selected: true },
+                            { value: 'no-preempt', label: 'no-preempt' }
+                        ], why: 'Preempt açıkken yüksek öncelikli switch geri geldiğinde master\'lığı geri alır; bu ikinci bir kısa kesinti demektir. <b>no-preempt</b> yeni master\'ı yerinde bırakır.' },
+                        { name: 'accept', label: 'Sanal IP\'ye gelen trafiği kabul et (accept-data)', type: 'checkbox', why: 'Kapalıyken master sanal IP\'ye gelen ping\'e yanıt vermez; izleme sistemleri gateway\'i "down" görebilir. Açmak sanal IP\'yi cihaza yönelik trafiğe açar.' },
+                        { name: 'track_if', label: 'İzlenecek Uplink', type: 'text', validate: 'iface', placeholder: 'ae0.0', hint: 'Düşerse öncelik düşürülür', why: 'Uplink\'i düşen switch master kalırsa istemci trafiği ona gelir ve kara deliğe gider. Track ile öncelik düşer, diğer switch master olur.' },
+                        { name: 'track_cost', label: 'Priority-Cost', type: 'text', min: 1, max: 254, placeholder: '150', hint: 'Uplink düşünce öncelikten çıkarılacak değer', why: 'Priority − cost, yedek switch\'in önceliğinin altına inmelidir; aksi halde uplink düşse bile master değişmez.' },
+                        { name: 'ver3', label: 'VRRPv3 kullan (protocols vrrp version-3)', type: 'checkbox', why: 'Sistem genelidir; tüm VRRP grupları etkilenir ve iki switch aynı sürümü kullanmalıdır. VRRPv3\'te authentication-type kullanılamaz.' },
+                        { name: 'auth_key', label: 'MD5 Anahtarı (yalnız VRRPv2)', type: 'text', placeholder: 'Vrrp-Key-Ex', hint: 'İki switch\'te aynı', why: 'Kimlik doğrulamasız VRRP\'de aynı VLAN\'daki bir cihaz yüksek öncelikli sahte ilan göndererek gateway\'i ele geçirebilir.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const u = cgEsc(data.unit || ''), real = cgEsc(data.real || ''), g = cgEsc(data.grp || ''), vip = cgEsc(data.vip || '');
+            const prio = cgEsc(data.prio || ''), pre = data.preempt || 'preempt';
+            const tif = cgEsc(data.track_if || ''), tcost = cgEsc(data.track_cost || ''), key = cgEsc(cgJnpTxt(data.auth_key));
+            const V = 'set interfaces irb unit ' + u + ' family inet address ' + real + ' vrrp-group ' + g;
+            let c = cgJnpHdr('VRRP (IRB)');
+            if (data.ver3) c += 'set protocols vrrp version-3\n\n';
+            c += V + ' virtual-address ' + vip + '\n';
+            if (prio) c += V + ' priority ' + prio + '\n';
+            if (pre === 'no-preempt') c += V + ' no-preempt\n';
+            if (data.accept) c += V + ' accept-data\n';
+            if (tif && tcost) c += V + ' track interface ' + tif + ' priority-cost ' + tcost + '\n';
+            else if (tif) c += '# UYARI: izlenecek arayüz verildi ama priority-cost boş — track satırı yazılmadı.\n';
+            if (key && data.ver3) c += '# UYARI: VRRPv3 ile authentication kullanılamaz — anahtar yazılmadı.\n';
+            else if (key) c += V + ' authentication-type md5\n' + V + ' authentication-key "' + key + '"\n';
+            c += '\n# Doğrulama:\n# show vrrp\n# show vrrp detail\n';
+            if (tif) c += '# show vrrp track detail\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: Storm Control (ELS) ────────────────────────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: forwarding-options storm-control-profiles default all)
+//   + https://www.juniper.net/documentation/us/en/software/junos/security-services/topics/task/rate-limiting-storm-control-disabling-cli-els.html
+//   (… all bandwidth-level, no-broadcast / no-multicast / no-unknown-unicast,
+//    interfaces … unit 0 family ethernet-switching storm-control <profil>)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/storm-control-profiles-rate-limiting.html (action-shutdown, bandwidth-percentage)
+//   + https://www.juniper.net/documentation/en_US/junos/topics/reference/configuration-statement/recovery-timeout-edit-interfaces.html (10–3600 sn)
+Juniper.storm = {
+    label: 'Storm Control',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-bolt',
+                title: 'Juniper JunOS — Storm Control (ELS)',
+                desc: 'Broadcast / multicast / bilinmeyen unicast (BUM) trafiği için eşik profili ve arayüzlere bağlama. EX (ELS) varsayılanı: tüm L2 portlarda %80.<br><small>Örn: <code>set forwarding-options storm-control-profiles SC-ACCESS all bandwidth-percentage 5</code></small>'
+            },
+            sections: [
+                {
+                    title: 'Profil',
+                    icon: 'fas fa-sliders-h',
+                    fields: [
+                        { name: 'prof', label: 'Profil Adı', type: 'text', required: true, placeholder: 'SC-ACCESS', hint: 'En fazla 127 karakter', why: 'Aynı profil birden çok arayüze bağlanabilir; erişim ve uplink portları için ayrı profiller kullanmak, uplink\'i gereksiz yere kısmayı önler.' },
+                        { name: 'unit_t', label: 'Eşik Birimi', type: 'select', options: [
+                            { value: 'pct', label: 'Yüzde (bandwidth-percentage)', selected: true },
+                            { value: 'kbps', label: 'Kbps (bandwidth-level)' }
+                        ], why: 'Yüzde, port hızına göre ölçeklenir ve farklı hızdaki portlarda aynı profil kullanılabilir. Kbps sabit bir tavan verir. LAG\'de eşik her üyeye ayrı uygulanır.' },
+                        { name: 'pct', label: 'Yüzde', type: 'text', min: 1, max: 100, requiredIf: { field: 'unit_t', in: ['pct'] }, placeholder: '5', hint: 'BUM trafiği için port bant genişliği yüzdesi', why: 'Çok düşük eşik, meşru multicast (IPTV, görüntü) veya büyük ARP patlamalarını keser; çok yüksek eşik döngüde koruma sağlamaz. Erişim portlarında %1–5 yaygındır.' },
+                        { name: 'kbps', label: 'Kbps', type: 'text', validate: 'posint', requiredIf: { field: 'unit_t', in: ['kbps'] }, placeholder: '15000', hint: 'Birleşik BUM trafiği tavanı', why: 'Sabit tavan, portun hızından bağımsızdır; 10G porta 1G için hesaplanmış değer yazmak oranı fiilen çok düşürür.' },
+                        { name: 'no_bc', label: 'Broadcast\'i sınırlama (no-broadcast)', type: 'checkbox', why: 'Broadcast fırtınası döngünün en tipik belirtisidir; broadcast\'i hariç tutmak korumanın ana amacını ortadan kaldırır. Yalnız bilinçli olarak kullanın.' },
+                        { name: 'no_mc', label: 'Multicast\'i sınırlama (no-multicast)', type: 'checkbox', why: 'Yoğun multicast kullanan (IPTV, yayın) portlarda meşru trafiğin kesilmesini önler.' },
+                        { name: 'no_uu', label: 'Bilinmeyen unicast\'i sınırlama (no-unknown-unicast)', type: 'checkbox', why: 'MAC tablosu henüz öğrenmemişken yapılan büyük aktarımlar flood edilir; bu trafiği hariç tutmak ilk dakikadaki kesintileri önleyebilir.' },
+                        { name: 'shut', label: 'Eşik aşılınca portu kapat (action-shutdown)', type: 'checkbox', why: 'Varsayılan davranış fazla trafiği düşürmektir; shutdown ise portu tamamen kapatır. Kurtarma süresi verilmezse port elle açılana kadar kapalı kalır.' }
+                    ]
+                },
+                {
+                    title: 'Arayüzler',
+                    icon: 'fas fa-ethernet',
+                    fields: [
+                        { name: 'ifaces', label: 'Arayüzler', type: 'text', validate: 'iface_range', required: true, placeholder: 'ge-0/0/0, ge-0/0/1', hint: 'family ethernet-switching olan L2 portlar', why: 'Profil yalnız bağlandığı arayüzlerde etkilidir. Arayüzde <code>family ethernet-switching</code> yoksa bu satır commit\'te hata verir.' },
+                        { name: 'recov', label: 'Otomatik Kurtarma (sn)', type: 'text', min: 10, max: 3600, placeholder: '300', hint: 'recovery-timeout; yalnız action-shutdown ile anlamlı', why: 'Kapatılan port bu süre sonunda kendiliğinden açılır. Verilmezse <code>clear ethernet-switching recovery-timeout</code> ile elle açmak gerekir.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const p = cgEsc(data.prof || ''), ut = data.unit_t || 'pct', pct = cgEsc(data.pct || ''), kb = cgEsc(data.kbps || '');
+            const ifs = cgJnpList(data.ifaces), rec = cgEsc(data.recov || '');
+            const S = 'set forwarding-options storm-control-profiles ' + p;
+            let c = cgJnpHdr('Storm Control (ELS)');
+            if (ut === 'pct' && pct) c += S + ' all bandwidth-percentage ' + pct + '\n';
+            if (ut === 'kbps' && kb) c += S + ' all bandwidth-level ' + kb + '\n';
+            if (data.no_bc && data.no_mc && data.no_uu) c += '# UYARI: broadcast, multicast ve bilinmeyen unicast hariç tutuldu — profil hiçbir trafiği sınırlamaz.\n';
+            if (data.no_bc) c += S + ' all no-broadcast\n';
+            if (data.no_mc) c += S + ' all no-multicast\n';
+            if (data.no_uu) c += S + ' all no-unknown-unicast\n';
+            if (data.shut) c += S + ' action-shutdown\n';
+            c += '\n';
+            ifs.forEach(i => {
+                const [ifn, un] = cgJnpIfUnit(i).map(cgEsc);
+                c += 'set interfaces ' + ifn + ' unit ' + un + ' family ethernet-switching storm-control ' + p + '\n';
+                if (data.shut && rec) c += 'set interfaces ' + ifn + ' unit ' + un + ' family ethernet-switching recovery-timeout ' + rec + '\n';
+            });
+            if (!data.shut && rec) c += '# NOT: recovery-timeout yalnız action-shutdown ile anlamlıdır — yazılmadı.\n';
+            c += '\n# Doğrulama:\n# show configuration forwarding-options storm-control-profiles\n';
+            if (ifs.length) c += '# show interfaces ' + cgEsc(cgJnpIfUnit(ifs[0])[0]) + ' extensive\n';
+            if (data.shut) c += '# clear ethernet-switching recovery-timeout   (kapanan portu elle açmak için)\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: Port Mirroring (Analyzer, ELS) ─────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/network-mgmt/topics/topic-map/port-mirroring-and-analyzers-configuring.html
+//   ([edit forwarding-options] analyzer … input ingress interface …, output interface …, output vlan …)
+//   + https://www.juniper.net/documentation/us/en/software/junos/network-mgmt/topics/ref/statement/input-port-mirroring-els.html
+//   (input egress interface …, input ingress vlan …)
+Juniper.mirror = {
+    label: 'Port Mirroring (Analyzer)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-eye',
+                title: 'Juniper JunOS — Port Mirroring (Analyzer)',
+                desc: 'Yerel (çıkış portu) veya uzak (analyzer VLAN) trafik yansıtma.<br><small>Örn: <code>set forwarding-options analyzer MON1 input ingress interface ge-0/0/0.0</code> &nbsp;|&nbsp; <code>set forwarding-options analyzer MON1 output interface ge-0/0/10.0</code></small>'
+            },
+            sections: [
+                {
+                    title: 'Kaynak',
+                    icon: 'fas fa-sign-in-alt',
+                    fields: [
+                        { name: 'name', label: 'Analyzer Adı', type: 'text', required: true, placeholder: 'MON1', hint: 'Oturum adı', why: 'Platforma göre aynı anda çalışabilecek analyzer sayısı sınırlıdır; işi biten oturumu <code>deactivate</code> veya <code>delete</code> ile kapatın, açık kalan yansıtma ASIC kaynağı tüketir.' },
+                        { name: 'src_t', label: 'Kaynak Tipi', type: 'select', options: [
+                            { value: 'iface', label: 'Arayüz', selected: true },
+                            { value: 'vlan', label: 'VLAN (ingress)' }
+                        ], why: 'Arayüz kaynağı belirli bir sunucu/portu izlemek içindir; VLAN kaynağı tüm VLAN\'a giren trafiği yansıtır ve çıkış portunu kolayca doyurur.' },
+                        { name: 'in_ifaces', label: 'Ingress Arayüzler', type: 'text', validate: 'iface_range', requiredIf: { field: 'src_t', in: ['iface'] }, placeholder: 'ge-0/0/0.0, ge-0/0/1.0', hint: 'Unit ile (.0); porta GİREN trafik', why: 'Yalnız giren trafik yansıtılır; bir konuşmanın iki yönünü görmek için aynı portu egress olarak da ekleyin.' },
+                        { name: 'eg_ifaces', label: 'Egress Arayüzler', type: 'text', validate: 'iface_range', placeholder: 'ge-0/0/0.0', hint: 'Porttan ÇIKAN trafik (opsiyonel)', why: 'Ingress + egress birlikte port hızının iki katı trafik üretebilir; çıkış portu yetmezse fazlası sessizce düşer ve analizde eksik paket görürsünüz.' },
+                        { name: 'in_vlan', label: 'Kaynak VLAN', type: 'text', requiredIf: { field: 'src_t', in: ['vlan'] }, placeholder: 'USERS', hint: 'VLAN adı veya ID', why: 'Analyzer\'ın giriş ve çıkışında aynı VLAN veya o VLAN\'ın üyeleri bulunmamalıdır; aksi halde yansıtılan paketler yeniden yansıtılır.' }
+                    ]
+                },
+                {
+                    title: 'Hedef',
+                    icon: 'fas fa-sign-out-alt',
+                    info: 'Çıkış arayüzü family ethernet-switching altında olmalı, kaynak port olamaz ve STP\'ye katılmaz.',
+                    fields: [
+                        { name: 'dst_t', label: 'Hedef Tipi', type: 'select', options: [
+                            { value: 'iface', label: 'Yerel arayüz (analiz cihazı bu switch\'te)', selected: true },
+                            { value: 'vlan', label: 'Analyzer VLAN (uzak analiz)' }
+                        ], why: 'Analiz cihazı başka bir switch\'teyse trafik ayrı bir analyzer VLAN\'ı ile taşınır; bu VLAN üretim trafiği taşımamalıdır.' },
+                        { name: 'out_if', label: 'Çıkış Arayüzü', type: 'text', validate: 'iface', requiredIf: { field: 'dst_t', in: ['iface'] }, placeholder: 'ge-0/0/10.0', hint: 'Analiz cihazının bağlı olduğu port (unit ile)', why: 'Çıkış portuna bağlı cihaz yansıtılan tüm trafiği görür; yanlış porta (ör. bir kullanıcı portuna) yönlendirmek veri sızıntısıdır.' },
+                        { name: 'out_vlan', label: 'Analyzer VLAN', type: 'text', requiredIf: { field: 'dst_t', in: ['vlan'] }, placeholder: 'REMOTE-ANALYZER', hint: 'Önceden tanımlı VLAN adı veya ID', why: 'Analyzer VLAN\'ı uplink trunk\'larda taşınmalı ve uzak switch\'te analiz portuna access olarak verilmelidir.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const n = cgEsc(data.name || ''), st = data.src_t || 'iface', dt = data.dst_t || 'iface';
+            const ins = cgJnpList(data.in_ifaces).map(cgEsc), egs = cgJnpList(data.eg_ifaces).map(cgEsc), iv = cgEsc(data.in_vlan || '');
+            const oi = cgEsc(data.out_if || ''), ov = cgEsc(data.out_vlan || '');
+            const A = 'set forwarding-options analyzer ' + n;
+            let c = cgJnpHdr('Port Mirroring (Analyzer)');
+            if (st === 'iface') {
+                ins.forEach(i => c += A + ' input ingress interface ' + i + '\n');
+                egs.forEach(i => c += A + ' input egress interface ' + i + '\n');
+            } else if (iv) {
+                c += A + ' input ingress vlan ' + iv + '\n';
+            }
+            if (dt === 'iface' && oi) c += A + ' output interface ' + oi + '\n';
+            if (dt === 'vlan' && ov) c += A + ' output vlan ' + ov + '\n';
+            c += '\n# Doğrulama:\n# show forwarding-options analyzer\n# show configuration forwarding-options analyzer ' + n + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: Config Arşivleme (system archival) ─────────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: system archival configuration transfer-interval, archive-sites "scp://…")
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/archival-edit-system.html
+//   (archive-sites <url> password <pw>, transfer-interval 15–2880 dk, transfer-on-commit)
+Juniper.archival = {
+    label: 'Config Arşivleme',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-archive',
+                title: 'Juniper JunOS — Config Arşivleme',
+                desc: 'Aktif konfigürasyonun periyodik veya her commit\'te SCP/FTP sunucusuna otomatik kopyalanması.<br><small>Örn: <code>set system archival configuration transfer-on-commit</code> &nbsp;|&nbsp; <code>set system archival configuration archive-sites "scp://backup@192.0.2.40/junos"</code></small>'
+            },
+            configTypes: [
+                { id: 'commit', label: 'Her Commit\'te', icon: 'fas fa-check-circle', desc: 'transfer-on-commit', badge: { text: 'Önerilen', cls: 'recommended' } },
+                { id: 'interval', label: 'Periyodik', icon: 'fas fa-clock', desc: 'transfer-interval (dk)', badge: { text: 'Zamanlı', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Arşiv Sunucusu',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'site', label: 'Arşiv URL', type: 'text', required: true, placeholder: 'scp://backup@192.0.2.40/junos-archive', hint: 'scp://, ftp://, pasvftp://, http:// veya file://', why: 'SCP tercih edin; FTP/HTTP hem konfigü hem parolayı ağda düz metin taşır. Birden fazla site tanımlanırsa ilki başarısız olunca sıradakine geçilir.' },
+                        { name: 'pw', label: 'Sunucu Parolası', type: 'text', placeholder: 'Arch-Pass-Example', hint: 'Boşsa parola satırı yazılmaz (anahtar tabanlı SCP)', why: 'Parola konfigde şifreli saklanır ama arşiv hesabının yetkisi yalnız hedef dizine yazmakla sınırlı olmalı; bu hesap tüm cihazlarda ortak olduğu için sızması tüm yedeklere erişim demektir.' },
+                    ]
+                },
+                {
+                    title: 'Periyot',
+                    icon: 'fas fa-clock',
+                    showFor: ['interval'],
+                    fields: [
+                        { name: 'interval', label: 'Aktarım Aralığı (dk)', type: 'text', min: 15, max: 2880, requiredIf: { field: '_cgtype', in: ['interval'] }, placeholder: '1440', hint: '15–2880 dakika', why: 'Periyodik aktarımda iki aktarım arasında yapılan ve sonra geri alınan değişiklikler arşive hiç girmez; değişiklik takibi için transfer-on-commit daha doğrudur.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const type = data._cgtype || 'commit', site = cgEsc(cgJnpTxt(data.site)), pw = cgEsc(cgJnpTxt(data.pw)), iv = cgEsc(data.interval || '');
+            const A = 'set system archival configuration';
+            let c = cgJnpHdr('Config Arşivleme');
+            if (/^(ftp|http):\/\//i.test(site)) c += '# UYARI: ftp:// / http:// konfigürasyonu ve parolayı düz metin taşır; scp:// önerilir.\n';
+            if (type === 'commit') c += A + ' transfer-on-commit\n';
+            else if (iv) c += A + ' transfer-interval ' + iv + '\n';
+            c += A + ' archive-sites "' + site + '"' + (pw ? ' password "' + pw + '"' : '') + '\n';
+            c += '\n# Doğrulama:\n# show configuration system archival\n# show system commit\n# show log messages\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper JunOS: IGMP Snooping (ELS) ────────────────────────────────────────
+// Sözdizimi: canlı config (1 Junos EX cihazı: protocols igmp-snooping vlan all / vlan <ad>)
+//   + https://www.juniper.net/documentation/us/en/software/junos/multicast/topics/example/igmp-snooping-ex-series-configuring.html
+//   (igmp-snooping vlan … immediate-leave, vlan … interface … multicast-router-interface)
+//   + https://www.juniper.net/documentation/us/en/software/junos/multicast/topics/topic-map/mcast-igmp-snooping.html (show igmp snooping …)
+Juniper.igmp = {
+    label: 'IGMP Snooping',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-broadcast-tower',
+                title: 'Juniper JunOS — IGMP Snooping (ELS)',
+                desc: 'Multicast trafiğini yalnız dinleyen portlara iletmek için IGMP snooping; immediate-leave ve statik multicast-router portu.<br><small>Örn: <code>set protocols igmp-snooping vlan IPTV immediate-leave</code> &nbsp;|&nbsp; <code>… vlan IPTV interface ae0.0 multicast-router-interface</code></small>'
+            },
+            sections: [
+                {
+                    title: 'VLAN Kapsamı',
+                    icon: 'fas fa-layer-group',
+                    fields: [
+                        { name: 'scope', label: 'Kapsam', type: 'select', options: [
+                            { value: 'list', label: 'Belirli VLAN\'lar', selected: true },
+                            { value: 'all', label: 'Tüm VLAN\'lar (vlan all)' }
+                        ], why: 'Snooping kapalı VLAN\'da multicast broadcast gibi tüm portlara taşar. Per-VLAN seçenekler (immediate-leave, mrouter portu) yalnız belirli VLAN\'lar için yazılır.' },
+                        { name: 'vlans', label: 'VLAN Adları', type: 'text', requiredIf: { field: 'scope', in: ['list'] }, placeholder: 'IPTV, CAMERA', hint: 'set vlans altında tanımlı adlar, virgülle', why: 'Junos\'ta VLAN burada adıyla anılır; tanımsız bir ad commit\'te hata verir.' },
+                        { name: 'imm', label: 'Immediate-leave', type: 'checkbox', why: 'Son dinleyici ayrılınca trafik o porttan hemen kesilir; kanal değiştirmede (IPTV) gecikmeyi azaltır. Portta birden fazla dinleyici (arkasında hub/AP) varsa diğerlerinin yayını da kesilir.' },
+                        { name: 'mrouter', label: 'Multicast Router Portu', type: 'text', validate: 'iface', placeholder: 'ae0.0', hint: 'Multicast kaynağına/router\'a giden uplink (unit ile)', why: 'Ağda IGMP querier yoksa switch router portunu öğrenemez ve join\'ler kaynağa ulaşmaz; statik mrouter portu bu durumda yayının akmasını sağlar.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const scope = data.scope || 'list', vl = cgJnpList(data.vlans).map(cgEsc), mr = cgEsc(data.mrouter || '');
+            const I = 'set protocols igmp-snooping vlan ';
+            let c = cgJnpHdr('IGMP Snooping');
+            if (scope === 'all') {
+                c += I + 'all\n';
+                if (data.imm || mr) c += '# NOT: immediate-leave ve multicast-router-interface yalnız belirli VLAN\'lar için yazılır — "Belirli VLAN\'lar" seçin.\n';
+            } else {
+                vl.forEach(v => {
+                    c += I + v + '\n';
+                    if (data.imm) c += I + v + ' immediate-leave\n';
+                    if (mr) c += I + v + ' interface ' + mr + ' multicast-router-interface\n';
+                });
+            }
+            c += '\n# Doğrulama:\n# show igmp snooping membership\n# show igmp snooping interface\n# show igmp snooping statistics\n';
             return c;
         });
     }
