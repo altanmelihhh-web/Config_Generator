@@ -1,3 +1,6 @@
+/* Tabler/Bootstrap grid: .cg-section padding'i içinde negatif margin taşmasın */
+#config-generator-root .row { --bs-gutter-x: 1rem; }
+
 .cgpage-container { padding: 20px; }
 .cgpage-header    { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
 .cgpage-header h2 { margin: 0; color: var(--text-primary, #2c3e50); }
@@ -808,3 +811,76 @@
 [data-theme="dark"] #config-generator-root .cg-work-jump select { background: #0d1117; border-color: #30363d; color: #e6edf3; }
 [data-theme="dark"] #config-generator-root .cg-empty { color: #8b949e; }
 [data-theme="dark"] #config-generator-root .cg-btn-ghost { border-color: #30363d; color: #e6edf3; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MARKA İŞARETLERİ + SADELEŞTİRME (Tabler üstü)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Üst çubuk navigasyonu ───────────────────────────────────────────────── */
+.app-nav { display: flex; gap: 2px; margin-left: 26px; }
+.app-nav-tab {
+    background: none; border: 0; cursor: pointer;
+    padding: 7px 13px; border-radius: 7px;
+    font: inherit; font-size: .84rem; font-weight: 600;
+    color: var(--text-secondary, #6b7280);
+    display: inline-flex; align-items: center; gap: 7px;
+    transition: background .15s, color .15s;
+}
+.app-nav-tab:hover { background: var(--bg-tertiary, #f3f4f6); color: var(--text-primary, #1f2937); }
+.app-nav-tab.active { background: var(--bg-tertiary, #f3f4f6); color: var(--primary-color, #4F46E5); }
+[data-theme="dark"] .app-nav-tab { color: #8b949e; }
+[data-theme="dark"] .app-nav-tab:hover,
+[data-theme="dark"] .app-nav-tab.active { background: #21262d; color: #e6edf3; }
+.app-brand { text-decoration: none; color: inherit; }
+@media (max-width: 720px) { .app-nav { display: none; } }
+
+/* ── Marka işareti (logo veya monogram) ──────────────────────────────────── */
+#config-generator-root .cg-mark,
+.cg-mark {
+    display: inline-grid; place-items: center; flex: 0 0 auto;
+    width: 26px; height: 26px; border-radius: 7px;
+    color: var(--bc, #6B7280);
+    background: color-mix(in srgb, var(--bc) 12%, transparent);
+}
+.cg-mark svg { display: block; }
+.cg-mark-txt {
+    font-size: .58rem; font-weight: 800; letter-spacing: .2px;
+    font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+/* ── Sayaç satırı (hero yerine) ──────────────────────────────────────────── */
+#config-generator-root .cg-meta {
+    text-align: center; font-size: .82rem; margin: -6px 0 20px;
+    color: var(--text-tertiary, #9ca3af);
+}
+#config-generator-root .cg-meta strong { color: var(--text-secondary, #6b7280); font-weight: 700; }
+[data-theme="dark"] #config-generator-root .cg-meta { color: #6e7681; }
+[data-theme="dark"] #config-generator-root .cg-meta strong { color: #8b949e; }
+
+/* ── Çipler: logo + ad + sayı, daha sıkı ─────────────────────────────────── */
+#config-generator-root .cg-chips {
+    gap: 6px; margin-bottom: 26px; max-width: 1000px;
+    margin-left: auto; margin-right: auto;
+}
+#config-generator-root .cg-chip { gap: 8px; padding: 5px 12px 5px 6px; }
+#config-generator-root .cg-chip .cg-mark { width: 22px; height: 22px; border-radius: 6px; }
+#config-generator-root .cg-chip-l { line-height: 1; }
+#config-generator-root .cg-chip.active .cg-mark { background: rgba(255,255,255,.2); color: #fff; }
+
+/* ── Grup başlığı ────────────────────────────────────────────────────────── */
+#config-generator-root .cg-vgroup-hd { gap: 11px; margin-bottom: 13px; }
+#config-generator-root .cg-vgroup { margin-bottom: 34px; }
+
+/* ── Kartlar: daha sakin ─────────────────────────────────────────────────── */
+#config-generator-root .cg-cards { grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 8px; }
+#config-generator-root .cg-card { padding: 11px 13px; gap: 9px; font-size: .845rem; font-weight: 500; }
+#config-generator-root .cg-card > i {
+    width: 24px; height: 24px; flex: 0 0 24px; font-size: .78rem;
+    background: transparent; color: var(--text-tertiary, #9ca3af);
+}
+#config-generator-root .cg-card:hover:not(:disabled) > i { color: var(--primary-color, #4F46E5); }
+[data-theme="dark"] #config-generator-root .cg-card > i { background: transparent; color: #6e7681; }
+[data-theme="dark"] #config-generator-root .cg-card:hover:not(:disabled) > i { color: #818CF8; }
+
+/* ── Breadcrumb ──────────────────────────────────────────────────────────── */
+#config-generator-root .cg-crumb .cg-mark { width: 24px; height: 24px; border-radius: 6px; }

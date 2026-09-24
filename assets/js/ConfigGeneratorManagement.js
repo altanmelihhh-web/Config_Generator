@@ -216,7 +216,8 @@ function cgFormBuilder(container, schema, generateFn) {
 
     function renderTypeCards(types) {
         if (!types || !types.length) return '';
-        const colW = Math.floor(12 / Math.min(types.length, 4));
+        // Gerçek Bootstrap gridi devrede: 1-2 tipte col-md-12/6 dev kart olurdu.
+        const colW = Math.floor(12 / Math.max(Math.min(types.length, 4), 3));
         const cards = types.map(t =>
             '<div class="col-md-' + colW + '">' +
             '<div class="gen-type-card-enhanced" onclick="cgFBSelectType(\'' + esc(t.id) + '\',this)">' +
@@ -908,22 +909,10 @@ const ConfigGenerator = {
     go(vendorId, typeId) { location.hash = '#/' + vendorId + '/' + typeId; },
     goHome()             { location.hash = ''; if (!location.hash) this._route(); },
 
-    // ── Üst çubuk (her görünümde ortak) ──────────────────────────────────
-    _topBar(active) {
-        return `
-        <div class="cg-appbar">
-            <button class="cg-appbar-brand" onclick="ConfigGenerator.goHome()">
-                <i class="fas fa-terminal"></i> Config Generator
-            </button>
-            <div class="cg-appbar-tabs">
-                <button class="cg-appbar-tab${active === 'gen' ? ' active' : ''}" onclick="ConfigGenerator.goHome()">
-                    <i class="fas fa-th-large"></i> Araçlar
-                </button>
-                <button class="cg-appbar-tab${active === 'conv' ? ' active' : ''}" onclick="location.hash='#/converter'">
-                    <i class="fas fa-exchange-alt"></i> Dönüştürücü
-                </button>
-            </div>
-        </div>`;
+    // ── Üst çubuktaki aktif sekmeyi işaretle ────────────────────────────
+    _setNav(which) {
+        document.querySelectorAll('.app-nav-tab').forEach(b =>
+            b.classList.toggle('active', b.dataset.nav === which));
     },
 
     // ── ANA SAYFA: aranabilir araç ızgarası ──────────────────────────────
@@ -933,19 +922,19 @@ const ConfigGenerator = {
             const v = CG_REGISTRY[id];
             const lbl = id === 'all' ? 'Tümü' : v.label;
             const n   = id === 'all' ? this._totalTools() : v.types.length;
+            const mark = id === 'all'
+                ? '<span class="cg-mark cg-mark-txt" style="--bc:#6B7280"><i class="fas fa-layer-group"></i></span>'
+                : cgBrandMark(id, 14);
             return `<button class="cg-chip${this._filter === id ? ' active' : ''}" data-f="${id}"
-                        onclick="ConfigGenerator._setFilter('${id}')">
-                        ${cgEsc(lbl)} <span class="cg-chip-n">${n}</span>
+                        onclick="ConfigGenerator._setFilter('${id}')" title="${cgEsc(lbl)}">
+                        ${mark}<span class="cg-chip-l">${cgEsc(lbl)}</span><span class="cg-chip-n">${n}</span>
                     </button>`;
         }).join('');
 
-        this._root.innerHTML = this._topBar('gen') + `
+        this._setNav('tools');
+        this._root.innerHTML = `
         <div class="cg-home">
-            <div class="cg-home-hero">
-                <h1>Ağ konfigürasyonunu <em>saniyeler içinde</em> üret</h1>
-                <p>${this._totalTools()} hazır şablon, ${Object.keys(CG_REGISTRY).length} platform.
-                   Formu doldur, CLI komutun anında hazırlansın. Her şey tarayıcında çalışır.</p>
-            </div>
+
             <div class="cg-home-search">
                 <i class="fas fa-search"></i>
                 <input type="text" id="cg-home-q" placeholder="Araç ara: vlan, ipsec, bgp, nat, interface…"
@@ -953,7 +942,12 @@ const ConfigGenerator = {
                        oninput="ConfigGenerator._setQuery(this.value)">
                 <kbd>/</kbd>
             </div>
-            <div class="cg-chips">${chips}</div>
+            <div class="cg-meta">
+                <strong>${this._totalTools()}</strong> şablon ·
+                <strong>${Object.keys(CG_REGISTRY).length}</strong> platform ·
+                tamamı tarayıcıda çalışır
+            </div>
+            <div class="cg-chips" id="cg-chips">${chips}</div>
             <div id="cg-home-grid"></div>
         </div>`;
 
@@ -1004,7 +998,7 @@ const ConfigGenerator = {
 
             html += `<section class="cg-vgroup">
                 <header class="cg-vgroup-hd">
-                    <i class="${cgEsc(v.icon)}" style="color:${cgEsc(v.color)}"></i>
+                    ${cgBrandMark(vid, 17)}
                     <h3>${cgEsc(v.label)}</h3>
                     <span class="cg-vgroup-n">${types.length}</span>
                 </header>
@@ -1041,7 +1035,8 @@ const ConfigGenerator = {
         this._vendor = vendorId; this._type = typeId;
 
         if (!gen || typeof gen.init !== 'function') {
-            this._root.innerHTML = this._topBar('gen') + `
+            this._setNav('tools');
+        this._root.innerHTML = `
                 <div class="cg-work"><div class="cg-empty">
                     <i class="fas fa-clock"></i>
                     <p>Bu generator henüz tamamlanmadı.</p>
@@ -1054,14 +1049,15 @@ const ConfigGenerator = {
         const siblings = vendor.types.filter(t => { const g = t.gen(); return g && typeof g.init === 'function'; });
 
         cgTermPrompt = typeObj.label || vendor.label;
-        this._root.innerHTML = this._topBar('gen') + `
+        this._setNav('tools');
+        this._root.innerHTML = `
         <div class="cg-work">
             <div class="cg-work-hd">
                 <button class="cg-back" onclick="ConfigGenerator.goHome()">
                     <i class="fas fa-arrow-left"></i> Tüm araçlar
                 </button>
                 <div class="cg-crumb">
-                    <i class="${cgEsc(vendor.icon)}" style="color:${cgEsc(vendor.color)}"></i>
+                    ${cgBrandMark(vendorId, 16)}
                     <span>${cgEsc(vendor.label)}</span>
                     <i class="fas fa-chevron-right cg-crumb-sep"></i>
                     <strong>${cgEsc(typeObj.label)}</strong>
@@ -1111,7 +1107,8 @@ const ConfigGenerator = {
 
     // ── DÖNÜŞTÜRÜCÜ ──────────────────────────────────────────────────────
     _renderConverter() {
-        this._root.innerHTML = this._topBar('conv') + `<div class="cg-work"><div id="cg-conv-host"></div></div>`;
+        this._setNav('conv');
+        this._root.innerHTML = `<div class="cg-work"><div id="cg-conv-host"></div></div>`;
         const host = document.getElementById('cg-conv-host');
         if (typeof ConfigConverter !== 'undefined') ConfigConverter.render(host);
         else host.innerHTML = '<div class="cg-empty"><i class="fas fa-exchange-alt"></i><p>Dönüştürücü yüklenemedi.</p></div>';

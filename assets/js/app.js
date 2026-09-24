@@ -7,6 +7,7 @@
 
     function apply(theme) {
         root.setAttribute('data-theme', theme);
+        root.setAttribute('data-bs-theme', theme);   // Tabler/Bootstrap karanlık tema
         // Tema değişkenleri body.dark-mode altında, bazı bileşenler [data-theme="dark"] altında tanımlı.
         document.body.classList.toggle('dark-mode', theme === 'dark');
         if (btn) btn.innerHTML = theme === 'dark' ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';

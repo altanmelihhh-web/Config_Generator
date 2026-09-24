@@ -13,19 +13,29 @@
       try { t = localStorage.getItem('cg-theme'); } catch (e) {}
       if (!t) t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
       document.documentElement.setAttribute('data-theme', t);
+      document.documentElement.setAttribute('data-bs-theme', t);
     })();
   </script>
   <link rel="stylesheet" href="assets/fonts/inter/inter.css">
   <link rel="stylesheet" href="assets/vendor/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="assets/vendor/tabler/tabler.min.css">
   <link rel="stylesheet" href="assets/css/base.css">
   <link rel="stylesheet" href="assets/css/config-generator.css">
 </head>
 <body>
   <header class="app-topbar">
-    <div class="app-brand">
+    <a class="app-brand" href="#" onclick="ConfigGenerator.goHome();return false">
       <span class="app-brand-logo"><i class="fas fa-terminal"></i></span>
       <span>Config Generator<small>Network konfigürasyon üretici &amp; dönüştürücü</small></span>
-    </div>
+    </a>
+    <nav class="app-nav" id="app-nav">
+      <button class="app-nav-tab active" data-nav="tools" onclick="ConfigGenerator.goHome()">
+        <i class="fas fa-th-large"></i> Araçlar
+      </button>
+      <button class="app-nav-tab" data-nav="conv" onclick="location.hash='#/converter'">
+        <i class="fas fa-exchange-alt"></i> Dönüştürücü
+      </button>
+    </nav>
     <div class="app-actions">
       <button type="button" id="themeToggle" class="app-icon-btn" title="Tema değiştir" aria-label="Tema değiştir"><i class="fas fa-moon"></i></button>
       <a class="app-icon-btn" href="https://github.com/altanmelihhh-web/Config_Generator" target="_blank" rel="noopener" title="GitHub" aria-label="GitHub"><i class="fab fa-github"></i></a>
@@ -34,12 +44,6 @@
 
   <main class="app-main">
     <div class="cgpage-container">
-      <div class="cgpage-header">
-        <div>
-          <h2><i class="fas fa-tools"></i> Config Generator</h2>
-          <p>Vendor seçin, formu doldurun, hazır CLI konfigürasyonunu indirin — ya da mevcut bir config'i başka bir vendor'a dönüştürün.</p>
-        </div>
-      </div>
       <div id="config-generator-root"></div>
     </div>
   </main>
@@ -84,6 +88,7 @@
   <script src="assets/js/ConfigConverter_Readers_CheckPoint.js"></script>
   <script src="assets/js/ConfigConverter_Readers_Other.js"></script>
   <script src="assets/js/ConfigConverter.js"></script>
+  <script src="assets/js/cg-brands.js"></script>
   <script src="assets/js/ConfigGeneratorManagement.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
