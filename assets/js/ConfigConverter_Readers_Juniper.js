@@ -1079,6 +1079,13 @@ function ccReadJuniper(text) {
     ir._meta.category = 'switch-router';
     ir._meta.srcVendor = 'juniper-junos';
 
+    // Junos surumu ilk satirda: 'set version 21.4R3-S2.3'
+    {
+        const _v = (text.match(/^set version\s+(\S+)/m) || [])[1];
+        if (_v) ir.device.osVersionRaw = _v;
+    }
+    ccResolveDevice(ir);
+
     return ir;
 }
 

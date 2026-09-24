@@ -7,6 +7,11 @@ function ccReadHuaweiVRP(text) {
     const ir = ccEmptyIR();
     ir._meta.category = 'switch-router';
     ir._meta.srcVendor = 'huawei-vrp';
+    // VRP surumu yorum satirinda: '!Software Version V600R023C00SPC500'
+    {
+        const _sv = (text.match(/^\s*!?\s*Software Version\s+(\S+)/im) || [])[1];
+        if (_sv) ir.device.osVersionRaw = _sv;
+    }
 
     const lines = text.split('\n').map(l => l.trimEnd());
     let i = 0;
@@ -599,6 +604,8 @@ function ccReadHuaweiVRP(text) {
         }
     });
     delete ir._qosBehaviors;
+
+    ccResolveDevice(ir);
 
     return ir;
 }

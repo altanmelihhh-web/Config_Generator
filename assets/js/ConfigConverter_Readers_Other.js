@@ -174,7 +174,13 @@ function ccReadDellOS10(text) {
     let inAcl = null; // { name, entries }
     while (i < lines.length) {
         const line = lines[i].trim();
-        if (!line || line.startsWith('!')) { inAcl = null; i++; continue; }
+        if (!line || line.startsWith('!')) {
+            // OS10 surumu bir yorum satirindadir: '! Version 10.5.1.2'
+            // Yorum satirlarini atmadan ONCE bakilmali.
+            const _vm = line.match(/^!\s*Version\s+(\S+)/i);
+            if (_vm && !ir.device.osVersionRaw) ir.device.osVersionRaw = _vm[1];
+            inAcl = null; i++; continue;
+        }
 
         // ACL block: "ip access-list NAME" → entries in following indented "seq N ..."
         if (line.startsWith('ip access-list ')) {
@@ -654,6 +660,7 @@ function ccReadDellOS10(text) {
         }
         i++;
     }
+    ccResolveDevice(ir);
     return ir;
 }
 CC_READERS['dell-os10'] = ccReadDellOS10;

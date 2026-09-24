@@ -278,6 +278,15 @@ function ccReadCiscoIOS(text) {
             ir.system.vty.push(vty);
             continue;
 
+        // Cihazin kendi yazdigi OS surumu. Tasinabilir bir ayar degildir, hedef
+        // config'e yazilmaz — ancak surum secimi ve raporlama icin IR'de tutulur.
+        // Eskiden 'sessizce atlanir' listesindeydi: config surumu okunmadigi icin
+        // otomatik surum tespiti yapilamiyordu.
+        //   IOS   : 'version 17.9'
+        //   NX-OS : 'version 9.3(13) Bios:version 5.6.0'
+        } else if ((m = line.match(/^version\s+(\S+)/))) {
+            if (!ir.device.osVersionRaw) ir.device.osVersionRaw = m[1];
+
         // ── Cihaza / platforma özgü ayarlar — taşınabilir karşılığı yok, sessizce atlanır ──
         } else if (
             line.startsWith('license ') ||
@@ -293,7 +302,6 @@ function ccReadCiscoIOS(text) {
             line.startsWith('ip http ') ||
             line.startsWith('no ip http ') ||
             line === 'ip forward-protocol nd' ||
-            line.startsWith('version ') ||
             line === 'Building configuration...' ||
             line.startsWith('Current configuration') ||
             line.startsWith('clock summer-time') ||
@@ -732,6 +740,7 @@ function ccReadCiscoIOS(text) {
     // Meta
     ir._meta.category = 'switch-router';
     ir._meta.srcVendor = 'cisco-ios';
+    ccResolveDevice(ir);
 
     return ir;
 }
@@ -986,6 +995,7 @@ function ccReadCiscoNXOS(text) {
     // Meta override
     ir._meta.category = 'switch-router';
     ir._meta.srcVendor = 'cisco-nxos';
+    ccResolveDevice(ir);
 
     return ir;
 }

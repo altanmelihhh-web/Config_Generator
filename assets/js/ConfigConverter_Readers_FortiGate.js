@@ -462,7 +462,18 @@ function ccReadFortiGate(text) {
         }
 
         // ── global settings ────────────────────────────────────────────────────
-        else if (line.startsWith('set hostname ')) {
+        // 'set hostname' yalnizca 'config system global' icinde cihaz adidir.
+        // FQDN adres nesneleri de ayni anahtari kullanir:
+        //     config firewall address
+        //         edit "google"
+        //             set hostname ".*\\.google\\..*"
+        // Bag1am kontrolu olmadigi icin sistem hostname'i bu kayitlarla eziliyordu
+        // (sistem adi, son gorulen FQDN nesnesiyle degisiyordu). Iki koruma:
+        //   1) yalnizca global baglamda kabul et (nesne bloklari haric)
+        //   2) ilk deger kazanir
+        else if (line.startsWith('set hostname ')
+                 && (block === null || block === 'skip' || block === 'fgglobal')
+                 && !ir.hostname) {
             ir.hostname = line.slice(13).replace(/"/g, '');
         } else if (line && !line.startsWith('#') && !['end','next'].includes(line)
                    && block !== 'skip'
@@ -508,6 +519,20 @@ function ccReadFortiGate(text) {
     // Meta
     ir._meta.category = 'firewall';
     ir._meta.srcVendor = 'fortigate';
+
+    // FortiOS, config'in ilk satirinda hem MODELI hem surumu yazar — desteklenen
+    // vendor'lar icinde model bilgisini config'ten alabildigimiz tek platform:
+    //   #config-version=FG201F-7.4.11-FW-build2878-260126:opmode=0:vdom=0:...
+    {
+        const _cv = (text.split('\n').slice(0, 5).find(l => l.indexOf('#config-version=') === 0) || '');
+        const _m = _cv.match(/^#config-version=([A-Za-z0-9_]+)-(\d+\.\d+\.\d+)-FW-(build\d+)/);
+        if (_m) {
+            ir.device.model = _m[1];
+            ir.device.modelSource = 'config';
+            ir.device.osVersionRaw = _m[2] + ' ' + _m[3];
+        }
+    }
+    ccResolveDevice(ir);
 
     return ir;
 }

@@ -51,11 +51,25 @@ const CC_DEVICE_TYPES = {
     ports: [["ha", "1000base-t", 0], ["mgmt", "1000base-t", 1], ["port1", "1000base-t", 0], ["port2", "1000base-t", 0], ["port3", "1000base-t", 0], ["port4", "1000base-t", 0], ["port5", "1000base-t", 0], ["port6", "1000base-t", 0], ["port7", "1000base-t", 0], ["port8", "1000base-t", 0], ["port9", "1000base-t", 0], ["port10", "1000base-t", 0], ["port11", "1000base-t", 0], ["port12", "1000base-t", 0], ["port13", "1000base-t", 0], ["port14", "1000base-t", 0], ["port15", "1000base-t", 0], ["port16", "1000base-t", 0], ["port17", "1000base-x-sfp", 0], ["port18", "1000base-x-sfp", 0], ["port19", "1000base-x-sfp", 0], ["port20", "1000base-x-sfp", 0], ["port21", "1000base-x-sfp", 0], ["port22", "1000base-x-sfp", 0], ["port23", "1000base-x-sfp", 0], ["port24", "1000base-x-sfp", 0], ["x1", "10gbase-x-sfpp", 0], ["x2", "10gbase-x-sfpp", 0], ["x3", "10gbase-x-sfpp", 0], ["x4", "10gbase-x-sfpp", 0], ["x5", "10gbase-x-sfpp", 0], ["x6", "10gbase-x-sfpp", 0], ["x7", "10gbase-x-sfpp", 0], ["x8", "10gbase-x-sfpp", 0]] }
 };
 
+// FortiOS config'inin '#config-version' satirindaki model kodu, envanterdeki ve
+// kutuphanedeki model adiyla birebir ayni degildir:
+//   config     : FG181F   FG4H1F   FG201E   FG201F
+//   envanter   : FGT_1801F FGT_401F FGT_201E FGT_201F
+// Sayi kisaltmasi duzenli degil (1801F->181F, 401F->4H1F) — turetilemez, tablo sart.
+const CC_MODEL_ALIAS = {
+  'FG181F': 'FGT_1801F',
+  'FG4H1F': 'FGT_401F',
+  'FG201E': 'FGT_201E',
+  'FG201F': 'FGT_201F'
+};
+
 // Model adi -> CC_DEVICE_TYPES anahtari. Envanter/config'teki model adi kutuphane
 // adlandirmasiyla birebir ortusmez; eslestirme ccNormIfName ile ayni normalizasyon
 // mantigini kullanir (bosluk/harf/ayirici farkini yok say).
 function ccLookupDeviceType(model) {
   if (!model) return null;
+  const alias = CC_MODEL_ALIAS[String(model).toUpperCase()];
+  if (alias) model = alias;
   const key = String(model).toLowerCase().replace(/[^a-z0-9]/g, '');
   for (const k in CC_DEVICE_TYPES) {
     if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === key) return CC_DEVICE_TYPES[k];

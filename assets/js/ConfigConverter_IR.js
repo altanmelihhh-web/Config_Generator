@@ -89,6 +89,14 @@ function ccEmptyIR() {
     ha: null,
     pbrRules: [],
     vdoms: [],
+    // Cihaz kimligi — kaynak config'ten okunabildigi kadari.
+    //   osVersionRaw : config'in kendi yazdigi surum ('17.9', '9.3(13)', '7.4.11 build2878')
+    //   model        : config'ten TURETILEBILIYORSA (yalniz FortiOS '#config-version'
+    //                  satirinda bulunur); digerlerinde disaridan verilmelidir
+    //   modelSource  : 'config' | 'kullanici' | '' — degerin nereden geldigi
+    //   type         : ccLookupDeviceType() sonucu (port listesi vb.), yoksa null
+    device: { hostname: '', vendor: '', model: '', modelSource: '',
+              osVersionRaw: '', osVersionBucket: '', type: null },
     unknowns: [],
     // Kaynak config'te ACIKCA yazilmayan, vendor varsayilanindan turetilen
     // guvenlik etkili degerler. Sessiz varsayim guvenlik kararinda kabul
@@ -530,6 +538,39 @@ function ccComment(vendor, text) {
 //
 // NOT: Yalnizca KARSILASTIRMA icindir; IR'de saklanan ad her zaman cihazin
 // yazdigi orijinal bicimdir.
+// Parse sonrasi cihaz kimligini tamamlar: model biliniyorsa donanim tanimini
+// baglar, ham surumu vendor'in surum kovalarindan birine oturtur.
+function ccResolveDevice(ir) {
+  const d = ir.device || (ir.device = {});
+  if (!d.hostname && ir.hostname) d.hostname = ir.hostname;
+  if (ir._meta && ir._meta.srcVendor) d.vendor = ir._meta.srcVendor;
+
+  if (d.model && typeof ccLookupDeviceType === 'function') {
+    d.type = ccLookupDeviceType(d.model) || null;
+  }
+
+  // Ham surumu kayitli kovalarla esle. Kova listesi vendor basina
+  // CC_VENDOR_META[...].osVersions icinde tanimli.
+  const meta = CC_VENDOR_META[d.vendor];
+  if (d.osVersionRaw && meta && meta.osVersions && meta.osVersions.length) {
+    const raw = String(d.osVersionRaw);
+    const major = (raw.match(/(\d+)/) || [])[1] || '';
+    let hit = '';
+    for (const v of meta.osVersions) {
+      // id ornekleri: 'ios-xe-17', 'ios-15', 'nxos-10', 'nxos-9', 'fortios-7.4'
+      const idNum = (String(v.id).match(/(\d+(?:\.\d+)?)\s*$/) || [])[1];
+      if (!idNum) continue;
+      if (idNum.includes('.')) {
+        if (raw.startsWith(idNum)) { hit = v.id; break; }
+      } else if (major === idNum) { hit = v.id; break; }
+    }
+    // Eslesme yoksa BOS birakilir — yanlis kovaya oturtmaktansa bilinmiyor demek
+    // dogrudur (ornek: Huawei V600R023, kayitta yalniz vrp-v200r tanimli).
+    d.osVersionBucket = hit;
+  }
+  return ir;
+}
+
 function ccNormIfName(name) {
   let n = String(name == null ? '' : name).trim().toLowerCase();
   n = n.replace(/\s+/g, '');
