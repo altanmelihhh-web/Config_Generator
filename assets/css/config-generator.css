@@ -599,3 +599,212 @@
 }
 [data-theme="dark"] #config-generator-root .cg-page-hd h2 { color: #e6edf3; }
 [data-theme="dark"] #config-generator-root .cg-subtitle { color: #8b949e; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   YENİ DÜZEN: ana sayfa ızgarası + tam genişlik çalışma sayfası
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#config-generator-root { --cg-r: 12px; }
+
+/* ── Üst çubuk ───────────────────────────────────────────────────────────── */
+#config-generator-root .cg-appbar {
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 0 14px; margin-bottom: 22px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+#config-generator-root .cg-appbar-brand {
+    background: none; border: 0; cursor: pointer;
+    font-size: 1.02rem; font-weight: 700; letter-spacing: -.2px;
+    color: var(--text-primary, #1f2937);
+    display: inline-flex; align-items: center; gap: 9px; padding: 0;
+}
+#config-generator-root .cg-appbar-brand i { color: var(--primary-color, #4F46E5); }
+#config-generator-root .cg-appbar-tabs { display: flex; gap: 4px; margin-left: auto; }
+#config-generator-root .cg-appbar-tab {
+    background: none; border: 0; cursor: pointer;
+    padding: 7px 14px; border-radius: 8px;
+    font-size: .875rem; font-weight: 600;
+    color: var(--text-secondary, #6b7280);
+    display: inline-flex; align-items: center; gap: 7px;
+    transition: background .15s, color .15s;
+}
+#config-generator-root .cg-appbar-tab:hover { background: var(--bg-tertiary, #f3f4f6); color: var(--text-primary, #1f2937); }
+#config-generator-root .cg-appbar-tab.active { background: var(--primary-color, #4F46E5); color: #fff; }
+
+/* ── Ana sayfa: hero + arama + çipler ────────────────────────────────────── */
+#config-generator-root .cg-home-hero { text-align: center; padding: 18px 0 26px; }
+#config-generator-root .cg-home-hero h1 {
+    font-size: clamp(1.6rem, 3.4vw, 2.4rem); font-weight: 800;
+    letter-spacing: -.8px; margin: 0 0 10px; color: var(--text-primary, #1f2937);
+}
+#config-generator-root .cg-home-hero h1 em {
+    font-style: normal;
+    background: linear-gradient(95deg, var(--primary-color, #4F46E5), #06b6d4);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+#config-generator-root .cg-home-hero p {
+    margin: 0 auto; max-width: 620px; font-size: .95rem; line-height: 1.6;
+    color: var(--text-secondary, #6b7280);
+}
+
+#config-generator-root .cg-home-search {
+    position: relative; max-width: 620px; margin: 0 auto 18px;
+}
+#config-generator-root .cg-home-search input {
+    width: 100%; height: 52px; padding: 0 56px 0 46px;
+    border: 1px solid var(--border-color, #e5e7eb); border-radius: var(--cg-r);
+    background: var(--card-bg, #fff); color: var(--text-primary, #1f2937);
+    font-size: .95rem; outline: none; transition: border-color .15s, box-shadow .15s;
+}
+#config-generator-root .cg-home-search input:focus {
+    border-color: var(--primary-color, #4F46E5);
+    box-shadow: 0 0 0 4px rgba(79, 70, 229, .12);
+}
+#config-generator-root .cg-home-search > i {
+    position: absolute; left: 17px; top: 50%; transform: translateY(-50%);
+    color: var(--text-tertiary, #9ca3af); font-size: .95rem; pointer-events: none;
+}
+#config-generator-root .cg-home-search kbd {
+    position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+    background: var(--bg-tertiary, #f3f4f6); border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 6px; padding: 2px 8px; font-size: .72rem;
+    color: var(--text-tertiary, #9ca3af); font-family: inherit;
+}
+
+#config-generator-root .cg-chips {
+    display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; margin-bottom: 30px;
+}
+#config-generator-root .cg-chip {
+    background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 999px; padding: 6px 14px; cursor: pointer;
+    font-size: .82rem; font-weight: 600; color: var(--text-secondary, #6b7280);
+    display: inline-flex; align-items: center; gap: 7px;
+    transition: border-color .15s, color .15s, background .15s;
+}
+#config-generator-root .cg-chip:hover { border-color: var(--primary-color, #4F46E5); color: var(--text-primary, #1f2937); }
+#config-generator-root .cg-chip.active {
+    background: var(--primary-color, #4F46E5); border-color: var(--primary-color, #4F46E5); color: #fff;
+}
+#config-generator-root .cg-chip-n {
+    font-size: .7rem; opacity: .75; background: rgba(0,0,0,.07);
+    padding: 1px 6px; border-radius: 999px;
+}
+#config-generator-root .cg-chip.active .cg-chip-n { background: rgba(255,255,255,.24); }
+
+/* ── Vendor grupları + araç kartları ─────────────────────────────────────── */
+#config-generator-root .cg-vgroup { margin-bottom: 30px; }
+#config-generator-root .cg-vgroup-hd {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+}
+#config-generator-root .cg-vgroup-hd h3 {
+    margin: 0; font-size: .92rem; font-weight: 700; letter-spacing: .3px;
+    text-transform: uppercase; color: var(--text-primary, #1f2937);
+}
+#config-generator-root .cg-vgroup-n {
+    font-size: .72rem; font-weight: 700; color: var(--text-tertiary, #9ca3af);
+    background: var(--bg-tertiary, #f3f4f6); padding: 2px 8px; border-radius: 999px;
+}
+
+#config-generator-root .cg-cards {
+    display: grid; gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+#config-generator-root .cg-card {
+    display: flex; align-items: center; gap: 11px; text-align: left;
+    padding: 14px 15px; cursor: pointer;
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: var(--cg-r);
+    color: var(--text-primary, #1f2937);
+    font-size: .875rem; font-weight: 600;
+    transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+#config-generator-root .cg-card:hover:not(:disabled) {
+    border-color: var(--primary-color, #4F46E5);
+    box-shadow: 0 6px 18px -6px rgba(79, 70, 229, .3);
+    transform: translateY(-1px);
+}
+#config-generator-root .cg-card > i {
+    font-size: .95rem; color: var(--primary-color, #4F46E5);
+    width: 30px; height: 30px; flex: 0 0 30px;
+    display: grid; place-items: center;
+    background: rgba(79, 70, 229, .1); border-radius: 8px;
+}
+#config-generator-root .cg-card-t { flex: 1; min-width: 0; line-height: 1.3; }
+#config-generator-root .cg-card.is-stub { opacity: .45; cursor: not-allowed; }
+#config-generator-root .cg-card-soon {
+    font-size: .64rem; font-weight: 700; text-transform: uppercase;
+    color: var(--text-tertiary, #9ca3af); letter-spacing: .4px;
+}
+
+/* ── Boş durum ───────────────────────────────────────────────────────────── */
+#config-generator-root .cg-empty {
+    text-align: center; padding: 60px 20px; color: var(--text-secondary, #6b7280);
+}
+#config-generator-root .cg-empty i { font-size: 2rem; color: var(--text-tertiary, #9ca3af); margin-bottom: 14px; display: block; }
+#config-generator-root .cg-empty p { margin: 0 0 14px; }
+#config-generator-root .cg-btn-ghost {
+    background: none; border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px; padding: 8px 16px; cursor: pointer;
+    font-size: .85rem; font-weight: 600; color: var(--text-primary, #1f2937);
+}
+#config-generator-root .cg-btn-ghost:hover { border-color: var(--primary-color, #4F46E5); }
+
+/* ── Çalışma sayfası başlığı ─────────────────────────────────────────────── */
+#config-generator-root .cg-work-hd {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding-bottom: 14px; margin-bottom: 18px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+#config-generator-root .cg-back {
+    background: none; border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px; padding: 7px 13px; cursor: pointer;
+    font-size: .83rem; font-weight: 600; color: var(--text-secondary, #6b7280);
+    display: inline-flex; align-items: center; gap: 7px; transition: border-color .15s, color .15s;
+}
+#config-generator-root .cg-back:hover { border-color: var(--primary-color, #4F46E5); color: var(--text-primary, #1f2937); }
+#config-generator-root .cg-crumb {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-size: .92rem; color: var(--text-secondary, #6b7280);
+}
+#config-generator-root .cg-crumb strong { color: var(--text-primary, #1f2937); font-weight: 700; }
+#config-generator-root .cg-crumb-sep { font-size: .62rem; opacity: .5; }
+#config-generator-root .cg-work-jump { margin-left: auto; }
+#config-generator-root .cg-work-jump select {
+    height: 38px; padding: 0 34px 0 12px; border-radius: 8px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    background: var(--card-bg, #fff); color: var(--text-primary, #1f2937);
+    font-size: .84rem; font-weight: 600; cursor: pointer; outline: none;
+}
+
+/* Formsuz (referans) sayfalar: terminali gizle, tam genişlik */
+#config-generator-root .cg-split.is-single { grid-template-columns: 1fr; }
+#config-generator-root .cg-split.is-single .cg-split-out { display: none; }
+
+/* ── Karanlık tema ───────────────────────────────────────────────────────── */
+[data-theme="dark"] #config-generator-root .cg-appbar { border-bottom-color: #30363d; }
+[data-theme="dark"] #config-generator-root .cg-appbar-brand { color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-appbar-tab { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-appbar-tab:hover { background: #21262d; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-home-hero h1 { color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-home-hero p { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-home-search input {
+    background: #0d1117; border-color: #30363d; color: #e6edf3;
+}
+[data-theme="dark"] #config-generator-root .cg-home-search kbd { background: #21262d; border-color: #30363d; color: #6e7681; }
+[data-theme="dark"] #config-generator-root .cg-chip { background: #161b22; border-color: #30363d; color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-chip:hover { color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-chip-n { background: rgba(255,255,255,.08); }
+[data-theme="dark"] #config-generator-root .cg-vgroup-hd h3 { color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-vgroup-n { background: #21262d; color: #6e7681; }
+[data-theme="dark"] #config-generator-root .cg-card { background: #161b22; border-color: #30363d; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-card:hover:not(:disabled) { border-color: #5865F2; box-shadow: 0 6px 18px -6px rgba(88,101,242,.4); }
+[data-theme="dark"] #config-generator-root .cg-card > i { background: rgba(88,101,242,.16); color: #818CF8; }
+[data-theme="dark"] #config-generator-root .cg-work-hd { border-bottom-color: #30363d; }
+[data-theme="dark"] #config-generator-root .cg-back { border-color: #30363d; color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-back:hover { color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-crumb { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-crumb strong { color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-work-jump select { background: #0d1117; border-color: #30363d; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-empty { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-btn-ghost { border-color: #30363d; color: #e6edf3; }

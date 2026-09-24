@@ -886,151 +886,192 @@ const CG_TYPE_ICONS = {
 const ConfigGenerator = {
     _vendor: null,
     _type:   null,
+    _query:  '',
+    _filter: 'all',
 
+    // ── Başlatma + hash yönlendirme ──────────────────────────────────────
     init() {
         const root = document.getElementById('config-generator-root');
         if (!root) return;
-        root.innerHTML = this._renderShell();
-        this._bindSidebar();
-        this._bindTopTabs();
+        this._root = root;
+        window.addEventListener('hashchange', () => this._route());
+        this._route();
     },
 
-    _bindTopTabs() {
-        document.querySelectorAll('.cg-top-tab').forEach(btn => {
-            btn.addEventListener('click', () => this._switchTab(btn.dataset.tab));
-        });
+    _route() {
+        const m = (location.hash || '').match(/^#\/([^/]+)\/([^/]+)$/);
+        if (m && CG_REGISTRY[m[1]]) this._renderWork(m[1], m[2]);
+        else if ((location.hash || '') === '#/converter') this._renderConverter();
+        else this._renderHome();
     },
 
-    _switchTab(tab) {
-        document.querySelectorAll('.cg-top-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-        document.getElementById('cg-tab-generator').style.display = tab === 'generator' ? '' : 'none';
-        document.getElementById('cg-tab-converter').style.display = tab === 'converter' ? '' : 'none';
-        if (tab === 'converter') {
-            const convEl = document.getElementById('cg-tab-converter');
-            if (typeof ConfigConverter !== 'undefined') ConfigConverter.render(convEl);
-            else convEl.innerHTML = '<div class="cg-welcome"><div class="cg-welcome-ico"><i class="fas fa-exchange-alt"></i></div>'
-                + '<h5>Dönüştürücü</h5><p>Bu özellik henüz eklenmedi.</p></div>';
-        }
-    },
+    go(vendorId, typeId) { location.hash = '#/' + vendorId + '/' + typeId; },
+    goHome()             { location.hash = ''; if (!location.hash) this._route(); },
 
-    _renderShell() {
-        const vendorBtns = Object.entries(CG_REGISTRY).map(([id, v]) => `
-            <button class="fa-tab" data-vendor="${id}">
-                <i class="${cgEsc(v.icon)}" style="color:${cgEsc(v.color)}"></i>
-                <span>${cgEsc(v.label)}</span>
-                <span class="fa-tab-badge" style="background:#64748b">${v.types.length}</span>
-            </button>`).join('');
-
+    // ── Üst çubuk (her görünümde ortak) ──────────────────────────────────
+    _topBar(active) {
         return `
-            <div class="cg-page-hd">
-                <h2><i class="fas fa-tools"></i> Config Generator
-                    <span class="cg-subtitle">Network Platform Configuration Templates</span>
-                </h2>
-                <div class="cg-top-tabs">
-                    <button class="cg-top-tab active" data-tab="generator"><i class="fas fa-terminal"></i> Generator</button>
-                    <button class="cg-top-tab" data-tab="converter"><i class="fas fa-exchange-alt"></i> Dönüştürücü</button>
-                </div>
+        <div class="cg-appbar">
+            <button class="cg-appbar-brand" onclick="ConfigGenerator.goHome()">
+                <i class="fas fa-terminal"></i> Config Generator
+            </button>
+            <div class="cg-appbar-tabs">
+                <button class="cg-appbar-tab${active === 'gen' ? ' active' : ''}" onclick="ConfigGenerator.goHome()">
+                    <i class="fas fa-th-large"></i> Araçlar
+                </button>
+                <button class="cg-appbar-tab${active === 'conv' ? ' active' : ''}" onclick="location.hash='#/converter'">
+                    <i class="fas fa-exchange-alt"></i> Dönüştürücü
+                </button>
             </div>
-            <div id="cg-tab-generator">
-            <div class="fa-layout" style="border:1px solid var(--border-color,#e0e4ea);border-top:none;border-radius:0 0 8px 8px;background:var(--card-bg,#fff)">
-                <nav class="fa-sidebar cg-vendor-sidebar">
-                    <div class="fa-sidebar-group">
-                        <div class="fa-sidebar-label">Platforms</div>
-                        ${vendorBtns}
-                    </div>
-                </nav>
-                <nav class="fa-sidebar cg-type-sidebar" id="cg-type-nav" style="display:none">
-                    <div class="cg-type-search-box">
-                        <i class="fas fa-search"></i>
-                        <input type="text" id="cg-type-filter" placeholder="Ara..." autocomplete="off"
-                               oninput="ConfigGenerator._filterTypes(this.value)">
-                    </div>
-                    <div class="fa-sidebar-group">
-                        <div class="fa-sidebar-label" id="cg-type-label">Config Tipi</div>
-                        <div id="cg-type-list"></div>
-                    </div>
-                </nav>
-                <div class="fa-main-content" id="cg-content" style="padding:20px">
-                    <div class="cg-welcome">
-                        <div class="cg-welcome-ico"><i class="fas fa-terminal"></i></div>
-                        <h5>Config Generator</h5>
-                        <p>Sol panelden bir ağ platformu seçin</p>
-                    </div>
-                </div>
-            </div>
-            </div>
-            <div id="cg-tab-converter" style="display:none;padding:16px 0"></div>`;
+        </div>`;
     },
 
-    _bindSidebar() {
-        document.querySelectorAll('.cg-vendor-sidebar .fa-tab').forEach(btn => {
-            btn.addEventListener('click', () => this._selectVendor(btn.dataset.vendor));
+    // ── ANA SAYFA: aranabilir araç ızgarası ──────────────────────────────
+    _renderHome() {
+        this._vendor = this._type = null;
+        const chips = ['all', ...Object.keys(CG_REGISTRY)].map(id => {
+            const v = CG_REGISTRY[id];
+            const lbl = id === 'all' ? 'Tümü' : v.label;
+            const n   = id === 'all' ? this._totalTools() : v.types.length;
+            return `<button class="cg-chip${this._filter === id ? ' active' : ''}" data-f="${id}"
+                        onclick="ConfigGenerator._setFilter('${id}')">
+                        ${cgEsc(lbl)} <span class="cg-chip-n">${n}</span>
+                    </button>`;
+        }).join('');
+
+        this._root.innerHTML = this._topBar('gen') + `
+        <div class="cg-home">
+            <div class="cg-home-hero">
+                <h1>Ağ konfigürasyonunu <em>saniyeler içinde</em> üret</h1>
+                <p>${this._totalTools()} hazır şablon, ${Object.keys(CG_REGISTRY).length} platform.
+                   Formu doldur, CLI komutun anında hazırlansın. Her şey tarayıcında çalışır.</p>
+            </div>
+            <div class="cg-home-search">
+                <i class="fas fa-search"></i>
+                <input type="text" id="cg-home-q" placeholder="Araç ara: vlan, ipsec, bgp, nat, interface…"
+                       autocomplete="off" value="${cgEsc(this._query)}"
+                       oninput="ConfigGenerator._setQuery(this.value)">
+                <kbd>/</kbd>
+            </div>
+            <div class="cg-chips">${chips}</div>
+            <div id="cg-home-grid"></div>
+        </div>`;
+
+        this._renderGrid();
+        const q = document.getElementById('cg-home-q');
+        if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+        this._bindSlash();
+    },
+
+    _totalTools() {
+        return Object.values(CG_REGISTRY).reduce((a, v) => a + v.types.length, 0);
+    },
+
+    _setFilter(id) {
+        this._filter = id;
+        document.querySelectorAll('.cg-chip').forEach(c => c.classList.toggle('active', c.dataset.f === id));
+        this._renderGrid();
+    },
+
+    _setQuery(q) { this._query = q; this._renderGrid(); },
+
+    _bindSlash() {
+        if (this._slashBound) return;
+        this._slashBound = true;
+        document.addEventListener('keydown', e => {
+            if (e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) {
+                const el = document.getElementById('cg-home-q');
+                if (el) { e.preventDefault(); el.focus(); el.select(); }
+            }
+            if (e.key === 'Escape' && location.hash) this.goHome();
         });
     },
 
-    _selectVendor(vendorId) {
-        document.querySelectorAll('.cg-vendor-sidebar .fa-tab').forEach(b => b.classList.remove('active'));
-        const btn = document.querySelector(`.cg-vendor-sidebar .fa-tab[data-vendor="${vendorId}"]`);
-        if (btn) btn.classList.add('active');
-        this._vendor = vendorId;
-        this._type = null;
-        this._renderTypeList(vendorId);
-        document.getElementById('cg-content').innerHTML = `
-            <div class="cg-welcome">
-                <div class="cg-welcome-ico"><i class="fas fa-list-ul"></i></div>
-                <h5>${cgEsc(CG_REGISTRY[vendorId]?.label || '')}</h5>
-                <p>Config tipini sol panelden seçin</p>
+    _renderGrid() {
+        const host = document.getElementById('cg-home-grid');
+        if (!host) return;
+        const term = (this._query || '').trim().toLowerCase();
+        let html = '', hits = 0;
+
+        for (const [vid, v] of Object.entries(CG_REGISTRY)) {
+            if (this._filter !== 'all' && this._filter !== vid) continue;
+            const types = v.types.filter(t => {
+                if (!term) return true;
+                return (t.label + ' ' + t.id + ' ' + v.label).toLowerCase().includes(term);
+            });
+            if (!types.length) continue;
+            hits += types.length;
+
+            html += `<section class="cg-vgroup">
+                <header class="cg-vgroup-hd">
+                    <i class="${cgEsc(v.icon)}" style="color:${cgEsc(v.color)}"></i>
+                    <h3>${cgEsc(v.label)}</h3>
+                    <span class="cg-vgroup-n">${types.length}</span>
+                </header>
+                <div class="cg-cards">` +
+                types.map(t => {
+                    const g = t.gen();
+                    const stub = !g || typeof g.init !== 'function';
+                    const icon = CG_TYPE_ICONS[t.id] || 'fas fa-code';
+                    return `<button class="cg-card${stub ? ' is-stub' : ''}"
+                        ${stub ? 'disabled title="Yakında eklenecek"' : `onclick="ConfigGenerator.go('${vid}','${t.id}')"`}>
+                        <i class="${icon}"></i>
+                        <span class="cg-card-t">${cgEsc(t.label)}</span>
+                        ${stub ? '<span class="cg-card-soon">yakında</span>' : ''}
+                    </button>`;
+                }).join('') +
+                `</div></section>`;
+        }
+
+        host.innerHTML = hits ? html : `
+            <div class="cg-empty">
+                <i class="fas fa-search"></i>
+                <p><strong>“${cgEsc(this._query)}”</strong> için sonuç yok.</p>
+                <button class="cg-btn-ghost" onclick="ConfigGenerator._setQuery('');document.getElementById('cg-home-q').value=''">
+                    Aramayı temizle
+                </button>
             </div>`;
     },
 
-    _renderTypeList(vendorId) {
-        const vendor = CG_REGISTRY[vendorId];
-        if (!vendor) return;
-        const nav   = document.getElementById('cg-type-nav');
-        const list  = document.getElementById('cg-type-list');
-        const label = document.getElementById('cg-type-label');
-        const filt  = document.getElementById('cg-type-filter');
-        nav.style.display = '';
-        if (label) label.textContent = vendor.label;
-        if (filt)  filt.value = '';
-        list.innerHTML = vendor.types.map(t => {
-            const icon   = CG_TYPE_ICONS[t.id] || 'fas fa-code';
-            const isStub = !t.gen() || typeof t.gen().init !== 'function';
-            return `<button class="fa-tab${isStub ? ' cg-stub' : ''}"
-                        data-type="${t.id}" data-label="${cgEsc(t.label)}"
-                        ${isStub ? 'disabled title="Yakında eklenecek"' : ''}>
-                        <i class="${icon}"></i><span>${cgEsc(t.label)}</span>
-                    </button>`;
-        }).join('');
-        list.querySelectorAll('.fa-tab:not(.cg-stub)').forEach(btn => {
-            btn.addEventListener('click', () => {
-                list.querySelectorAll('.fa-tab').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                this._type = btn.dataset.type;
-                this._loadGenerator(vendorId, this._type);
-            });
-        });
-    },
-
-    _filterTypes(q) {
-        const term = (q || '').toLowerCase();
-        document.querySelectorAll('#cg-type-list .fa-tab').forEach(btn => {
-            btn.style.display = (btn.dataset.label || '').toLowerCase().includes(term) ? '' : 'none';
-        });
-    },
-
-    _loadGenerator(vendorId, typeId) {
+    // ── ÇALIŞMA SAYFASI: tam genişlik, 2 kolon ───────────────────────────
+    _renderWork(vendorId, typeId) {
         const vendor  = CG_REGISTRY[vendorId];
         const typeObj = vendor?.types.find(t => t.id === typeId);
         const gen     = typeObj?.gen();
-        const content = document.getElementById('cg-content');
-        if (!content) return;
+        this._vendor = vendorId; this._type = typeId;
+
         if (!gen || typeof gen.init !== 'function') {
-            content.innerHTML = `<div class="alert alert-warning"><i class="fas fa-clock me-2"></i>Bu generator henüz tamamlanmadı.</div>`;
+            this._root.innerHTML = this._topBar('gen') + `
+                <div class="cg-work"><div class="cg-empty">
+                    <i class="fas fa-clock"></i>
+                    <p>Bu generator henüz tamamlanmadı.</p>
+                    <button class="cg-btn-ghost" onclick="ConfigGenerator.goHome()">← Tüm araçlar</button>
+                </div></div>`;
             return;
         }
-        cgTermPrompt = (typeObj?.label || vendor.label || 'device');
-        content.innerHTML = `
+
+        // Aynı vendor'ın diğer araçları — hızlı geçiş için
+        const siblings = vendor.types.filter(t => { const g = t.gen(); return g && typeof g.init === 'function'; });
+
+        cgTermPrompt = typeObj.label || vendor.label;
+        this._root.innerHTML = this._topBar('gen') + `
+        <div class="cg-work">
+            <div class="cg-work-hd">
+                <button class="cg-back" onclick="ConfigGenerator.goHome()">
+                    <i class="fas fa-arrow-left"></i> Tüm araçlar
+                </button>
+                <div class="cg-crumb">
+                    <i class="${cgEsc(vendor.icon)}" style="color:${cgEsc(vendor.color)}"></i>
+                    <span>${cgEsc(vendor.label)}</span>
+                    <i class="fas fa-chevron-right cg-crumb-sep"></i>
+                    <strong>${cgEsc(typeObj.label)}</strong>
+                </div>
+                <div class="cg-work-jump">
+                    <select onchange="if(this.value)ConfigGenerator.go('${vendorId}',this.value)" aria-label="Diğer araçlar">
+                        ${siblings.map(t => `<option value="${t.id}"${t.id === typeId ? ' selected' : ''}>${cgEsc(t.label)}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
             <div class="cg-split">
                 <div class="cg-split-form" id="cg-form-area"></div>
                 <div class="cg-split-out">
@@ -1038,7 +1079,7 @@ const ConfigGenerator = {
                         <div class="cg-term-hd">
                             <div class="cg-term-dots"><i></i><i></i><i></i></div>
                             <div class="cg-term-title">
-                                <span class="cg-live-dot" id="cg-live-dot"></span>${cgEsc(vendor.label)} · ${cgEsc(typeObj?.label || '')}
+                                <span class="cg-live-dot" id="cg-live-dot"></span>${cgEsc(typeObj.label)}
                             </div>
                             <div class="cg-term-acts">
                                 <button type="button" class="cg-term-btn" id="cg-term-copy" onclick="cgCopy()" disabled>
@@ -1053,10 +1094,31 @@ const ConfigGenerator = {
                         <div class="cg-term-warn" id="cg-term-warn" style="display:none"></div>
                     </div>
                 </div>
-            </div>`;
+            </div>
+        </div>`;
+
         const formArea = document.getElementById('cg-form-area');
         cgShowOutput('', []);
         gen.init(formArea);
         cgPostRender(formArea);
+
+        // Formsuz (referans/doküman) sayfalarda terminali gizle, tam genişlik ver
+        if (!formArea.querySelector('form')) {
+            this._root.querySelector('.cg-split')?.classList.add('is-single');
+        }
+        this._bindSlash();
     },
+
+    // ── DÖNÜŞTÜRÜCÜ ──────────────────────────────────────────────────────
+    _renderConverter() {
+        this._root.innerHTML = this._topBar('conv') + `<div class="cg-work"><div id="cg-conv-host"></div></div>`;
+        const host = document.getElementById('cg-conv-host');
+        if (typeof ConfigConverter !== 'undefined') ConfigConverter.render(host);
+        else host.innerHTML = '<div class="cg-empty"><i class="fas fa-exchange-alt"></i><p>Dönüştürücü yüklenemedi.</p></div>';
+        this._bindSlash();
+    },
+
+    // ── Geriye dönük uyumluluk (eski çağrılar için) ──────────────────────
+    _selectVendor(vendorId) { this._vendor = vendorId; },
+    _loadGenerator(vendorId, typeId) { this._renderWork(vendorId, typeId); },
 };
