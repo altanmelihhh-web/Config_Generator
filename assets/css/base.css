@@ -33,6 +33,10 @@
   --bg-primary: #FFFFFF;
   --bg-secondary: #F9FAFB;
   --bg-tertiary: #F3F4F6;
+  /* Terminal yuzeyi — kod ve ASCII topoloji bloklari icin. Her iki temada da
+     KOYU kalir: bu bloklar acik metin rengiyle tasarlandi, tema degiskenine
+     baglanirsa acik temada acik zemin uzerine acik metin dusuyor. */
+  --code-surface: #1E293B;
   --text-primary: #1F2937;
   --text-secondary: #6B7280;
   --text-tertiary: #9CA3AF;
@@ -85,6 +89,7 @@ body.dark-mode {
   --bg-primary: #36393F;
   --bg-secondary: #2F3136;
   --bg-tertiary: #202225;
+  --code-surface: #16181B;
   --text-primary: #DCDDDE;
   --text-secondary: #B9BBBE;
   --text-tertiary: #8E9297;
