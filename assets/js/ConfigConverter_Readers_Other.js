@@ -138,7 +138,7 @@ function ccReadDellOS10(text) {
 
     // Dell ethernet 1/1/N → canonical Cisco-style GigabitEthernet1/0/N
     function dellToCanonical(n) {
-        const mm = n.match(/^ethernet\s+(\d+)\/(\d+)\/(\d+(?:\/\d+)*)/i);
+        const mm = n.match(/^ethernet\s*(\d+)\/(\d+)\/(\d+(?:\/\d+)*)/i);
         if (mm) return 'GigabitEthernet' + mm[1] + '/0/' + mm[3];
         return n;
     }
@@ -146,7 +146,7 @@ function ccReadDellOS10(text) {
     function dellRangeExpand(spec) {
         const s = spec.trim();
         // "1/1/1-1/1/10" formatı
-        let mm = s.match(/^ethernet\s+(\d+)\/(\d+)\/(\d+)\s*-\s*(\d+)\/(\d+)\/(\d+)/i);
+        let mm = s.match(/^ethernet\s*(\d+)\/(\d+)\/(\d+)\s*-\s*(\d+)\/(\d+)\/(\d+)/i);
         if (mm && mm[1] === mm[4] && mm[2] === mm[5]) {
             const out = [];
             for (let v = +mm[3]; v <= +mm[6]; v++)
@@ -154,7 +154,7 @@ function ccReadDellOS10(text) {
             return out;
         }
         // "1/1/1-10" formatı
-        mm = s.match(/^ethernet\s+(\d+)\/(\d+)\/(\d+)\s*-\s*(\d+)$/i);
+        mm = s.match(/^ethernet\s*(\d+)\/(\d+)\/(\d+)\s*-\s*(\d+)$/i);
         if (mm) {
             const out = [];
             for (let v = +mm[3]; v <= +mm[4]; v++)
@@ -162,7 +162,7 @@ function ccReadDellOS10(text) {
             return out;
         }
         // Tek port
-        const single = s.match(/^ethernet\s+(\d+)\/(\d+)\/(\d+)/i);
+        const single = s.match(/^ethernet\s*(\d+)\/(\d+)\/(\d+)/i);
         if (single) return ['GigabitEthernet' + single[1] + '/0/' + single[3]];
         return [s];
     }
@@ -456,7 +456,7 @@ function ccReadDellOS10(text) {
                     sla.target = mm[1];
                     if (mm[2]) {
                         const srcIf = mm[2].trim();
-                        if (/^ethernet\s+/i.test(srcIf)) sla.source_iface = dellRangeExpand(srcIf)[0];
+                        if (/^ethernet\s*/i.test(srcIf)) sla.source_iface = dellRangeExpand(srcIf)[0];
                         else if ((m = srcIf.match(/^vlan\s*(\d+)/i))) sla.source_iface = 'Vlan' + m[1];
                         else if ((m = srcIf.match(/^port-channel\s*(\d+)/i))) sla.source_iface = 'Port-channel' + m[1];
                         else sla.source_iface = srcIf;
@@ -542,7 +542,7 @@ function ccReadDellOS10(text) {
         }
 
         // Tek interface: "interface ethernet 1/1/47"
-        let phyM = line.match(/^interface\s+ethernet\s+(.+)$/i);
+        let phyM = line.match(/^interface\s+ethernet\s*(.+)$/i);
         if (phyM) {
             const names = dellRangeExpand('ethernet ' + phyM[1]);
             const iface = makeIface(names[0]);

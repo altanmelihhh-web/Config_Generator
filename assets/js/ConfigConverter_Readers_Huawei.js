@@ -446,10 +446,24 @@ function ccReadHuaweiVRP(text) {
 
         } else if (line.startsWith('rule ') && ir.acls.length) {
             // rule 5 permit tcp source 192.168.1.0 0.0.0.255 destination 10.1.1.10 0 destination-port eq 443
-            const m = line.match(/^rule \d+ (permit|deny)\s+(\S+)\s*(.*)/);
+            // Huawei'de iki ACL bicimi var:
+            //   basic    (2000-2999): rule 5 permit source 10.0.0.1 0
+            //   advanced (3000-3999): rule 5 permit tcp source ... destination ...
+            // Basic'te protokol alani YOKTUR. Eski regex 'source' kelimesini protokol
+            // sanip src/dst'yi 'any' birakiyordu (fail-open); protokolsuz 'rule 35 deny'
+            // ise hic eslesmeyip tamamen dusuyordu.
+            const m = line.match(/^rule \d+ (permit|deny)(?:\s+(.*))?$/);
             if (m) {
                 const last = ir.acls[ir.acls.length - 1];
-                const rest = m[3];
+                let _tail = (m[2] || '').trim();
+                const _kw = /^(source|destination|destination-port|source-port|icmp-type|logging|time-range|vpn-instance|fragment|ttl|dscp|tos|precedence)\b/i;
+                let _proto = 'ip';
+                if (_tail && !_kw.test(_tail)) {
+                    const _sp = _tail.indexOf(' ');
+                    _proto = _sp === -1 ? _tail : _tail.slice(0, _sp);
+                    _tail  = _sp === -1 ? ''    : _tail.slice(_sp + 1).trim();
+                }
+                const rest = _tail;
                 const srcM  = rest.match(/source\s+(any|[\d.]+)(?:\s+([\d.]+))?/);
                 const dstM  = rest.match(/destination\s+(any|[\d.]+)(?:\s+([\d.]+))?/);
                 const dportM = rest.match(/destination-port\s+(?:eq\s+)?(\S+)/);
@@ -464,7 +478,7 @@ function ccReadHuaweiVRP(text) {
                     dst = (!wc || wc === '0' || wc === '0.0.0.0') ? 'host ' + dstM[1] : dstM[1] + ' ' + wc;
                 }
                 last.entries.push({
-                    action: m[1], proto: m[2], src,
+                    action: m[1], proto: _proto, src,
                     src_port: sportM ? 'eq ' + sportM[1] : '',
                     dst, dst_port: dportM ? 'eq ' + dportM[1] : ''
                 });

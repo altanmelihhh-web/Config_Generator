@@ -132,6 +132,9 @@ function ccWriteFortiGate(ir) {
             const svcs = (pol.service || ['ALL']).map(s => '"' + _dq(ccResolveService(s, ir)) + '"').join(' ');
             c += '        set service ' + svcs + '\n';
             c += '        set action ' + (pol.action === 'ipsec' ? 'ipsec' : (pol.action === 'allow' ? 'accept' : 'deny')) + '\n';
+            // Kaynakta devre disi birakilmis kural hedefte de devre disi kalmali —
+            // aksi halde kapali kural acilir (fail-open).
+            if (pol.enabled === false) c += '        set status disable\n';
             c += '        set schedule "always"\n';
             if (pol.log) c += '        set logtraffic all\n';
             if (pol.profile && (pol.profile.av || pol.profile.ips || pol.profile.webfilter || pol.profile.appctrl)) {

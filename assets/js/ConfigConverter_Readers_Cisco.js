@@ -666,8 +666,26 @@ function ccReadCiscoIOS(text) {
                 const name = m[1];
                 let acl = ir.acls.find(a => a.name === name);
                 if (!acl) { acl = { name, entries: [] }; ir.acls.push(acl); }
-                const rest = (m[5] || '').trim().split(/\s+/).filter(Boolean);
-                acl.entries.push(ccParseAclEntry(m[3], m[4], rest));
+                // 'log' / 'log-input' ACL girdisinin sonundaki kayit anahtar kelimeleridir,
+                // adres degildir — adres cozumlemesinden once ayiklanir.
+                const rest = (m[5] || '').trim().split(/\s+/).filter(Boolean)
+                    .filter(t => !/^(log|log-input)$/i.test(t));
+                // Numarali ACL'de protokol alani ACL turune baglidir:
+                //   standard (1-99, 1300-1999)  : 'access-list 10 permit 10.0.0.1' -> protokol YOK,
+                //                                 permit/deny'dan sonraki token KAYNAK adrestir
+                //   extended (100-199, 2000-2699): 'access-list 101 permit tcp ...' -> protokol VAR
+                // Eskiden her iki durumda da m[4] protokol sayiliyordu; standard ACL'de bu,
+                // kaynak IP'yi proto alanina tasiyip src'yi 'any' birakiyordu (fail-open).
+                const _aclNum = parseInt(name, 10);
+                const _isStd = !isNaN(_aclNum) &&
+                    ((_aclNum >= 1 && _aclNum <= 99) || (_aclNum >= 1300 && _aclNum <= 1999));
+                const _isExt = !isNaN(_aclNum) &&
+                    ((_aclNum >= 100 && _aclNum <= 199) || (_aclNum >= 2000 && _aclNum <= 2699));
+                if (_isStd || (m[2] === 'standard' && !_isExt)) {
+                    acl.entries.push(ccParseAclEntry(m[3], 'ip', [m[4]].concat(rest)));
+                } else {
+                    acl.entries.push(ccParseAclEntry(m[3], m[4], rest));
+                }
             } else { ir.unknowns.push(line); }
 
         } else if (line && !line.startsWith('!') && !line.startsWith('end') && line !== 'configure terminal' && !/^(write\s+(memory|erase)|copy\s+running-config|copy\s+run\s+start|reload|enable|disable|exit|logout)$/i.test(line)) {

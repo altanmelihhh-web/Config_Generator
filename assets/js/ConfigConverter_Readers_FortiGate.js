@@ -250,7 +250,12 @@ function ccReadFortiGate(text) {
                     srcZone: '', dstZone: '',
                     srcAddr: [], dstAddr: [],
                     service: [],
-                    action: 'allow',
+                    // FortiOS varsayılanı deny'dir: 'set action' satırı yoksa policy trafiği
+                    // engeller, izin için 'set action accept' yazılması gerekir. Yöneticiler
+                    // deny kuralında bu satırı yazmaz — 'allow' varsaymak fail-open üretir.
+                    action: 'deny',
+                    _actionExplicit: false,
+                    enabled: true,
                     log: true,
                     schedule: 'always',
                     profile: {},
@@ -291,6 +296,11 @@ function ccReadFortiGate(text) {
                     // Önceden burada her accept-olmayan değer sessizce 'deny' oluyordu.
                     { const _a = line.slice(11).trim();
                       curPolicy.action = _a === 'accept' ? 'allow' : (_a === 'ipsec' ? 'ipsec' : 'deny'); }
+                } else if (line.startsWith('set status ')) {
+                    // FortiOS'ta policy varsayilan olarak etkindir; 'set status disable'
+                    // yazilmissa kural devre disidir. Okunmadiginda devre disi kural
+                    // hedef cihaza AKTIF olarak yazilir (fail-open).
+                    curPolicy.enabled = !line.includes('disable');
                 } else if (line.startsWith('set logtraffic ')) {
                     curPolicy.log = !line.includes('disable');
                 } else if (line.startsWith('set schedule ')) {
