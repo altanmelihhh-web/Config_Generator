@@ -25,7 +25,9 @@ const CG_VALIDATORS = {
                        let m = t.match(/^(eq|neq|gt|lt)\s+(\S+)$/);
                        if (m) return _cgInt(m[2], 0, 65535) || /^[a-z][a-z0-9-]*$/.test(m[2]);
                        m = t.match(/^range\s+(\S+)\s+(\S+)$/);
-                       if (m) return _cgInt(m[1], 0, 65535) && _cgInt(m[2], 0, 65535);
+                       if (m) return _cgInt(m[1], 0, 65535) && _cgInt(m[2], 0, 65535) && +m[1] <= +m[2];
+                       // Operator tek basina ('eq') adlandirilmis port sanilmasin
+                       if (/^(eq|neq|gt|lt|range)$/.test(t)) return false;
                        return _cgInt(t, 0, 65535) || /^[a-z][a-z0-9-]*$/.test(t); },
                 msg: 'Port ifadesi girin: 80 · eq 80 · range 80 443 · gt 1024 · any' },
 
@@ -40,7 +42,9 @@ const CG_VALIDATORS = {
     host_port:{ fn: v => { const m = String(v).trim().match(/^(.+):(\d+)$/);
                        if (!m) return false;
                        const ipRe = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-                       return (ipRe.test(m[1]) || /^[a-z0-9][a-z0-9.-]*$/i.test(m[1])) && _cgInt(m[2], 0, 65535); },
+                       // Yalnizca rakam ve noktadan olusan host bir IP'dir; '300.1.1.1' host adi sayilmaz
+                       const hostOk = /^[\d.]+$/.test(m[1]) ? ipRe.test(m[1]) : /^[a-z0-9][a-z0-9.-]*$/i.test(m[1]);
+                       return hostOk && _cgInt(m[2], 0, 65535); },
                 msg: 'IP:port veya host:port girin (örn: 10.1.1.100:443)' },
     hostname: { re: /^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,61}[a-zA-Z0-9])?$/, msg: 'Geçerli hostname girin (harf, rakam, tire)' },
     mac:      { re: /^([0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}$/, msg: 'MAC adresi formatında girin (örn: 00:1A:2B:3C:4D:5E)' },
@@ -146,8 +150,244 @@ function _cgIface(t) {
     // Ciplak sayisal ('1.2', '1-2') arayuz DEGILDIR — F5 icin iface_f5 kullanilir.
     if (/^[\d.\-]+$/.test(t)) return false;
     if (!/^[A-Za-z]/.test(t)) return false;
+    if (/[-./:]$/.test(t)) return false;               // 'Gi0/1-' yarim kalmis aralik
     if (/\d/.test(t)) return true;                     // rakam iceriyorsa gecerli say
     return _CG_BARE_IF.includes(t.toLowerCase());      // rakamsizsa bilinen ad olmali
+}
+
+// ─── Geçersizlik sebebi ("nesi yanlış") ─────────────────────────────────────
+// `msg` NE girilmesi gerektiğini söyler; buradaki fonksiyonlar girilen değerin
+// NESİNİN yanlış olduğunu söyler. İkisi tek satırda birleşir:
+//   "VLAN ID 1-4094 arasında olmalı — girdiğiniz 30000 üst sınırın (4094) üstünde"
+// Değer tanıdık bir hata biçimine uymuyorsa boş döner; o zaman yalnızca `msg`
+// gösterilir — yanlış sebep üretmektense hiç üretmemek yeğdir.
+
+const _CG_IPRE = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+
+function _cgQ(s) { return '"' + s + '"'; }
+
+function _cgNumWhy(t, min, max) {
+    if (!t) return '';
+    if (/^-\d/.test(t)) return 'negatif değer kabul edilmez';
+    if (/^\d+[.,]\d+$/.test(t)) return 'ondalıklı değil, tam sayı olmalı';
+    if (!/^\d+$/.test(t)) return _cgQ(t) + ' bir tam sayı değil';
+    const n = parseInt(t, 10);
+    if (n < min) return 'girdiğiniz ' + n + ' alt sınırın (' + min + ') altında';
+    if (n > max) return 'girdiğiniz ' + n + ' üst sınırın (' + max + ') üstünde';
+    return '';
+}
+
+function _cgIpWhy(t) {
+    if (!t) return '';
+    if (t.indexOf('/') >= 0) return 'bu alan CIDR öneki almaz, yalnızca adres girin';
+    const p = t.split('.');
+    if (p.length !== 4) return 'IPv4 dört parçadan oluşur, ' + p.length + ' parça girdiniz';
+    for (const o of p) {
+        if (o === '') return 'boş oktet var — noktalar arasında sayı olmalı';
+        if (!/^\d+$/.test(o)) return _cgQ(o) + ' sayı değil';
+        if (+o > 255) return o + ' geçerli bir oktet değil (0-255)';
+    }
+    return '';
+}
+
+function _cgCidrWhy(t) {
+    if (!t) return '';
+    const i = t.indexOf('/');
+    if (i < 0) return 'prefix eksik — sonuna /24 gibi bir önek ekleyin';
+    const r = _cgIpWhy(t.slice(0, i));
+    if (r) return r;
+    const pfx = t.slice(i + 1);
+    if (!/^\d+$/.test(pfx)) return 'prefix ' + _cgQ(pfx) + ' sayı değil';
+    if (+pfx > 32) return 'prefix ' + pfx + ' geçersiz (0-32)';
+    return '';
+}
+
+function _cgIfaceWhy(t) {
+    if (!t) return '';
+    if (/\s/.test(t)) return 'arayüz adında boşluk olamaz';
+    if (/-$/.test(t)) return 'tireden sonra aralığın bitişi eksik';
+    if (/^[\d.\-]+$/.test(t)) return 'çıplak sayısal ad yalnızca F5 arayüzlerinde geçerlidir';
+    if (!/^[A-Za-z0-9/._:-]+$/.test(t)) return 'geçersiz karakter içeriyor (harf, rakam, / . _ : - kullanılır)';
+    if (!/^[A-Za-z]/.test(t)) return 'arayüz adı harfle başlamalı';
+    if (!/\d/.test(t)) return _cgQ(t) + ' bilinen bir arayüz adı değil ve rakam içermiyor';
+    return '';
+}
+
+function _cgIfaceRangeWhy(t) {
+    if (!t) return '';
+    for (const p of String(t).split(/[,\s]+/).filter(Boolean)) {
+        if (_cgIface(p)) continue;
+        const i = p.lastIndexOf('-');
+        if (i <= 0 || i === p.length - 1) {
+            if (/^\d+\.\d+$/.test(p)) return 'aralık "-" ile yazılır, "." ile değil (örn: 1-2)';
+            if (i === p.length - 1) return _cgQ(p) + ': tireden sonra aralığın bitişi eksik';
+            return _cgQ(p) + ': ' + (_cgIfaceWhy(p) || 'geçerli bir arayüz değil');
+        }
+        const a = p.slice(0, i).trim(), b = p.slice(i + 1).trim();
+        if (!_cgIface(a)) return _cgQ(a) + ': ' + (_cgIfaceWhy(a) || 'aralığın başlangıcı geçerli bir arayüz değil');
+        if (!/^[0-9/.:]+$/.test(b) && !_cgIface(b)) return _cgQ(b) + ': aralığın bitişi geçersiz';
+    }
+    return '';
+}
+
+function _cgVlanListWhy(t0) {
+    let t = String(t0).trim().toLowerCase();
+    if (!t || t === 'all' || t === 'none') return '';
+    if (/[;|]/.test(t)) return 'ayraç olarak virgül kullanılır (10,20,30)';
+    t = t.replace(/\s+to\s+/g, '-');
+    for (const p of t.split(/[,\s]+/).filter(Boolean)) {
+        const r = p.match(/^(\d+)\s*-\s*(\d+)$/);
+        if (r) {
+            const a = +r[1], b = +r[2];
+            if (a < 1) return 'aralık 1\'den başlamalı, ' + a + ' girdiniz';
+            if (b > 4094) return b + ' VLAN aralığının (1-4094) dışında';
+            if (a > b) return 'aralık ters yazılmış: ' + a + ' > ' + b;
+            continue;
+        }
+        const w = _cgNumWhy(p, 1, 4094);
+        if (w) return w;
+    }
+    return '';
+}
+
+function _cgPortMatchWhy(t0) {
+    const t = String(t0).trim().toLowerCase();
+    if (!t || t === 'any') return '';
+    let m = t.match(/^(eq|neq|gt|lt)\s+(\S+)$/);
+    if (m) return _cgNumWhy(m[2], 0, 65535);
+    m = t.match(/^range\s+(\S+)\s+(\S+)$/);
+    if (m) {
+        const w = _cgNumWhy(m[1], 0, 65535) || _cgNumWhy(m[2], 0, 65535);
+        if (w) return w;
+        if (+m[1] > +m[2]) return 'aralık ters yazılmış: ' + m[1] + ' > ' + m[2];
+        return '';
+    }
+    if (/^(eq|neq|gt|lt|range)$/.test(t)) return _cgQ(t) + ' tek başına kullanılmaz, ardından port gelmeli';
+    if (/^range\s/.test(t)) return '"range" iki port ister (örn: range 80 443)';
+    return _cgNumWhy(t, 0, 65535);
+}
+
+function _cgIpMaskWhy(t) {
+    const p = String(t).trim().split(/\s+/).filter(Boolean);
+    if (p.length === 1) return 'maske eksik — IP ve maskeyi boşlukla ayırın';
+    if (p.length > 2) return p.length + ' parça girdiniz, IP ve maske olmak üzere 2 olmalı';
+    const a = _cgIpWhy(p[0]); if (a) return 'IP: ' + a;
+    const b = _cgIpWhy(p[1]); if (b) return 'maske: ' + b;
+    return '';
+}
+
+function _cgHostPortWhy(t0) {
+    const t = String(t0).trim();
+    if (!t) return '';
+    const m = t.match(/^(.+):(\d+)$/);
+    if (!m) return t.indexOf(':') < 0 ? 'port eksik — sonuna :443 gibi bir port ekleyin'
+                                      : 'iki nokta üst üsteden sonrası sayı olmalı';
+    const w = _cgNumWhy(m[2], 0, 65535);
+    if (w) return w;
+    if (/^[\d.]+$/.test(m[1])) { const r = _cgIpWhy(m[1]); return r ? 'IP: ' + r : ''; }
+    return /^[a-z0-9][a-z0-9.-]*$/i.test(m[1]) ? '' : 'host adı geçersiz: ' + _cgQ(m[1]);
+}
+
+function _cgHostnameWhy(t) {
+    if (!t) return '';
+    if (t.length > 63) return t.length + ' karakter girdiniz, en fazla 63 olabilir';
+    const bad = t.match(/[^a-zA-Z0-9.\-]/);
+    if (bad) return _cgQ(bad[0]) + ' karakteri kullanılamaz (harf, rakam, tire, nokta)';
+    if (/^[.\-]/.test(t)) return 'harf veya rakamla başlamalı';
+    if (/[.\-]$/.test(t)) return 'harf veya rakamla bitmeli';
+    return '';
+}
+
+function _cgMacWhy(t) {
+    if (!t) return '';
+    if (/^[0-9a-f]{4}(\.[0-9a-f]{4}){2}$/i.test(t))
+        return 'Cisco biçimi (00e0.1a2b.3c4d) yerine iki nokta üst üste ile yazın';
+    const g = t.split(/[:\-.]/);
+    if (g.length !== 6) return g.length + ' grup girdiniz, 6 olmalı';
+    for (const x of g) if (!/^[0-9a-fA-F]{2}$/.test(x)) return _cgQ(x) + ' geçerli bir onaltılık ikili değil';
+    return '';
+}
+
+function _cgRdWhy(t) {
+    if (!t) return '';
+    if (t.toLowerCase() === 'auto') return '';
+    if (t.indexOf(':') < 0) return 'iki bölüm gerekir, ":" ile ayrılır (örn: 65000:100)';
+    const m = t.match(/^(?:target:|origin:)?([^:]+):(\d+)$/i);
+    if (!m) {
+        const tail = t.slice(t.lastIndexOf(':') + 1);
+        if (!/^\d+$/.test(tail)) return 'son bölüm sayı olmalı, ' + _cgQ(tail) + ' girdiniz';
+        return 'biçim tanınmadı (örn: 65000:100 veya 10.0.0.1:100)';
+    }
+    if (/^\d+$/.test(m[1])) return '';
+    return 'sol bölüm AS numarası veya IPv4 olmalı, ' + _cgQ(m[1]) + ' girdiniz';
+}
+
+function _cgIpRangeWhy(t0) {
+    const t = String(t0).trim();
+    if (!t) return '';
+    const parts = t.split(/\s*[-\s]\s*/).filter(Boolean);
+    if (parts.length === 1) return 'bitiş adresi eksik (örn: 10.0.0.10-10.0.0.100)';
+    if (parts.length > 2) return parts.length + ' parça girdiniz, başlangıç ve bitiş olmak üzere 2 olmalı';
+    const a = _cgIpWhy(parts[0]); if (a) return 'başlangıç: ' + a;
+    const b = _cgIpWhy(parts[1]); if (b) return 'bitiş: ' + b;
+    const num = x => x.split('.').reduce((n, o) => n * 256 + (+o), 0);
+    if (num(parts[0]) > num(parts[1])) return 'başlangıç bitişten büyük';
+    return '';
+}
+
+// Doğrulayıcı tipi -> sebep üreteci. 22 doğrulayıcının 22'si karşılanır.
+const CG_WHY = {
+    ip:          _cgIpWhy,
+    cidr:        _cgCidrWhy,
+    subnet:      _cgIpWhy,
+    ip_cidr:     t => (t.indexOf('/') >= 0 ? _cgCidrWhy(t) : _cgIpWhy(t)),
+    vlan:        t => _cgNumWhy(t, 1, 4094),
+    asn:         t => (/^\d+\.\d+$/.test(t) ? '' : _cgNumWhy(t, 1, 4294967295)),
+    port:        t => _cgNumWhy(t, 0, 65535),
+    port_match:  _cgPortMatchWhy,
+    ip_mask:     _cgIpMaskWhy,
+    host_port:   _cgHostPortWhy,
+    hostname:    _cgHostnameWhy,
+    mac:         _cgMacWhy,
+    prefix:      t => _cgNumWhy(t, 0, 128),
+    rd:          _cgRdWhy,
+    rt:          _cgRdWhy,
+    vni:         t => _cgNumWhy(t, 1, 16777215),
+    bgp_timer:   t => _cgNumWhy(t, 1, 65535),
+    iface:       _cgIfaceWhy,
+    iface_range: _cgIfaceRangeWhy,
+    iface_f5:    t => (/^\d+(\.\d+)*$/.test(t) ? 'F5 arayüzü iki bölümlü olmalı (örn: 1.1)' : _cgIfaceWhy(t)),
+    ip_range:    _cgIpRangeWhy,
+    vlan_list:   _cgVlanListWhy,
+};
+
+// Sebep dizesi (yalnızca "nesi yanlış" kısmı) — uyarı şeridinde kısa gösterim için.
+function cgFieldReason(type, val) {
+    const f = CG_WHY[type];
+    if (!f) return '';
+    try { return f(String(val == null ? '' : val).trim()) || ''; } catch (e) { return ''; }
+}
+
+// Alan altında gösterilecek tam mesaj: kural + sebep.
+// `msg` fonksiyon olarak da tanımlanabilir (girilen değeri alır); statik metin
+// desteği korunur.
+function cgFieldMsg(type, val) {
+    const v = CG_VALIDATORS[type];
+    if (!v) return '';
+    if (typeof v.msg === 'function') { try { return v.msg(val); } catch (e) { return ''; } }
+    const r = cgFieldReason(type, val);
+    return r ? v.msg + ' — ' + r : v.msg;
+}
+
+// Uyarı metinlerinde ALAN ADI değil ETİKET gösterilir: 'allowed_vlans' değil
+// 'Allowed VLANs'. Etiketten işaretleyiciler (zorunlu yıldızı, 'Opsiyonel'
+// rozeti, ipucu ikonu) temizlenir.
+function _cgLabelOf(el) {
+    const lblEl = el.closest('.row')?.querySelector('label');
+    if (!lblEl) return el.name;
+    const c = lblEl.cloneNode(true);
+    c.querySelectorAll('.cg-opt, .text-danger, .cg-tip').forEach(n => n.remove());
+    return c.textContent.replace(/[*\s]+$/, '').trim() || el.name;
 }
 
 // "Neden?" bilgi kutusu — net-config.com'un en güçlü fikri.
@@ -175,7 +415,7 @@ function cgValidate(form) {
             const v = CG_VALIDATORS[vtype];
             const pass = v.re ? v.re.test(val) : v.fn(val);
             el.classList.toggle('is-invalid', !pass);
-            if (!pass) { _cgSetError(el, v.msg); ok = false; }
+            if (!pass) { _cgSetError(el, cgFieldMsg(vtype, val)); ok = false; }
             else _cgClearError(el);
         } else {
             el.classList.remove('is-invalid');
@@ -197,7 +437,7 @@ function cgValidateSoft(form) {
         if (!v) return;
         const pass = v.re ? v.re.test(val) : v.fn(val);
         if (pass) _cgClearError(el);
-        else { el.classList.add('is-invalid'); _cgSetError(el, v.msg); }
+        else { el.classList.add('is-invalid'); _cgSetError(el, cgFieldMsg(el.dataset.cgv, val)); }
     });
 }
 
@@ -528,7 +768,9 @@ function cgFormBuilder(container, schema, generateFn) {
             if (!v) return;
             const pass = v.re ? v.re.test(raw) : v.fn(raw);
             if (!pass) {
-                data.__cgInvalid.push({ name: el.name, value: raw, msg: v.msg, el });
+                data.__cgInvalid.push({ name: el.name, label: _cgLabelOf(el), value: raw,
+                                        msg: cgFieldMsg(el.dataset.cgv, raw),
+                                        reason: cgFieldReason(el.dataset.cgv, raw), el });
                 delete data[el.name];          // generator bos gormus gibi davranir
             }
         });
@@ -555,22 +797,23 @@ function cgFormBuilder(container, schema, generateFn) {
             // yalnizca onlari listeler. Opsiyonel bos alan bir eksiklik degildir.
             if (!el.required) return;
             if (!el.disabled && !String(el.value || '').trim()) {
-                // Etiket metnini okurken isaretleyicileri (zorunlu yildizi, 'Opsiyonel'
-                // etiketi, ipucu ikonu) DISLA — aksi halde uyari metni
-                // "Aciklama Opsiyonel = ..." gibi okunuyor.
-                const lblEl = el.closest('.row')?.querySelector('label');
-                let lblTxt = el.name;
-                if (lblEl) {
-                    const c = lblEl.cloneNode(true);
-                    c.querySelectorAll('.cg-opt, .text-danger, .cg-tip').forEach(n => n.remove());
-                    lblTxt = c.textContent.replace(/[*\s]+$/, '').trim() || el.name;
-                }
                 // Placeholder her zaman gecerli bir ornek DEGILDIR: bazilari
                 // "10,20,30 veya all" gibi insan icin yazilmis ipuclaridir ve
                 // aynen config'e girerse satiri bozar. Bunlari isaretle.
                 const ph = el.placeholder;
                 const proseHint = /\b(veya|ya da|or)\b|\.\.\.|…/i.test(ph);
-                empties.push(lblTxt + ' = ' + ph + (proseHint ? ' \u26A0' : ''));
+                empties.push({ label: _cgLabelOf(el), ph: ph, prose: proseHint });
+                // ZORUNLU alanin bos olmasi bir uyari degil HATADIR. Ilk render'da
+                // butun form kirmiziya donmesin diye cerceve yalnizca kullanicinin
+                // dokundugu (odakladiktan sonra ciktigi) alanlara cizilir.
+                if (el.dataset.cgTouched) {
+                    el.classList.add('is-invalid');
+                    _cgSetError(el, 'Bu alan zorunludur — boş bırakılırsa config eksik üretilir');
+                }
+            } else if (!el.dataset.cgv) {
+                // Dogrulayicisi olmayan zorunlu alan dolduruldu: hatasini temizle.
+                // (Dogrulayicisi olanlari cgValidateSoft zaten temizliyor.)
+                _cgClearError(el);
             }
         });
         try {
@@ -584,15 +827,18 @@ function cgFormBuilder(container, schema, generateFn) {
                     iv.el.classList.add('is-invalid');
                     _cgSetError(iv.el, iv.msg);
                 });
-                warns.push('\u26D4 ' + invalid.length + ' alan GECERSIZ, config\'e yazilmadi: ' +
-                    invalid.map(iv => iv.name + ' = "' + iv.value + '"').slice(0, 4).join(', ') +
+                warns.push('\u26D4 ' + invalid.length + ' alan GEÇERSİZ, config\'e yazılmadı: ' +
+                    invalid.slice(0, 4).map(iv => iv.label + ' = "' + iv.value + '"' +
+                        (iv.reason ? ' (' + iv.reason + ')' : '')).join('; ') +
                     (invalid.length > 4 ? ' ve ' + (invalid.length - 4) + ' tane daha' : '') +
-                    ' — duzeltmeden kullanma.');
+                    ' — düzeltmeden kullanmayın.');
             }
             if (empties.length) {
-                const anyProse = empties.some(e => e.endsWith('\u26A0'));
-                warns.push('Doldurulmamış ' + empties.length + ' alan için örnek değer kullanıldı: ' +
-                    empties.slice(0, 4).join(', ') + (empties.length > 4 ? ' ve ' + (empties.length - 4) + ' tane daha' : ''));
+                const anyProse = empties.some(e => e.prose);
+                warns.push('\u26D4 ' + empties.length + ' ZORUNLU alan boş: ' +
+                    empties.slice(0, 4).map(e => e.label + (e.prose ? ' \u26A0' : '')).join(', ') +
+                    (empties.length > 4 ? ' ve ' + (empties.length - 4) + ' tane daha' : '') +
+                    ' — önizlemede örnek değerle dolduruldu, cihaza uygulamadan önce doldurun.');
                 if (anyProse) {
                     warns.push('\u26A0 ile işaretli alanların örnek değeri bir açıklama metnidir, geçerli bir ' +
                                'yapılandırma değeri değildir — o satırlar cihazda çalışmaz, elle doldurun.');
@@ -620,6 +866,16 @@ function cgFormBuilder(container, schema, generateFn) {
 
     formEl.addEventListener('input',  cgLiveSchedule);
     formEl.addEventListener('change', cgLiveSchedule);
+
+    // Alandan cikildiginda 'dokunuldu' say. Zorunlu bos alanin kirmizi cercevesi
+    // buna bagli: ilk acilista her zorunlu alan bos oldugu icin form bastan
+    // kirmiziya boyanmaz, kullanici alani gecip bos biraktiginda boyanir.
+    formEl.addEventListener('blur', e => {
+        const el = e.target;
+        if (!el || !el.name) return;
+        el.dataset.cgTouched = '1';
+        cgLiveSchedule();
+    }, true);
 
     // Submit artık gerekli değil ama form enter'ı sayfayı yenilemesin
     formEl.addEventListener('submit', e => { e.preventDefault(); cgLiveRun(); });
