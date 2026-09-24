@@ -1297,6 +1297,12 @@ const CG_REGISTRY = {
             { id: 'jflow',       cat: 'mgmt', label: 'J-Flow / NetFlow',      gen: () => typeof JuniperSRX !== 'undefined' && JuniperSRX.jflow },
             { id: 'snmp',        cat: 'mgmt', label: 'SNMP v3',               gen: () => typeof JuniperSRX !== 'undefined' && JuniperSRX.snmp },
             { id: 'aaa',         cat: 'aaa', label: 'AAA / RADIUS',          gen: () => typeof JuniperSRX !== 'undefined' && JuniperSRX.aaa },
+            { id: 'syslog', cat: 'mgmt', label: 'System Syslog', gen: () => typeof JuniperSRX !== 'undefined' && JuniperSRX.syslog },
+            { id: 'seclog', cat: 'mgmt', label: 'Security Log', gen: () => typeof JuniperSRX !== 'undefined' && JuniperSRX.seclog },
+            { id: 'ntp', cat: 'mgmt', label: 'NTP', gen: () => typeof JuniperSRX !== 'undefined' && JuniperSRX.ntp },
+            { id: 'login', cat: 'aaa', label: 'Kullanıcı / Login', gen: () => typeof JuniperSRX !== 'undefined' && JuniperSRX.login },
+            { id: 'vr', cat: 'routing', label: 'Virtual Router', gen: () => typeof JuniperSRX !== 'undefined' && JuniperSRX.vr },
+            { id: 'reth', cat: 'ha', label: 'Cluster reth / RG', gen: () => typeof JuniperSRX !== 'undefined' && JuniperSRX.reth },
         ]
     },
     'dell': {
@@ -1383,6 +1389,17 @@ const CG_REGISTRY = {
             { id: 'queue',      cat: 'qos', label: 'Queue / HTB',        gen: () => typeof MikroTik !== 'undefined' && MikroTik.queue },
             { id: 'snmp',       cat: 'mgmt', label: 'SNMP',               gen: () => typeof MikroTik !== 'undefined' && MikroTik.snmp },
             { id: 'logging',    cat: 'mgmt', label: 'Logging / Syslog',   gen: () => typeof MikroTik !== 'undefined' && MikroTik.logging },
+            { id: 'lb', cat: 'routing', label: 'Load Balancing (PCC / ECMP)', gen: () => typeof MikroTik !== 'undefined' && MikroTik.lb },
+            { id: 'failover', cat: 'routing', label: 'WAN Failover', gen: () => typeof MikroTik !== 'undefined' && MikroTik.failover },
+            { id: 'netwatch', cat: 'mgmt', label: 'Netwatch', gen: () => typeof MikroTik !== 'undefined' && MikroTik.netwatch },
+            { id: 'hotspot', cat: 'aaa', label: 'HotSpot', gen: () => typeof MikroTik !== 'undefined' && MikroTik.hotspot },
+            { id: 'pppoe', cat: 'vpn', label: 'PPPoE', gen: () => typeof MikroTik !== 'undefined' && MikroTik.pppoe },
+            { id: 'ntp', cat: 'mgmt', label: 'NTP / Saat', gen: () => typeof MikroTik !== 'undefined' && MikroTik.ntp },
+            { id: 'dns', cat: 'base', label: 'DNS', gen: () => typeof MikroTik !== 'undefined' && MikroTik.dns },
+            { id: 'hardening', cat: 'aaa', label: 'Yönetim Sertleştirme', gen: () => typeof MikroTik !== 'undefined' && MikroTik.hardening },
+            { id: 'vrrp', cat: 'ha', label: 'VRRP', gen: () => typeof MikroTik !== 'undefined' && MikroTik.vrrp },
+            { id: 'bonding', cat: 'l2', label: 'Bonding / LACP', gen: () => typeof MikroTik !== 'undefined' && MikroTik.bonding },
+            { id: 'backup', cat: 'mgmt', label: 'Otomatik Yedek', gen: () => typeof MikroTik !== 'undefined' && MikroTik.backup },
         ]
     },
     'extreme': {
@@ -1600,6 +1617,13 @@ const CG_REGISTRY = {
             { id: 'appcontrol', cat: 'utm', label: 'Application Control',   gen: () => typeof HuaweiUSG !== 'undefined' && HuaweiUSG.appcontrol },
             { id: 'ha',         cat: 'ha', label: 'HA Dual-System',        gen: () => typeof HuaweiUSG !== 'undefined' && HuaweiUSG.ha },
             { id: 'dnsproxy',   cat: 'base', label: 'DNS Transparent Proxy', gen: () => typeof HuaweiUSG !== 'undefined' && HuaweiUSG.dnsproxy },
+            { id: 'objects', cat: 'secpol', label: 'Adres / Servis Nesnesi', gen: () => typeof HuaweiUSG !== 'undefined' && HuaweiUSG.objects },
+            { id: 'staticroute', cat: 'routing', label: 'Statik Rota', gen: () => typeof HuaweiUSG !== 'undefined' && HuaweiUSG.staticroute },
+            { id: 'ospf', cat: 'routing', label: 'OSPF', gen: () => typeof HuaweiUSG !== 'undefined' && HuaweiUSG.ospf },
+            { id: 'vrrp', cat: 'ha', label: 'VRRP + HRP', gen: () => typeof HuaweiUSG !== 'undefined' && HuaweiUSG.vrrp },
+            { id: 'syslog', cat: 'mgmt', label: 'Syslog (info-center)', gen: () => typeof HuaweiUSG !== 'undefined' && HuaweiUSG.syslog },
+            { id: 'ntp', cat: 'mgmt', label: 'NTP', gen: () => typeof HuaweiUSG !== 'undefined' && HuaweiUSG.ntp },
+            { id: 'admin', cat: 'aaa', label: 'Yönetici / SSH', gen: () => typeof HuaweiUSG !== 'undefined' && HuaweiUSG.admin },
         ]
     },
     'huawei-ce': {

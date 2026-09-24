@@ -247,7 +247,7 @@ JuniperSRX.vpn = {
                     icon: 'fas fa-project-diagram',
                     fields: [
                         { name: 'st0', why: "Route-based VPN'de st0 arayüzü bir <b>security zone'a atanmalı</b> ve trafiği taşıyan route'un next-hop'u olmalıdır. Zone ataması unutulduğunda tünel Up görünür ama tek paket geçmez — en sık görülen SRX VPN arızası budur.", label: 'St0 Interface', type: 'text', required: true, placeholder: 'st0.1', hint: 'Route-based VPN için secure tunnel interface' },
-                        { name: 'st0_ip', why: 'Numaralı st0 kullanıyorsanız iki uç aynı /30 içinde olmalıdır; unnumbered tasarımda ise belirleyici olan route tanımıdır. Bir ucun numaralı diğerinin numarasız olması yönlendirmeyi bozar.', label: 'St0 IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.255.0.1/30', hint: 'Tünel interface IP adresi' }
+                        { name: 'st0_ip', why: 'Numaralı st0 kullanıyorsanız iki uç aynı /30 içinde olmalıdır; unnumbered tasarımda ise belirleyici olan route tanımıdır. Bir ucun numaralı diğerinin numarasız olması yönlendirmeyi bozar.', label: 'St0 IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.240.0.1/30', hint: 'Tünel interface IP adresi' }
                     ]
                 }
             ],
@@ -350,7 +350,8 @@ function cgSrxHaGen(data) {
     const roleName = nodeId === '0' ? 'Primary' : 'Secondary';
     let c = '# ========================================\n# Juniper SRX — Chassis Cluster (' + roleName + ')\n# ========================================\n\n';
     c += '# 1. Adım: Cluster modunu aktifleştir (reboot gerekir)\n';
-    c += 'set chassis cluster cluster-id ' + clusterId + ' node ' + nodeId + ' reboot\n\n';
+    // 'set chassis cluster ... reboot' config satiri degil, operasyonel komuttur (her node'da, config'ten once).
+    c += '# ONCE her node\'da operasyonel modda (config degil):\n#   set chassis cluster cluster-id ' + clusterId + ' node ' + nodeId + ' reboot\n\n';
     c += '# 2. Adım: Reboot sonrası — Control/Fabric linkleri tanımla\n';
     c += 'set interfaces ' + ctrlIface + ' fastether-options no-auto-negotiation\n';
     c += 'set interfaces fab' + nodeId + ' fabric-options member-interfaces ' + fabIface + '\n\n';
@@ -536,7 +537,7 @@ JuniperSRX.ospf = {
                     title: 'OSPF Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'router_id', why: 'Router-ID cihazın protokol kimliğidir; çakışması komşuluğun kurulup sürekli kopmasına yol açar. Loopback verin — fiziksel arayüzden türetilen ID, o arayüz düştüğünde değişir ve tüm oturumları sıfırlar.', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Loopback interface IP adresi önerilir' },
+                        { name: 'router_id', why: 'Router-ID cihazın protokol kimliğidir; çakışması komşuluğun kurulup sürekli kopmasına yol açar. Loopback verin — fiziksel arayüzden türetilen ID, o arayüz düştüğünde değişir ve tüm oturumları sıfırlar.', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.240.0.1', hint: 'Loopback interface IP adresi önerilir' },
                         { name: 'area', why: "Backbone <code>0.0.0.0</code> olmalı ve tüm alanlar ona komşu olmalıdır. Linkin iki ucunun farklı area'da olması komşuluğun hiç kurulmamasına neden olur — link up görünür, komşu yoktur.", label: 'Area', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0; stub area için örn. 0.0.0.1' }
                     ]
                 },
@@ -596,7 +597,7 @@ JuniperSRX.bgp = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'local_as', why: 'Yerel AS numarası iBGP/eBGP ayrımını belirler. Karşı tarafın beklediği AS ile farklıysa OPEN mesajında bad peer AS hatası alınır ve oturum sürekli Active/Connect arasında dolanır.', label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
-                        { name: 'router_id', why: 'Router-ID cihazın protokol kimliğidir; çakışması komşuluğun kurulup sürekli kopmasına yol açar. Loopback verin — fiziksel arayüzden türetilen ID, o arayüz düştüğünde değişir ve tüm oturumları sıfırlar.', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
+                        { name: 'router_id', why: 'Router-ID cihazın protokol kimliğidir; çakışması komşuluğun kurulup sürekli kopmasına yol açar. Loopback verin — fiziksel arayüzden türetilen ID, o arayüz düştüğünde değişir ve tüm oturumları sıfırlar.', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.240.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
                     ]
                 },
                 {
@@ -1038,8 +1039,8 @@ JuniperSRX.aaa = {
                     fields: [
                         { name: 'access_profile', why: 'Profili tanımlamak yetmez; <code>system authentication-order</code> ile devreye alınmalıdır. Ayrıca RADIUS kullanıcılarının yerel bir template hesaba eşlenmesi gerekir, yoksa doğrulama geçer ama hiçbir yetki verilmez.', label: 'Access Profile Adı', type: 'text', required: true, placeholder: 'MGMT-ACCESS', hint: 'Yönetim erişimi için access profile adı' },
                         { name: 'auth_order', why: 'Sıralamada <b>password</b> (yerel) mutlaka bulunmalıdır; sadece RADIUS bırakırsanız sunucu erişilemez olduğunda cihaza hiç giriş yapamazsınız. JunOS yerele ancak RADIUS <b>cevap vermediğinde</b> düşer — cevap verip reddederse düşmez.', label: 'Authentication Order', type: 'select', options: [
-                            { value: 'radius local', label: 'RADIUS → Yerel (önerilen)', selected: true },
-                            { value: 'local radius', label: 'Yerel → RADIUS' },
+                            { value: 'radius password', label: 'RADIUS → Yerel (önerilen)', selected: true },
+                            { value: 'password radius', label: 'Yerel → RADIUS' },
                             { value: 'radius', label: 'Sadece RADIUS' }
                         ]}
                     ]
@@ -1053,7 +1054,8 @@ JuniperSRX.aaa = {
 };
 function cgSrxAaaGen(data) {
     const serverIp = cgEsc(data.server_ip || ''), secret = cgEsc(data.secret || '');
-    const authOrder = cgEsc(data.auth_order || 'radius local'), accessProfile = cgEsc(data.access_profile || '');
+    // Junos'ta yerel yontemin anahtar sozcugu 'password'; coklu deger set bicimde [ ] ile yazilir.
+    const _ao = cgEsc(data.auth_order || '').trim(); const authOrder = _ao.includes(' ') ? '[ ' + _ao + ' ]' : _ao, accessProfile = cgEsc(data.access_profile || '');
     let c = '# ========================================\n# Juniper SRX — AAA / RADIUS\n# ========================================\n\n';
     c += 'set access radius-server ' + serverIp + ' secret ' + secret + '\n';
     c += 'set access radius-server ' + serverIp + ' port 1812\n';
@@ -1063,3 +1065,426 @@ function cgSrxAaaGen(data) {
     c += '\n# Doğrulama:\n# show access profile ' + accessProfile + '\n# show radius servers\n';
     return c;
 }
+
+// ── Juniper SRX: System Syslog ────────────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/syslog-edit-system.html
+//            + canlı config (1 Junos cihazı: host any any, host source-address, file any notice,
+//              file authorization info, file interactive-commands info, structured-data, archive files, user * any emergency)
+JuniperSRX.syslog = {
+    label: 'System Syslog',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-file-alt',
+                title: 'System Syslog (SRX / Junos)',
+                desc: 'Control plane (RE) loglarını uzak sunucuya ve yerel dosyalara yazar. Trafik/oturum logları için <b>Security Log</b> aracını kullanın.<br>Örnek: <code>set system syslog host 10.0.0.200 any notice</code>'
+            },
+            sections: [
+                {
+                    title: 'Uzak Sunucu',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'sl_host', label: 'Syslog Sunucusu', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.200', hint: 'IP adresi', why: "RE logları yeniden başlatmada <code>/var/log</code> içinde kalır ama disk dolunca döner; uzak kopya olmadan olay sonrası inceleme yapılamaz." },
+                        { name: 'sl_sev', label: 'Seviye (facility any)', type: 'select', options: [
+                            { value: 'notice', label: 'notice (önerilen)', selected: true },
+                            { value: 'info', label: 'info' },
+                            { value: 'warning', label: 'warning' },
+                            { value: 'any', label: 'any (tümü — gürültülü)' }
+                        ], why: "<code>any any</code> debug seviyesine kadar her şeyi yollar ve sunucuyu doldurur; <code>warning</code> ise arayüz düşmesi ve oturum açma gibi notice/info olayları kaçırır." },
+                        { name: 'sl_port', label: 'Port', type: 'text', validate: 'port', placeholder: '514', hint: 'Boşsa varsayılan 514' },
+                        { name: 'sl_src', label: 'Kaynak Adres', type: 'text', validate: 'ip', placeholder: '10.0.0.1', hint: 'Logların çıkacağı yerel adres', why: "Kaynak sabitlenmezse log çıkış arayüzünün adresiyle gider; SIEM tarafında cihaz kimliği adrese bağlıysa rota değişince loglar tanınmayan kaynaktan geliyormuş gibi görünür." },
+                        { name: 'sl_structured', label: 'structured-data (RFC 5424)', type: 'checkbox', checked: false, why: "Yapılandırılmış format SIEM'in alanları ayrıştırmasını kolaylaştırır; eski syslog sunucuları bu biçimi tek satır düz metin olarak görür." }
+                    ]
+                },
+                {
+                    title: 'Yerel Dosyalar',
+                    icon: 'fas fa-folder',
+                    fields: [
+                        { name: 'sl_local', label: 'messages / interactive-commands dosyaları', type: 'checkbox', checked: true, why: "<code>interactive-commands</code> kim hangi komutu çalıştırdı sorusunun tek yerel kanıtıdır; <code>authorization info</code> başarısız girişleri kaydeder." },
+                        { name: 'sl_files', label: 'Arşiv Dosya Sayısı', type: 'text', min: 1, max: 1000, placeholder: '10', hint: 'messages için archive files' },
+                        { name: 'sl_emerg', label: 'Acil mesajları tüm oturumlara göster (user *)', type: 'checkbox', checked: true }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const host = cgEsc(data.sl_host || ''), sev = cgEsc(data.sl_sev || ''), port = cgEsc(data.sl_port || '');
+            const src = cgEsc(data.sl_src || ''), files = cgEsc(data.sl_files || '');
+            const p = 'set system syslog ';
+            let c = '# ========================================\n# Juniper SRX — System Syslog\n# ========================================\n\n';
+            c += p + 'host ' + host + ' any ' + sev + '\n';
+            if (port) c += p + 'host ' + host + ' port ' + port + '\n';
+            if (src) c += p + 'host ' + host + ' source-address ' + src + '\n';
+            if (data.sl_structured === true) c += p + 'host ' + host + ' structured-data\n';
+            if (data.sl_local === true) {
+                c += p + 'file messages any notice\n';
+                c += p + 'file messages authorization info\n';
+                if (files) c += p + 'file messages archive files ' + files + '\n';
+                c += p + 'file interactive-commands interactive-commands info\n';
+            }
+            if (data.sl_emerg === true) c += p + 'user * any emergency\n';
+            c += '\n# Doğrulama:\n# show configuration system syslog\n# show log messages | last 20\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper SRX: Security Log (stream) ────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/network-mgmt/topics/topic-map/system-logging-for-a-security-device.html
+//            https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/security-edit-stream-security-log.html
+//            ('then log session-init / session-close' aynı sayfadaki policy örneği)
+JuniperSRX.seclog = {
+    label: 'Security Log',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-stream',
+                title: 'Security Log — Stream / Event (SRX)',
+                desc: 'Oturum, NAT, IDP, screen gibi data plane loglarını doğrudan veri portundan SIEM\'e akıtır (stream) veya RE üzerinden yerelde tutar (event).<br>Örnek: <code>set security log stream SIEM host 10.0.0.200 port 514</code>'
+            },
+            configTypes: [
+                { id: 'stream', label: 'Stream', icon: 'fas fa-stream', desc: 'Data plane → SIEM (önerilen)', badge: { text: 'Önerilen', cls: 'recommended' } },
+                { id: 'event', label: 'Event', icon: 'fas fa-hdd', desc: 'RE üzerinden yerel', badge: { text: 'Küçük Kurulum', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Stream Hedefi',
+                    icon: 'fas fa-server',
+                    showFor: ['stream'],
+                    warn: 'Stream modunda loglar bir <b>veri (revenue) portundan</b> çıkar; fxp0/yönetim arayüzünden gönderilmez. Sunucuya veri portu üzerinden rota olmalıdır.',
+                    fields: [
+                        { name: 'sg_name', label: 'Stream Adı', type: 'text', required: true, placeholder: 'SIEM', hint: 'Birden fazla hedef için ayrı adlar' },
+                        { name: 'sg_host', label: 'Sunucu', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.200' },
+                        { name: 'sg_port', label: 'Port', type: 'text', validate: 'port', placeholder: '514', hint: 'Boşsa varsayılan' },
+                        { name: 'sg_src', label: 'Kaynak Adres', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'SRX üzerinde tanımlı bir arayüz adresi', why: "Stream modunda kaynak adres tanımlanmazsa loglar gönderilmez veya SIEM tarafında beklenmeyen adresten gelir; adres SRX'in bir veri arayüzünde tanımlı olmalıdır." },
+                        { name: 'sg_format', label: 'Format', type: 'select', options: [
+                            { value: 'sd-syslog', label: 'sd-syslog (yapılandırılmış — önerilen)', selected: true },
+                            { value: 'syslog', label: 'syslog' },
+                            { value: 'binary', label: 'binary (yalnız Juniper araçları okur)' }
+                        ], why: "binary format üçüncü parti SIEM'lerde okunamaz; sd-syslog alan adlarını taşır ve ayrıştırması en kolay olandır." },
+                        { name: 'sg_proto', label: 'Taşıma', type: 'select', options: [
+                            { value: 'udp', label: 'UDP', selected: true },
+                            { value: 'tcp', label: 'TCP' }
+                        ], why: "UDP'de yoğunlukta kayıp olur ve fark edilmez; TCP kayıpları azaltır ama sunucu yavaşsa SRX tarafında kuyruk birikir." },
+                        { name: 'sg_cat', label: 'Kategori', type: 'select', options: [
+                            { value: 'all', label: 'all', selected: true },
+                            { value: 'flow', label: 'flow (oturum)' },
+                            { value: 'idp', label: 'idp' },
+                            { value: 'screen', label: 'screen' },
+                            { value: 'nat', label: 'nat' }
+                        ] }
+                    ]
+                },
+                {
+                    title: 'Policy Loglama (opsiyonel)',
+                    icon: 'fas fa-list-alt',
+                    info: 'Üç alan da doluysa ilgili policy\'ye log eylemi eklenir. Policy loglamadan akan oturum logu oluşmaz.',
+                    fields: [
+                        { name: 'sg_from', label: 'From Zone', type: 'text', placeholder: 'trust' },
+                        { name: 'sg_to', label: 'To Zone', type: 'text', placeholder: 'untrust' },
+                        { name: 'sg_policy', label: 'Policy Adı', type: 'text', placeholder: 'default-permit' },
+                        { name: 'sg_init', label: 'session-init de logla', type: 'checkbox', checked: false, why: "session-init her oturum açılışında ek log üretir ve log hacmini iki katına çıkarır; çoğu denetim için session-close (süre ve bayt bilgisini de taşır) yeterlidir." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'stream';
+            let c = '# ========================================\n# Juniper SRX — Security Log (' + t + ')\n# ========================================\n\n';
+            if (t === 'stream') {
+                const n = cgEsc(data.sg_name || ''), host = cgEsc(data.sg_host || ''), port = cgEsc(data.sg_port || '');
+                const src = cgEsc(data.sg_src || ''), fmt = cgEsc(data.sg_format || ''), proto = cgEsc(data.sg_proto || ''), cat = cgEsc(data.sg_cat || '');
+                c += 'set security log mode stream\n';
+                c += 'set security log source-address ' + src + '\n';
+                c += 'set security log stream ' + n + ' format ' + fmt + '\n';
+                c += 'set security log stream ' + n + ' category ' + cat + '\n';
+                c += 'set security log stream ' + n + ' host ' + host + (port ? ' port ' + port : '') + '\n';
+                c += 'set security log stream ' + n + ' transport protocol ' + proto + '\n';
+            } else {
+                c += '# UYARI: event modunda tüm security logları RE (control plane) üzerinden yazılır; yoğun trafikte CPU yükü artar\n';
+                c += 'set security log mode event\n';
+            }
+            const from = cgEsc(data.sg_from || ''), to = cgEsc(data.sg_to || ''), pol = cgEsc(data.sg_policy || '');
+            if (from && to && pol) {
+                const pp = 'set security policies from-zone ' + from + ' to-zone ' + to + ' policy ' + pol + ' then log ';
+                c += '\n' + pp + 'session-close\n';
+                if (data.sg_init === true) c += pp + 'session-init\n';
+            }
+            c += '\n# Doğrulama:\n# show configuration security log\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper SRX: NTP + Saat Dilimi ───────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/ntp-edit-system.html
+//            https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/time-zone-edit-system.html
+//            + canlı config (1 Junos cihazı: ntp server X prefer, ntp boot-server, time-zone)
+JuniperSRX.ntp = {
+    label: 'NTP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clock',
+                title: 'NTP ve Saat Dilimi (SRX / Junos)',
+                desc: 'NTP sunucuları, isteğe bağlı SHA-256 kimlik doğrulama ve saat dilimi.<br>Örnek: <code>set system ntp server 10.0.0.123 prefer</code>'
+            },
+            sections: [
+                {
+                    title: 'Sunucular',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'nt_srv1', label: 'NTP Sunucusu 1', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.123', why: "Saat hatası sertifika (IKE, SSL proxy) doğrulamasını bozar ve log zaman damgalarını olay incelemesinde işe yaramaz hâle getirir. Chassis cluster'da iki düğümün saati aynı kaynaktan gelmelidir." },
+                        { name: 'nt_prefer', label: 'Sunucu 1 tercih edilsin (prefer)', type: 'checkbox', checked: true },
+                        { name: 'nt_srv2', label: 'NTP Sunucusu 2', type: 'text', validate: 'ip', placeholder: '10.0.1.123' },
+                        { name: 'nt_boot', label: 'Boot Server', type: 'text', validate: 'ip', placeholder: '10.0.0.123', hint: 'Açılışta saati ilk ayarlayan sunucu' },
+                        { name: 'nt_src', label: 'Kaynak Adres', type: 'text', validate: 'ip', placeholder: '10.0.0.1', hint: 'NTP isteklerinin çıkacağı yerel adres', why: "NTP sunucusu istemcileri adrese göre kısıtlıyorsa, rota değişince farklı kaynak adresle giden istekler reddedilir." },
+                        { name: 'nt_tz', label: 'Saat Dilimi', type: 'text', placeholder: 'Europe/Istanbul', hint: 'set system time-zone', why: "Saat dilimi yalnız gösterimi değiştirir; yanlışsa operatörler log saatlerini yanlış yorumlar ve olay zaman çizelgesi kayar." }
+                    ]
+                },
+                {
+                    title: 'Kimlik Doğrulama',
+                    icon: 'fas fa-key',
+                    fields: [
+                        { name: 'nt_auth', label: 'NTP anahtarı kullan (SHA-256)', type: 'checkbox', checked: false, why: "Kimlik doğrulamasız NTP sahte zaman enjeksiyonuna açıktır; sunucu tarafında aynı anahtar numarası ve değeri tanımlı olmalıdır, yoksa senkronizasyon tamamen durur." },
+                        { name: 'nt_keyid', label: 'Anahtar No', type: 'text', min: 1, max: 65534, requiredIf: { field: 'nt_auth', checked: true }, placeholder: '1' },
+                        { name: 'nt_keyval', label: 'Anahtar Değeri', type: 'text', requiredIf: { field: 'nt_auth', checked: true }, placeholder: 'NtpAnahtar-2026' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const s1 = cgEsc(data.nt_srv1 || ''), s2 = cgEsc(data.nt_srv2 || ''), boot = cgEsc(data.nt_boot || '');
+            const src = cgEsc(data.nt_src || ''), tz = cgEsc(data.nt_tz || '');
+            const auth = data.nt_auth === true, kid = cgEsc(data.nt_keyid || ''), kval = cgEsc(data.nt_keyval || '');
+            const useKey = auth && kid && kval;
+            let c = '# ========================================\n# Juniper SRX — NTP\n# ========================================\n\n';
+            if (useKey) {
+                c += 'set system ntp authentication-key ' + kid + ' type sha256 value "' + kval + '"\n';
+                c += 'set system ntp trusted-key ' + kid + '\n';
+            }
+            if (boot) c += 'set system ntp boot-server ' + boot + '\n';
+            c += 'set system ntp server ' + s1 + (data.nt_prefer === true ? ' prefer' : '') + '\n';
+            if (useKey) c += 'set system ntp server ' + s1 + ' key ' + kid + '\n';
+            if (s2) {
+                c += 'set system ntp server ' + s2 + '\n';
+                if (useKey) c += 'set system ntp server ' + s2 + ' key ' + kid + '\n';
+            }
+            if (src) c += 'set system ntp source-address ' + src + '\n';
+            if (tz) c += 'set system time-zone ' + tz + '\n';
+            c += '\n# Doğrulama:\n# show ntp associations\n# show ntp status\n# show system uptime\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper SRX: Kullanıcı / Login + SSH Sertleştirme ────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/user-edit-system-login.html
+//            https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/ssh-edit-system.html
+//            + canlı config (1 Junos cihazı: class super-user, authentication encrypted-password, idle-timeout,
+//              retry-options tries-before-disconnect/backoff-threshold/backoff-factor/lockout-period,
+//              services ssh protocol-version v2 / connection-limit / rate-limit)
+JuniperSRX.login = {
+    label: 'Kullanıcı / Login',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-lock',
+                title: 'Yerel Kullanıcı ve Login Sertleştirme (SRX / Junos)',
+                desc: 'Yerel yönetici hesabı (parola özeti veya SSH anahtarı), oturum zaman aşımı, deneme kilidi ve SSH servis kısıtları.<br>Örnek: <code>set system login user netadmin class super-user</code>'
+            },
+            configTypes: [
+                { id: 'hash', label: 'Parola Özeti', icon: 'fas fa-key', desc: 'encrypted-password ($6$…)', badge: { text: 'Yaygın', cls: 'recommended' } },
+                { id: 'sshkey', label: 'SSH Anahtarı', icon: 'fas fa-fingerprint', desc: 'ssh-ed25519 / ssh-rsa', badge: { text: 'Güvenli', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Kullanıcı',
+                    icon: 'fas fa-user',
+                    info: '<code>plain-text-password</code> CLI\'da parolayı etkileşimli sorar; script ile yüklenemez. Bu yüzden özet ya da anahtar kullanılır.',
+                    fields: [
+                        { name: 'lg_user', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netadmin' },
+                        { name: 'lg_class', label: 'Sınıf', type: 'select', options: [
+                            { value: 'super-user', label: 'super-user (tam yetki)', selected: true },
+                            { value: 'operator', label: 'operator' },
+                            { value: 'read-only', label: 'read-only' }
+                        ], why: "Her operatöre super-user vermek, tek bir ele geçirilmiş hesabın cihazın tamamını değiştirebilmesi demektir; izleme hesapları için read-only yeterlidir." },
+                        { name: 'lg_fullname', label: 'Tam Ad', type: 'text', placeholder: 'NOC Yonetici', hint: 'Denetim kaydı için' },
+                        { name: 'lg_hash', label: 'Parola Özeti', type: 'text', requiredIf: { field: '_cgtype', in: ['hash'] }, placeholder: '$6$Rq1s$ExampleHashValue', hint: 'Başka bir Junos cihazından veya openssl passwd -6 ile', why: "Özet düz parola değildir; yanlış biçimde yapıştırılırsa commit kabul eder ama hiçbir parola eşleşmez ve hesap kullanılamaz. Commit öncesi ikinci bir oturum açık tutun." },
+                        { name: 'lg_keytype', label: 'Anahtar Tipi', type: 'select', options: [
+                            { value: 'ssh-ed25519', label: 'ssh-ed25519', selected: true },
+                            { value: 'ssh-rsa', label: 'ssh-rsa' }
+                        ], hint: 'Yalnız SSH anahtarı modunda' },
+                        { name: 'lg_key', label: 'Açık Anahtar', type: 'text', requiredIf: { field: '_cgtype', in: ['sshkey'] }, placeholder: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKey netadmin@nms', hint: 'Tek satır, tip öneki dahil' }
+                    ]
+                },
+                {
+                    title: 'Login Politikası',
+                    icon: 'fas fa-shield-alt',
+                    fields: [
+                        { name: 'lg_idle', label: 'Boşta Zaman Aşımı (dk)', type: 'text', min: 1, max: 60, placeholder: '15', hint: 'set system login idle-timeout', why: "Açık bırakılmış bir konsol veya SSH oturumu, cihaza fiziksel/ağ erişimi olan herkese yetkili bir kabuk bırakır." },
+                        { name: 'lg_retry', label: 'Deneme kilidi (retry-options)', type: 'checkbox', checked: true, why: "3 başarısız denemeden sonra gecikme artar, 5'te oturum kesilir ve hesap geçici kilitlenir; brute-force hızını dramatik biçimde düşürür." }
+                    ]
+                },
+                {
+                    title: 'SSH Servisi',
+                    icon: 'fas fa-terminal',
+                    fields: [
+                        { name: 'lg_root', label: 'root SSH girişi', type: 'select', options: [
+                            { value: 'deny', label: 'deny (önerilen)', selected: true },
+                            { value: 'deny-password', label: 'deny-password (yalnız anahtarla)' }
+                        ], why: "root hesabı her Junos cihazında vardır ve adı bilinir; SSH'ten kapatmak saldırganın yalnız parolayı tahmin etmesi gereken hedefi ortadan kaldırır." },
+                        { name: 'lg_v2', label: 'protocol-version v2', type: 'checkbox', checked: true },
+                        { name: 'lg_connlimit', label: 'connection-limit', type: 'text', min: 1, max: 250, placeholder: '10', hint: 'Eşzamanlı SSH bağlantısı' },
+                        { name: 'lg_ratelimit', label: 'rate-limit', type: 'text', min: 1, max: 250, placeholder: '5', hint: 'Dakikada yeni bağlantı' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'hash';
+            const user = cgEsc(data.lg_user || ''), cls = cgEsc(data.lg_class || ''), fn = cgEsc(data.lg_fullname || '');
+            const hash = cgEsc(data.lg_hash || ''), ktype = cgEsc(data.lg_keytype || ''), key = cgEsc(data.lg_key || '');
+            const idle = cgEsc(data.lg_idle || ''), root = cgEsc(data.lg_root || '');
+            const cl = cgEsc(data.lg_connlimit || ''), rl = cgEsc(data.lg_ratelimit || '');
+            const pu = 'set system login user ' + user;
+            let c = '# ========================================\n# Juniper SRX — Kullanıcı / Login\n# ========================================\n\n';
+            c += '# UYARI: commit öncesi ikinci bir oturum açık tutun veya "commit confirmed 5" kullanın\n';
+            c += pu + ' class ' + cls + '\n';
+            if (fn) c += pu + ' full-name "' + fn + '"\n';
+            if (t === 'hash' && hash) c += pu + ' authentication encrypted-password "' + hash + '"\n';
+            if (t === 'sshkey' && key) c += pu + ' authentication ' + ktype + ' "' + key + '"\n';
+            if (idle) c += 'set system login idle-timeout ' + idle + '\n';
+            if (data.lg_retry === true) {
+                c += 'set system login retry-options tries-before-disconnect 5\n';
+                c += 'set system login retry-options backoff-threshold 3\n';
+                c += 'set system login retry-options backoff-factor 5\n';
+                c += 'set system login retry-options lockout-period 10\n';
+            }
+            c += '\nset system services ssh root-login ' + root + '\n';
+            if (data.lg_v2 === true) c += 'set system services ssh protocol-version v2\n';
+            if (cl) c += 'set system services ssh connection-limit ' + cl + '\n';
+            if (rl) c += 'set system services ssh rate-limit ' + rl + '\n';
+            c += '\n# Doğrulama:\n# show system users\n# show configuration system login\n# show configuration system services ssh\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper SRX: Routing Instance (virtual-router) ───────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/en_US/junos/topics/topic-map/security-secure-tunnel-interface-in-a-virtual-router.html
+//            (instance-type virtual-router, interface, routing-options static route … next-hop)
+JuniperSRX.vr = {
+    label: 'Virtual Router',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-code-branch',
+                title: 'Routing Instance — Virtual Router (SRX)',
+                desc: 'Arayüzleri ayrı bir yönlendirme tablosuna (<code>&lt;ad&gt;.inet.0</code>) alır. Güvenlik zone\'ları ve policy\'ler bundan bağımsız çalışmaya devam eder.<br>Örnek: <code>set routing-instances VR1 instance-type virtual-router</code>'
+            },
+            sections: [
+                {
+                    title: 'Instance',
+                    icon: 'fas fa-code-branch',
+                    warn: 'Yönetim trafiğinin geçtiği bir arayüzü instance\'a almak, commit anında erişimi kesebilir. <code>commit confirmed</code> kullanın.',
+                    fields: [
+                        { name: 'vr_name', label: 'Instance Adı', type: 'text', required: true, placeholder: 'VR-GUEST', hint: 'Tablo adı VR-GUEST.inet.0 olur', why: "Ad, <code>show route table</code> ve statik rotalarda birebir kullanılır. Instance'taki arayüzler global tablodaki rotaları görmez; gerekli rotaları instance içinde tanımlamazsanız trafik sessizce düşer." },
+                        { name: 'vr_ifaces', label: 'Arayüzler', type: 'text', validate: 'iface_range', required: true, placeholder: 'ge-0/0/3.0,st0.1', hint: 'Unit dahil, virgülle', why: "Arayüz unit ile yazılmalıdır (<code>ge-0/0/3.0</code>). Bir arayüz yalnız bir routing instance'a ait olabilir; aynı arayüz güvenlik zone'unda da kalmaya devam etmelidir." }
+                    ]
+                },
+                {
+                    title: 'Statik Rotalar',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'vr_def_nh', label: 'Default Route Next-Hop', type: 'text', validate: 'ip', placeholder: '192.0.2.254', hint: 'Instance içi 0.0.0.0/0 (boşsa eklenmez)', why: "Default route instance içinde ayrıca tanımlanmalıdır; global tablodaki default route bu instance için geçerli değildir." },
+                        { name: 'vr_dst', label: 'Ek Rota Hedefi', type: 'text', validate: 'cidr', placeholder: '10.6.6.0/24', hint: 'İki alan da doluysa eklenir' },
+                        { name: 'vr_nh', label: 'Ek Rota Next-Hop', type: 'text', validate: 'nexthop', placeholder: 'st0.1', hint: 'IP veya çıkış arayüzü (st0.x)' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const name = cgEsc(data.vr_name || '');
+            const ifs = cgEsc(data.vr_ifaces || '').split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+            const defNh = cgEsc(data.vr_def_nh || ''), dst = cgEsc(data.vr_dst || ''), nh = cgEsc(data.vr_nh || '');
+            const p = 'set routing-instances ' + name;
+            let c = '# ========================================\n# Juniper SRX — Routing Instance (virtual-router)\n# ========================================\n\n';
+            c += p + ' instance-type virtual-router\n';
+            ifs.forEach(i => { c += p + ' interface ' + i + '\n'; });
+            if (defNh) c += p + ' routing-options static route 0.0.0.0/0 next-hop ' + defNh + '\n';
+            if (dst && nh) c += p + ' routing-options static route ' + dst + ' next-hop ' + nh + '\n';
+            c += '\n# Doğrulama:\n# show route table ' + name + '.inet.0\n# show route instance ' + name + ' detail\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper SRX: Chassis Cluster — reth + Redundancy Group ───────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/chassis-cluster-security-devices/topics/topic-map/security-chassis-cluster-redundant-ethernet-interfaces.html
+//            https://www.juniper.net/documentation/us/en/software/junos/chassis-cluster-security-devices/topics/topic-map/security-chassis-cluster-verification.html
+//            https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/chassis-edit-redundancy-group.html
+JuniperSRX.reth = {
+    label: 'Cluster reth / RG',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'Chassis Cluster — Redundant Ethernet (reth) ve Redundancy Group (SRX)',
+                desc: 'Cluster kurulduktan (<b>Chassis Cluster</b> aracı) sonra her iki düğümden birer üye portu tek bir reth arayüzünde birleştirir, redundancy group önceliğini ve arayüz izlemeyi tanımlar. Cluster\'da config tek düğümden girilir ve senkronize olur.<br>Örnek: <code>set interfaces ge-0/0/4 gigether-options redundant-parent reth0</code>'
+            },
+            sections: [
+                {
+                    title: 'Redundancy Group',
+                    icon: 'fas fa-layer-group',
+                    fields: [
+                        { name: 'rt_count', label: 'reth-count', type: 'text', required: true, min: 1, max: 128, placeholder: '2', hint: 'Toplam reth sayısı (reth0..N-1)', why: "reth arayüzü ancak reth-count sınırı içinde oluşturulabilir; değer küçükse <code>reth2</code> gibi bir arayüz commit'te hata verir." },
+                        { name: 'rt_rg', label: 'Redundancy Group', type: 'text', required: true, min: 1, max: 128, placeholder: '1', hint: 'Veri trafiği için 1 ve üstü (RG0 control plane)', why: "RG0 yalnız Routing Engine'in mastership'idir; reth'ler RG1+ gruplarına bağlanır. reth'i RG0'a bağlamaya çalışmak commit hatası verir." },
+                        { name: 'rt_p0', label: 'Node 0 Önceliği', type: 'text', required: true, min: 1, max: 254, placeholder: '100', why: "Yüksek öncelikli düğüm primary olur. İki düğüme eşit öncelik vermek, primary'nin hangi düğümde olacağını öngörülemez kılar." },
+                        { name: 'rt_p1', label: 'Node 1 Önceliği', type: 'text', required: true, min: 1, max: 254, placeholder: '1' },
+                        { name: 'rt_preempt', label: 'preempt', type: 'checkbox', checked: false, why: "Preempt açıkken düzelen yüksek öncelikli düğüm primary'yi geri alır; her geri dönüş ek bir failover ve kısa kesinti demektir. Kararsız bir düğüm varsa kapalı tutun." },
+                        { name: 'rt_garp', label: 'gratuitous-arp-count', type: 'text', min: 1, max: 16, placeholder: '4', hint: 'Failover sonrası gönderilecek GARP sayısı', why: "Failover sonrası upstream switch'ler reth MAC'inin yeni konumunu GARP ile öğrenir; bazı switch'ler ilk paketleri kaçırırsa değeri artırmak yakınsamayı hızlandırır." }
+                    ]
+                },
+                {
+                    title: 'reth Arayüzü',
+                    icon: 'fas fa-ethernet',
+                    warn: 'Node 1 port numaraları FPC ofsetiyle başlar ve modele göre değişir (ör. ge-5/0/x, ge-7/0/x). <code>show chassis cluster interfaces</code> ile doğrulayın.',
+                    fields: [
+                        { name: 'rt_reth', label: 'reth Adı', type: 'text', validate: 'iface', required: true, placeholder: 'reth0' },
+                        { name: 'rt_m0', label: 'Node 0 Üye Portu', type: 'text', validate: 'iface', required: true, placeholder: 'ge-0/0/4', hint: 'Unit yok', why: "Üye portta unit veya IP tanımı bulunmamalıdır; varsa redundant-parent commit'te reddedilir. Tüm yapılandırma reth üzerinde yapılır." },
+                        { name: 'rt_m1', label: 'Node 1 Üye Portu', type: 'text', validate: 'iface', required: true, placeholder: 'ge-7/0/4', hint: 'Unit yok' },
+                        { name: 'rt_ip', label: 'reth IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '192.0.2.1/24' },
+                        { name: 'rt_zone', label: 'Security Zone', type: 'text', placeholder: 'trust', hint: 'reth.0 bu zone\'a eklenir (boşsa eklenmez)', why: "Zone'a atanmamış reth üzerinden trafik geçmez; SRX'te her arayüz bir zone'a ait olmalıdır." },
+                        { name: 'rt_lacp', label: 'LACP (lacp active)', type: 'checkbox', checked: false, why: "Her düğümde birden fazla üye port varsa (reth LAG) switch tarafındaki LACP ile eşleşmelidir; switch LACP beklemiyorsa açmayın." },
+                        { name: 'rt_mon', label: 'Üye portları interface-monitor ile izle (weight 255)', type: 'checkbox', checked: true, why: "İzleme yoksa aktif düğümün üye portu koptuğunda RG failover olmaz ve trafik ölü porta gönderilmeye devam eder. weight 255 tek port kaybında RG'yi devretmek içindir." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const cnt = cgEsc(data.rt_count || ''), rg = cgEsc(data.rt_rg || ''), p0 = cgEsc(data.rt_p0 || ''), p1 = cgEsc(data.rt_p1 || '');
+            const garp = cgEsc(data.rt_garp || ''), reth = cgEsc(data.rt_reth || ''), m0 = cgEsc(data.rt_m0 || ''), m1 = cgEsc(data.rt_m1 || '');
+            const ip = cgEsc(data.rt_ip || ''), zone = cgEsc(data.rt_zone || '');
+            const pr = 'set chassis cluster redundancy-group ' + rg;
+            let c = '# ========================================\n# Juniper SRX — Chassis Cluster reth / Redundancy Group\n# ========================================\n\n';
+            c += 'set chassis cluster reth-count ' + cnt + '\n';
+            c += pr + ' node 0 priority ' + p0 + '\n';
+            c += pr + ' node 1 priority ' + p1 + '\n';
+            if (data.rt_preempt === true) c += pr + ' preempt\n';
+            if (garp) c += pr + ' gratuitous-arp-count ' + garp + '\n';
+            if (data.rt_mon === true) {
+                c += pr + ' interface-monitor ' + m0 + ' weight 255\n';
+                c += pr + ' interface-monitor ' + m1 + ' weight 255\n';
+            }
+            c += '\nset interfaces ' + m0 + ' gigether-options redundant-parent ' + reth + '\n';
+            c += 'set interfaces ' + m1 + ' gigether-options redundant-parent ' + reth + '\n';
+            c += 'set interfaces ' + reth + ' redundant-ether-options redundancy-group ' + rg + '\n';
+            if (data.rt_lacp === true) c += 'set interfaces ' + reth + ' redundant-ether-options lacp active\n';
+            c += 'set interfaces ' + reth + ' unit 0 family inet address ' + ip + '\n';
+            if (zone) c += 'set security zones security-zone ' + zone + ' interfaces ' + reth + '.0\n';
+            c += '\n# Doğrulama:\n# show chassis cluster status\n# show chassis cluster interfaces\n# show interfaces terse | match reth\n';
+            return c;
+        });
+    }
+};

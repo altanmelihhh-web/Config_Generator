@@ -380,7 +380,7 @@ MikroTik.wireguard = {
                     fields: [
                         { name: 'interface_name', why: "Arayüz adı firewall ve routing kurallarında referans alınır; adı sonradan değiştirmek bu kuralları sessizce etkisiz bırakır ve tünel kurulur ama trafik geçmez.", label: 'Arayüz Adı', type: 'text', required: true, placeholder: 'wg0', hint: 'WireGuard sanal arayüz adı' },
                         { name: 'listen_port', why: "Dinleme portunun WAN tarafında <code>input</code> chain'inde <b>açık olması</b> gerekir; firewall'da izin verilmezse el sıkışma paketleri düşer ve tünel hiçbir zaman kurulmaz.", label: 'Dinleme Portu', type: 'text', validate: 'port', required: true, placeholder: '51820', hint: 'WireGuard UDP port numarası' },
-                        { name: 'wg_address', why: "Tünel adresi iki uçta aynı subnet'te ama farklı adresler olmalı; çakışma veya farklı subnet kullanımı el sıkışma başarılı olsa bile veri akışını imkânsız kılar.", label: 'WireGuard Yerel IP (CIDR)', type: 'text', required: true, placeholder: '10.10.0.1/24', hint: 'VPN tünel arayüzüne atanacak IP' }
+                        { name: 'wg_address', why: "Tünel adresi iki uçta aynı subnet'te ama farklı adresler olmalı; çakışma veya farklı subnet kullanımı el sıkışma başarılı olsa bile veri akışını imkânsız kılar.", label: 'WireGuard Yerel IP (CIDR)', type: 'text', required: true, placeholder: '10.128.0.1/24', hint: 'VPN tünel arayüzüne atanacak IP' }
                     ]
                 },
                 {
@@ -388,7 +388,7 @@ MikroTik.wireguard = {
                     icon: 'fas fa-user-shield',
                     fields: [
                         { name: 'peer_pubkey', why: "Public key karşı ucun <b>public</b> anahtarı olmalıdır, kendi anahtarınız değil; yanlış anahtarda el sıkışma sessizce başarısız olur ve log'da yalnızca handshake tekrarları görünür.", label: 'Peer Public Key', type: 'text', required: true, placeholder: 'PEER_PUBLIC_KEY_BASE64=', hint: 'Uzak tarafın WireGuard public key değeri' },
-                        { name: 'allowed_address', why: "Allowed-address hem routing hem de kabul filtresidir: burada listelenmeyen kaynaklardan gelen paketler <b>düşürülür</b>. Çok dar yazmak trafiği keser, <code>0.0.0.0/0</code> yazmak tüm trafiği tünele sokar.", label: 'Allowed Address', type: 'text', required: true, placeholder: '10.10.0.2/32', hint: 'Bu peer üzerinden geçecek IP aralığı' },
+                        { name: 'allowed_address', why: "Allowed-address hem routing hem de kabul filtresidir: burada listelenmeyen kaynaklardan gelen paketler <b>düşürülür</b>. Çok dar yazmak trafiği keser, <code>0.0.0.0/0</code> yazmak tüm trafiği tünele sokar.", label: 'Allowed Address', type: 'text', required: true, placeholder: '10.128.0.2/32', hint: 'Bu peer üzerinden geçecek IP aralığı' },
                         { name: 'endpoint', why: "Endpoint yalnızca bağlantıyı başlatan tarafta gereklidir; NAT arkasındaki uçta tanımlanmazsa tünel ancak karşı taraf veri gönderdiğinde ayağa kalkar, bu yüzden keepalive kullanmak gerekir.", label: 'Endpoint (IP:Port)', type: 'text', optional: true, placeholder: '203.0.113.1:51820', hint: 'Uzak peer adresi — client tarafında gerekli' }
                     ]
                 }
@@ -433,7 +433,7 @@ MikroTik.ospf = {
                     title: 'OSPF Ayarları',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'router_id', why: "Router-ID ağ genelinde benzersiz olmalı; çakışmada komşuluklar sürekli flap eder ve rota tablosu kararsızlaşır. RouterOS v7'de bu bir loopback adresi olarak verilmelidir.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Genellikle Loopback IP adresi' },
+                        { name: 'router_id', why: "Router-ID ağ genelinde benzersiz olmalı; çakışmada komşuluklar sürekli flap eder ve rota tablosu kararsızlaşır. RouterOS v7'de bu bir loopback adresi olarak verilmelidir.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.240.0.1', hint: 'Genellikle Loopback IP adresi' },
                         { name: 'instance_name', why: "Instance adı area ve interface template tanımlarında referans alınır; isim uyuşmazsa RouterOS v7 yapılandırmayı kabul eder ama OSPF hiçbir arayüzde çalışmaz.", label: 'Instance Adı', type: 'text', required: true, placeholder: 'ospf1', hint: 'OSPF process adı' },
                         { name: 'area', why: "Area ID linkin iki ucunda aynı olmalı; farklıysa hello paketleri reddedilir ve komşuluk kurulmaz. Backbone (<code>0.0.0.0</code>) dışındaki tüm alanlar backbone'a değmek zorundadır.", label: 'Area ID', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0' },
                         { name: 'interfaces', why: "Interface template'te ağı çok geniş tanımlamak WAN ve kullanıcı portlarını da OSPF'e sokar; bu portlardan hello göndermek hem güvenlik açığıdır hem de yetkisiz bir komşunun rota enjekte etmesine izin verir.", label: 'Arayüzler', type: 'text', required: true, placeholder: 'ether1,ether2', hint: 'Virgülle ayrılmış OSPF arayüzleri' },
@@ -482,7 +482,7 @@ MikroTik.bgp = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'local_as', why: "Local AS karşı taraftaki remote-as ile eşleşmeli; uyuşmazlıkta oturum açılmaz ve log'da yalnızca tekrar eden bağlantı denemeleri görünür. RouterOS v7'de bu alan <code>/routing bgp connection</code> altındadır.", label: 'Yerel AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Bu cihazın Autonomous System numarası' },
-                        { name: 'router_id', why: "BGP Router-ID benzersiz olmalıdır; aynı ID'li iki cihaz arasında oturum hiç kurulmaz. Arayüz bağımsız olması için loopback adresi kullanın.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
+                        { name: 'router_id', why: "BGP Router-ID benzersiz olmalıdır; aynı ID'li iki cihaz arasında oturum hiç kurulmaz. Arayüz bağımsız olması için loopback adresi kullanın.", label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '10.240.0.1', hint: 'BGP Router-ID (genellikle Loopback IP)' }
                     ]
                 },
                 {
@@ -638,6 +638,807 @@ MikroTik.logging = {
                 c += '/system logging\nadd action=remote topics=' + topic + '\n';
             });
             c += '\n# Doğrulama:\n# /system logging print\n# /system logging action print\n';
+            return c;
+        });
+    }
+};
+
+// ── MikroTik yardımcıları (yalnız bu dosyadaki yeni araçlar kullanır) ───────
+// '10.5.50.1/24' -> { ip:'10.5.50.1', len:24, net:'10.5.50.0/24' }; geçersizse null
+function cgMtCidr(s) {
+    const m = String(s || '').trim().match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+    if (!m) return null;
+    const o = m[1].split('.').map(Number), len = +m[2];
+    if (o.some(x => x > 255) || len > 32) return null;
+    const n = o.reduce((a, x) => a * 256 + x, 0);
+    const mask = len === 0 ? 0 : (0xFFFFFFFF << (32 - len)) >>> 0;
+    const nw = (n & mask) >>> 0;
+    return { ip: m[1], len: len, net: [24, 16, 8, 0].map(b => (nw >>> b) & 255).join('.') + '/' + len };
+}
+function cgMtList(s) {
+    return String(s || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+}
+
+// ── MikroTik: Load Balancing (PCC / ECMP) ─────────────────────────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/high-availability-solutions/load-balancing/per-connection-classifier
+//            (routing table + mangle + route + NAT örneği birebir)
+//            ECMP: https://manual.mikrotik.com/docs/user-guides/routing-and-networking-protocols/routing-decision
+MikroTik.lb = {
+    label: 'Load Balancing (PCC / ECMP)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-balance-scale',
+                title: 'İki WAN Yük Paylaşımı — PCC / ECMP (MikroTik RouterOS 7)',
+                desc: 'İki internet hattını bağlantı bazında paylaştırır. PCC: mangle ile bağlantıyı işaretleyip ayrı routing table\'lara yollar; ECMP: aynı distance\'lı iki default route.<br><code>/routing table add fib name=ISP1_table</code><br><code>per-connection-classifier=both-addresses:2/0</code>'
+            },
+            configTypes: [
+                { id: 'pcc', label: 'PCC', icon: 'fas fa-random', desc: 'Mangle + routing table, oturum yapışkan', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'ecmp', label: 'ECMP', icon: 'fas fa-equals', desc: 'Aynı distance\'lı iki default route', badge: { text: 'Basit', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Hatlar',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'wan1_iface', label: 'WAN1 Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'ether1', hint: '1. ISP arayüzü', why: "PCC'de dışarıdan gelen bağlantılar bu arayüze göre işaretlenir ve cevap aynı hattan döner. Yanlış arayüz, dönüş trafiğinin diğer ISP'den (farklı kaynak IP ile) çıkıp karşı tarafta düşmesine yol açar." },
+                        { name: 'wan1_gw', label: 'WAN1 Gateway', type: 'text', validate: 'ip', required: true, placeholder: '10.128.4.1', hint: '1. ISP next-hop', why: "<code>check-gateway=ping</code> bu adrese ping atar; ISP gateway'i ICMP'ye cevap vermiyorsa rota sürekli inactive olur ve hat hiç kullanılmaz." },
+                        { name: 'wan2_iface', label: 'WAN2 Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'ether2', hint: '2. ISP arayüzü', why: "İki WAN aynı bridge'e alınmamalıdır; aksi hâlde arayüz eşleşmesi (in-interface) hiç tutmaz ve işaretleme boşa çıkar." },
+                        { name: 'wan2_gw', label: 'WAN2 Gateway', type: 'text', validate: 'ip', required: true, placeholder: '10.128.5.1', hint: '2. ISP next-hop', why: "ECMP'de iki gateway eşit ağırlıktadır; farklı hızdaki hatlar için ECMP trafiği yine yarı yarıya böler, yavaş hat darboğaz olur." }
+                    ]
+                },
+                {
+                    title: 'PCC Ayarları',
+                    icon: 'fas fa-random',
+                    showFor: ['pcc'],
+                    warn: 'FastTrack açıksa mangle işaretlemesi atlanan paketlerde çalışmaz; PCC ile birlikte <code>fasttrack-connection</code> kuralını gözden geçirin. HotSpot kullanan cihazda PCC geçerli bir yöntem değildir (resmi dokümandaki uyarı).',
+                    fields: [
+                        { name: 'lan_iface', label: 'LAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'bridge1', hint: 'İstemcilerin geldiği arayüz', why: "Routing mark yalnız LAN'dan gelen trafiğe konur (<code>in-interface</code>). Burayı yanlış yazmak ya hiçbir trafiği dengelemez ya da router'ın kendi trafiğini yanlış tabloya sokar." },
+                        { name: 'wan1_net', label: 'WAN1 Bağlı Ağ', type: 'text', validate: 'cidr', required: true, placeholder: '10.128.4.0/24', hint: 'WAN1 arayüzündeki ağ (CIDR)', why: "Bağlı ağlara giden trafik <code>action=accept</code> ile policy routing dışında tutulur; tutulmazsa o ağdaki hostlara giden paketler zorla diğer gateway'e gider ve döngü oluşur (resmi örnekteki ilk iki kural)." },
+                        { name: 'wan2_net', label: 'WAN2 Bağlı Ağ', type: 'text', validate: 'cidr', required: true, placeholder: '10.128.5.0/24', hint: 'WAN2 arayüzündeki ağ (CIDR)', why: "WAN1 ile aynı nedenle; iki bağlı ağ da muafiyet listesinde olmalıdır." },
+                        { name: 'classifier', label: 'PCC Sınıflandırıcı', type: 'select', options: [
+                            { value: 'both-addresses', label: 'both-addresses (istemci-sunucu çifti aynı hatta — önerilen)', selected: true },
+                            { value: 'both-addresses-and-ports', label: 'both-addresses-and-ports (en dengeli)' },
+                            { value: 'src-address', label: 'src-address (istemci hep aynı hatta)' }
+                        ], hint: 'Hash girdisi', why: "Portları hash'e katmak dağılımı iyileştirir ama aynı siteye açılan paralel bağlantılar farklı IP'lerden çıkar; bankacılık gibi oturumu IP'ye bağlayan siteler kullanıcıyı atar. <code>both-addresses</code> bu sorunu önler." }
+                    ]
+                },
+                {
+                    title: 'NAT',
+                    icon: 'fas fa-exchange-alt',
+                    fields: [
+                        { name: 'masq', label: 'Her iki WAN için masquerade ekle', type: 'checkbox', checked: true, why: "Routing kararı verildikten sonra kaynak adres çıkış arayüzüne göre çevrilmelidir; masquerade yoksa özel adresli paketler ISP'de düşer. Mevcut bir srcnat kuralınız varsa çift kural oluşmaması için kapatın." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'pcc';
+            const w1 = cgEsc(data.wan1_iface || ''), g1 = cgEsc(data.wan1_gw || '');
+            const w2 = cgEsc(data.wan2_iface || ''), g2 = cgEsc(data.wan2_gw || '');
+            let c = '# ========================================\n# MikroTik RouterOS 7 — Load Balancing (' + t.toUpperCase() + ')\n# ========================================\n\n';
+            if (t === 'pcc') {
+                const lan = cgEsc(data.lan_iface || ''), n1 = cgEsc(data.wan1_net || ''), n2 = cgEsc(data.wan2_net || '');
+                const cls = cgEsc(data.classifier || '');
+                c += '/routing table\nadd disabled=no fib name=ISP1_table\nadd disabled=no fib name=ISP2_table\n\n';
+                c += '/ip firewall mangle\n';
+                c += 'add action=accept chain=prerouting dst-address=' + n1 + ' in-interface=' + lan + '\n';
+                c += 'add action=accept chain=prerouting dst-address=' + n2 + ' in-interface=' + lan + '\n';
+                c += 'add action=mark-connection chain=input connection-state=new in-interface=' + w1 + ' new-connection-mark=ISP1\n';
+                c += 'add action=mark-connection chain=input connection-state=new in-interface=' + w2 + ' new-connection-mark=ISP2\n';
+                c += 'add action=mark-connection chain=output connection-mark=no-mark connection-state=new new-connection-mark=ISP1 per-connection-classifier=' + cls + ':2/0\n';
+                c += 'add action=mark-connection chain=output connection-mark=no-mark connection-state=new new-connection-mark=ISP2 per-connection-classifier=' + cls + ':2/1\n';
+                c += 'add action=mark-connection chain=prerouting connection-mark=no-mark connection-state=new dst-address-type=!local in-interface=' + lan + ' new-connection-mark=ISP1 per-connection-classifier=' + cls + ':2/0\n';
+                c += 'add action=mark-connection chain=prerouting connection-mark=no-mark connection-state=new dst-address-type=!local in-interface=' + lan + ' new-connection-mark=ISP2 per-connection-classifier=' + cls + ':2/1\n';
+                c += 'add action=mark-routing chain=output connection-mark=ISP1 new-routing-mark=ISP1_table\n';
+                c += 'add action=mark-routing chain=prerouting connection-mark=ISP1 in-interface=' + lan + ' new-routing-mark=ISP1_table\n';
+                c += 'add action=mark-routing chain=output connection-mark=ISP2 new-routing-mark=ISP2_table\n';
+                c += 'add action=mark-routing chain=prerouting connection-mark=ISP2 in-interface=' + lan + ' new-routing-mark=ISP2_table\n\n';
+                c += '/ip route\n';
+                c += 'add check-gateway=ping disabled=no dst-address=0.0.0.0/0 gateway=' + g1 + ' routing-table=ISP1_table\n';
+                c += 'add check-gateway=ping disabled=no dst-address=0.0.0.0/0 gateway=' + g2 + ' routing-table=ISP2_table\n';
+                c += '# Yedek (failover) rotaları: işaretli tablodaki gateway düşünce main tablo devreye girer\n';
+                c += 'add distance=1 dst-address=0.0.0.0/0 gateway=' + g1 + '\n';
+                c += 'add distance=2 dst-address=0.0.0.0/0 gateway=' + g2 + '\n';
+            } else {
+                c += '# Aynı dst-address + aynı distance = ECMP (varsayılan hash: L3 kaynak/hedef IP)\n';
+                c += '/ip route\n';
+                c += 'add check-gateway=ping distance=1 dst-address=0.0.0.0/0 gateway=' + g1 + '\n';
+                c += 'add check-gateway=ping distance=1 dst-address=0.0.0.0/0 gateway=' + g2 + '\n';
+            }
+            if (data.masq === true) {
+                c += '\n/ip firewall nat\n';
+                c += 'add action=masquerade chain=srcnat out-interface=' + w1 + '\n';
+                c += 'add action=masquerade chain=srcnat out-interface=' + w2 + '\n';
+            }
+            c += '\n# Doğrulama:\n# /ip route print\n';
+            if (t === 'pcc') c += '# /routing table print\n# /ip firewall mangle print stats\n';
+            c += '# /ip firewall nat print\n';
+            return c;
+        });
+    }
+};
+
+// ── MikroTik: WAN Failover (Recursive / check-gateway) ───────────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/high-availability-solutions/load-balancing/failover-wan-backup
+//            https://manual.mikrotik.com/docs/high-availability-solutions/load-balancing/ (basit failover)
+MikroTik.failover = {
+    label: 'WAN Failover',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-random',
+                title: 'WAN Failover — Recursive Routing / check-gateway (MikroTik)',
+                desc: 'Birincil hat koptuğunda trafiği yedek hatta geçirir. Recursive yöntem gateway\'in ötesindeki bir internet hostunu izler (ISP modemi ayakta ama internet yokken de çalışır).<br><code>/ip route add dst-address=&lt;izlenen-host&gt; scope=10 gateway=&lt;gw1&gt;</code><br><code>/ip route add distance=1 gateway=&lt;izlenen-host&gt; target-scope=11 check-gateway=ping</code>'
+            },
+            configTypes: [
+                { id: 'recursive', label: 'Recursive', icon: 'fas fa-sitemap', desc: 'İnternetteki bir hostu izler', badge: { text: 'Önerilen', cls: 'recommended' } },
+                { id: 'simple', label: 'check-gateway', icon: 'fas fa-heartbeat', desc: 'Yalnız gateway\'e ping atar', badge: { text: 'Basit', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Gateway\'ler',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'gw1', label: 'Birincil Gateway', type: 'text', validate: 'ip', required: true, placeholder: '10.240.0.1', hint: 'ISP1 next-hop', why: "Birincil rota <code>distance=1</code> ile kurulur. Basit yöntemde yalnız bu adrese ping atılır: ISP modemi ayakta ama upstream kopuksa failover <b>tetiklenmez</b> — recursive yöntemin varlık sebebi budur." },
+                        { name: 'gw2', label: 'Yedek Gateway', type: 'text', validate: 'ip', required: true, placeholder: '10.112.0.1', hint: 'ISP2 next-hop', why: "Yedek rota <code>distance=2</code> ile bekler; birincil geri geldiğinde trafik otomatik geri döner (RouterOS'ta ayrı preempt ayarı yoktur)." }
+                    ]
+                },
+                {
+                    title: 'İzlenecek Hostlar',
+                    icon: 'fas fa-bullseye',
+                    showFor: ['recursive'],
+                    info: 'Her hat için ayrı bir internet hostu seçin (ör. iki farklı genel DNS anycast adresi). Bu hostlara giden trafik kalıcı olarak ilgili hatta sabitlenir.',
+                    fields: [
+                        { name: 'host1', label: 'Host 1 (ISP1 üzerinden)', type: 'text', validate: 'ip', required: true, placeholder: '198.51.100.53', hint: 'ICMP cevabı veren güvenilir genel adres', why: "Bu adrese /32 host rotası <code>scope=10</code> ile ISP1 gateway'ine sabitlenir. Aynı adresi istemciler DNS olarak da kullanıyorsa, ISP1 düştüğünde o DNS'e erişim de kesilir — izleme hostunu servis olarak kullanmayın." },
+                        { name: 'host2', label: 'Host 2 (ISP2 üzerinden)', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.53', hint: 'Host 1\'den farklı olmalı', why: "İki hat aynı hostu izlerse host rotası tek gateway'e bağlanır ve ikinci hattın sağlığı hiç ölçülmez." }
+                    ]
+                },
+                {
+                    title: 'NAT',
+                    icon: 'fas fa-exchange-alt',
+                    fields: [
+                        { name: 'fo_masq', label: 'Her iki WAN için masquerade ekle', type: 'checkbox', checked: false, why: "Yedek hatta geçildiğinde paketler ISP2 arayüzünden çıkar; o arayüz için srcnat yoksa internet erişimi failover sonrası tamamen kesilir. Zaten masquerade kuralınız varsa kapalı bırakın." },
+                        { name: 'fo_wan1', label: 'WAN1 Arayüzü', type: 'text', validate: 'iface', requiredIf: { field: 'fo_masq', checked: true }, placeholder: 'ether1', hint: 'Masquerade için' },
+                        { name: 'fo_wan2', label: 'WAN2 Arayüzü', type: 'text', validate: 'iface', requiredIf: { field: 'fo_masq', checked: true }, placeholder: 'ether2', hint: 'Masquerade için' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'recursive';
+            const g1 = cgEsc(data.gw1 || ''), g2 = cgEsc(data.gw2 || '');
+            let c = '# ========================================\n# MikroTik RouterOS 7 — WAN Failover (' + (t === 'recursive' ? 'Recursive' : 'check-gateway') + ')\n# ========================================\n\n';
+            if (data.fo_masq === true) {
+                const w1 = cgEsc(data.fo_wan1 || ''), w2 = cgEsc(data.fo_wan2 || '');
+                c += '/ip firewall nat\n';
+                if (w1) c += 'add chain=srcnat action=masquerade out-interface=' + w1 + '\n';
+                if (w2) c += 'add chain=srcnat action=masquerade out-interface=' + w2 + '\n';
+                c += '\n';
+            }
+            if (t === 'recursive') {
+                const h1 = cgEsc(data.host1 || ''), h2 = cgEsc(data.host2 || '');
+                c += '# İzleme hostlarını ilgili hatta sabitle\n/ip route\n';
+                c += 'add dst-address=' + h1 + ' scope=10 gateway=' + g1 + '\n';
+                c += 'add dst-address=' + h2 + ' scope=10 gateway=' + g2 + '\n\n';
+                c += '# Default route hostlar üzerinden recursive çözülür\n/ip route\n';
+                c += 'add distance=1 gateway=' + h1 + ' target-scope=11 check-gateway=ping\n';
+                c += 'add distance=2 gateway=' + h2 + ' target-scope=11 check-gateway=ping\n';
+            } else {
+                c += '/ip route\n';
+                c += 'add gateway=' + g1 + ' distance=1 check-gateway=ping\n';
+                c += 'add gateway=' + g2 + ' distance=2\n';
+            }
+            c += '\n# Doğrulama:\n# /ip route print\n# /ip route print detail where dst-address=0.0.0.0/0\n';
+            return c;
+        });
+    }
+};
+
+// ── MikroTik: Netwatch ────────────────────────────────────────────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/diagnostics-monitoring-and-troubleshooting/netwatch
+//            https://manual.mikrotik.com/docs/cli-reference/tool/netwatch (argüman tablosu)
+//            'set [find comment=...]' kalıbı: https://manual.mikrotik.com/docs/developer-guides/scripting/scripting-examples
+MikroTik.netwatch = {
+    label: 'Netwatch',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-heartbeat',
+                title: 'Netwatch — Host İzleme (MikroTik)',
+                desc: 'Bir hostu periyodik test eder; durum değişince log yazar veya yorumla işaretlenmiş bir rotayı açıp kapatır.<br><code>/tool netwatch add host=&lt;ip&gt; type=icmp up-script=... down-script=...</code>'
+            },
+            sections: [
+                {
+                    title: 'Prob',
+                    icon: 'fas fa-bullseye',
+                    fields: [
+                        { name: 'nw_host', label: 'İzlenen Host', type: 'text', validate: 'ip', required: true, placeholder: '198.51.100.53', hint: 'IP adresi', why: "Netwatch varsayılan olarak main tablodan çıkar; izlenen host yedek hattan da erişilebiliyorsa birincil hat düşse bile prob <b>up</b> kalır. Hostu tek hatta sabitlemek için recursive failover aracındaki host rotasını kullanın." },
+                        { name: 'nw_name', label: 'Prob Adı', type: 'text', placeholder: 'ISP1-probe', hint: 'Log ve listede görünen ad' },
+                        { name: 'nw_type', label: 'Prob Tipi', type: 'select', options: [
+                            { value: 'icmp', label: 'icmp — çoklu ping + eşikler', selected: true },
+                            { value: 'simple', label: 'simple — tek ping (eski davranış)' },
+                            { value: 'tcp-conn', label: 'tcp-conn — TCP el sıkışması' }
+                        ], why: "<code>simple</code> tek pakete bakar ve anlık kayıpta yanlış alarm üretir; <code>icmp</code> 10 paket gönderip kayıp/gecikme eşiğiyle karar verir. Servis izliyorsanız <code>tcp-conn</code> ICMP'yi filtreleyen hedeflerde de çalışır." },
+                        { name: 'nw_port', label: 'TCP Port', type: 'text', validate: 'port', requiredIf: { field: 'nw_type', in: ['tcp-conn'] }, placeholder: '443', hint: 'Yalnız tcp-conn için' },
+                        { name: 'nw_interval', label: 'Aralık', type: 'text', placeholder: '10s', hint: 'Test aralığı (varsayılan 10s)', why: "Çok kısa aralık küçük cihazlarda CPU yükü ve log gürültüsü yaratır; çok uzun aralık kesintinin geç fark edilmesi demektir." },
+                        { name: 'nw_thr_avg', label: 'Ortalama RTT Eşiği', type: 'text', placeholder: '100ms', hint: 'Yalnız icmp; aşılırsa down sayılır', why: "Eşik, hattı 'ayakta ama kullanılamaz' durumda da düşmüş saymanızı sağlar. Uydu/LTE gibi yüksek gecikmeli hatlarda düşük eşik sürekli flap'e yol açar." },
+                        { name: 'nw_src', label: 'Kaynak Adres', type: 'text', validate: 'ip', placeholder: '10.240.0.2', hint: 'Probun çıkacağı yerel adres', why: "Kaynak adres router'da tanımlı değilse veya kaybolursa prob doğrudan <b>down</b> sayılır (resmi doküman). Belirli bir hattan çıkışı zorlamak için o hattın adresini yazın." }
+                    ]
+                },
+                {
+                    title: 'Aksiyon',
+                    icon: 'fas fa-bolt',
+                    info: 'Netwatch scriptleri yalnız read,write,test,reboot politikalarıyla çalışır.',
+                    fields: [
+                        { name: 'nw_action', label: 'Durum Değişince', type: 'select', options: [
+                            { value: 'log', label: 'Log yaz', selected: true },
+                            { value: 'route', label: 'Yorumu eşleşen rotayı devre dışı bırak / aç' }
+                        ], why: "Rota aksiyonu, <code>check-gateway</code>'in göremediği durumlar (gateway ayakta, internet yok) için kullanılır. Yanlış yoruma bağlanırsa başka bir rotayı kapatıp kesinti yaratabilir; yorumları benzersiz tutun." },
+                        { name: 'nw_route_comment', label: 'Rota Yorumu', type: 'text', requiredIf: { field: 'nw_action', in: ['route'] }, placeholder: 'ISP1-default', hint: '/ip route üzerindeki comment değeri' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const host = cgEsc(data.nw_host || ''), name = cgEsc(data.nw_name || ''), type = cgEsc(data.nw_type || '');
+            const port = cgEsc(data.nw_port || ''), interval = cgEsc(data.nw_interval || ''), thr = cgEsc(data.nw_thr_avg || '');
+            const src = cgEsc(data.nw_src || ''), action = data.nw_action || 'log', rc = cgEsc(data.nw_route_comment || '');
+            let c = '# ========================================\n# MikroTik RouterOS 7 — Netwatch\n# ========================================\n\n';
+            let line = '/tool netwatch add host=' + host + ' type=' + type;
+            if (name) line += ' name=' + name;
+            if (type === 'tcp-conn' && port) line += ' port=' + port;
+            if (interval) line += ' interval=' + interval;
+            if (type === 'icmp' && thr) line += ' thr-avg=' + thr;
+            if (src) line += ' src-address=' + src;
+            if (action === 'route' && rc) {
+                line += ' \\\n    down-script="/ip route set [find comment=\\"' + rc + '\\"] disabled=yes"';
+                line += ' \\\n    up-script="/ip route set [find comment=\\"' + rc + '\\"] disabled=no"';
+            } else {
+                // ':log info message=test' biçimi resmi scheduler örneğinden
+                line += ' \\\n    down-script=":log warning message=netwatch-down-' + host + '"';
+                line += ' \\\n    up-script=":log info message=netwatch-up-' + host + '"';
+            }
+            c += line + '\n';
+            c += '\n# Doğrulama:\n# /tool netwatch print\n# /log print where message~"netwatch"\n';
+            return c;
+        });
+    }
+};
+
+// ── MikroTik: HotSpot (Captive Portal) ────────────────────────────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/authentication-authorization-accounting/hotspot-captive-portal/
+//            (HotSpot / Profile / User Profile / User / Walled Garden özellik tabloları)
+//            DHCP + pool: https://manual.mikrotik.com/docs/cli-reference/ip/dhcp-server/ , .../dhcp-server/network , .../ip/pool/
+MikroTik.hotspot = {
+    label: 'HotSpot',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-wifi',
+                title: 'HotSpot / Captive Portal (MikroTik)',
+                desc: '<code>/ip hotspot setup</code> sihirbazının etkileşimsiz karşılığı: adres, havuz, DHCP, hotspot profili, sunucu, kullanıcı profili ve kullanıcı.<br><code>/ip hotspot profile add hotspot-address=... dns-name=...</code><br><code>/ip hotspot add interface=... address-pool=... profile=...</code>'
+            },
+            sections: [
+                {
+                    title: 'Ağ',
+                    icon: 'fas fa-network-wired',
+                    warn: 'HotSpot, <code>/system device-mode</code> tarafından engellenmiş olabilir. HotSpot yalnız main routing table\'ı kullanır; aynı cihazda PCC ile birlikte çalışmaz.',
+                    fields: [
+                        { name: 'hs_iface', label: 'HotSpot Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'ether3', hint: 'Misafir ağının arayüzü (bridge olabilir)', why: "HotSpot bir bridge üzerinde çalışacaksa WAN arayüzü o bridge'in portu olmamalıdır (resmi doküman). Aksi hâlde internet tarafı da portala yönlendirilir." },
+                        { name: 'hs_gw', label: 'Gateway Adresi', type: 'text', validate: 'cidr', required: true, placeholder: '10.5.50.1/24', hint: 'Arayüze atanacak adres (CIDR)', why: "Bu adres hem istemcilerin gateway'i hem <code>hotspot-address</code> olur. İstemci subnet'iyle uyuşmazsa login sayfası hiç açılmaz." },
+                        { name: 'hs_pool', label: 'Adres Havuzu', type: 'text', validate: 'ip_range', required: true, placeholder: '10.5.50.2-10.5.50.254', hint: 'DHCP havuzu (başlangıç-bitiş)', why: "Havuz gateway adresini içermemelidir; içerirse bir istemciye gateway'in adresi verilir ve tüm segment kilitlenir." },
+                        { name: 'hs_dns', label: 'İstemci DNS Sunucusu', type: 'text', validate: 'ip', placeholder: '10.5.50.1', hint: 'DHCP ile dağıtılacak DNS (boşsa gönderilmez)', why: "Portal yönlendirmesi DNS'e dayanır: istemci ad çözemezse tarayıcı hiçbir HTTP isteği yapmaz ve login sayfası görünmez. Router'ı DNS olarak veriyorsanız <code>/ip dns</code> altında <code>allow-remote-requests=yes</code> gerekir." },
+                        { name: 'hs_masq', label: 'HotSpot ağını masquerade et', type: 'checkbox', checked: true, why: "Sihirbazın varsayılanı; özel adresli misafir ağının internete çıkması için gerekir. Üst katmanda NAT yapılıyorsa kapatın." }
+                    ]
+                },
+                {
+                    title: 'HotSpot Sunucusu',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'hs_name', label: 'Sunucu Adı', type: 'text', required: true, placeholder: 'hotspot1', hint: 'Profil adları bundan türetilir' },
+                        { name: 'hs_dnsname', label: 'DNS Adı', type: 'text', validate: 'hostname', required: true, placeholder: 'login.example.net', hint: 'Login sayfasının adresi (FQDN)', why: "Bu ad statik DNS kaydı olarak otomatik eklenir ve login sayfasının URL'si olur. HTTPS login kullanacaksanız sertifikanın CN/SAN değeriyle aynı olmalıdır." },
+                        { name: 'hs_loginby', label: 'Login Yöntemi', type: 'select', options: [
+                            { value: 'http-chap,cookie', label: 'http-chap + cookie (varsayılan)', selected: true },
+                            { value: 'https', label: 'https (sertifika gerekir)' },
+                            { value: 'http-pap', label: 'http-pap (parola düz metin — önerilmez)' }
+                        ], why: "<code>http-pap</code> kullanıcı adı ve parolayı ağda düz metin taşır. <code>https</code> için <code>ssl-certificate</code> tanımlanmalıdır, aksi hâlde login çalışmaz." }
+                    ]
+                },
+                {
+                    title: 'Kullanıcı Profili',
+                    icon: 'fas fa-users',
+                    fields: [
+                        { name: 'hs_rate', label: 'Hız Limiti (rx/tx)', type: 'text', placeholder: '2M/10M', hint: 'Router açısından: rx = istemci upload, tx = istemci download', why: "Yön router'ın bakış açısıyladır; <code>512k/1M</code> istemciye 1M indirme, 512k yükleme verir. Yönleri karıştırmak kullanıcıların indirme hızını kısar." },
+                        { name: 'hs_shared', label: 'Eşzamanlı Oturum', type: 'text', min: 1, max: 1000, placeholder: '1', hint: 'Aynı kullanıcı adıyla kaç cihaz (varsayılan 1)', why: "Değer büyüdükçe tek bir hesabın paylaşılması kolaylaşır; misafir ağında genelde 1-2 yeterlidir." }
+                    ]
+                },
+                {
+                    title: 'Kullanıcı ve Walled Garden',
+                    icon: 'fas fa-user-plus',
+                    fields: [
+                        { name: 'hs_adduser', label: 'Yerel kullanıcı ekle', type: 'checkbox', checked: false },
+                        { name: 'hs_user', label: 'Kullanıcı Adı', type: 'text', requiredIf: { field: 'hs_adduser', checked: true }, placeholder: 'misafir01', hint: 'HotSpot login adı' },
+                        { name: 'hs_pass', label: 'Parola', type: 'text', requiredIf: { field: 'hs_adduser', checked: true }, placeholder: 'Misafir-2026!', hint: 'Export çıktısında gizlenir (sensitive)' },
+                        { name: 'hs_wg', label: 'Walled Garden Host', type: 'text', placeholder: 'www.example.com', hint: 'Login olmadan erişilebilecek site (dst-host)', why: "Walled garden login öncesi erişimi açar; joker karakterli geniş bir desen (<code>*</code>) tüm portalı fiilen devre dışı bırakır." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const iface = cgEsc(data.hs_iface || ''), gwS = cgEsc(data.hs_gw || ''), pool = cgEsc(data.hs_pool || '').replace(/\s+/g, '');
+            const dns = cgEsc(data.hs_dns || ''), name = cgEsc(data.hs_name || ''), dnsName = cgEsc(data.hs_dnsname || '');
+            const loginBy = cgEsc(data.hs_loginby || ''), rate = cgEsc(data.hs_rate || ''), shared = cgEsc(data.hs_shared || '');
+            const user = cgEsc(data.hs_user || ''), pass = cgEsc(data.hs_pass || ''), wg = cgEsc(data.hs_wg || '');
+            const cidr = cgMtCidr(data.hs_gw);
+            let c = '# ========================================\n# MikroTik RouterOS 7 — HotSpot\n# ========================================\n\n';
+            c += '/ip address\nadd address=' + gwS + ' interface=' + iface + '\n\n';
+            c += '/ip pool\nadd name=' + name + '-pool ranges=' + pool + '\n\n';
+            c += '/ip dhcp-server\nadd name=' + name + '-dhcp interface=' + iface + ' address-pool=' + name + '-pool\n';
+            if (cidr) {
+                c += '/ip dhcp-server network\nadd address=' + cidr.net + ' gateway=' + cidr.ip + (dns ? ' dns-server=' + dns : '') + '\n';
+            }
+            c += '\n/ip hotspot profile\nadd name=' + name + '-prof' + (cidr ? ' hotspot-address=' + cidr.ip : '') + ' dns-name=' + dnsName + ' login-by=' + loginBy + '\n\n';
+            let up = 'add name=' + name + '-users';
+            if (rate) up += ' rate-limit=' + rate;
+            if (shared) up += ' shared-users=' + shared;
+            c += '/ip hotspot user profile\n' + up + '\n\n';
+            c += '/ip hotspot\nadd name=' + name + ' interface=' + iface + ' address-pool=' + name + '-pool profile=' + name + '-prof\n';
+            if (data.hs_adduser === true && user && pass) {
+                c += '\n/ip hotspot user\nadd name=' + user + ' password="' + pass + '" profile=' + name + '-users server=' + name + '\n';
+            }
+            if (wg) c += '\n/ip hotspot walled-garden\nadd dst-host=' + wg + '\n';
+            if (data.hs_masq === true && cidr) {
+                c += '\n/ip firewall nat\nadd chain=srcnat action=masquerade src-address=' + cidr.net + '\n';
+            }
+            c += '\n# Doğrulama:\n# /ip hotspot print\n# /ip hotspot active print\n# /ip hotspot host print\n# /ip dhcp-server lease print\n';
+            return c;
+        });
+    }
+};
+
+// ── MikroTik: PPPoE (Client / Server) ─────────────────────────────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/virtual-private-networks/pppoe/
+//            https://manual.mikrotik.com/docs/cli-reference/interface/pppoe-client/
+//            https://manual.mikrotik.com/docs/cli-reference/interface/pppoe-server/server
+MikroTik.pppoe = {
+    label: 'PPPoE',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-plug',
+                title: 'PPPoE Client / Server (MikroTik)',
+                desc: 'Client: ISP\'ye PPPoE ile bağlanır. Server: abonelere PPPoE oturumu sunar (havuz + PPP profili + secret + sunucu).<br><code>/interface pppoe-client add interface=... user=... password=...</code><br><code>/interface pppoe-server server add interface=... default-profile=...</code>'
+            },
+            configTypes: [
+                { id: 'client', label: 'PPPoE Client', icon: 'fas fa-sign-in-alt', desc: 'ISP bağlantısı (WAN)', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'server', label: 'PPPoE Server', icon: 'fas fa-server', desc: 'Abone erişim sunucusu', badge: { text: 'ISP', cls: 'advanced' } }
+            ],
+            sections: [
+                {
+                    title: 'Client Ayarları',
+                    icon: 'fas fa-sign-in-alt',
+                    showFor: ['client'],
+                    fields: [
+                        { name: 'pc_iface', label: 'Fiziksel Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'ether1', hint: 'Modem/ONT\'ye bağlı port veya VLAN', why: "ISP PPPoE'yi VLAN etiketiyle istiyorsa önce VLAN arayüzü oluşturup onu seçin; fiziksel porta yazmak PADI paketlerinin cevapsız kalmasına yol açar." },
+                        { name: 'pc_name', label: 'PPPoE Arayüz Adı', type: 'text', required: true, placeholder: 'pppoe-out1', hint: 'NAT ve firewall kurallarında bu ad kullanılır' },
+                        { name: 'pc_user', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'abone@isp.example', hint: 'ISP\'nin verdiği kullanıcı' },
+                        { name: 'pc_pass', label: 'Parola', type: 'text', required: true, placeholder: 'IspParola-2026', hint: 'ISP\'nin verdiği parola', why: "Parola export'ta gizlenir ama <code>show-sensitive</code> ile görünür; yedek dosyalarını buna göre saklayın." },
+                        { name: 'pc_service', label: 'Service Name', type: 'text', placeholder: 'internet', hint: 'ISP istiyorsa (genelde boş)' },
+                        { name: 'pc_defroute', label: 'Default route ekle', type: 'checkbox', checked: true, why: "Kapalıysa oturum kurulur ama internet trafiği bu arayüzden çıkmaz; yedek hat senaryosunda <code>default-route-distance</code> ile önceliği ayarlayın." },
+                        { name: 'pc_distance', label: 'Default Route Distance', type: 'text', min: 0, max: 255, placeholder: '1', hint: 'Yedek hat ise büyük değer' },
+                        { name: 'pc_peerdns', label: 'ISP DNS\'ini kullan', type: 'checkbox', checked: true },
+                        { name: 'pc_masq', label: 'PPPoE arayüzü için masquerade ekle', type: 'checkbox', checked: true, why: "LAN'ın internete çıkması için srcnat gerekir; <code>out-interface</code> fiziksel port değil PPPoE arayüzü olmalıdır." }
+                    ]
+                },
+                {
+                    title: 'Server Ayarları',
+                    icon: 'fas fa-server',
+                    showFor: ['server'],
+                    fields: [
+                        { name: 'ps_iface', label: 'Abone Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'ether3', hint: 'PPPoE isteklerinin geldiği port', why: "Bu arayüzde IP adresi olması gerekmez; abonelere adres PPP profilinden verilir. Aynı arayüzde DHCP sunucusu açık kalırsa aboneler PPPoE yerine DHCP ile adres alabilir." },
+                        { name: 'ps_local', label: 'Sunucu (Local) Adresi', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'PPP profilinin local-address değeri' },
+                        { name: 'ps_pool', label: 'Abone Havuzu', type: 'text', validate: 'ip_range', required: true, placeholder: '10.0.0.2-10.0.0.254', hint: 'remote-address havuzu', why: "Havuz local adresi içermemelidir; havuz tükendiğinde yeni aboneler bağlanamaz ve log'da yalnızca IP atanamadı mesajı görünür." },
+                        { name: 'ps_service', label: 'Service Name', type: 'text', placeholder: 'pppoeservice', hint: 'Boşsa tüm service-name istekleri' },
+                        { name: 'ps_onesession', label: 'Host başına tek oturum', type: 'checkbox', checked: true, why: "Aynı MAC'ten gelen ikinci oturum reddedilir; kapalıyken kopan bağlantılar askıda oturum bırakıp havuzu tüketebilir." },
+                        { name: 'ps_addsecret', label: 'Örnek abone (secret) ekle', type: 'checkbox', checked: false },
+                        { name: 'ps_user', label: 'Abone Kullanıcı Adı', type: 'text', requiredIf: { field: 'ps_addsecret', checked: true }, placeholder: 'abone01' },
+                        { name: 'ps_pass', label: 'Abone Parolası', type: 'text', requiredIf: { field: 'ps_addsecret', checked: true }, placeholder: 'Abone-Parola1' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'client';
+            let c = '# ========================================\n# MikroTik RouterOS 7 — PPPoE ' + (t === 'client' ? 'Client' : 'Server') + '\n# ========================================\n\n';
+            if (t === 'client') {
+                const iface = cgEsc(data.pc_iface || ''), name = cgEsc(data.pc_name || ''), user = cgEsc(data.pc_user || '');
+                const pass = cgEsc(data.pc_pass || ''), svc = cgEsc(data.pc_service || ''), dist = cgEsc(data.pc_distance || '');
+                let l = '/interface pppoe-client\nadd name=' + name + ' interface=' + iface + ' user=' + user + ' password="' + pass + '"';
+                if (svc) l += ' service-name=' + svc;
+                l += ' add-default-route=' + (data.pc_defroute === true ? 'yes' : 'no');
+                if (data.pc_defroute === true && dist) l += ' default-route-distance=' + dist;
+                l += ' use-peer-dns=' + (data.pc_peerdns === true ? 'yes' : 'no') + ' disabled=no';
+                c += l + '\n';
+                if (data.pc_masq === true) c += '\n/ip firewall nat\nadd chain=srcnat action=masquerade out-interface=' + name + '\n';
+                c += '\n# Doğrulama:\n# /interface pppoe-client print\n# /interface pppoe-client monitor ' + name + '\n# /ip route print where dst-address=0.0.0.0/0\n';
+            } else {
+                const iface = cgEsc(data.ps_iface || ''), local = cgEsc(data.ps_local || ''), pool = cgEsc(data.ps_pool || '').replace(/\s+/g, '');
+                const svc = cgEsc(data.ps_service || ''), user = cgEsc(data.ps_user || ''), pass = cgEsc(data.ps_pass || '');
+                c += '/ip pool\nadd name=pppoe-pool ranges=' + pool + '\n\n';
+                c += '/ppp profile\nadd name=pppoe-profile local-address=' + local + ' remote-address=pppoe-pool\n\n';
+                if (data.ps_addsecret === true && user && pass) {
+                    c += '/ppp secret\nadd name=' + user + ' password="' + pass + '" profile=pppoe-profile service=pppoe\n\n';
+                }
+                let l = '/interface pppoe-server server\nadd interface=' + iface + ' default-profile=pppoe-profile';
+                if (svc) l += ' service-name=' + svc;
+                if (data.ps_onesession === true) l += ' one-session-per-host=yes';
+                l += ' disabled=no';
+                c += l + '\n';
+                c += '\n# Doğrulama:\n# /interface pppoe-server server print\n# /interface pppoe-server print\n# /ppp secret print\n';
+            }
+            return c;
+        });
+    }
+};
+
+// ── MikroTik: NTP Client + Saat Dilimi ───────────────────────────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/system-information-and-utilities/ntp
+//            https://manual.mikrotik.com/docs/cli-reference/system/clock/ (time-zone-name, time-zone-autodetect)
+MikroTik.ntp = {
+    label: 'NTP / Saat',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clock',
+                title: 'NTP Client ve Saat Dilimi (MikroTik RouterOS 7)',
+                desc: 'RouterOS 7 dahili NTP istemcisi; isteğe bağlı olarak LAN\'a NTP sunucusu olarak hizmet verir.<br><code>/system ntp client set enabled=yes</code><br><code>/system ntp client servers add address=&lt;sunucu&gt;</code>'
+            },
+            sections: [
+                {
+                    title: 'NTP Sunucuları',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'ntp1', label: 'NTP Sunucusu 1', type: 'text', required: true, placeholder: '0.pool.ntp.org', hint: 'IP veya FQDN', why: "FQDN kullanılırsa her istekte çözülür; <code>/ip dns</code> tanımlı değilse saat hiç senkronize olmaz. Saat yanlışsa sertifika doğrulaması, IPsec ve log zaman damgaları bozulur." },
+                        { name: 'ntp2', label: 'NTP Sunucusu 2', type: 'text', placeholder: '1.pool.ntp.org', hint: 'Yedek sunucu', why: "Tek sunucu tek hata noktasıdır ve yanlış saat veren bir sunucuyu tespit etmek için karşılaştırma imkânı bırakmaz." },
+                        { name: 'tz', label: 'Saat Dilimi', type: 'text', placeholder: 'Europe/Istanbul', hint: 'time-zone-name (boşsa otomatik algılama kalır)', why: "Otomatik algılama cihazın genel IP'sine göre tahmin yapar; NAT/VPN arkasında yanlış bölge seçebilir ve zamanlanmış görevler yanlış saatte çalışır." },
+                        { name: 'ntp_server', label: 'LAN\'a NTP sunucusu olarak hizmet ver', type: 'checkbox', checked: false, why: "Sunucu modu açılınca UDP 123 dinlenir; WAN tarafından erişimi firewall input zincirinde engellemezseniz cihaz NTP yansıtma saldırılarında kullanılabilir." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const n1 = cgEsc(data.ntp1 || ''), n2 = cgEsc(data.ntp2 || ''), tz = cgEsc(data.tz || '');
+            let c = '# ========================================\n# MikroTik RouterOS 7 — NTP\n# ========================================\n\n';
+            c += '/system ntp client\nset enabled=yes\n\n/system ntp client servers\nadd address=' + n1 + '\n';
+            if (n2) c += 'add address=' + n2 + '\n';
+            if (tz) c += '\n/system clock\nset time-zone-autodetect=no time-zone-name=' + tz + '\n';
+            if (data.ntp_server === true) c += '\n/system ntp server\nset enabled=yes\n';
+            c += '\n# Doğrulama:\n# /system ntp client print\n# /system ntp monitor-peers\n# /system clock print\n';
+            return c;
+        });
+    }
+};
+
+// ── MikroTik: DNS ─────────────────────────────────────────────────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/network-management/dns
+//            https://manual.mikrotik.com/docs/cli-reference/ip/dns/ (servers, allow-remote-requests, use-doh-server, verify-doh-cert)
+//            input drop kuralı: https://manual.mikrotik.com/docs/getting-started/securing-your-router
+MikroTik.dns = {
+    label: 'DNS',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-globe',
+                title: 'DNS Resolver (MikroTik)',
+                desc: 'Upstream DNS sunucuları, isteğe bağlı DoH, LAN\'a DNS hizmeti ve statik kayıtlar.<br><code>/ip dns set servers=... allow-remote-requests=...</code><br><code>/ip dns static add name=... address=...</code>'
+            },
+            sections: [
+                {
+                    title: 'Resolver',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'dns_servers', label: 'Upstream Sunucular', type: 'text', required: true, placeholder: '192.0.2.53,198.51.100.53', hint: 'Virgülle ayrılmış IP listesi', why: "PPPoE/DHCP'den gelen dinamik sunucular bunlara eklenir (dynamic-servers); tamamen kendi sunucunuzu kullanmak istiyorsanız istemci tarafında <code>use-peer-dns=no</code> yapın." },
+                        { name: 'dns_remote', label: 'LAN\'a DNS hizmeti ver', type: 'select', options: [
+                            { value: 'no', label: 'Hayır — yalnız router kendisi kullanır', selected: true },
+                            { value: 'yes', label: 'Evet — istemciler router\'ı DNS olarak kullanır' }
+                        ], why: "<code>allow-remote-requests=yes</code> router'ı açık resolver yapar; WAN'dan UDP/TCP 53 engellenmezse cihaz DNS amplification saldırılarının aracı olur (MikroTik sertleştirme rehberinin ilk maddelerinden)." },
+                        { name: 'dns_wan', label: 'WAN Arayüzü (53 engeli için)', type: 'text', validate: 'iface', requiredIf: { field: 'dns_remote', in: ['yes'] }, placeholder: 'ether1', hint: 'Bu arayüzden gelen DNS istekleri düşürülür' },
+                        { name: 'dns_doh', label: 'DoH URL', type: 'text', placeholder: 'https://dns.example.net/dns-query', hint: 'DNS-over-HTTPS (boşsa kullanılmaz)', why: "DoH sunucusunun adını çözmek için <code>servers</code> listesinde en az bir klasik sunucu kalmalıdır. <code>verify-doh-cert=yes</code> için ilgili kök sertifikanın cihazda yüklü olması gerekir, yoksa tüm çözümleme durur." }
+                    ]
+                },
+                {
+                    title: 'Statik Kayıt',
+                    icon: 'fas fa-list',
+                    fields: [
+                        { name: 'st_name', label: 'Ad', type: 'text', validate: 'hostname', placeholder: 'nas.lan.example', hint: 'Statik A kaydı (ikisi de doluysa eklenir)' },
+                        { name: 'st_addr', label: 'Adres', type: 'text', validate: 'ip', placeholder: '192.168.88.10', hint: 'Kaydın IP adresi' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const servers = cgMtList(data.dns_servers).map(cgEsc).join(','), remote = cgEsc(data.dns_remote || '');
+            const wan = cgEsc(data.dns_wan || ''), doh = cgEsc(data.dns_doh || '');
+            const stName = cgEsc(data.st_name || ''), stAddr = cgEsc(data.st_addr || '');
+            let c = '# ========================================\n# MikroTik RouterOS 7 — DNS\n# ========================================\n\n';
+            c += '/ip dns\nset servers=' + servers + ' allow-remote-requests=' + remote + '\n';
+            if (doh) c += 'set use-doh-server=' + doh + ' verify-doh-cert=yes\n';
+            if (stName && stAddr) c += '\n/ip dns static\nadd name=' + stName + ' address=' + stAddr + '\n';
+            if (remote === 'yes' && wan) {
+                c += '\n# WAN\'dan gelen DNS isteklerini düşür (mevcut input kurallarınızdaki accept\'lerden ÖNCE olmalı)\n';
+                c += '/ip firewall filter\n';
+                c += 'add chain=input in-interface=' + wan + ' protocol=udp dst-port=53 action=drop comment="drop WAN DNS udp"\n';
+                c += 'add chain=input in-interface=' + wan + ' protocol=tcp dst-port=53 action=drop comment="drop WAN DNS tcp"\n';
+            }
+            c += '\n# Doğrulama:\n# /ip dns print\n# /ip dns static print\n# /ip dns cache print\n';
+            return c;
+        });
+    }
+};
+
+// ── MikroTik: Yönetim Sertleştirme (kullanıcı + servisler) ───────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/getting-started/securing-your-router (komutlar birebir)
+//            https://manual.mikrotik.com/docs/system-information-and-utilities/services
+//            https://manual.mikrotik.com/docs/management-tools/mac-server
+MikroTik.hardening = {
+    label: 'Yönetim Sertleştirme',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-shield',
+                title: 'Kullanıcı ve Servis Sertleştirme (MikroTik)',
+                desc: 'Resmi "Securing your router" rehberindeki adımlar: yeni yönetici, admin\'i kapatma, gereksiz servisleri kapatma, MAC erişimi ve komşu keşfini kısıtlama.<br><code>/user add name=... group=full</code><br><code>/ip service disable telnet,ftp,www,api</code>'
+            },
+            sections: [
+                {
+                    title: 'Yönetici Hesabı',
+                    icon: 'fas fa-user-plus',
+                    warn: 'Önce yeni kullanıcıyla ayrı bir oturumda giriş yapabildiğinizi doğrulayın, sonra <code>admin</code>\'i kapatın. Aksi hâlde cihaza erişiminizi kaybedersiniz.',
+                    fields: [
+                        { name: 'hd_user', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netadmin', hint: 'admin yerine kullanılacak hesap', why: "Varsayılan <code>admin</code> adı brute-force denemelerinin ilk hedefidir; tahmin edilmesi zor bir ad bu saldırıların büyük kısmını boşa çıkarır." },
+                        { name: 'hd_pass', label: 'Parola', type: 'text', required: true, placeholder: 'Uzun-Rastgele-Parola-2026', hint: 'Uzun ve rastgele', why: "RouterOS parola karmaşıklığı zorlamaz; kısa parolalar WinBox/SSH üzerinden hızla kırılır. Export çıktısına parola yazılmaz, bu yüzden bir parola kasasında saklayın." },
+                        { name: 'hd_group', label: 'Grup', type: 'select', options: [
+                            { value: 'full', label: 'full — tam yetki', selected: true },
+                            { value: 'write', label: 'write — yapılandırma (kullanıcı yönetimi hariç)' },
+                            { value: 'read', label: 'read — salt okuma' }
+                        ] },
+                        { name: 'hd_mgmt', label: 'Yönetim Ağı', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.88.0/24', hint: 'Kullanıcı ve servislerin kabul edileceği kaynak ağ', why: "Kullanıcıya <code>address</code> verilmesi başka ağlardan doğru parolayla bile girişi engeller. Ağı yanlış yazmak sizi dışarıda bırakır — önce ayrı oturumla test edin." },
+                        { name: 'hd_disable_admin', label: 'admin kullanıcısını devre dışı bırak', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'Servisler',
+                    icon: 'fas fa-power-off',
+                    fields: [
+                        { name: 'hd_svc_off', label: 'telnet, ftp, www, api servislerini kapat', type: 'checkbox', checked: true, why: "Bu servisler kimlik bilgisini şifresiz taşır ya da nadiren kullanılır; açık kalan her servis ek saldırı yüzeyidir." },
+                        { name: 'hd_ssh_port', label: 'SSH Portu', type: 'text', validate: 'port', placeholder: '2200', hint: 'Boşsa 22 kalır', why: "Port değiştirmek güvenlik sağlamaz ama otomatik tarayıcı gürültüsünü azaltır; firewall kurallarınızı yeni porta göre güncellemeyi unutmayın." },
+                        { name: 'hd_strong', label: 'SSH strong-crypto', type: 'checkbox', checked: true, why: "Zayıf şifre ve anahtar değişim algoritmalarını kapatır; çok eski SSH istemcileri bağlanamayabilir." },
+                        { name: 'hd_misc_off', label: 'bandwidth-server, proxy, socks, upnp kapat', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'Katman 2 Erişim',
+                    icon: 'fas fa-ethernet',
+                    fields: [
+                        { name: 'hd_mac_off', label: 'MAC-Telnet / MAC-WinBox / MAC-ping kapat', type: 'checkbox', checked: true, why: "MAC erişimi IP gerektirmeden aynı L2'deki herkese giriş ekranı açar. Kapatınca IP yapılandırması bozulduğunda kurtarma yolunuz konsol olur." },
+                        { name: 'hd_nd_off', label: 'Neighbor discovery kapat', type: 'checkbox', checked: true, why: "MNDP/CDP/LLDP; model, sürüm ve kimlik bilgisini ağa yayınlar. Yalnız güvenilir arayüzlerde gerekiyorsa bir interface list ile sınırlayın." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const user = cgEsc(data.hd_user || ''), pass = cgEsc(data.hd_pass || ''), group = cgEsc(data.hd_group || '');
+            const mgmt = cgEsc(data.hd_mgmt || ''), sshPort = cgEsc(data.hd_ssh_port || '');
+            let c = '# ========================================\n# MikroTik RouterOS 7 — Yönetim Sertleştirme\n# ========================================\n\n';
+            c += '/user\nadd name=' + user + ' password="' + pass + '" group=' + group + ' address=' + mgmt + '\n';
+            if (data.hd_disable_admin === true) c += '# UYARI: yeni kullanıcıyla girişi test etmeden bir sonraki satırı çalıştırmayın\ndisable admin\n';
+            c += '\n/ip service\n';
+            if (data.hd_svc_off === true) c += 'disable telnet,ftp,www,api\n';
+            if (sshPort) c += 'set ssh port=' + sshPort + '\n';
+            c += 'set ssh address=' + mgmt + '\nset winbox address=' + mgmt + '\n';
+            if (data.hd_strong === true) c += '\n/ip ssh\nset strong-crypto=yes\n';
+            if (data.hd_mac_off === true) {
+                c += '\n/tool mac-server\nset allowed-interface-list=none\n';
+                c += '/tool mac-server mac-winbox\nset allowed-interface-list=none\n';
+                c += '/tool mac-server ping\nset enabled=no\n';
+            }
+            if (data.hd_nd_off === true) c += '\n/ip neighbor discovery-settings\nset discover-interface-list=none\n';
+            if (data.hd_misc_off === true) {
+                c += '\n/tool bandwidth-server\nset enabled=no\n/ip proxy\nset enabled=no\n/ip socks\nset enabled=no\n/ip upnp\nset enabled=no\n';
+            }
+            c += '\n# Doğrulama:\n# /user print\n# /ip service print\n# /tool mac-server print\n# /ip neighbor discovery-settings print\n';
+            return c;
+        });
+    }
+};
+
+// ── MikroTik: VRRP ────────────────────────────────────────────────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/high-availability-solutions/vrrp
+//            https://manual.mikrotik.com/docs/high-availability-solutions/user-guides/vrrp-configuration-examples
+//            https://manual.mikrotik.com/docs/cli-reference/interface/vrrp (argüman tablosu)
+MikroTik.vrrp = {
+    label: 'VRRP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'VRRP — Yedekli Gateway (MikroTik)',
+                desc: 'İki router aynı sanal IP\'yi paylaşır; master düşünce backup devralır. Sanal IP, VRRP arayüzüne /32 olarak eklenir.<br><code>/interface vrrp add interface=ether1 vrid=49 priority=254</code><br><code>/ip address add address=192.168.51.1/32 interface=vrrp1</code>'
+            },
+            configTypes: [
+                { id: 'master', label: 'Master', icon: 'fas fa-crown', desc: 'Yüksek öncelik', badge: { text: 'Birincil', cls: 'recommended' } },
+                { id: 'backup', label: 'Backup', icon: 'fas fa-clone', desc: 'Düşük öncelik', badge: { text: 'Yedek', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'VRRP',
+                    icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'vr_iface', label: 'Fiziksel Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'ether1', hint: 'LAN arayüzü (bridge olabilir)', why: "VRRP arayüzü bu arayüzün üzerine kurulur; iki router'da aynı L2 segmentinde olmalıdır. Farklı VLAN'larda kalırsa ikisi de master olur ve aynı sanal IP iki yerden cevap verir." },
+                        { name: 'vr_real', label: 'Gerçek Adres', type: 'text', validate: 'cidr', placeholder: '192.168.51.2/24', hint: 'Fiziksel arayüzün kendi adresi (zaten varsa boş bırakın)', why: "Her router'ın fiziksel arayüzünde kendi benzersiz adresi olmalıdır; sanal IP bunun yerine geçmez." },
+                        { name: 'vr_name', label: 'VRRP Arayüz Adı', type: 'text', required: true, placeholder: 'vrrp1', hint: 'Sanal IP bu arayüze eklenir' },
+                        { name: 'vr_vrid', label: 'VRID', type: 'text', required: true, min: 1, max: 255, placeholder: '49', hint: 'İki router\'da aynı', why: "VRID sanal MAC'i belirler; aynı segmentteki başka bir VRRP grubuyla çakışırsa sanal MAC çakışır ve trafik iki grup arasında gidip gelir." },
+                        { name: 'vr_vip', label: 'Sanal IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.51.1', hint: 'İstemcilerin gateway\'i (/32 eklenir)', why: "Resmi örneklerde sanal IP VRRP arayüzüne <b>/32</b> olarak eklenir. Gerçek subnet maskesiyle eklemek aynı ağa iki bağlı rota oluşturur." },
+                        { name: 'vr_prio', label: 'Öncelik', type: 'text', min: 1, max: 254, placeholder: '254', hint: 'Master için yüksek (backup boş bırakabilir; varsayılan 100)', why: "Eşit öncelikte master seçimi IP adresine göre yapılır ve tahmin edilemez; master'a açıkça yüksek değer verin." },
+                        { name: 'vr_preempt', label: 'Preemption (yüksek öncelikli geri alsın)', type: 'checkbox', checked: true, why: "Kapalıyken düzelen master rolü geri almaz; bu, kararsız bir cihazın sürekli rol değiştirmesini (flapping) önler ama trafiğin tercih edilmeyen cihazda kalmasına neden olur." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const role = data._cgtype || 'master';
+            const iface = cgEsc(data.vr_iface || ''), real = cgEsc(data.vr_real || ''), name = cgEsc(data.vr_name || '');
+            const vrid = cgEsc(data.vr_vrid || ''), vip = cgEsc(data.vr_vip || ''), prio = cgEsc(data.vr_prio || '');
+            let c = '# ========================================\n# MikroTik RouterOS 7 — VRRP (' + (role === 'master' ? 'Master' : 'Backup') + ')\n# ========================================\n\n';
+            if (real) c += '/ip address\nadd address=' + real + ' interface=' + iface + '\n\n';
+            let l = '/interface vrrp\nadd name=' + name + ' interface=' + iface + ' vrid=' + vrid;
+            if (prio) l += ' priority=' + prio;
+            if (data.vr_preempt !== true) l += ' preemption-mode=no';
+            c += l + '\n\n';
+            c += '/ip address\nadd address=' + vip + '/32 interface=' + name + '\n';
+            c += '\n# Doğrulama:\n# /interface vrrp print detail\n# /ip address print\n';
+            return c;
+        });
+    }
+};
+
+// ── MikroTik: Bonding ─────────────────────────────────────────────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/high-availability-solutions/bonding
+//            https://manual.mikrotik.com/docs/cli-reference/interface/bonding/ (mode, transmit-hash-policy, lacp-rate, min-links, primary)
+MikroTik.bonding = {
+    label: 'Bonding / LACP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-link',
+                title: 'Bonding / LACP (MikroTik)',
+                desc: 'Birden fazla fiziksel portu tek mantıksal arayüzde birleştirir. 802.3ad (LACP), balance-xor ve active-backup modları donanımda hızlandırılabilir.<br><code>/interface bonding add name=bond1 slaves=ether1,ether2 mode=802.3ad</code>'
+            },
+            sections: [
+                {
+                    title: 'Bond',
+                    icon: 'fas fa-link',
+                    warn: 'Slave portlar başka bir bridge\'in portu olmamalı ve üzerlerinde IP adresi bulunmamalıdır.',
+                    fields: [
+                        { name: 'bd_name', label: 'Bond Adı', type: 'text', required: true, placeholder: 'bond1' },
+                        { name: 'bd_slaves', label: 'Slave Portlar', type: 'text', required: true, placeholder: 'ether1,ether2', hint: 'Virgülle ayrılmış', why: "802.3ad'de tüm üyeler aynı hız ve duplex'te olmalıdır; farklı hızdaki port gruba alınmaz ve kapasite sessizce düşer." },
+                        { name: 'bd_mode', label: 'Mod', type: 'select', options: [
+                            { value: '802.3ad', label: '802.3ad (LACP)', selected: true },
+                            { value: 'active-backup', label: 'active-backup' },
+                            { value: 'balance-xor', label: 'balance-xor (statik LAG)' }
+                        ], why: "Karşı switch LACP konuşmuyorsa 802.3ad link kurmaz; statik port-channel için balance-xor kullanın. active-backup switch tarafında yapılandırma gerektirmez." },
+                        { name: 'bd_hash', label: 'Transmit Hash', type: 'select', options: [
+                            { value: 'layer-2-and-3', label: 'layer-2-and-3 (802.3ad uyumlu)', selected: true },
+                            { value: 'layer-3-and-4', label: 'layer-3-and-4 (daha dengeli, tam uyumlu değil)' },
+                            { value: 'layer-2', label: 'layer-2' }
+                        ], hint: '802.3ad ve balance-xor için', why: "layer-2 tek bir gateway'e giden tüm trafiği tek porta koyar. Donanım offload açıkken bazı switch çiplerinde bu ayarın etkisi yoktur (resmi doküman)." },
+                        { name: 'bd_lacp_rate', label: 'LACP Rate', type: 'select', options: [
+                            { value: '30secs', label: '30secs (varsayılan)', selected: true },
+                            { value: '1sec', label: '1sec (hızlı algılama)' }
+                        ], hint: 'Yalnız 802.3ad' },
+                        { name: 'bd_primary', label: 'Primary Port', type: 'text', validate: 'iface', requiredIf: { field: 'bd_mode', in: ['active-backup'] }, placeholder: 'ether1', hint: 'active-backup için tercih edilen port' },
+                        { name: 'bd_minlinks', label: 'min-links', type: 'text', min: 1, max: 32, placeholder: '1', hint: 'Bond\'un up olması için gereken asgari aktif port' },
+                        { name: 'bd_ip', label: 'IP Adresi', type: 'text', validate: 'cidr', placeholder: '172.24.0.1/24', hint: 'Bond arayüzüne (boşsa eklenmez)' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const name = cgEsc(data.bd_name || ''), slaves = cgMtList(data.bd_slaves).map(cgEsc).join(',');
+            const mode = cgEsc(data.bd_mode || ''), hash = cgEsc(data.bd_hash || ''), rate = cgEsc(data.bd_lacp_rate || '');
+            const primary = cgEsc(data.bd_primary || ''), minl = cgEsc(data.bd_minlinks || ''), ip = cgEsc(data.bd_ip || '');
+            let c = '# ========================================\n# MikroTik RouterOS 7 — Bonding (' + mode + ')\n# ========================================\n\n';
+            let l = '/interface bonding\nadd name=' + name + ' slaves=' + slaves + ' mode=' + mode + ' link-monitoring=mii';
+            if (mode === '802.3ad' || mode === 'balance-xor') l += ' transmit-hash-policy=' + hash;
+            if (mode === '802.3ad') l += ' lacp-rate=' + rate;
+            if (mode === 'active-backup' && primary) l += ' primary=' + primary;
+            if (minl) l += ' min-links=' + minl;
+            c += l + '\n';
+            if (ip) c += '\n/ip address\nadd address=' + ip + ' interface=' + name + '\n';
+            c += '\n# Doğrulama:\n# /interface bonding print\n# /interface bonding monitor [find]\n# /interface bonding monitor-slaves ' + name + '\n';
+            return c;
+        });
+    }
+};
+
+// ── MikroTik: Otomatik Yedek (backup + export + scheduler) ───────────────────
+// Sözdizimi: https://manual.mikrotik.com/docs/system-information-and-utilities/scheduler (e-mail backup örneği)
+//            https://manual.mikrotik.com/docs/getting-started/configuration-management/backup (/system backup save name= password=)
+//            https://manual.mikrotik.com/docs/getting-started/configuration-management/ (/export file=)
+//            https://manual.mikrotik.com/docs/cli-reference/tool/e-mail/ (server, port, tls, from, user, password)
+MikroTik.backup = {
+    label: 'Otomatik Yedek',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-save',
+                title: 'Zamanlanmış Yedek — backup + export (MikroTik)',
+                desc: 'Bir script ikili yedek (.backup) ve metin export (.rsc) üretir; scheduler bunu periyodik çalıştırır, isteğe bağlı e-posta ile gönderir.<br><code>/system backup save name=... password=...</code><br><code>/system scheduler add interval=1d on-event=...</code>'
+            },
+            sections: [
+                {
+                    title: 'Yedek',
+                    icon: 'fas fa-save',
+                    fields: [
+                        { name: 'bk_name', label: 'Dosya Adı', type: 'text', required: true, placeholder: 'auto-backup', hint: 'Her çalışmada üzerine yazılır', why: "Sabit ad disk dolmasını önler ama yalnız son yedeği tutar; bozuk bir config yedeklendikten sonra geri dönülecek eski kopya kalmaz. Dosyaları düzenli olarak cihaz dışına alın." },
+                        { name: 'bk_pass', label: 'Yedek Parolası', type: 'text', placeholder: 'Yedek-Sifresi-2026', hint: '.backup dosyasını şifreler', why: "Yedek dosyası kullanıcı parola özetlerini ve anahtarları içerir; şifresiz yedek, ele geçirilirse cihazın tüm sırlarını verir. Parola script kaynağında düz metin durur." },
+                        { name: 'bk_export', label: 'Metin export (.rsc) de al', type: 'checkbox', checked: true, why: "Export farklı RouterOS sürümüne/cihaza taşınabilir ve diff alınabilir; ikili yedek yalnız aynı cihaz ve sürüme geri yüklenmelidir. Export parolaları içermez." },
+                        { name: 'bk_interval', label: 'Aralık', type: 'select', options: [
+                            { value: '1d', label: 'Günlük', selected: true },
+                            { value: '7d', label: 'Haftalık' }
+                        ] },
+                        { name: 'bk_start', label: 'Başlangıç Saati', type: 'text', placeholder: '03:00:00', hint: 'hh:mm:ss (boşsa hemen başlar)', why: "Saat NTP ile senkronize değilse görev beklenmedik saatte çalışır; yoğun saatte alınan yedek küçük cihazlarda CPU sıçraması yaratır." }
+                    ]
+                },
+                {
+                    title: 'E-posta',
+                    icon: 'fas fa-envelope',
+                    info: 'İsteğe bağlı. Parola ve yedek dosyası e-posta ile taşınacağı için TLS kullanın.',
+                    fields: [
+                        { name: 'bk_mail', label: 'Yedeği e-posta ile gönder', type: 'checkbox', checked: false },
+                        { name: 'bk_smtp', label: 'SMTP Sunucusu', type: 'text', validate: 'ip', requiredIf: { field: 'bk_mail', checked: true }, placeholder: '192.0.2.25', hint: 'IP adresi' },
+                        { name: 'bk_smtp_port', label: 'SMTP Portu', type: 'text', validate: 'port', placeholder: '587', hint: 'Boşsa varsayılan' },
+                        { name: 'bk_tls', label: 'TLS', type: 'select', options: [
+                            { value: 'starttls', label: 'starttls', selected: true },
+                            { value: 'yes', label: 'yes (implicit TLS)' },
+                            { value: 'no', label: 'no (şifresiz — önerilmez)' }
+                        ], why: "<code>tls=no</code> SMTP kimlik bilgisini ve yedek dosyasını ağda açık taşır." },
+                        { name: 'bk_from', label: 'Gönderen', type: 'text', requiredIf: { field: 'bk_mail', checked: true }, placeholder: 'router@example.net' },
+                        { name: 'bk_to', label: 'Alıcı', type: 'text', requiredIf: { field: 'bk_mail', checked: true }, placeholder: 'noc@example.net' },
+                        { name: 'bk_smtp_user', label: 'SMTP Kullanıcı', type: 'text', placeholder: 'router@example.net' },
+                        { name: 'bk_smtp_pass', label: 'SMTP Parola', type: 'text', placeholder: 'SmtpParola-1' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const name = cgEsc(data.bk_name || ''), pass = cgEsc(data.bk_pass || ''), interval = cgEsc(data.bk_interval || '');
+            const start = cgEsc(data.bk_start || ''), mail = data.bk_mail === true;
+            const smtp = cgEsc(data.bk_smtp || ''), port = cgEsc(data.bk_smtp_port || ''), tls = cgEsc(data.bk_tls || '');
+            const from = cgEsc(data.bk_from || ''), to = cgEsc(data.bk_to || '');
+            const su = cgEsc(data.bk_smtp_user || ''), sp = cgEsc(data.bk_smtp_pass || '');
+            let c = '# ========================================\n# MikroTik RouterOS 7 — Zamanlanmış Yedek\n# ========================================\n\n';
+            if (mail && smtp) {
+                let e = '/tool e-mail\nset server=' + smtp;
+                if (port) e += ' port=' + port;
+                e += ' tls=' + tls;
+                if (from) e += ' from=' + from;
+                if (su) e += ' user=' + su;
+                if (sp) e += ' password="' + sp + '"';
+                c += e + '\n\n';
+            }
+            if (!pass) c += '# UYARI: yedek parolası boş — .backup dosyası şifrelenmeden kaydedilecek\n';
+            let src = '/system backup save name=' + name + (pass ? ' password=' + pass : ' dont-encrypt=yes');
+            if (data.bk_export === true) src += '; /export file=' + name;
+            if (mail && to) {
+                src += '; /tool e-mail send to=\\"' + to + '\\" subject=\\"RouterOS yedek ' + name + '\\" file=' + name + '.backup';
+            }
+            c += '/system script\nadd name=' + name + '-script source="' + src + '"\n\n';
+            let s = '/system scheduler\nadd name=' + name + '-sched interval=' + interval + ' on-event=' + name + '-script';
+            if (start) s += ' start-time=' + start;
+            c += s + '\n';
+            c += '\n# Doğrulama:\n# /system script print\n# /system scheduler print\n# /file print\n';
             return c;
         });
     }

@@ -291,8 +291,8 @@ HuaweiUSG.sslvpn = {
                     title: 'IP Pool',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'ip_pool_start', why: "Havuz, iç ağda kullanılan hiçbir subnetle çakışmamalıdır; çakışma durumunda VPN istemcileri kendi yerel ağlarına erişemez. Ayrıca iç yönlendiricilerde bu havuza dönüş rotası olmalı, yoksa trafik tek yönlü çalışır.", label: 'IP Pool Start', type: 'text', validate: 'ip', required: true, placeholder: '172.16.0.1', hint: 'VPN istemcilerine atanacak IP havuzunun başlangıcı' },
-                        { name: 'ip_pool_end', why: "Havuz aralığı eşzamanlı bağlanabilecek kullanıcı sayısını belirler; dar tutulursa yoğun saatte kullanıcılar sessizce bağlanamaz ve hata mesajı erişim reddi gibi görünür.", label: 'IP Pool End', type: 'text', validate: 'ip', required: true, placeholder: '172.16.0.100', hint: 'VPN istemcilerine atanacak IP havuzunun sonu' }
+                        { name: 'ip_pool_start', why: "Havuz, iç ağda kullanılan hiçbir subnetle çakışmamalıdır; çakışma durumunda VPN istemcileri kendi yerel ağlarına erişemez. Ayrıca iç yönlendiricilerde bu havuza dönüş rotası olmalı, yoksa trafik tek yönlü çalışır.", label: 'IP Pool Start', type: 'text', validate: 'ip', required: true, placeholder: '172.24.0.1', hint: 'VPN istemcilerine atanacak IP havuzunun başlangıcı' },
+                        { name: 'ip_pool_end', why: "Havuz aralığı eşzamanlı bağlanabilecek kullanıcı sayısını belirler; dar tutulursa yoğun saatte kullanıcılar sessizce bağlanamaz ve hata mesajı erişim reddi gibi görünür.", label: 'IP Pool End', type: 'text', validate: 'ip', required: true, placeholder: '172.24.0.100', hint: 'VPN istemcilerine atanacak IP havuzunun sonu' }
                     ]
                 }
             ],
@@ -501,8 +501,8 @@ HuaweiUSG.ha = {
                     title: 'HA Bağlantı Ayarları',
                     icon: 'fas fa-link',
                     fields: [
-                        { name: 'local_ip', why: "HRP heartbeat adresi üretim trafiğinden ayrı bir bağlantıda olmalıdır. Heartbeat koparsa iki cihaz da kendini aktif sanar (split-brain), aynı IP adresleri iki yerde duyurulur ve ağ kullanılamaz hale gelir.", label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.1', hint: 'Bu cihazın HRP heartbeat arayüzü IP adresi' },
-                        { name: 'peer_ip', why: "Karşı cihazın heartbeat adresi doğru olmalı ve arada başka bir cihaz veya filtre bulunmamalıdır. Yanlış adres HA kurulmuş gibi görünmesine ama senkronizasyonun hiç çalışmamasına yol açar; yedek cihaz oturum tablosu boş kalır.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.255.0.2', hint: 'Karşı cihazın HRP heartbeat IP adresi' },
+                        { name: 'local_ip', why: "HRP heartbeat adresi üretim trafiğinden ayrı bir bağlantıda olmalıdır. Heartbeat koparsa iki cihaz da kendini aktif sanar (split-brain), aynı IP adresleri iki yerde duyurulur ve ağ kullanılamaz hale gelir.", label: 'Local IP', type: 'text', validate: 'ip', required: true, placeholder: '10.240.0.1', hint: 'Bu cihazın HRP heartbeat arayüzü IP adresi' },
+                        { name: 'peer_ip', why: "Karşı cihazın heartbeat adresi doğru olmalı ve arada başka bir cihaz veya filtre bulunmamalıdır. Yanlış adres HA kurulmuş gibi görünmesine ama senkronizasyonun hiç çalışmamasına yol açar; yedek cihaz oturum tablosu boş kalır.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.240.0.2', hint: 'Karşı cihazın HRP heartbeat IP adresi' },
                         { name: 'heartbeat_intf', why: "Heartbeat arayüzü doğrudan kablo ile bağlanmalı ve bu arayüz güvenlik politikalarından etkilenmemelidir. Switch üzerinden geçiriliyorsa o switchin arızası aynı anda her iki güvenlik duvarını da kararsız hale getirir.", label: 'Heartbeat Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'HA heartbeat trafiği için kullanılacak interface' }
                     ]
                 },
@@ -564,6 +564,419 @@ HuaweiUSG.dnsproxy = {
             if (domain) c += 'dns domain ' + domain + ' server ' + redirectDns + '\n';
             c += 'firewall zone ' + zoneFrom + '\n#\n';
             c += '\n# Doğrulama:\n# display dns proxy\n# display dns server\n';
+            return c;
+        });
+    }
+};
+
+// ── HuaweiUSG yardımcıları (yalnız bu dosyadaki yeni araçlar) ─────────────────
+// '10.1.1.0/24' -> '10.1.1.0 24' (USG politika/adres satırlarındaki 'IP maske-uzunluğu' biçimi)
+function cgUsgIpLen(s) {
+    const m = String(s || '').trim().match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+    return m ? m[1] + ' ' + m[2] : '';
+}
+
+// ── HuaweiUSG: Adres ve Servis Nesneleri ─────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100172313/4c244ae/referencing-address-objects-and-address-groups-in-security-policies
+//            https://support.huawei.com/enterprise/en/doc/EDOC1100172313/1fe156e8/referencing-services-and-service-groups-in-security-policies
+HuaweiUSG.objects = {
+    label: 'Adres / Servis Nesnesi',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-cubes',
+                title: 'Adres ve Servis Nesneleri (Huawei USG)',
+                desc: 'Politikalarda tekrar kullanılacak adres kümesi (<code>ip address-set</code>) veya özel servis (<code>ip service-set</code>) tanımlar; isteğe bağlı olarak mevcut bir politika kuralına bağlar.<br><code>ip address-set WEB_SRV type object</code> · <code>address 0 10.1.1.10 mask 32</code>'
+            },
+            configTypes: [
+                { id: 'addr', label: 'Adres Nesnesi', icon: 'fas fa-map-marker-alt', desc: 'ip address-set … type object', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'svc', label: 'Servis Nesnesi', icon: 'fas fa-plug', desc: 'ip service-set … type object', badge: { text: 'Yaygın', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Adres Nesnesi',
+                    icon: 'fas fa-map-marker-alt',
+                    showFor: ['addr'],
+                    fields: [
+                        { name: 'ob_aname', label: 'Nesne Adı', type: 'text', required: true, placeholder: 'WEB_SERVERS', hint: 'Boşluksuz', why: "Politikalar nesneye adıyla bağlanır; adres değiştiğinde yalnız nesneyi güncellemek yeter. Aynı adla ikinci kez tanımlamak mevcut nesneye giriş ekler, üzerine yazmaz." },
+                        { name: 'ob_net', label: 'Ağ (CIDR)', type: 'text', validate: 'cidr', placeholder: '10.1.1.0/24', hint: 'address N IP mask LEN olarak yazılır' },
+                        { name: 'ob_host', label: 'Tek Host', type: 'text', validate: 'ip', placeholder: '10.1.1.10', hint: 'mask 32 olarak yazılır' },
+                        { name: 'ob_range', label: 'Aralık', type: 'text', validate: 'ip_range', placeholder: '10.1.1.20-10.1.1.40', hint: 'address N range A B', why: "Aralık, maskeye sığmayan adres gruplarını tek girişte toplar; başlangıç bitişten büyük yazılırsa USG girişi reddeder." }
+                    ]
+                },
+                {
+                    title: 'Servis Nesnesi',
+                    icon: 'fas fa-plug',
+                    showFor: ['svc'],
+                    fields: [
+                        { name: 'ob_sname', label: 'Servis Adı', type: 'text', required: true, placeholder: 'TCP_8443', hint: 'Önceden tanımlı adlarla (http, ftp, dns…) çakışmamalı' },
+                        { name: 'ob_proto', label: 'Protokol', type: 'select', options: [
+                            { value: 'tcp', label: 'TCP', selected: true },
+                            { value: 'udp', label: 'UDP' }
+                        ] },
+                        { name: 'ob_dport', label: 'Hedef Port', type: 'text', validate: 'port', required: true, placeholder: '8443', why: "Genellikle yalnız hedef port belirtilir (resmi doküman); kaynak portu kısıtlamak istemcilerin rastgele kaynak portları nedeniyle eşleşmeyi bozar." }
+                    ]
+                },
+                {
+                    title: 'Politikaya Bağla (opsiyonel)',
+                    icon: 'fas fa-link',
+                    info: 'Kural adı doluysa nesne o kurala eklenir. Mevcut bir kuralın adını girin; ad yoksa eylemi tanımsız yeni bir kural oluşur ve eylemi ayrıca verilmelidir.',
+                    fields: [
+                        { name: 'ob_rule', label: 'Güvenlik Kuralı Adı', type: 'text', placeholder: 'ALLOW-WEB', hint: 'security-policy altındaki rule name' },
+                        { name: 'ob_dir', label: 'Adres Yönü', type: 'select', options: [
+                            { value: 'destination', label: 'destination-address', selected: true },
+                            { value: 'source', label: 'source-address' }
+                        ], hint: 'Yalnız adres nesnesi için', why: "NAT Server arkasındaki sunucular için politika çevrilmiş iç adresi görür; nesneye global adresi koyup hedef olarak bağlamak kuralın hiç eşleşmemesine yol açar." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'addr';
+            const rule = cgEsc(data.ob_rule || '');
+            let c = '# ========================================\n# Huawei USG — ' + (t === 'addr' ? 'Adres' : 'Servis') + ' Nesnesi\n# ========================================\n\n';
+            c += 'system-view\n';
+            let objName = '';
+            if (t === 'addr') {
+                objName = cgEsc(data.ob_aname || '');
+                const net = cgUsgIpLen(cgEsc(data.ob_net || '')), host = cgEsc(data.ob_host || '');
+                const rng = cgEsc(data.ob_range || '').split(/\s*[-\s]\s*/).filter(Boolean);
+                let idx = 0, body = '';
+                if (net) { const p = net.split(' '); body += ' address ' + (idx++) + ' ' + p[0] + ' mask ' + p[1] + '\n'; }
+                if (host) body += ' address ' + (idx++) + ' ' + host + ' mask 32\n';
+                if (rng.length === 2) body += ' address ' + (idx++) + ' range ' + rng[0] + ' ' + rng[1] + '\n';
+                c += 'ip address-set ' + objName + ' type object\n';
+                c += body || '# UYARI: nesneye hiç adres girilmedi — Ağ, Tek Host veya Aralık alanlarından en az birini doldurun\n';
+                c += ' quit\n';
+            } else {
+                objName = cgEsc(data.ob_sname || '');
+                c += 'ip service-set ' + objName + ' type object\n';
+                c += ' service protocol ' + cgEsc(data.ob_proto || '') + ' destination-port ' + cgEsc(data.ob_dport || '') + '\n';
+                c += ' quit\n';
+            }
+            if (rule) {
+                c += '\nsecurity-policy\n rule name ' + rule + '\n';
+                if (t === 'addr') c += '  ' + cgEsc(data.ob_dir || '') + '-address address-set ' + objName + '\n';
+                else c += '  service ' + objName + '\n';
+                c += '  quit\n quit\n';
+            }
+            c += '\n# Doğrulama:\n# display current-configuration | include ' + objName + '\n';
+            if (rule) c += '# display security-policy rule name ' + rule + '\n';
+            return c;
+        });
+    }
+};
+
+// ── HuaweiUSG: Statik Rota ───────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100387632/ada3b42b/cli-example-for-deploying-devices-in-in-path-mode-and-connecting-to-switches-in-upstream-and-downstream-directions
+//            (ip route-static 0.0.0.0 0.0.0.0 NH)
+//            https://support.huawei.com/enterprise/en/doc/EDOC1100387632/e64a96d2/cli-example-for-configuring-stelnet-login-password-authentication
+//            (ip route-static vpn-instance _management_vpn_ 0.0.0.0 0 NH)
+HuaweiUSG.staticroute = {
+    label: 'Statik Rota',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Statik Rota (Huawei USG)',
+                desc: 'Genel tabloya veya bir VPN instance\'a (ör. yönetim VRF\'i) statik rota ekler.<br><code>ip route-static 0.0.0.0 0.0.0.0 203.0.113.254</code>'
+            },
+            sections: [
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'sr_dst', label: 'Hedef Ağ', type: 'text', validate: 'ip', required: true, placeholder: '0.0.0.0', hint: 'Default route için 0.0.0.0', why: "Hedef, maske ile birlikte ağ adresi olmalıdır; host biti set edilmiş bir adres (10.1.1.5/24) girildiğinde VRP maskeyi uygular ve beklenenden farklı bir önek oluşur." },
+                        { name: 'sr_mask', label: 'Maske', type: 'text', validate: 'netmask', required: true, placeholder: '0.0.0.0', hint: 'Noktalı ondalık (255.255.255.0)' },
+                        { name: 'sr_nh', label: 'Next-Hop', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.254', why: "Next-hop doğrudan bağlı bir ağda değilse rota inactive kalır. Hot standby kurulumlarında next-hop upstream cihazın VRRP sanal adresi olmalıdır; fiziksel adrese yazmak failover sonrası trafiği kaybeder." },
+                        { name: 'sr_vpn', label: 'VPN Instance', type: 'text', placeholder: '_management_vpn_', hint: 'Boşsa genel tablo; MEth yönetim portu için _management_vpn_', why: "USG6000F'de MEth0/0/0 yönetim portu varsayılan olarak <code>_management_vpn_</code> içindedir; yönetim ağına rota genel tabloya yazılırsa cevaplar yanlış arayüzden çıkar." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const dst = cgEsc(data.sr_dst || ''), mask = cgEsc(data.sr_mask || ''), nh = cgEsc(data.sr_nh || ''), vpn = cgEsc(data.sr_vpn || '');
+            let c = '# ========================================\n# Huawei USG — Statik Rota\n# ========================================\n\n';
+            c += 'system-view\n';
+            c += 'ip route-static ' + (vpn ? 'vpn-instance ' + vpn + ' ' : '') + dst + ' ' + mask + ' ' + nh + '\n';
+            c += '\n# Doğrulama:\n# display ip routing-table' + (vpn ? ' vpn-instance ' + vpn : '') + '\n';
+            return c;
+        });
+    }
+};
+
+// ── HuaweiUSG: OSPF ──────────────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100387632/68c91a53/cli-example-for-deploying-devices-in-in-path-mode-and-connecting-to-upstream-and-downstream-routers-through-ebgp-and-ospf-respectively
+//            (ospf N / area 0 / network A W; local<->zone 'service ospf' politikaları)
+//            Politika gerekliliği: https://support.huawei.com/enterprise/en/doc/EDOC1100172313/59798fc7/how-to-configure-security-policies-to-allow-ospf
+HuaweiUSG.ospf = {
+    label: 'OSPF',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'OSPF (Huawei USG)',
+                desc: 'OSPF süreci, alan ve ağ ilanları; USG\'ye özgü olarak OSPF paketlerine izin veren <b>local zone</b> güvenlik politikaları.<br><code>ospf 10</code> · <code>area 0</code> · <code>network 10.3.0.0 0.0.0.255</code>'
+            },
+            sections: [
+                {
+                    title: 'OSPF Süreci',
+                    icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'os_pid', label: 'Süreç No', type: 'text', required: true, min: 1, max: 65535, placeholder: '10' },
+                        { name: 'os_area', label: 'Alan', type: 'text', required: true, placeholder: '0', hint: '0 veya 0.0.0.0 biçimi', why: "Alan numarası komşuyla birebir aynı olmalıdır; uyuşmazlıkta komşuluk hiç kurulmaz ve yalnız hata sayaçları artar." },
+                        { name: 'os_net', label: 'İlan Edilecek Ağ', type: 'text', validate: 'ip', required: true, placeholder: '10.3.0.0', hint: 'network satırının adresi' },
+                        { name: 'os_wild', label: 'Wildcard', type: 'text', validate: 'wildcard', required: true, placeholder: '0.0.0.255', hint: 'Ters maske (/24 = 0.0.0.255)', why: "VRP <code>network</code> komutu maske değil wildcard ister; 255.255.255.0 yazmak neredeyse tüm adres uzayını eşler ve istenmeyen arayüzlerde OSPF açar." },
+                        { name: 'os_net2', label: 'İkinci Ağ', type: 'text', validate: 'ip', placeholder: '10.3.1.0' },
+                        { name: 'os_wild2', label: 'İkinci Wildcard', type: 'text', validate: 'wildcard', placeholder: '0.0.0.255', hint: 'İkisi de doluysa eklenir' }
+                    ]
+                },
+                {
+                    title: 'Güvenlik Politikası (local zone)',
+                    icon: 'fas fa-shield-alt',
+                    warn: 'Broadcast/NBMA/P2MP ağlarda DD, LSR ve LSU paketleri unicast gider ve güvenlik politikasından geçmek zorundadır; politika yoksa komşuluk ExStart/Exchange\'de takılır. Temel protokol denetim anahtarının varsayılanı model ve sürüme göre değişir.',
+                    fields: [
+                        { name: 'os_pol', label: 'local ↔ komşu zone OSPF politikalarını ekle', type: 'checkbox', checked: true },
+                        { name: 'os_zone', label: 'Komşu Zone', type: 'text', requiredIf: { field: 'os_pol', checked: true }, placeholder: 'trust', hint: 'OSPF komşusunun bulunduğu zone' },
+                        { name: 'os_peer', label: 'Komşu Ağı', type: 'text', validate: 'cidr', requiredIf: { field: 'os_pol', checked: true }, placeholder: '10.3.0.0/24', hint: 'Politikada adres kısıtı', why: "Adres kısıtı olmayan bir local-zone OSPF izni, aynı zone'daki herhangi bir cihazın sahte OSPF komşusu olup rota enjekte etmesine kapı açar." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const pid = cgEsc(data.os_pid || ''), area = cgEsc(data.os_area || ''), n1 = cgEsc(data.os_net || ''), w1 = cgEsc(data.os_wild || '');
+            const n2 = cgEsc(data.os_net2 || ''), w2 = cgEsc(data.os_wild2 || '');
+            const zone = cgEsc(data.os_zone || ''), peer = cgUsgIpLen(cgEsc(data.os_peer || ''));
+            let c = '# ========================================\n# Huawei USG — OSPF\n# ========================================\n\n';
+            c += 'system-view\nospf ' + pid + '\n area ' + area + '\n  network ' + n1 + ' ' + w1 + '\n';
+            if (n2 && w2) c += '  network ' + n2 + ' ' + w2 + '\n';
+            c += '  quit\n quit\n';
+            if (data.os_pol === true && zone && peer) {
+                c += '\nsecurity-policy\n';
+                c += ' rule name policy_ospf_out\n  source-zone local\n  destination-zone ' + zone + '\n  destination-address ' + peer + '\n  service ospf\n  action permit\n  quit\n';
+                c += ' rule name policy_ospf_in\n  source-zone ' + zone + '\n  destination-zone local\n  source-address ' + peer + '\n  service ospf\n  action permit\n  quit\n';
+                c += ' quit\n';
+            }
+            c += '\n# Doğrulama:\n# display ospf peer brief\n# display ip routing-table protocol ospf\n';
+            if (data.os_pol === true) c += '# display security-policy rule name policy_ospf_in\n';
+            return c;
+        });
+    }
+};
+
+// ── HuaweiUSG: VRRP + HRP (Hot Standby arayüz tarafı) ────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100387632/ada3b42b/cli-example-for-deploying-devices-in-in-path-mode-and-connecting-to-switches-in-upstream-and-downstream-directions
+//            (vrrp vrid N virtual-ip A [M] active|standby; hrp interface X remote Y; hrp authentication-key; hrp enable;
+//             heartbeat zone politikası source-zone local Z / destination-zone local Z)
+//            hrp track interface: https://support.huawei.com/enterprise/en/doc/EDOC1100387632/68c91a53/cli-example-for-deploying-devices-in-in-path-mode-and-connecting-to-upstream-and-downstream-routers-through-ebgp-and-ospf-respectively
+HuaweiUSG.vrrp = {
+    label: 'VRRP + HRP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'Hot Standby — VRRP + HRP (Huawei USG)',
+                desc: 'Aktif/yedek çiftte iş arayüzüne VRRP sanal IP\'si, heartbeat arayüzüne HRP tanımlar. Her iki cihaz için ayrı ayrı üretin (aktif / yedek).<br><code>vrrp vrid 1 virtual-ip 10.3.0.3 active</code> · <code>hrp interface GE0/0/7 remote 10.128.0.2</code>'
+            },
+            configTypes: [
+                { id: 'active', label: 'Aktif Cihaz', icon: 'fas fa-crown', desc: 'VRRP active', badge: { text: 'Birincil', cls: 'recommended' } },
+                { id: 'standby', label: 'Yedek Cihaz', icon: 'fas fa-clone', desc: 'VRRP standby', badge: { text: 'Yedek', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'VRRP (iş arayüzü)',
+                    icon: 'fas fa-ethernet',
+                    fields: [
+                        { name: 'hv_iface', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/3', hint: 'Kendi IP\'si tanımlı iş arayüzü', why: "Sanal IP arayüzün kendi subnet'inde olmalıdır. Arayüze gerçek IP verilmeden VRRP çalışmaz; iki cihazın gerçek IP'leri farklı, sanal IP'leri aynıdır." },
+                        { name: 'hv_vrid', label: 'VRID', type: 'text', required: true, min: 1, max: 255, placeholder: '2', why: "Aynı L2 segmentinde başka bir VRRP grubu (ör. upstream router) aynı VRID'yi kullanıyorsa sanal MAC çakışır ve trafik iki grup arasında gidip gelir." },
+                        { name: 'hv_vip', label: 'Sanal IP', type: 'text', validate: 'ip', required: true, placeholder: '10.3.0.3', hint: 'İstemcilerin gateway\'i' },
+                        { name: 'hv_mask', label: 'Sanal IP Maskesi', type: 'text', validate: 'netmask', placeholder: '255.255.255.0', hint: 'Sanal IP arayüz subnet\'i dışındaysa gerekir (ör. WAN)', why: "Resmi örnekte WAN tarafındaki sanal IP maskeyle, LAN tarafındaki maskesiz yazılmıştır; arayüzün gerçek IP subnet'inde olmayan sanal IP için maske şarttır." }
+                    ]
+                },
+                {
+                    title: 'HRP (heartbeat)',
+                    icon: 'fas fa-heartbeat',
+                    fields: [
+                        { name: 'hv_hb', label: 'Heartbeat Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/7', why: "Heartbeat koparsa iki cihaz da kendini aktif sanar (split-brain). Doğrudan kablo tercih edin ve bu arayüzü iş trafiğinden ayrı tutun." },
+                        { name: 'hv_peer', label: 'Karşı Cihaz Heartbeat IP', type: 'text', validate: 'ip', required: true, placeholder: '10.128.0.2', hint: 'Yedek cihazda aktifin adresi girilir' },
+                        { name: 'hv_key', label: 'HRP Doğrulama Anahtarı', type: 'text', placeholder: 'HrpAnahtar-2026', hint: 'İki cihazda aynı', why: "Anahtar iki cihazda farklıysa HRP paketleri reddedilir ve yapılandırma/oturum senkronizasyonu çalışmaz." },
+                        { name: 'hv_track', label: 'İzlenecek Arayüz', type: 'text', validate: 'iface', placeholder: 'GigabitEthernet0/0/1', hint: 'hrp track interface — düşerse cihaz rolü devreder', why: "Takip edilmeyen bir uplink koptuğunda VGMP bunu bilmez ve trafik ölü bağlantıya sahip aktif cihazda kalır." },
+                        { name: 'hv_zone', label: 'Heartbeat Zone', type: 'text', placeholder: 'dmz', hint: 'Heartbeat arayüzünün zone\'u — local↔zone izin politikası eklenir', why: "Resmi örnekte heartbeat arayüzü dmz zone'undadır ve local↔dmz politikası eklenmiştir; politika yoksa HRP paketleri güvenlik politikasına takılabilir." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const role = data._cgtype || 'active';
+            const iface = cgEsc(data.hv_iface || ''), vrid = cgEsc(data.hv_vrid || ''), vip = cgEsc(data.hv_vip || ''), mask = cgEsc(data.hv_mask || '');
+            const hb = cgEsc(data.hv_hb || ''), peer = cgEsc(data.hv_peer || ''), key = cgEsc(data.hv_key || '');
+            const track = cgEsc(data.hv_track || ''), zone = cgEsc(data.hv_zone || '');
+            let c = '# ========================================\n# Huawei USG — VRRP + HRP (' + (role === 'active' ? 'Aktif' : 'Yedek') + ')\n# ========================================\n\n';
+            c += 'system-view\ninterface ' + iface + '\n vrrp vrid ' + vrid + ' virtual-ip ' + vip + (mask ? ' ' + mask : '') + ' ' + role + '\n quit\n\n';
+            if (zone) {
+                c += '# UYARI: bu kural local ile ' + zone + ' arasında TÜM trafiğe izin verir — heartbeat için yalnız heartbeat arayüzünü içeren ayrı bir zone kullanın\n';
+                c += 'security-policy\n rule name ha_local_' + zone + '\n  source-zone local ' + zone + '\n  destination-zone local ' + zone + '\n  action permit\n  quit\n quit\n\n';
+            }
+            if (track) c += 'hrp track interface ' + track + '\n';
+            c += 'hrp interface ' + hb + ' remote ' + peer + '\n';
+            if (key) c += 'hrp authentication-key ' + key + '\n';
+            c += 'hrp enable\n';
+            c += '\n# Doğrulama:\n# display vrrp\n# display hrp state verbose\n';
+            return c;
+        });
+    }
+};
+
+// ── HuaweiUSG: Syslog (info-center loghost) ──────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1000179232/facd9831/fw-and-log-server-interconnection-issues
+//            (info-center loghost source IF; info-center loghost IP [vpn-instance V];
+//             info-center source POLICY channel loghost log level informational)
+//            Politika gerekliliği: https://support.huawei.com/enterprise/en/doc/EDOC1100172313/87636019/how-to-configure-security-policies-to-allow-logs
+//            ip service-set sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100172313/1fe156e8/referencing-services-and-service-groups-in-security-policies
+HuaweiUSG.syslog = {
+    label: 'Syslog (info-center)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-file-alt',
+                title: 'Syslog — info-center loghost (Huawei USG)',
+                desc: 'Sistem ve politika loglarını syslog sunucusuna gönderir. USG\'de cihazın kendi ürettiği sistem logları <b>local → sunucu zone</b> güvenlik politikası ister.<br><code>info-center loghost source GigabitEthernet1/0/7</code> · <code>info-center loghost 10.0.0.200</code>'
+            },
+            sections: [
+                {
+                    title: 'Log Sunucusu',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'hs_host', label: 'Syslog Sunucusu', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.200' },
+                        { name: 'hs_src', label: 'Kaynak Arayüz', type: 'text', validate: 'iface', placeholder: 'GigabitEthernet1/0/7', hint: 'info-center loghost source', why: "Kaynak arayüz bir VPN instance'a bağlıysa log sunucusu da aynı instance ile tanımlanmalıdır; aksi hâlde loglar hiç çıkmaz (resmi sorun giderme örneği)." },
+                        { name: 'hs_vpn', label: 'VPN Instance', type: 'text', placeholder: 'default', hint: 'Kaynak arayüz bir VPN instance\'a bağlıysa' },
+                        { name: 'hs_policy', label: 'Politika eşleşme loglarını da gönder (POLICY → loghost, informational)', type: 'checkbox', checked: true, why: "Politika logları ayrı bir modül (POLICY) üzerinden gelir; bu satır olmadan kuralda log açık olsa bile sunucuya yalnız sistem logları ulaşır." }
+                    ]
+                },
+                {
+                    title: 'Güvenlik Politikası',
+                    icon: 'fas fa-shield-alt',
+                    fields: [
+                        { name: 'hs_zone', label: 'Sunucunun Zone\'u', type: 'text', placeholder: 'trust', hint: 'Doluysa local → zone UDP 514 izni eklenir', why: "Resmi dokümana göre sistem logları (UDP 514) güvenlik politikası gerektirir; politika yoksa cihaz logları üretir ama sunucuya hiçbiri ulaşmaz." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const host = cgEsc(data.hs_host || ''), src = cgEsc(data.hs_src || ''), vpn = cgEsc(data.hs_vpn || ''), zone = cgEsc(data.hs_zone || '');
+            let c = '# ========================================\n# Huawei USG — Syslog (info-center)\n# ========================================\n\n';
+            c += 'system-view\n';
+            if (src) c += 'info-center loghost source ' + src + '\n';
+            c += 'info-center loghost ' + host + (vpn ? ' vpn-instance ' + vpn : '') + '\n';
+            if (data.hs_policy === true) c += 'info-center source POLICY channel loghost log level informational\n';
+            if (zone) {
+                c += '\nip service-set SYSLOG_UDP514 type object\n service protocol udp destination-port 514\n quit\n';
+                c += 'security-policy\n rule name Local_Out_Syslog\n  source-zone local\n  destination-zone ' + zone + '\n  destination-address ' + host + ' 32\n  service SYSLOG_UDP514\n  action permit\n  quit\n quit\n';
+            }
+            c += '\n# Doğrulama:\n# display current-configuration | include info-center\n# display info-center statistics\n';
+            if (zone) c += '# display security-policy rule name Local_Out_Syslog\n';
+            return c;
+        });
+    }
+};
+
+// ── HuaweiUSG: NTP ────────────────────────────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1000179232/607f774c/case-study-the-clock-is-not-synchronized
+//            (ntp-service unicast-server; display ntp-service status / sessions)
+//            ip service-set / security-policy: https://support.huawei.com/enterprise/en/doc/EDOC1100172313/1fe156e8/referencing-services-and-service-groups-in-security-policies
+HuaweiUSG.ntp = {
+    label: 'NTP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clock',
+                title: 'NTP İstemcisi (Huawei USG)',
+                desc: 'USG\'yi unicast NTP istemcisi yapar; isteğe bağlı olarak local → sunucu zone NTP politikası ekler.<br><code>ntp-service unicast-server 10.0.0.123</code>'
+            },
+            sections: [
+                {
+                    title: 'NTP',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'hn_srv1', label: 'NTP Sunucusu 1', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.123', why: "Saat senkron değilse log zaman damgaları, sertifika ve IPsec doğrulaması ile zaman tabanlı politikalar bozulur. Sunucu tarafında kaynak adres kısıtlaması varsa istemci adresinin eşleştiğinden emin olun (resmi vaka çalışması)." },
+                        { name: 'hn_srv2', label: 'NTP Sunucusu 2', type: 'text', validate: 'ip', placeholder: '10.0.1.123' },
+                        { name: 'hn_zone', label: 'Sunucunun Zone\'u', type: 'text', placeholder: 'trust', hint: 'Doluysa local → zone UDP 123 izni eklenir', why: "Cihazın kendi başlattığı NTP trafiği local zone'dan çıkar; politika gerektiren durumlarda izin yoksa istemci sonsuza dek unsynchronized kalır." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const s1 = cgEsc(data.hn_srv1 || ''), s2 = cgEsc(data.hn_srv2 || ''), zone = cgEsc(data.hn_zone || '');
+            let c = '# ========================================\n# Huawei USG — NTP\n# ========================================\n\n';
+            c += 'system-view\nntp-service unicast-server ' + s1 + '\n';
+            if (s2) c += 'ntp-service unicast-server ' + s2 + '\n';
+            if (zone) {
+                c += '\nip service-set NTP_UDP123 type object\n service protocol udp destination-port 123\n quit\n';
+                c += 'security-policy\n rule name Local_Out_NTP\n  source-zone local\n  destination-zone ' + zone + '\n  destination-address ' + s1 + ' 32\n';
+                if (s2) c += '  destination-address ' + s2 + ' 32\n';
+                c += '  service NTP_UDP123\n  action permit\n  quit\n quit\n';
+            }
+            c += '\n# Doğrulama:\n# display ntp-service status\n# display ntp-service sessions\n';
+            return c;
+        });
+    }
+};
+
+// ── HuaweiUSG: Yönetici + STelnet (SSH) ──────────────────────────────────────
+// Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1100387632/e64a96d2/cli-example-for-configuring-stelnet-login-password-authentication
+//            (user-interface vty 0 4 / authentication-mode aaa / user privilege level / protocol inbound ssh;
+//             aaa / local-user X password / local-user X service-type ssh / local-user X privilege level;
+//             ssh user X authentication-type password / service-type stelnet; ssh server-source all-interface;
+//             stelnet server enable; ssh server cipher/hmac/key-exchange; service-manage ssh permit)
+HuaweiUSG.admin = {
+    label: 'Yönetici / SSH',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-shield',
+                title: 'Yönetici Hesabı ve STelnet (SSH) Girişi (Huawei USG)',
+                desc: 'VTY hatlarını AAA + yalnız SSH\'e kısıtlar, yerel yönetici oluşturur, STelnet\'i açar ve isteğe bağlı güçlü SSH algoritmalarını ayarlar. (HiSecEngine USG6000F resmi örneği; eski USG6000 sürümleri <code>manager-user</code> kullanır.)<br><code>local-user netadmin service-type ssh</code> · <code>stelnet server enable</code>'
+            },
+            sections: [
+                {
+                    title: 'Yerel Yönetici',
+                    icon: 'fas fa-user',
+                    warn: '<code>local-user … password</code> parolayı <b>etkileşimli</b> sorar (8-128 karakter); script ile yapıştırırken bu satırda durup parolayı elle girin.',
+                    fields: [
+                        { name: 'ad_user', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netadmin' },
+                        { name: 'ad_level', label: 'Yetki Seviyesi', type: 'select', options: [
+                            { value: '3', label: '3 (resmi örnekteki yönetici seviyesi)', selected: true },
+                            { value: '15', label: '15' }
+                        ], why: "VTY hattındaki <code>user privilege level</code> ile kullanıcının seviyesi birlikte değerlendirilir; kullanıcıya düşük seviye verip hatta yüksek seviye bırakmak beklenmeyen yetki farklarına yol açar." }
+                    ]
+                },
+                {
+                    title: 'Erişim',
+                    icon: 'fas fa-terminal',
+                    fields: [
+                        { name: 'ad_mgmt_if', label: 'Yönetim Arayüzü', type: 'text', validate: 'iface', placeholder: 'GigabitEthernet0/0/1', hint: 'Doluysa arayüzde service-manage ssh permit', why: "USG arayüzlerinde erişim denetimi açıktır; <code>service-manage ssh permit</code> yoksa SSH bu arayüze ulaşsa bile reddedilir. MEth0/0/0 yönetim portunda varsayılan olarak açıktır." },
+                        { name: 'ad_strong', label: 'Güçlü SSH algoritmaları (cipher / hmac / key-exchange)', type: 'checkbox', checked: true, why: "Eski CBC şifreleri ve SHA1 HMAC kapatılır; çok eski SSH istemcileri bağlanamayabilir." }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const user = cgEsc(data.ad_user || ''), lvl = cgEsc(data.ad_level || ''), mif = cgEsc(data.ad_mgmt_if || '');
+            let c = '# ========================================\n# Huawei USG — Yönetici / STelnet\n# ========================================\n\n';
+            c += 'system-view\n';
+            if (mif) c += 'interface ' + mif + '\n service-manage ssh permit\n quit\n\n';
+            if (data.ad_strong === true) {
+                c += 'ssh server cipher aes128_ctr aes256_ctr aes192_ctr aes128_gcm aes256_gcm\n';
+                c += 'ssh server hmac sha2_256 sha2_512\n';
+                c += 'ssh server key-exchange dh_group_exchange_sha256 dh_group16_sha512\n\n';
+            }
+            c += 'user-interface vty 0 4\n authentication-mode aaa\n user privilege level ' + lvl + '\n protocol inbound ssh\n quit\n\n';
+            c += 'aaa\n local-user ' + user + ' password\n';
+            c += '# (parola burada etkileşimli sorulur — iki kez girin)\n';
+            c += ' local-user ' + user + ' service-type ssh\n local-user ' + user + ' privilege level ' + lvl + '\n quit\n\n';
+            c += 'ssh user ' + user + '\nssh user ' + user + ' authentication-type password\nssh user ' + user + ' service-type stelnet\n';
+            c += 'ssh server-source all-interface\nstelnet server enable\n';
+            c += '\n# Doğrulama:\n# display current-configuration | include ssh\n';
             return c;
         });
     }
