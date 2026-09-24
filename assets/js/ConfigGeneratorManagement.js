@@ -280,7 +280,11 @@ function cgFormBuilder(container, schema, generateFn) {
         if (f.type === 'hidden') return '<input type="hidden" name="' + esc(f.name) + '" id="cgfb_' + esc(f.name) + '" value="' + esc(f.value || '') + '">';
 
         const req  = f.required ? '<span class="text-danger">*</span>' : '';
-        const opt  = f.optional ? '<span class="cg-opt">Opsiyonel</span>' : '';
+        // 'Opsiyonel' etiketi eskiden ayri bir f.optional bayragina bagliydi.
+        // Sonuc: 804 opsiyonel alanin yalnizca 388'i isaretliydi; kalan 416 alan
+        // zorunlu alanlarla birebir ayni gorunuyordu (tek fark eksik yildiz).
+        // Artik required'dan TURETILIYOR — zorunlu degilse opsiyoneldir.
+        const opt  = (!f.required) ? '<span class="cg-opt">Opsiyonel</span>' : '';
         const tip  = f.tooltip  ? '<span class="cg-tip"><i class="fas fa-info-circle"></i><span class="cg-tip-text">' + esc(f.tooltip) + '</span></span>' : '';
         const hint = f.hint     ? '<span class="cg-field-hint">' + esc(f.hint) + '</span>' : '';
         const why  = cgWhyBox(f.why, f.name);
@@ -304,9 +308,21 @@ function cgFormBuilder(container, schema, generateFn) {
         }
 
         if (f.type === 'select') {
-            const opts = (f.options || []).map(o =>
-                '<option value="' + esc(o.value) + '"' + (o.selected ? ' selected' : '') + '>' + esc(o.label) + '</option>'
-            ).join('');
+            // Option nesneleri iki bicimde yazilmis olabilir:
+            //   { value: 'x', label: 'y' }   (kanonik)
+            //   { v: 'x', l: 'y' }           (kisa bicim — Cisco modullerinde kullanilmis)
+            // Renderer eskiden yalnizca ilkini okuyordu; kisa bicimde yazilan her
+            // option bos <option> uretip ACILIR MENUYU BOS gosteriyordu.
+            // Her iki bicimi de kabul et — deger bulunamazsa option'i hic uretme,
+            // boylece sessizce bos menu yerine eksiklik gorunur olur.
+            const opts = (f.options || []).map(o => {
+                const val = (o.value !== undefined) ? o.value : o.v;
+                const lbl = (o.label !== undefined) ? o.label : o.l;
+                if (val === undefined && lbl === undefined) return '';
+                return '<option value="' + esc(val !== undefined ? val : lbl) + '"' +
+                       (o.selected ? ' selected' : '') + '>' +
+                       esc(lbl !== undefined ? lbl : val) + '</option>';
+            }).join('');
             return '<div class="mb-4 row">' + label +
                    '<div class="col-sm-8"><select ' + baseAttrs + ' class="form-select">' + opts + '</select>' + hint + why + '</div></div>';
         }
@@ -383,16 +399,35 @@ function cgFormBuilder(container, schema, generateFn) {
         const empties = [];
         formEl.querySelectorAll('input[placeholder]:not([type=checkbox]):not([type=radio]), textarea[placeholder]').forEach(el => {
             if (!el.disabled && !String(el.value || '').trim()) {
-                const lbl = el.closest('.row')?.querySelector('label');
-                empties.push((lbl ? lbl.textContent.replace(/[*\s]+$/, '').trim() : el.name) + ' = ' + el.placeholder);
+                // Etiket metnini okurken isaretleyicileri (zorunlu yildizi, 'Opsiyonel'
+                // etiketi, ipucu ikonu) DISLA — aksi halde uyari metni
+                // "Aciklama Opsiyonel = ..." gibi okunuyor.
+                const lblEl = el.closest('.row')?.querySelector('label');
+                let lblTxt = el.name;
+                if (lblEl) {
+                    const c = lblEl.cloneNode(true);
+                    c.querySelectorAll('.cg-opt, .text-danger, .cg-tip').forEach(n => n.remove());
+                    lblTxt = c.textContent.replace(/[*\s]+$/, '').trim() || el.name;
+                }
+                // Placeholder her zaman gecerli bir ornek DEGILDIR: bazilari
+                // "10,20,30 veya all" gibi insan icin yazilmis ipuclaridir ve
+                // aynen config'e girerse satiri bozar. Bunlari isaretle.
+                const ph = el.placeholder;
+                const proseHint = /\b(veya|ya da|or)\b|\.\.\.|…/i.test(ph);
+                empties.push(lblTxt + ' = ' + ph + (proseHint ? ' \u26A0' : ''));
             }
         });
         try {
             const result = generateFn(cgCollect(formEl, true), formEl);
             const warns = [];
             if (empties.length) {
+                const anyProse = empties.some(e => e.endsWith('\u26A0'));
                 warns.push('Doldurulmamış ' + empties.length + ' alan için örnek değer kullanıldı: ' +
                     empties.slice(0, 4).join(', ') + (empties.length > 4 ? ' ve ' + (empties.length - 4) + ' tane daha' : ''));
+                if (anyProse) {
+                    warns.push('\u26A0 ile işaretli alanların örnek değeri bir açıklama metnidir, geçerli bir ' +
+                               'yapılandırma değeri değildir — o satırlar cihazda çalışmaz, elle doldurun.');
+                }
             }
             if (typeof result === 'string') cgShowOutput(result, warns);
             else if (result) cgShowOutput(result.config || '', (result.warnings || []).concat(warns));

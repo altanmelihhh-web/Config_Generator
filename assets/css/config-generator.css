@@ -124,6 +124,47 @@
 #config-generator-root .cg-ref-card-hd { background: var(--bg-secondary, #f4f6f8); border-bottom: 1px solid var(--border-color, #e0e4ea); padding: 10px 14px; font-size: .85rem; font-weight: 700; color: var(--text-primary, #2c3e50); display: flex; align-items: center; gap: 8px; }
 #config-generator-root .cg-ref-card-hd i { color: var(--primary-color, #3498db); }
 #config-generator-root .cg-ref-card-body { padding: 14px; font-size: .85rem; color: var(--text-secondary, #444); line-height: 1.6; }
+/* ─── Sertifikasyon haritasi ──────────────────────────────────────────── */
+#config-generator-root .cg-cert-legend { display:flex; flex-wrap:wrap; gap:6px 18px; align-items:center;
+  margin:0 0 14px; padding:10px 14px; background:var(--bg-secondary,#f8f9fa);
+  border:1px solid var(--border-color,#e0e4ea); border-radius:8px; font-size:.76rem;
+  color:var(--text-secondary,#555); }
+#config-generator-root .cg-cert-badge { display:inline-block; width:16px; height:16px; line-height:16px;
+  text-align:center; border-radius:50%; font-size:.66rem; font-weight:700; cursor:help; vertical-align:middle; }
+#config-generator-root .cg-cert-ok   { background:#10B981; color:#fff; }
+#config-generator-root .cg-cert-warn { background:#F59E0B; color:#fff; }
+#config-generator-root .cg-cert-unk  { background:#94A3B8; color:#fff; }
+#config-generator-root .cg-cert-dead { background:#EF4444; color:#fff; }
+#config-generator-root .cg-cert-req { display:inline-block; padding:1px 7px; border-radius:4px;
+  font-size:.63rem; font-weight:700; letter-spacing:.4px; white-space:nowrap; cursor:help; }
+#config-generator-root .cg-req-must { background:#FEE2E2; color:#991B1B; }
+#config-generator-root .cg-req-pick { background:#DBEAFE; color:#1E40AF; }
+#config-generator-root .cg-req-pre  { background:#FEF3C7; color:#92400E; }
+#config-generator-root .cg-req-auto { background:#D1FAE5; color:#065F46; }
+#config-generator-root .cg-req-free { background:var(--bg-tertiary,#F3F4F6); color:var(--text-secondary,#6B7280); }
+#config-generator-root .cg-req-lab  { background:#EDE9FE; color:#5B21B6; }
+@media (prefers-color-scheme: dark) {
+  #config-generator-root .cg-req-must { background:#7F1D1D; color:#FECACA; }
+  #config-generator-root .cg-req-pick { background:#1E3A8A; color:#BFDBFE; }
+  #config-generator-root .cg-req-pre  { background:#78350F; color:#FDE68A; }
+  #config-generator-root .cg-req-auto { background:#064E3B; color:#A7F3D0; }
+  #config-generator-root .cg-req-lab  { background:#4C1D95; color:#DDD6FE; }
+}
+#config-generator-root .cg-cert-intro { font-size:.84rem; line-height:1.65; color:var(--text-secondary,#555);
+  margin:0 0 12px; }
+#config-generator-root .cg-cert-nocode { font-size:.72rem; color:var(--text-tertiary,#95a5a6); font-style:italic; }
+#config-generator-root .cg-cert-warnbox { margin:12px 0 0; padding:10px 14px; font-size:.78rem; line-height:1.6;
+  background:var(--warning-light,#fdebd0); border-left:3px solid var(--warning-color,#F59E0B);
+  border-radius:0 6px 6px 0; color:#7a4a00; }
+#config-generator-root .cg-cert-retired { margin:12px 0 0; padding:10px 14px; font-size:.78rem; line-height:1.6;
+  background:var(--bg-secondary,#f8f9fa); border-left:3px solid var(--danger-color,#EF4444);
+  border-radius:0 6px 6px 0; color:var(--text-secondary,#555); }
+#config-generator-root .cg-cert-retired ul { margin:6px 0 0; padding-left:18px; }
+#config-generator-root .cg-cert-ours { margin:12px 0 0; padding:10px 14px; font-size:.78rem;
+  background:var(--bg-secondary,#f8f9fa); border-left:3px solid var(--primary-color,#4F46E5);
+  border-radius:0 6px 6px 0; }
+#config-generator-root .cg-cert-ours p { margin:4px 0 0; color:var(--text-secondary,#555); }
+
 /* ─── Referans diyagramlari (SVG) ─────────────────────────────────────────
    Renkler degisken uzerinden; acik/koyu tema otomatik. Sabit renk KULLANMA —
    ASCII bloklarindaki kontrast hatasinin nedeni buydu. */
