@@ -52,6 +52,21 @@ function cgValidate(form) {
     return ok;
 }
 
+// Yumuşak doğrulama: hatalı alanları işaretler ama üretimi engellemez.
+// Boş zorunlu alanlar hata sayılmaz (kullanıcı henüz yazıyor olabilir).
+function cgValidateSoft(form) {
+    form.querySelectorAll('[data-cgv]').forEach(el => {
+        if (el.disabled) return;
+        const val = (el.value || '').trim();
+        if (!val) { _cgClearError(el); return; }
+        const v = CG_VALIDATORS[el.dataset.cgv];
+        if (!v) return;
+        const pass = v.re ? v.re.test(val) : v.fn(val);
+        if (pass) _cgClearError(el);
+        else { el.classList.add('is-invalid'); _cgSetError(el, v.msg); }
+    });
+}
+
 function _cgSetError(el, msg) {
     let fb = el.parentNode.querySelector('.cg-field-error');
     if (!fb) { fb = document.createElement('div'); fb.className = 'cg-field-error'; el.parentNode.appendChild(fb); }
@@ -64,45 +79,89 @@ function _cgClearError(el) {
     el.classList.remove('is-invalid');
 }
 
-function cgShowOutput(config, warnings = []) {
-    const area = document.getElementById('cg-output-area');
-    if (!area) return;
-    let html = '';
-    if (warnings.length) {
-        html += `<div class="alert alert-warning"><strong>Uyarılar:</strong><ul class="mb-0">`;
-        warnings.forEach(w => { html += `<li>${cgEsc(w)}</li>`; });
-        html += `</ul></div>`;
-    }
-    html += `
-        <div class="alert alert-success py-2">Konfigürasyon oluşturuldu.</div>
-        <div class="d-flex gap-2 mb-2">
-            <button class="btn btn-sm btn-outline-secondary" onclick="cgCopy()">
-                <i class="fas fa-copy"></i> Kopyala
-            </button>
-            <button class="btn btn-sm btn-outline-secondary" onclick="cgDownload()">
-                <i class="fas fa-download"></i> İndir (.txt)
-            </button>
-        </div>
-        <pre class="config-output" id="cg-config-text">${cgEsc(config)}</pre>`;
-    area.innerHTML = html;
-    area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+// ─── Canlı Çıktı (terminal paneli) ───────────────────────────────────────────
+
+// Üretilen config'i basit sözdizimi renklendirmesiyle HTML'e çevirir.
+function cgHighlight(text) {
+    const KW = /^(config|edit|next|end|set|unset|system|interface|configure|enable|exit|write|commit|delete|show|no|ip|router|vlan|access-list|policy|rule|create|add|address|service|zone|profile|firewall|vpn|route)\b/;
+    return String(text).split('\n').map(line => {
+        const esc = cgEsc(line);
+        const trimmed = line.trimStart();
+        // Yorum satırları
+        if (/^[#!;]/.test(trimmed)) return '<span class="t-cmt">' + esc + '</span>';
+        // Tırnaklı değerler ve sayılar
+        let out = esc
+            .replace(/(&quot;[^&]*?&quot;)/g, '<span class="t-str">$1</span>')
+            .replace(/\b(\d+\.\d+\.\d+\.\d+(?:\/\d+)?)\b/g, '<span class="t-num">$1</span>');
+        // İlk kelime anahtar kelimeyse vurgula
+        const m = trimmed.match(KW);
+        if (m) {
+            const kw = m[1];
+            out = out.replace(kw, '<span class="' + (kw === 'set' || kw === 'unset' ? 't-set' : 't-kw') + '">' + kw + '</span>');
+        }
+        return out;
+    }).join('\n');
 }
 
+// Terminal panelini günceller. config boşsa bekleme durumu gösterir.
+function cgShowOutput(config, warnings = []) {
+    const body = document.getElementById('cg-term-body');
+    if (!body) return;
+
+    const has = config && String(config).trim().length > 0;
+    cgLastOutput = has ? config : '';
+
+    if (has) {
+        body.innerHTML = cgHighlight(config);
+    } else {
+        const prompt = (typeof cgTermPrompt === 'string' && cgTermPrompt) || 'device';
+        body.innerHTML = '<span class="cg-term-idle"><b>' + cgEsc(prompt) + ' #</b> Yapılandırma bekleniyor\u2026</span>';
+    }
+
+    // Uyarı şeridi
+    const warnBox = document.getElementById('cg-term-warn');
+    if (warnBox) {
+        if (warnings && warnings.length) {
+            warnBox.innerHTML = '<strong><i class="fas fa-exclamation-triangle"></i> ' + warnings.length + ' uyarı</strong><ul>' +
+                warnings.map(w => '<li>' + cgEsc(w) + '</li>').join('') + '</ul>';
+            warnBox.style.display = '';
+        } else {
+            warnBox.innerHTML = '';
+            warnBox.style.display = 'none';
+        }
+    }
+
+    // Kopyala / indir butonları
+    ['cg-term-copy', 'cg-term-dl'].forEach(id => {
+        const b = document.getElementById(id);
+        if (b) b.disabled = !has;
+    });
+}
+
+// Son üretilen config (kopyala/indir için)
+let cgLastOutput = '';
+// Terminal başlığındaki prompt (vendor seçilince güncellenir)
+let cgTermPrompt = 'device';
+
 function cgCopy() {
-    const el = document.getElementById('cg-config-text');
-    if (!el) return;
-    navigator.clipboard.writeText(el.textContent).then(() => {
-        const btn = document.querySelector('[onclick="cgCopy()"]');
-        if (btn) { btn.textContent = '✓ Kopyalandı'; setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> Kopyala'; }, 2000); }
+    if (!cgLastOutput) return;
+    navigator.clipboard.writeText(cgLastOutput).then(() => {
+        const btn = document.getElementById('cg-term-copy');
+        if (!btn) return;
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i> Kopyalandı';
+        btn.classList.add('is-ok');
+        setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('is-ok'); }, 1800);
     });
 }
 
 function cgDownload() {
-    const text = document.getElementById('cg-config-text')?.textContent;
-    if (!text) return;
+    if (!cgLastOutput) return;
+    const name = (typeof cgTermPrompt === 'string' && cgTermPrompt !== 'device' ? cgTermPrompt : 'config')
+        .replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
     const a = document.createElement('a');
-    a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
-    a.download = 'config.txt';
+    a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(cgLastOutput);
+    a.download = name + '.txt';
     a.click();
 }
 
@@ -128,7 +187,8 @@ function cgPostRender(container) {
         el.style.fontSize = '14.5px';
         el.style.fontWeight = '600';
         el.style.marginBottom = '8px';
-        el.style.color = '#1e293b';
+        // Renk CSS'ten gelsin — sabit değer karanlık temada okunmuyordu.
+        el.style.removeProperty('color');
     });
     container.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(el => {
         el.style.padding = '15px 36px';
@@ -137,9 +197,9 @@ function cgPostRender(container) {
         el.style.marginTop = '12px';
         el.style.width = '100%';
         el.style.borderRadius = '10px';
-        el.style.background = '#0b2e5b';
-        el.style.borderColor = '#0b2e5b';
-        el.style.color = '#fff';
+        el.style.removeProperty('background');
+        el.style.removeProperty('border-color');
+        el.style.removeProperty('color');
         el.style.letterSpacing = '.4px';
     });
 }
@@ -238,35 +298,82 @@ function cgFormBuilder(container, schema, generateFn) {
         '<form id="' + formId + '">' +
         renderTypeCards(schema.configTypes) +
         (schema.sections || []).map(renderSection).join('') +
-        '<button type="submit" class="btn btn-primary"' + (schema.configTypes ? ' style="display:none"' : '') +
+        '<button type="submit" class="btn btn-primary cg-legacy-submit" style="display:none"' +
         ' id="' + formId + '_submit"><i class="fas fa-code"></i> ' + esc(schema.submit || 'Konfigürasyon Oluştur') + '</button>' +
         '</form>';
 
-    document.getElementById(formId).addEventListener('submit', e => {
-        e.preventDefault();
-        const form = e.target;
-        // Clear old banner
-        const oldBanner = form.querySelector('.cg-validation-banner');
-        if (oldBanner) oldBanner.remove();
-        if (!cgValidate(form)) {
-            const errCount = form.querySelectorAll('.is-invalid').length;
-            const banner = document.createElement('div');
-            banner.className = 'cg-validation-banner';
-            banner.innerHTML = '<i class="fas fa-exclamation-triangle"></i> <strong>' + errCount + ' alanda hata var.</strong> Kırmızı işaretli alanları düzeltin ve tekrar deneyin.';
-            const submitBtn = form.querySelector('button[type="submit"]');
-            form.insertBefore(banner, submitBtn);
-            banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const formEl = document.getElementById(formId);
+
+    // ── Form verisini topla ──────────────────────────────────────────────
+    function cgCollect(form, usePlaceholders) {
+        const data = {};
+        new FormData(form).forEach((v, k) => { data[k] = v; });
+        form.querySelectorAll('input[type="checkbox"]').forEach(cb => { data[cb.name] = cb.checked; });
+        // Canlı önizlemede boş alanlar yerine placeholder kullan.
+        // Böylece çıktı her zaman çalışır bir örnek olur ('set ip' yerine 'set ip 203.0.113.1').
+        if (usePlaceholders) {
+            form.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(el => {
+                if (el.disabled || el.type === 'checkbox' || el.type === 'radio') return;
+                if (!String(data[el.name] || '').trim() && el.placeholder) data[el.name] = el.placeholder;
+            });
+        }
+        return data;
+    }
+
+    // ── Canlı üretim: her değişiklikte çalışır, hata fırlatmaz ───────────
+    let liveTimer = null;
+    function cgLiveRun() {
+        // configTypes'lı formlarda tip seçilmeden üretme
+        const typeInput = formEl.querySelector('[name="_cgtype"]');
+        if (typeInput && !typeInput.value) {
+            cgShowOutput('', []);
             return;
         }
-        const data = {};
-        new FormData(e.target).forEach((v, k) => { data[k] = v; });
-        e.target.querySelectorAll('input[type="checkbox"]').forEach(cb => { data[cb.name] = cb.checked; });
-        const result = generateFn(data, e.target);
-        if (result) {
-            if (typeof result === 'string') cgShowOutput(result);
-            else cgShowOutput(result.config || '', result.warnings || []);
+        // Yumuşak doğrulama: alanları işaretler ama üretimi engellemez
+        cgValidateSoft(formEl);
+        // Doldurulmamış zorunlu alanları say -> kullanıcıya "örnek değer" uyarısı
+        const empties = [];
+        formEl.querySelectorAll('input[placeholder]:not([type=checkbox]):not([type=radio]), textarea[placeholder]').forEach(el => {
+            if (!el.disabled && !String(el.value || '').trim()) {
+                const lbl = el.closest('.row')?.querySelector('label');
+                empties.push((lbl ? lbl.textContent.replace(/[*\s]+$/, '').trim() : el.name) + ' = ' + el.placeholder);
+            }
+        });
+        try {
+            const result = generateFn(cgCollect(formEl, true), formEl);
+            const warns = [];
+            if (empties.length) {
+                warns.push('Doldurulmamış ' + empties.length + ' alan için örnek değer kullanıldı: ' +
+                    empties.slice(0, 4).join(', ') + (empties.length > 4 ? ' ve ' + (empties.length - 4) + ' tane daha' : ''));
+            }
+            if (typeof result === 'string') cgShowOutput(result, warns);
+            else if (result) cgShowOutput(result.config || '', (result.warnings || []).concat(warns));
+            else cgShowOutput('', []);
+        } catch (err) {
+            // Eksik alan yüzünden generator patlayabilir; sessizce bekleme durumuna düş
+            cgShowOutput('', []);
         }
-    });
+    }
+
+    function cgLiveSchedule() {
+        clearTimeout(liveTimer);
+        const dot = document.getElementById('cg-live-dot');
+        if (dot) dot.classList.add('is-stale');
+        liveTimer = setTimeout(() => {
+            cgLiveRun();
+            if (dot) dot.classList.remove('is-stale');
+        }, 160);
+    }
+    container._cgLiveRun = cgLiveRun;
+
+    formEl.addEventListener('input',  cgLiveSchedule);
+    formEl.addEventListener('change', cgLiveSchedule);
+
+    // Submit artık gerekli değil ama form enter'ı sayfayı yenilemesin
+    formEl.addEventListener('submit', e => { e.preventDefault(); cgLiveRun(); });
+
+    // İlk render: placeholder/default değerlerle bir kez üret
+    cgLiveRun();
 
     cgPostRender(container);
 }
@@ -288,8 +395,9 @@ function cgFBSelectType(typeId, cardEl) {
             }
         });
     });
-    const submitBtn = form.querySelector('button[type="submit"]');
-    if (submitBtn) submitBtn.style.display = '';
+    // Canlı üretim: tip seçilir seçilmez çıktıyı yenile
+    const host = form.closest('#cg-form-area') || form.parentElement;
+    if (host && typeof host._cgLiveRun === 'function') host._cgLiveRun();
 }
 
 // ─── GENERATORS Registry ─────────────────────────────────────────────────────
@@ -921,8 +1029,33 @@ const ConfigGenerator = {
             content.innerHTML = `<div class="alert alert-warning"><i class="fas fa-clock me-2"></i>Bu generator henüz tamamlanmadı.</div>`;
             return;
         }
-        content.innerHTML = '<div id="cg-form-area"></div><div id="cg-output-area" class="mt-3"></div>';
+        cgTermPrompt = (typeObj?.label || vendor.label || 'device');
+        content.innerHTML = `
+            <div class="cg-split">
+                <div class="cg-split-form" id="cg-form-area"></div>
+                <div class="cg-split-out">
+                    <div class="cg-term">
+                        <div class="cg-term-hd">
+                            <div class="cg-term-dots"><i></i><i></i><i></i></div>
+                            <div class="cg-term-title">
+                                <span class="cg-live-dot" id="cg-live-dot"></span>${cgEsc(vendor.label)} · ${cgEsc(typeObj?.label || '')}
+                            </div>
+                            <div class="cg-term-acts">
+                                <button type="button" class="cg-term-btn" id="cg-term-copy" onclick="cgCopy()" disabled>
+                                    <i class="fas fa-copy"></i> Kopyala
+                                </button>
+                                <button type="button" class="cg-term-btn" id="cg-term-dl" onclick="cgDownload()" disabled>
+                                    <i class="fas fa-download"></i> .txt
+                                </button>
+                            </div>
+                        </div>
+                        <pre class="cg-term-body" id="cg-term-body"></pre>
+                        <div class="cg-term-warn" id="cg-term-warn" style="display:none"></div>
+                    </div>
+                </div>
+            </div>`;
         const formArea = document.getElementById('cg-form-area');
+        cgShowOutput('', []);
         gen.init(formArea);
         cgPostRender(formArea);
     },
