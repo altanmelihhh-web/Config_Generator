@@ -1274,6 +1274,17 @@ const CG_REGISTRY = {
             { id: 'cos',          cat: 'qos', label: 'QoS / Class-of-Service',       gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.cos },
             { id: 'routepolicy',  cat: 'routing', label: 'Routing Policy + Prefix-List', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.routepolicy },
             { id: 'snmp',         cat: 'mgmt', label: 'SNMP v3',                      gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.snmp },
+            { id: 'system', cat: 'base', label: 'Sistem Temeli (RE0/RE1, NTP, DNS, Syslog)', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.system },
+            { id: 'staticroute', cat: 'routing', label: 'Static Route + Virtual-Router', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.staticroute },
+            { id: 'isis', cat: 'routing', label: 'IS-IS', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.isis },
+            { id: 'ldpadv', cat: 'mpls', label: 'LDP Gelişmiş (Sync / Protection / MD5)', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.ldpadv },
+            { id: 'l2vpn', cat: 'mpls', label: 'L2VPN (L2Circuit / VPLS / EVPN-MPLS)', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.l2vpn },
+            { id: 'protectre', cat: 'secpol', label: 'Protect-RE (lo0 Filtresi)', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.protectre },
+            { id: 'policer', cat: 'qos', label: 'Policer (Rate-Limit)', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.policer },
+            { id: 'bgprr', cat: 'routing', label: 'BGP Route Reflector', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.bgprr },
+            { id: 'cosrewrite', cat: 'qos', label: 'CoS Rewrite Rules', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.cosrewrite },
+            { id: 'gres', cat: 'ha', label: 'GRES / NSR (Çift RE)', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.gres },
+            { id: 'jflow', cat: 'mgmt', label: 'Inline J-Flow (IPFIX / v9)', gen: () => typeof JuniperMX !== 'undefined' && JuniperMX.jflow },
         ]
     },
     'juniper-srx': {

@@ -817,41 +817,61 @@ Juniper.evpnvxlan = {
 // ── Juniper MX: BFD ───────────────────────────────────────────────────────────
 JuniperMX.bfd = {
     label: 'BFD',
+    // Eski surum: 'Neighbor/Local' alanlari yalniz yorum satirina yaziliyordu, OSPF arayuzu (ge-0/0/1.0),
+    // BGP grubu (PEERS) ve statik rota (0.0.0.0/0) sabitti. Sozdizimi: bfd-liveness-detection
+    // (juniper.net: bfd-liveness-detection-edit-protocols-ospf / -bgp / static-edit-routing-options)
     init(container) {
         cgFormBuilder(container, {
-            topic: {
-                icon: 'fas fa-heartbeat',
-                title: 'Juniper MX — BFD',
-                desc: 'Bidirectional Forwarding Detection — OSPF ve BGP için hızlı link failure detection.<br><small>Örn: <code>set protocols ospf area 0 interface ge-0/0/1.0 bfd-liveness-detection minimum-interval 300 multiplier 3</code></small>'
-            },
+            topic: { icon: 'fas fa-heartbeat', title: 'BFD — Bidirectional Forwarding Detection', desc: 'OSPF, BGP veya statik rota için milisaniye düzeyinde bağlantı hatası tespiti. Protokol hello zamanlayıcılarını beklemeden yolu düşürür.' },
+            configTypes: [
+                { id: 'ospf', label: 'OSPF Arayüzü', icon: 'fas fa-project-diagram', desc: 'OSPF komşuluğu için BFD', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'bgp', label: 'BGP Komşusu', icon: 'fas fa-globe', desc: 'eBGP/iBGP oturumu için BFD' },
+                { id: 'static', label: 'Statik Rota', icon: 'fas fa-route', desc: 'Next-hop erişilebilirliği için BFD' }
+            ],
             sections: [
                 {
-                    title: 'BFD Parametreleri',
-                    icon: 'fas fa-heartbeat',
+                    title: 'Hedef', icon: 'fas fa-bullseye', showFor: ['ospf'],
                     fields: [
-                        { name: 'neighbor', why: "BFD oturumu iki uçta da yapılandırılmalıdır; tek taraflı konfig oturumu Down'da bırakır. Adres, üzerinde çalıştığı protokolün (OSPF/BGP) kullandığı komşu adresiyle aynı olmalıdır.", label: 'Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BFD komşu IP adresi' },
-                        { name: 'local_addr', why: 'BFD paketlerinin kaynak adresi. Multihop senaryolarda yanlış kaynak adres karşı tarafta eşleşmez ve oturum sürekli flap ederek üzerindeki protokolü de düşürür.', label: 'Local Address', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Yerel BFD kaynak IP adresi' },
-                        { name: 'min_interval', why: "Çok agresif değerler (ör. 50 ms) kontrol düzlemi yoğunken yanlış pozitif arıza algısına ve protokol flap'ine yol açar. Platformun donanım destekli BFD sunup sunmadığını bilmeden 300 ms altına inmeyin.", label: 'Min Interval (ms)', type: 'text', required: true, placeholder: '300', hint: 'Minimum BFD hello aralığı (ms)' },
-                        { name: 'multiplier', why: 'Algılama süresi = interval × multiplier. Çok düşük değer tek paket kaybında linki down sayar; çok yüksek değer ise BFD kullanmanın amacını ortadan kaldırır.', label: 'Multiplier', type: 'text', required: true, placeholder: '3', hint: 'Kaç hello miss sonrası failure kabul edilsin' },
-                        { name: 'session_mode', why: 'Single-hop doğrudan bağlı komşular içindir; loopback üzerinden kurulan iBGP gibi oturumlarda <b>multihop</b> gerekir. Yanlış mod seçimi oturumun asla Up olmamasıyla sonuçlanır.', label: 'Session Mode', type: 'select', options: [
-                            { value: 'automatic', label: 'automatic', selected: true },
-                            { value: 'multihop', label: 'multihop' }
-                        ]}
+                        { name: 'ospf_area', label: 'OSPF Alanı', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Alan numarası veya noktalı biçim' },
+                        { name: 'ospf_if', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'ge-0/0/1.0', hint: 'Unit dahil' }
+                    ]
+                },
+                {
+                    title: 'Hedef', icon: 'fas fa-bullseye', showFor: ['bgp'],
+                    fields: [
+                        { name: 'bgp_group', label: 'BGP Grubu', type: 'text', validate: 'objname', required: true, placeholder: 'EBGP-PEERS', hint: 'Mevcut grup adı' },
+                        { name: 'bgp_nbr', label: 'Komşu IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.2', hint: 'Grup altındaki komşu' }
+                    ]
+                },
+                {
+                    title: 'Hedef', icon: 'fas fa-bullseye', showFor: ['static'],
+                    fields: [
+                        { name: 'st_prefix', label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '198.51.100.0/24', hint: 'Default için 0.0.0.0/0' },
+                        { name: 'st_nh', label: 'Next-Hop', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', hint: 'BFD bu adresle oturum kurar' }
+                    ]
+                },
+                {
+                    title: 'Zamanlayıcılar', icon: 'fas fa-stopwatch', showFor: ['ospf', 'bgp', 'static'],
+                    fields: [
+                        { name: 'min_interval', why: 'Çok küçük aralık (ör. 50 ms) Routing Engine\'de BFD\'yi işlemci yüküne duyarlı yapar ve yanlış alarm üretir; 300 ms × 3 yaygın ve güvenli bir başlangıçtır.', label: 'Minimum Aralık (ms)', type: 'text', min: 1, max: 255000, required: true, placeholder: '300', hint: 'minimum-interval' },
+                        { name: 'multiplier', label: 'Çarpan', type: 'text', min: 1, max: 255, required: true, placeholder: '3', hint: 'Kaç paket kaybında düşürülür' }
                     ]
                 }
             ],
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
-            const neighbor = cgEsc(data.neighbor || ''), localAddr = cgEsc(data.local_addr || '');
-            const minInterval = cgEsc(data.min_interval || ''), multiplier = cgEsc(data.multiplier || '');
-            const sessionMode = cgEsc(data.session_mode || 'automatic');
+            const t = data._cgtype, mi = cgEsc(data.min_interval || ''), mu = cgEsc(data.multiplier || '');
             let c = '# ========================================\n# Juniper MX — BFD\n# ========================================\n\n';
-            c += '# BFD for OSPF:\n';
-            c += 'set protocols ospf area 0 interface ge-0/0/1.0 bfd-liveness-detection minimum-interval ' + minInterval + ' multiplier ' + multiplier + '\n\n';
-            c += '# BFD for BGP:\n';
-            c += 'set protocols bgp group PEERS bfd-liveness-detection minimum-interval ' + minInterval + ' multiplier ' + multiplier + '\n\n';
-            c += '# Static BFD session (neighbor=' + neighbor + ', local=' + localAddr + ', mode=' + sessionMode + '):\n';
-            c += 'set routing-options static route 0.0.0.0/0 bfd-liveness-detection minimum-interval ' + minInterval + '\n';
+            let base = '';
+            if (t === 'ospf') base = 'set protocols ospf area ' + cgEsc(data.ospf_area || '') + ' interface ' + cgEsc(data.ospf_if || '');
+            else if (t === 'bgp') base = 'set protocols bgp group ' + cgEsc(data.bgp_group || '') + ' neighbor ' + cgEsc(data.bgp_nbr || '');
+            else {
+                const pfx = cgEsc(data.st_prefix || '');
+                c += 'set routing-options static route ' + pfx + ' next-hop ' + cgEsc(data.st_nh || '') + '\n';
+                base = 'set routing-options static route ' + pfx;
+            }
+            c += base + ' bfd-liveness-detection minimum-interval ' + mi + '\n';
+            c += base + ' bfd-liveness-detection multiplier ' + mu + '\n';
             c += '\n# Doğrulama:\n# show bfd session\n# show bfd session detail\n';
             return c;
         });
@@ -876,7 +896,8 @@ JuniperMX.rsvpte = {
                         { name: 'lsp_name', why: "LSP adı yalnızca yerel anlamlıdır ama istatistik, policy ve sorun gidermede tek referansınızdır. Aynı adı iki LSP'de kullanmak ikincisinin birincisini ezmesine neden olur.", label: 'LSP Adı', type: 'text', required: true, placeholder: 'LSP-TO-PE2', hint: 'Label Switched Path adı' },
                         { name: 'destination', why: "Hedef PE'nin router-ID'si olmalıdır; fiziksel arayüz adresi vermek RSVP'nin yolu kuramamasına yol açar. Hedef loopback IGP'de görünmüyorsa LSP Down kalır.", label: 'Destination (Router ID)', type: 'text', required: true, placeholder: '10.255.0.2', hint: 'Hedef PE Router-ID' },
                         { name: 'bandwidth', why: "Ayrılan bant genişliği gerçek trafiği sınırlamaz, sadece CSPF hesabında rezervasyon yapar. Aşırı rezervasyon, kapasitesi olan linklerde bile LSP'nin kurulamamasına neden olur.", label: 'Bandwidth', type: 'text', required: true, placeholder: '100m', hint: 'Bant genişliği (ör: 100m, 1g)' },
-                        { name: 'primary_path', why: 'Adlandırılmış yol, <code>explicit-path</code> ile hop zorlamak veya yedek yolla karşılaştırmak için kullanılır. Yedek yolun birincisiyle aynı fiziksel güzergâhı paylaşmadığından emin olun, yoksa koruma kâğıt üzerinde kalır.', label: 'Primary Path Adı', type: 'text', required: true, placeholder: 'PATH-DIRECT', hint: 'Birincil yol adı' }
+                        { name: 'primary_path', why: 'Adlandırılmış yol, <code>explicit-path</code> ile hop zorlamak veya yedek yolla karşılaştırmak için kullanılır. Yedek yolun birincisiyle aynı fiziksel güzergâhı paylaşmadığından emin olun, yoksa koruma kâğıt üzerinde kalır.', label: 'Primary Path Adı', type: 'text', required: true, placeholder: 'PATH-DIRECT', hint: 'Birincil yol adı' },
+                        { name: 'te_ifaces', why: 'RSVP ve MPLS, LSP\'nin geçtiği her core arayüzünde etkin olmalı; eksik arayüzde LSP kurulmaz.', label: 'Core Arayüzler', type: 'text', validate: 'iface_range', required: true, placeholder: 'ge-0/0/1.0, ge-0/0/2.0', hint: 'Unit dahil, virgülle' }
                     ]
                 }
             ],
@@ -889,8 +910,7 @@ JuniperMX.rsvpte = {
             c += 'set protocols mpls label-switched-path ' + lspName + ' bandwidth ' + bandwidth + '\n';
             c += 'set protocols mpls label-switched-path ' + lspName + ' primary ' + primaryPath + '\n';
             c += 'set protocols mpls path ' + primaryPath + ' ' + destination + ' strict\n';
-            c += 'set protocols rsvp interface ge-0/0/1.0\n';
-            c += 'set protocols mpls interface ge-0/0/1.0\n';
+            cgJnpList(data.te_ifaces).map(cgEsc).forEach(i => { c += 'set protocols rsvp interface ' + i + '\nset protocols mpls interface ' + i + '\n'; });
             c += '\n# Doğrulama:\n# show mpls lsp\n# show rsvp session\n';
             return c;
         });
@@ -913,6 +933,8 @@ JuniperMX.cos = {
                     icon: 'fas fa-tachometer-alt',
                     fields: [
                         { name: 'forwarding_class', why: "Trafik sınıfı bir kuyruğa eşlenir. JunOS'un varsayılan <b>network-control</b> sınıfı protokol paketlerinin tıkanmada düşmesini önler — yeni şema yazarken onu ezmek OSPF/BGP flap'ine yol açar.", label: 'Forwarding Class Adı', type: 'text', required: true, placeholder: 'voice', hint: 'Trafik sınıfı adı (ör: voice, video, best-effort)' },
+                        { name: 'queue_num', why: 'Kuyruk numarası platformdaki kuyruk sayısıyla sınırlıdır (MX: 0-7); aynı kuyruğa iki sınıf atanırsa önceliklendirme kaybolur.', label: 'Kuyruk No', type: 'text', min: 0, max: 7, required: true, placeholder: '5', hint: 'queue-num' },
+                        { name: 'classifier', label: 'DSCP Sınıflandırıcı Adı', type: 'text', validate: 'objname', required: true, placeholder: 'DSCP-CLASSIFIER', hint: 'Arayüze bağlanacak classifier adı' },
                         { name: 'scheduler_map_name', why: 'Scheduler map arayüze uygulanmadıkça QoS hiçbir şey yapmaz; uygulama <code>class-of-service interfaces</code> altında yapılır. Yanlış arayüze bağlanan map sessizce etkisiz kalır.', label: 'Scheduler Map Adı', type: 'text', required: true, placeholder: 'SCH-MAP-EDGE', hint: 'Scheduler map adı' },
                         { name: 'shaping_rate', why: 'Şekillendirme, hattın gerçek kapasitesinin biraz altına ayarlanmalıdır; aksi halde kuyruk sizde değil sağlayıcıda oluşur ve önceliklendirme tamamen anlamsızlaşır.', label: 'Shaping Rate', type: 'text', required: true, placeholder: '100m', hint: 'Maksimum şekillendirme hızı (ör: 100m, 1g)' },
                         { name: 'priority', why: 'Strict-high kuyruk yukarıdan sınırlandırılmazsa diğer tüm sınıfları aç bırakabilir. Sesi strict-high yaparken mutlaka bir transmit-rate veya shaping sınırı koyun.', label: 'Priority', type: 'select', options: [
@@ -931,8 +953,8 @@ JuniperMX.cos = {
             const shapingRate = cgEsc(data.shaping_rate || ''), priority = cgEsc(data.priority || 'high');
             const dscpMatch = cgEsc(data.dscp_match || '');
             let c = '# ========================================\n# Juniper MX — QoS / Class-of-Service\n# ========================================\n\n';
-            c += 'set class-of-service forwarding-classes class ' + forwardingClass + ' queue-num 5\n';
-            c += 'set class-of-service classifiers dscp DSCP-CLASSIFIER forwarding-class ' + forwardingClass + ' loss-priority low code-points ' + dscpMatch + '\n';
+            c += 'set class-of-service forwarding-classes class ' + forwardingClass + ' queue-num ' + cgEsc(data.queue_num || '') + '\n';
+            c += 'set class-of-service classifiers dscp ' + cgEsc(data.classifier || '') + ' forwarding-class ' + forwardingClass + ' loss-priority low code-points ' + dscpMatch + '\n';
             c += 'set class-of-service schedulers SCH-' + forwardingClass + ' priority ' + priority + ' shaping-rate ' + shapingRate + '\n';
             c += 'set class-of-service scheduler-maps ' + schedulerMapName + ' forwarding-class ' + forwardingClass + ' scheduler SCH-' + forwardingClass + '\n';
             c += '\n# Doğrulama:\n# show class-of-service interface\n# show class-of-service classifier\n';
@@ -2246,6 +2268,997 @@ Juniper.igmp = {
                 });
             }
             c += '\n# Doğrulama:\n# show igmp snooping membership\n# show igmp snooping interface\n# show igmp snooping statistics\n';
+            return c;
+        });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Juniper MX (PE / servis sağlayıcı) — ek araçlar
+// Canlı envanterde MX yok: tüm sözdizimi juniper.net resmi dokümanından doğrulandı
+// (her aracın başındaki URL'ler). Araştırma notu: inventory/notes/arastirma-juniper-mx.md
+// ═════════════════════════════════════════════════════════════════════════════
+
+function cgMxHdr(t) {
+    return '# ========================================\n# Juniper MX — ' + t + '\n# ========================================\n\n';
+}
+const CG_MX_IPRE = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+const CG_MX_CIDRRE = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/;
+// Listeyi ayırır; biçime uymayanları UYARI satırına toplar.
+function cgMxSplit(s, re, what) {
+    const all = cgJnpList(s).map(cgEsc);
+    const ok = all.filter(x => re.test(x)), bad = all.filter(x => !re.test(x));
+    return { ok, warn: bad.length ? '# UYARI: geçersiz ' + what + ' atlandı: ' + bad.join(', ') + '\n' : '' };
+}
+
+// ── Juniper MX: Sistem Temeli (RE0/RE1, mgmt_junos, NTP, DNS, Syslog) ─────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/junos-overview/topics/task/routing-engine-dual-initial-configuration.html
+//   (groups re0|re1 system host-name, groups re0|re1 interfaces fxp0 unit 0 family inet address, apply-groups [ re0 re1 ])
+//   + https://www.juniper.net/documentation/us/en/software/junos/junos-getting-started/topics/topic-map/management-interface-in-non-default-instance.html
+//   (system management-instance, routing-instances mgmt_junos routing-options static route,
+//    system ntp server … routing-instance mgmt_junos, system syslog host … routing-instance mgmt_junos)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/ntp-edit-system.html
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/domain-name-edit-system.html
+JuniperMX.system = {
+    label: 'Sistem Temeli (RE0/RE1, NTP, DNS, Syslog)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-server',
+                title: 'Juniper MX — Sistem Temeli',
+                desc: 'Tek veya çift Routing Engine için hostname + fxp0 yönetim adresi (<code>groups re0/re1</code>), isteğe bağlı <code>mgmt_junos</code> yönetim instance\'ı, NTP, DNS ve uzak syslog.<br><small>Örn: <code>set groups re0 system host-name MX-PE1-RE0</code> &nbsp;|&nbsp; <code>set apply-groups [ re0 re1 ]</code></small>'
+            },
+            configTypes: [
+                { id: 'dual', label: 'Çift RE', icon: 'fas fa-clone', desc: 'groups re0 / re1 + apply-groups', badge: { text: 'MX240/480/960', cls: 'recommended' } },
+                { id: 'single', label: 'Tek RE', icon: 'fas fa-square', desc: 'Doğrudan system host-name', badge: { text: 'MX204/MX104', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Hostname & fxp0',
+                    icon: 'fas fa-id-card',
+                    fields: [
+                        { name: 'hn0', label: 'Hostname (RE0 / tek RE)', type: 'text', validate: 'hostname', required: true, placeholder: 'MX-PE1-RE0', hint: 'Çift RE\'de slot 0 RE adı', why: 'Çift RE\'de hostname <code>groups re0</code> içine yazılır; böylece tek config dosyası iki RE\'de de kullanılır ve hangi RE\'ye bağlı olduğunuz prompt\'tan anlaşılır.' },
+                        { name: 'fxp0', label: 'fxp0 Adresi (RE0 / tek RE)', type: 'text', validate: 'cidr', required: true, placeholder: '10.64.0.11/24', hint: 'Adres/prefix — out-of-band yönetim', why: 'fxp0 RE\'ye aittir; her RE\'nin kendi fxp0 adresi olmalıdır. Aynı adresi iki RE\'ye vermek switchover sonrası ARP çakışmasına yol açar.' },
+                        { name: 'hn1', label: 'Hostname (RE1)', type: 'text', validate: 'hostname', requiredIf: { field: '_cgtype', in: ['dual'] }, placeholder: 'MX-PE1-RE1', hint: 'Slot 1 RE adı', why: 'Yedek RE\'ye ayrı ad vermek, switchover sonrası hangi RE\'de olduğunuzu ve logların hangi RE\'den geldiğini ayırt etmenizi sağlar.' },
+                        { name: 'fxp1', label: 'fxp0 Adresi (RE1)', type: 'text', validate: 'cidr', requiredIf: { field: '_cgtype', in: ['dual'] }, placeholder: '10.64.0.12/24', hint: 'RE1\'in fxp0 adresi (RE0\'dan farklı)', why: 'Yedek RE\'ye de erişebilmek (ör. yükseltme, konsolsuz kurtarma) için kendi yönetim adresi gerekir.' }
+                    ]
+                },
+                {
+                    title: 'Yönetim Instance (mgmt_junos)',
+                    icon: 'fas fa-door-closed',
+                    warn: 'management-instance commit edildiğinde fxp0 ayrı tabloya taşınır; fxp0 üzerinden bağlıysanız oturum kopabilir. <code>commit confirmed 5</code> kullanın.',
+                    fields: [
+                        { name: 'mgmt_inst', label: 'fxp0\'ı mgmt_junos instance\'ına al', type: 'checkbox', why: 'Yönetim trafiği inet.0\'dan ayrılır; müşteri/transit rotaları yönetim erişimini etkilemez ve yönetim rotaları BGP/IGP\'ye sızmaz.' },
+                        { name: 'mgmt_gw', label: 'Yönetim Ağ Geçidi', type: 'text', validate: 'ip', requiredIf: { field: 'mgmt_inst', checked: true }, placeholder: '10.64.0.1', hint: 'mgmt_junos içinde 0.0.0.0/0 next-hop', why: 'mgmt_junos kendi tablosunu kullanır; varsayılan rota eklenmezse fxp0 yalnız kendi subnet\'ine ulaşır.' }
+                    ]
+                },
+                {
+                    title: 'NTP / DNS / Saat',
+                    icon: 'fas fa-clock',
+                    fields: [
+                        { name: 'ntp_a', label: 'NTP Sunucu 1', type: 'text', validate: 'ip', placeholder: '192.0.2.10', hint: 'prefer olarak yazılır', why: 'Saat kayarsa syslog/olay korelasyonu ve commit geçmişi yanıltıcı olur; sertifika tabanlı servisler de reddedilebilir.' },
+                        { name: 'ntp_b', label: 'NTP Sunucu 2', type: 'text', validate: 'ip', placeholder: '192.0.2.11', hint: 'Yedek', why: 'Tek NTP kaynağı tekil arıza noktasıdır.' },
+                        { name: 'dns_a', label: 'DNS Sunucu', type: 'text', validate: 'ip', placeholder: '192.0.2.53', hint: 'name-server', why: 'Ulaşılamayan DNS, CLI\'de ad çözümlemesi yapan komutları zaman aşımı kadar yavaşlatır.' },
+                        { name: 'dom', label: 'Domain Adı', type: 'text', validate: 'hostname', placeholder: 'example.net', hint: 'domain-name', why: 'Kısa adlar bu alan adıyla tamamlanır.' },
+                        { name: 'tzone', label: 'Saat Dilimi', type: 'text', placeholder: 'UTC', hint: 'Ör. UTC, Europe/Istanbul', why: 'Servis sağlayıcı ağlarında tüm cihazlarda aynı dilim (genelde UTC) olay korelasyonunu kolaylaştırır.' }
+                    ]
+                },
+                {
+                    title: 'Uzak Syslog',
+                    icon: 'fas fa-file-alt',
+                    fields: [
+                        { name: 'sl_host', label: 'Syslog Sunucusu', type: 'text', validate: 'ip', placeholder: '192.0.2.20', hint: 'syslog host', why: 'RE arızası veya yeniden başlatma sonrası yerel log dosyaları dönebilir; olay incelemesi için merkezi kopya gerekir.' },
+                        { name: 'sl_sev', label: 'Seviye', type: 'select', options: cgJnpSev('notice'), why: '<code>any any</code> çok gürültülüdür; <code>notice</code> protokol düşüşlerini ve commit\'leri yakalar.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const dual = (data._cgtype || 'dual') === 'dual';
+            const hn0 = cgEsc(data.hn0 || ''), f0 = cgEsc(data.fxp0 || ''), hn1 = cgEsc(data.hn1 || ''), f1 = cgEsc(data.fxp1 || '');
+            const mi = !!data.mgmt_inst, gw = cgEsc(data.mgmt_gw || '');
+            const RI = mi ? ' routing-instance mgmt_junos' : '';
+            let c = cgMxHdr('Sistem Temeli');
+            if (dual) {
+                c += '# RE\'ye özel ayarlar (tek config, iki RE)\n';
+                c += 'set groups re0 system host-name ' + hn0 + '\n';
+                c += 'set groups re0 interfaces fxp0 unit 0 family inet address ' + f0 + '\n';
+                if (hn1) c += 'set groups re1 system host-name ' + hn1 + '\n';
+                if (f1) c += 'set groups re1 interfaces fxp0 unit 0 family inet address ' + f1 + '\n';
+                if (f1 && f1 === f0) c += '# UYARI: RE0 ve RE1 fxp0 adresi aynı olmamalı.\n';
+                c += 'set apply-groups [ re0 re1 ]\n';
+            } else {
+                c += 'set system host-name ' + hn0 + '\n';
+                c += 'set interfaces fxp0 unit 0 family inet address ' + f0 + '\n';
+            }
+            if (mi) {
+                c += '\n# Yönetim instance (commit confirmed önerilir)\n';
+                c += 'set system management-instance\n';
+                if (gw) c += 'set routing-instances mgmt_junos routing-options static route 0.0.0.0/0 next-hop ' + gw + '\n';
+            }
+            const na = cgEsc(data.ntp_a || ''), nb = cgEsc(data.ntp_b || '');
+            if (na || nb) c += '\n# NTP\n';
+            if (na) c += 'set system ntp server ' + na + ' prefer\n';
+            if (nb) c += 'set system ntp server ' + nb + '\n';
+            if (mi) [na, nb].filter(Boolean).forEach(s => c += 'set system ntp server ' + s + RI + '\n');
+            const dns = cgEsc(data.dns_a || ''), dom = cgEsc(data.dom || ''), tz = cgEsc(data.tzone || '');
+            if (dns || dom || tz) c += '\n# DNS / saat dilimi\n';
+            if (dns) c += 'set system name-server ' + dns + '\n';
+            if (dom) c += 'set system domain-name ' + dom + '\n';
+            if (tz) c += 'set system time-zone ' + tz + '\n';
+            const sh = cgEsc(data.sl_host || ''), sev = cgEsc(data.sl_sev || 'notice');
+            if (sh) {
+                c += '\n# Uzak syslog\n';
+                c += 'set system syslog host ' + sh + ' any ' + sev + '\n';
+                if (mi) c += 'set system syslog host ' + sh + RI + '\n';
+            }
+            c += '\n# Doğrulama:\n# show chassis routing-engine\n# show interfaces fxp0 terse\n';
+            if (mi) c += '# show route table mgmt_junos.inet.0\n';
+            if (na || nb) c += '# show ntp associations\n';
+            if (dual) c += '# show configuration groups\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper MX: Static Route + Virtual-Router ─────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/static-routing/topics/ref/statement/static-edit-routing-options.html
+//   (route … next-hop | discard | reject, preference, qualified-next-hop … preference, no-readvertise, resolve;
+//    [edit routing-instances X routing-options] hiyerarşisi)
+//   + https://www.juniper.net/documentation/us/en/software/junos/static-routing/topics/topic-map/static-route-prefer-qualified-next-hop.html
+//   + https://www.juniper.net/documentation/us/en/software/junos/vpn-l2/topics/concept/vpns-configuring-virtual-router-routing-instances-in-vpns.html
+//   (instance-type virtual-router, interface)
+JuniperMX.staticroute = {
+    label: 'Static Route + Virtual-Router',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'Juniper MX — Static Route + Virtual-Router',
+                desc: 'Global tabloda (inet.0) veya bir <b>virtual-router</b> routing-instance\'ında statik rota; yedek next-hop (qualified-next-hop), discard/reject.<br><small>Örn: <code>set routing-instances VR-MGMT instance-type virtual-router</code> &nbsp;|&nbsp; <code>set routing-instances VR-MGMT routing-options static route 0.0.0.0/0 next-hop 10.128.0.1</code></small>'
+            },
+            configTypes: [
+                { id: 'global', label: 'Global (inet.0)', icon: 'fas fa-globe', desc: 'routing-options static', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'vr', label: 'Virtual-Router', icon: 'fas fa-layer-group', desc: 'Ayrı tablo, RD/RT yok', badge: { text: 'VRF-lite', cls: 'advanced' } }
+            ],
+            sections: [
+                {
+                    title: 'Virtual-Router',
+                    icon: 'fas fa-layer-group',
+                    showFor: ['vr'],
+                    info: 'virtual-router MPLS/BGP-VPN gerektirmez; RD ve vrf-target yazılmaz. PE-CE VPN için L3VPN aracını kullanın.',
+                    fields: [
+                        { name: 'vr_name', label: 'Instance Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['vr'] }, placeholder: 'VR-MGMT', hint: 'routing-instances adı', why: 'Her virtual-router ayrı bir yönlendirme tablosu (<code>AD.inet.0</code>) açar; aynı adı iki kez kullanmak instance\'ları birleştirir.' },
+                        { name: 'vr_ifs', label: 'Instance Arayüzleri', type: 'text', requiredIf: { field: '_cgtype', in: ['vr'] }, placeholder: 'ge-0/0/5.0, ge-0/0/6.0', hint: 'Unit ile, virgülle', why: 'Bir logical unit yalnız bir instance\'a ait olabilir; instance\'a alınan arayüz global tablodan çıkar.' }
+                    ]
+                },
+                {
+                    title: 'Rota',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'prefix', label: 'Hedef Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.240.0.0/16', hint: 'Default için 0.0.0.0/0', why: 'En uzun eşleşme kazanır: dar prefix aynı aralıktaki geniş rotayı o aralık için ezer.' },
+                        { name: 'rtype', label: 'Rota Tipi', type: 'select', options: [
+                            { value: 'nh', label: 'next-hop', selected: true },
+                            { value: 'discard', label: 'discard (sessizce düşür)' },
+                            { value: 'reject', label: 'reject (ICMP unreachable)' }
+                        ], why: '<code>discard</code> özet (aggregate) rotalarda döngüyü önler ve ICMP üretmez; <code>reject</code> kaynağa unreachable döner — dış dünyaya açık prefix\'te ICMP yükü oluşturabilir.' },
+                        { name: 'nhop', label: 'Next-Hop', type: 'text', validate: 'ip', requiredIf: { field: 'rtype', in: ['nh'] }, placeholder: '10.128.0.1', hint: 'Doğrudan bağlı subnet içinde', why: 'Next-hop doğrudan bağlı değilse rota <b>hidden</b> kalır (<code>show route hidden</code>); uzak next-hop için <code>resolve</code> gerekir.' },
+                        { name: 'rpref', label: 'Preference', type: 'text', min: 0, max: 4294967295, placeholder: '5', hint: 'Statik varsayılan 5; düşük kazanır', why: 'Aynı prefix OSPF (10) / IS-IS (15/18) / BGP (170) ile de öğreniliyorsa kazananı preference belirler.' },
+                        { name: 'qnh', label: 'Yedek Next-Hop (qualified)', type: 'text', validate: 'ip', placeholder: '10.128.1.1', hint: 'Birincil düşünce kullanılır', why: 'Yalnız birincil next-hop erişilemez olduğunda (arayüz düşmesi) devreye girer; uzak arızayı yakalamak için BFD gerekir.' },
+                        { name: 'qpref', label: 'Yedek Preference', type: 'text', min: 0, max: 4294967295, placeholder: '10', hint: 'Birincilden BÜYÜK olmalı', why: 'Yedeğin preference\'ı birincilden küçük/eşitse trafik yedekten akar veya iki hat arasında bölünür.' },
+                        { name: 'noreadv', label: 'Diğer protokollere dağıtma (no-readvertise)', type: 'checkbox', why: 'Geniş bir export policy (from protocol static) yüzünden rotanın IGP/BGP\'ye sızmasını engeller.' },
+                        { name: 'resolv', label: 'Next-hop\'u özyinelemeli çöz (resolve)', type: 'checkbox', why: 'Doğrudan bağlı olmayan (ör. loopback) next-hop\'lar için gerekir; aksi halde rota hidden kalır.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const vr = (data._cgtype || 'global') === 'vr';
+            const vn = cgEsc(data.vr_name || ''), p = cgEsc(data.prefix || ''), rt = cgEsc(data.rtype || 'nh');
+            const nh = cgEsc(data.nhop || ''), pref = cgEsc(data.rpref || ''), q = cgEsc(data.qnh || ''), qp = cgEsc(data.qpref || '');
+            const base = (vr ? 'set routing-instances ' + vn + ' ' : 'set ') + 'routing-options static route ' + p;
+            let c = cgMxHdr(vr ? 'Virtual-Router + Static Route' : 'Static Route');
+            if (vr) {
+                c += 'set routing-instances ' + vn + ' instance-type virtual-router\n';
+                cgJnpList(data.vr_ifs).map(cgEsc).forEach(i => c += 'set routing-instances ' + vn + ' interface ' + i + '\n');
+                c += '\n';
+            }
+            if (rt === 'nh') { if (nh) c += base + ' next-hop ' + nh + '\n'; }
+            else c += base + ' ' + rt + '\n';
+            if (pref) c += base + ' preference ' + pref + '\n';
+            if (q) {
+                if (rt !== 'nh') c += '# NOT: qualified-next-hop yalnız next-hop tipinde yazılır; atlandı.\n';
+                else {
+                    if (qp && pref && +qp <= +pref) c += '# UYARI: yedek preference (' + qp + ') birincilden (' + pref + ') büyük değil.\n';
+                    c += base + ' qualified-next-hop ' + q + (qp ? ' preference ' + qp : '') + '\n';
+                }
+            }
+            if (data.noreadv) c += base + ' no-readvertise\n';
+            if (data.resolv && rt === 'nh') c += base + ' resolve\n';
+            c += '\n# Doğrulama:\n# show route ' + p + ' exact detail' + (vr ? ' table ' + vn + '.inet.0' : '') + '\n';
+            c += vr ? '# show route instance ' + vn + ' detail\n' : '# show route protocol static\n';
+            c += '# show route hidden\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper MX: IS-IS ─────────────────────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/is-is/topics/example/isis-traffic-engineering.html
+//   (family iso, lo0 unit 0 family iso address, isis interface … level 1 disable, interface lo0.0)
+//   + https://www.juniper.net/documentation/us/en/software/junos/is-is/topics/example/isis-wide-metrics.html (level N wide-metrics-only, interface … level N metric)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/interface-edit-protocols-isis.html (point-to-point, passive, ldp-synchronization)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/level-edit-protocols-isis.html (authentication-key, authentication-type)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/overload-edit-protocols-isis.html (overload timeout 60-1800)
+JuniperMX.isis = {
+    label: 'IS-IS',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'Juniper MX — IS-IS',
+                desc: 'Servis sağlayıcı çekirdeğinde IGP: NET adresi, <code>family iso</code>, seviye seçimi, point-to-point, wide-metrics, alan kimlik doğrulaması ve overload.<br><small>Örn: <code>set interfaces lo0 unit 0 family iso address 49.0001.1920.0000.2001.00</code> &nbsp;|&nbsp; <code>set protocols isis interface xe-0/0/0.0 level 1 disable</code></small>'
+            },
+            sections: [
+                {
+                    title: 'Kimlik & Seviye',
+                    icon: 'fas fa-id-badge',
+                    fields: [
+                        { name: 'net', label: 'NET (ISO Adresi)', type: 'text', required: true, placeholder: '49.0001.1920.0000.2001.00', hint: 'Alan.SystemID.00 — sonu .00 (NSEL)', why: 'System-ID (6 bayt) ağda benzersiz olmalıdır; genelde loopback IP\'sinden türetilir (192.0.2.1 → 1920.0000.2001). Aynı System-ID iki cihazda LSP çakışması ve sürekli yeniden hesaplama doğurur.' },
+                        { name: 'lvl', label: 'Seviye', type: 'select', options: [
+                            { value: '2', label: 'Yalnız Level 2 (çekirdek)', selected: true },
+                            { value: '1', label: 'Yalnız Level 1' },
+                            { value: '12', label: 'Level 1 + 2' }
+                        ], why: 'Düz (tek alanlı) SP çekirdeğinde L2-only yaygındır; gereksiz L1 komşulukları ek LSP veritabanı ve hesaplama yükü getirir.' }
+                    ]
+                },
+                {
+                    title: 'Arayüzler',
+                    icon: 'fas fa-ethernet',
+                    fields: [
+                        { name: 'isis_ifs', label: 'Core Arayüzleri', type: 'text', required: true, placeholder: 'xe-0/0/0.0, xe-0/0/1.0', hint: 'Unit ile, virgülle (lo0.0 otomatik eklenir)', why: 'Arayüzde <code>family iso</code> yoksa IS-IS hello gönderilmez ve komşuluk hiç kurulmaz — commit hata vermez.' },
+                        { name: 'p2p', label: 'point-to-point', type: 'checkbox', checked: true, why: 'Ethernet varsayılan olarak broadcast (DIS seçimi + CSNP) çalışır; iki uçlu linkte p2p daha hızlı yakınsar. İki uçta aynı olmalı.' },
+                        { name: 'imetric', label: 'Arayüz Metriği', type: 'text', min: 1, max: 16777215, placeholder: '100', hint: 'Seçili seviye(ler)e yazılır', why: 'Junos varsayılan metrik 10\'dur; link hızına göre metrik vermezseniz 1G ve 100G yollar eşit görünür. 63 üstü metrik için wide-metrics gerekir.' },
+                        { name: 'ldpsync', label: 'LDP senkronizasyonu (ldp-synchronization)', type: 'checkbox', why: 'LDP oturumu kurulana kadar link maksimum metrikle ilan edilir; IGP\'nin etiketsiz yola trafik çekip L3VPN/L2VPN trafiğini kara deliğe atmasını önler.' }
+                    ]
+                },
+                {
+                    title: 'Seçenekler',
+                    icon: 'fas fa-sliders-h',
+                    fields: [
+                        { name: 'wide', label: 'wide-metrics-only', type: 'checkbox', checked: true, why: 'Dar metrikler 63 ile sınırlıdır ve TE bilgisi taşınmaz. Karışık ağda tüm cihazlar wide destekliyor olmalıdır.' },
+                        { name: 'akey', label: 'Kimlik Doğrulama Anahtarı', type: 'text', placeholder: 'IsisKey2026', hint: 'Seçili seviye(ler) için LSP/hello auth', why: 'Kimlik doğrulama olmadan ağa bağlanan herhangi bir cihaz LSP enjekte edip tüm yönlendirmeyi bozabilir. Anahtar tüm komşularda aynı olmalı.' },
+                        { name: 'atype', label: 'Auth Tipi', type: 'select', options: [
+                            { value: 'md5', label: 'md5', selected: true },
+                            { value: 'simple', label: 'simple (düz metin)' }
+                        ], why: '<code>simple</code> anahtarı paket içinde düz metin taşır; yalnız eski cihaz uyumu için.' },
+                        { name: 'ovl', label: 'Overload Timeout (sn)', type: 'text', min: 60, max: 1800, placeholder: '300', hint: 'Açılışta transit trafiği bu süre uzak tut', why: 'Yeniden başlayan router, BGP tam yakınsamadan transit trafik çekerse kara delik oluşur; overload biti açılışta onu transit yol olmaktan çıkarır.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const net = cgEsc(data.net || ''), lvl = cgEsc(data.lvl || '2');
+            const ifs = cgJnpList(data.isis_ifs).map(cgEsc).filter(i => i !== 'lo0.0');
+            const lv = lvl === '12' ? ['1', '2'] : [lvl];
+            const met = cgEsc(data.imetric || ''), key = cgEsc(cgJnpTxt(data.akey)), at = cgEsc(data.atype || 'md5'), ovl = cgEsc(data.ovl || '');
+            const I = 'set protocols isis interface ';
+            let c = cgMxHdr('IS-IS');
+            if (net && !/^[0-9a-f]{2}(\.[0-9a-f]{4}){4,}\.00$/i.test(net)) c += '# UYARI: NET biçimi beklenen gibi değil (ör. 49.0001.1920.0000.2001.00, sonu .00).\n';
+            c += 'set interfaces lo0 unit 0 family iso address ' + net + '\n';
+            ifs.forEach(i => { const [p, u] = cgJnpIfUnit(i); c += 'set interfaces ' + p + ' unit ' + u + ' family iso\n'; });
+            c += '\n';
+            ifs.forEach(i => {
+                c += I + i + '\n';
+                if (data.p2p) c += I + i + ' point-to-point\n';
+                if (lvl === '2') c += I + i + ' level 1 disable\n';
+                if (lvl === '1') c += I + i + ' level 2 disable\n';
+                if (met) lv.forEach(l => c += I + i + ' level ' + l + ' metric ' + met + '\n');
+                if (data.ldpsync) c += I + i + ' ldp-synchronization\n';
+            });
+            c += I + 'lo0.0 passive\n';
+            if (data.wide) lv.forEach(l => c += 'set protocols isis level ' + l + ' wide-metrics-only\n');
+            else if (met && +met > 63) c += '# UYARI: 63 üstü metrik için wide-metrics-only gerekir.\n';
+            if (key) lv.forEach(l => {
+                c += 'set protocols isis level ' + l + ' authentication-key "' + key + '"\n';
+                c += 'set protocols isis level ' + l + ' authentication-type ' + at + '\n';
+            });
+            if (ovl) c += 'set protocols isis overload timeout ' + ovl + '\n';
+            if (data.ldpsync) c += '# NOT: ldp-synchronization yalnız point-to-point arayüzlerde çalışır; LDP bu arayüzlerde açık olmalı.\n';
+            c += '\n# Doğrulama:\n# show isis adjacency\n# show isis interface\n# show isis database\n# show route protocol isis\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper MX: LDP Gelişmiş ──────────────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/mpls/topics/ref/statement/ldp-edit-protocols.html
+//   (track-igp-metric, session-protection { timeout }, explicit-null, igp-synchronization { holddown-interval }, interface)
+//   + https://www.juniper.net/documentation/us/en/software/junos/mpls/topics/topic-map/ldp-configuration.html
+//   (session-group <prefix> authentication-key; IGP tarafında ldp-synchronization { hold-time })
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/interface-edit-protocols-isis.html (isis interface … ldp-synchronization)
+JuniperMX.ldpadv = {
+    label: 'LDP Gelişmiş (Sync / Protection / MD5)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-random',
+                title: 'Juniper MX — LDP Gelişmiş',
+                desc: 'Temel MPLS/LDP aracının üstüne: LDP-IGP senkronizasyonu, session-protection, IGP metriğini izleme, MD5 oturum doğrulaması ve explicit-null.<br><small>Örn: <code>set protocols ldp session-protection</code> &nbsp;|&nbsp; <code>set protocols isis interface xe-0/0/0.0 ldp-synchronization</code></small>'
+            },
+            sections: [
+                {
+                    title: 'LDP Arayüzleri & IGP Senkronizasyonu',
+                    icon: 'fas fa-sync',
+                    fields: [
+                        { name: 'ldp_ifs', label: 'LDP Arayüzleri', type: 'text', required: true, placeholder: 'xe-0/0/0.0, xe-0/0/1.0', hint: 'Unit ile, virgülle', why: 'LDP ve senkronizasyon yalnız listelenen arayüzlerde çalışır; atlanan core link etiketsiz kalır.' },
+                        { name: 'igp', label: 'IGP (senkronizasyon için)', type: 'select', options: [
+                            { value: 'isis', label: 'IS-IS', selected: true },
+                            { value: 'ospf', label: 'OSPF' },
+                            { value: 'none', label: 'Senkronizasyon yok' }
+                        ], why: 'LDP-IGP senkronizasyonu olmadan link açıldığında IGP trafiği hemen o yola çeker; LDP etiketleri henüz yoksa MPLS VPN trafiği düşer.' },
+                        { name: 'ospf_area', label: 'OSPF Alanı', type: 'text', validate: 'ip', requiredIf: { field: 'igp', in: ['ospf'] }, placeholder: '0.0.0.0', hint: 'Arayüzlerin bulunduğu alan', why: 'OSPF\'te ldp-synchronization alan altındaki arayüze yazılır; yanlış alan yeni (boş) bir arayüz tanımı oluşturur.' },
+                        { name: 'sync_hold', label: 'IGP hold-time (sn)', type: 'text', validate: 'posint', placeholder: '60', hint: 'Boşsa LDP kurulana dek maks. metrik', why: 'Süre verilirse LDP hâlâ kurulmamış olsa bile bu süre sonunda normal metrik ilan edilir.' },
+                        { name: 'hdi', label: 'LDP igp-synchronization holddown-interval (sn)', type: 'text', validate: 'posint', placeholder: '10', hint: 'Varsayılan 10 sn', why: 'LDP oturumu kurulduktan sonra IGP\'ye haber vermeden önce etiket değişiminin bitmesi için beklenen süre.' }
+                    ]
+                },
+                {
+                    title: 'Oturum Seçenekleri',
+                    icon: 'fas fa-shield-alt',
+                    fields: [
+                        { name: 'track', label: 'track-igp-metric', type: 'checkbox', checked: true, why: 'LDP rotaları varsayılan metrik 1 ile kurulur; IGP metriğini izlemek BGP next-hop seçiminde gerçek yol maliyetinin kullanılmasını sağlar.' },
+                        { name: 'sprot', label: 'session-protection', type: 'checkbox', checked: true, why: 'Link düştüğünde LDP oturumu (targeted hello ile) ayakta kalır; link geri geldiğinde etiketler yeniden öğrenilmez ve yakınsama hızlanır.' },
+                        { name: 'sprot_to', label: 'Protection Timeout (sn)', type: 'text', validate: 'posint', placeholder: '300', hint: 'Boşsa süresiz', why: 'Süresiz koruma, kalıcı olarak kopmuş bir komşunun oturumunu uzun süre açık tutabilir.' },
+                        { name: 'md5_grp', label: 'MD5 Session-Group Prefix', type: 'text', validate: 'cidr', placeholder: '192.0.2.0/24', hint: 'Komşu loopback\'lerini kapsayan prefix', why: 'Doğrulamasız LDP TCP oturumuna sahte etiket eşlemesi enjekte edilebilir. Anahtar iki uçta aynı olmalı; değiştirmek oturumu sıfırlar.' },
+                        { name: 'md5_key', label: 'MD5 Anahtarı', type: 'text', placeholder: 'LdpKey2026', hint: 'Prefix girildiyse zorunlu', why: 'Anahtar config yedeklerinde taşınır; paylaşılan anahtar yerine komşu grubu başına ayrı anahtar tercih edin.' },
+                        { name: 'enull', label: 'explicit-null (UHP)', type: 'checkbox', why: 'Son hop etiket 0 ile ulaşır; EXP (QoS) işareti egress PE\'ye kadar korunur. Kapalıyken PHP ile son etiket bir önceki hop\'ta atılır.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const ifs = cgJnpList(data.ldp_ifs).map(cgEsc), igp = cgEsc(data.igp || 'isis'), area = cgEsc(data.ospf_area || '');
+            const hold = cgEsc(data.sync_hold || ''), hdi = cgEsc(data.hdi || ''), spt = cgEsc(data.sprot_to || '');
+            const grp = cgEsc(data.md5_grp || ''), key = cgEsc(cgJnpTxt(data.md5_key));
+            let c = cgMxHdr('LDP Gelişmiş');
+            ifs.forEach(i => c += 'set protocols ldp interface ' + i + '\n');
+            if (data.track) c += 'set protocols ldp track-igp-metric\n';
+            if (data.sprot) c += 'set protocols ldp session-protection' + (spt ? ' timeout ' + spt : '') + '\n';
+            if (data.enull) c += 'set protocols ldp explicit-null\n';
+            if (grp && key) c += 'set protocols ldp session-group ' + grp + ' authentication-key "' + key + '"\n';
+            else if (grp) c += '# UYARI: MD5 anahtarı boş — session-group yazılmadı.\n';
+            if (igp !== 'none') {
+                c += '\n# LDP-IGP senkronizasyonu\n';
+                if (hdi) c += 'set protocols ldp igp-synchronization holddown-interval ' + hdi + '\n';
+                ifs.forEach(i => {
+                    const b = igp === 'isis' ? 'set protocols isis interface ' + i : (area ? 'set protocols ospf area ' + area + ' interface ' + i : '');
+                    if (!b) return;
+                    c += b + ' ldp-synchronization\n';
+                    if (hold) c += b + ' ldp-synchronization hold-time ' + hold + '\n';
+                });
+                c += '# NOT: senkronizasyon yalnız point-to-point arayüzlerde desteklenir.\n';
+            }
+            c += '\n# Doğrulama:\n# show ldp session detail\n# show ldp neighbor\n# show ldp interface extensive\n';
+            if (igp === 'isis') c += '# show isis interface detail\n';
+            if (igp === 'ospf') c += '# show ospf interface detail\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper MX: L2VPN (L2Circuit / VPLS / EVPN-MPLS) ──────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/vpn-l2/topics/concept/example/hvpls-ldp-configuring.html
+//   (protocols l2circuit neighbor … interface … virtual-circuit-id, instance-type vpls, protocols vpls no-tunnel-services / vpls-id / neighbor)
+//   + https://www.juniper.net/documentation/us/en/software/junos/vpn-l2/topics/topic-map/vpls-interfaces.html
+//   (vlan-tagging, encapsulation flexible-ethernet-services, unit … encapsulation vlan-ccc | vlan-vpls, vlan-id)
+//   + https://www.juniper.net/documentation/us/en/software/junos/evpn/topics/task/evpn-routing-instance-configuring.html
+//   (instance-type evpn, vlan-id, interface, route-distinguisher, vrf-target, protocols evpn interface, CE encapsulation vlan-bridge)
+//   + https://www.juniper.net/documentation/us/en/software/junos/evpn/topics/example/example-evpn-a-s-basic.html
+//   (flexible-vlan-tagging, bgp group … family evpn signaling)
+JuniperMX.l2vpn = {
+    label: 'L2VPN (L2Circuit / VPLS / EVPN-MPLS)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-network-wired',
+                title: 'Juniper MX — L2VPN',
+                desc: 'MPLS üzerinden Katman 2 servis: noktadan noktaya <b>L2Circuit</b> (LDP pseudowire, EoMPLS), çok noktalı <b>VPLS</b> (LDP sinyalli) veya <b>EVPN-MPLS</b> (VLAN-based, tek-bağlı CE).<br><small>Örn: <code>set protocols l2circuit neighbor 192.0.2.2 interface ge-0/0/2.100 virtual-circuit-id 100</code></small>'
+            },
+            configTypes: [
+                { id: 'l2ckt', label: 'L2Circuit', icon: 'fas fa-arrows-alt-h', desc: 'Nokta-nokta pseudowire', badge: { text: 'EoMPLS', cls: 'recommended' } },
+                { id: 'vpls', label: 'VPLS (LDP)', icon: 'fas fa-share-alt', desc: 'Çok noktalı, tam örgü PW', badge: { text: 'Klasik', cls: 'common' } },
+                { id: 'evpn', label: 'EVPN-MPLS', icon: 'fas fa-sitemap', desc: 'BGP kontrol düzlemi, MAC öğrenme', badge: { text: 'Modern', cls: 'advanced' } }
+            ],
+            sections: [
+                {
+                    title: 'CE Arayüzü',
+                    icon: 'fas fa-ethernet',
+                    info: 'Fiziksel port <code>flexible-ethernet-services</code> ile ayarlanır; aynı portta L3 ve L2 servis unit\'leri birlikte yaşayabilir. Unit numarası VLAN ID ile aynı yazılır.',
+                    fields: [
+                        { name: 'ce_if', label: 'CE Fiziksel Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'ge-0/0/2', hint: 'Unit olmadan', why: 'Fiziksel portta VLAN etiketleme ve esnek encapsulation açılmadan unit düzeyinde vlan-ccc/vlan-vpls/vlan-bridge commit edilemez.' },
+                        { name: 'ce_vlan', label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: 'Unit numarası da bu olur', why: 'CE\'nin gönderdiği etiket ile eşleşmelidir; uyuşmazlıkta PW/EVI Up görünür ama trafik geçmez.' }
+                    ]
+                },
+                {
+                    title: 'L2Circuit',
+                    icon: 'fas fa-arrows-alt-h',
+                    showFor: ['l2ckt'],
+                    fields: [
+                        { name: 'l2_peer', label: 'Uzak PE (loopback)', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['l2ckt'] }, placeholder: '192.0.2.2', hint: 'Karşı PE router-ID', why: 'Targeted LDP oturumu bu adrese kurulur; adres IGP\'de /32 olarak görünmüyorsa PW Down kalır.' },
+                        { name: 'l2_vcid', label: 'Virtual-Circuit ID', type: 'text', validate: 'posint', requiredIf: { field: '_cgtype', in: ['l2ckt'] }, placeholder: '100', hint: 'İki uçta aynı', why: 'VC-ID iki PE\'de aynı olmalı ve aynı PE çifti arasında benzersiz olmalıdır.' }
+                    ]
+                },
+                {
+                    title: 'VPLS',
+                    icon: 'fas fa-share-alt',
+                    showFor: ['vpls'],
+                    fields: [
+                        { name: 'vp_name', label: 'Instance Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['vpls'] }, placeholder: 'VPLS-CUST-A', hint: 'routing-instances adı', why: 'Her müşteri için ayrı instance ayrı MAC tablosu demektir.' },
+                        { name: 'vp_id', label: 'VPLS ID', type: 'text', validate: 'posint', requiredIf: { field: '_cgtype', in: ['vpls'] }, placeholder: '200', hint: 'Tüm PE\'lerde aynı', why: 'LDP sinyalli VPLS\'de PE\'ler aynı VPLS ID ile eşleşir; farklı ID ayrı bir yayın alanı oluşturur.' },
+                        { name: 'vp_peers', label: 'Komşu PE\'ler', type: 'text', requiredIf: { field: '_cgtype', in: ['vpls'] }, placeholder: '192.0.2.2, 192.0.2.3', hint: 'Loopback\'ler, virgülle (tam örgü)', why: 'LDP-VPLS\'te otomatik keşif yoktur; eksik yazılan PE ile bağlantı kurulmaz ve yayın alanı bölünür.' },
+                        { name: 'vp_nts', label: 'no-tunnel-services (LSI kullan)', type: 'checkbox', checked: true, why: 'Tunnel servis kartı/PIC yoksa VPLS için LSI arayüzü gerekir; bu satır olmadan instance Up olmayabilir.' }
+                    ]
+                },
+                {
+                    title: 'EVPN-MPLS',
+                    icon: 'fas fa-sitemap',
+                    showFor: ['evpn'],
+                    fields: [
+                        { name: 'ev_name', label: 'EVI Adı', type: 'text', requiredIf: { field: '_cgtype', in: ['evpn'] }, placeholder: 'EVPN-CUST-A', hint: 'routing-instances adı', why: 'EVPN instance ayarları (vlan-id vb.) canlıyken değiştirmek trafiği keser; önce instance deactivate edilmelidir.' },
+                        { name: 'ev_rd', label: 'Route Distinguisher', type: 'text', validate: 'rd', requiredIf: { field: '_cgtype', in: ['evpn'] }, placeholder: '192.0.2.1:100', hint: 'loopback:N önerilir', why: 'Her PE\'de benzersiz RD, RR üzerinden aynı MAC\'in farklı PE yollarının ayrı tutulmasını sağlar. Aynı RD iki instance\'ta commit hatası verir.' },
+                        { name: 'ev_rt', label: 'Route Target', type: 'text', validate: 'rt', requiredIf: { field: '_cgtype', in: ['evpn'] }, placeholder: '65000:100', hint: 'target: öneki otomatik eklenir', why: 'Aynı EVI\'ye ait tüm PE\'lerde aynı olmalıdır; farklı RT MAC rotalarının içe alınmamasına yol açar.' },
+                        { name: 'ev_bgp', label: 'EVPN ailesi eklenecek BGP grubu', type: 'text', placeholder: 'IBGP-RR', hint: 'Boşsa BGP satırı yazılmaz', why: 'iBGP oturumunda <code>family evpn signaling</code> yoksa MAC/IP rotaları hiç taşınmaz. Ailenin eklenmesi oturumu sıfırlar.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'l2ckt';
+            const pif = cgEsc(data.ce_if || ''), vl = cgEsc(data.ce_vlan || ''), lif = pif + '.' + vl;
+            const enc = { l2ckt: 'vlan-ccc', vpls: 'vlan-vpls', evpn: 'vlan-bridge' }[t];
+            let c = cgMxHdr({ l2ckt: 'L2Circuit (LDP pseudowire)', vpls: 'VPLS (LDP sinyalli)', evpn: 'EVPN-MPLS (VLAN-based)' }[t]);
+            c += '# CE arayüzü\n';
+            c += 'set interfaces ' + pif + ' ' + (t === 'evpn' ? 'flexible-vlan-tagging' : 'vlan-tagging') + '\n';
+            c += 'set interfaces ' + pif + ' encapsulation flexible-ethernet-services\n';
+            c += 'set interfaces ' + pif + ' unit ' + vl + ' encapsulation ' + enc + '\n';
+            c += 'set interfaces ' + pif + ' unit ' + vl + ' vlan-id ' + vl + '\n\n';
+            if (t === 'l2ckt') {
+                const peer = cgEsc(data.l2_peer || ''), vc = cgEsc(data.l2_vcid || '');
+                c += 'set protocols l2circuit neighbor ' + peer + ' interface ' + lif + ' virtual-circuit-id ' + vc + '\n';
+                c += 'set protocols ldp interface lo0.0\n';
+                c += '# NOT: targeted LDP için lo0.0 LDP\'de olmalı; karşı PE\'de aynı VC-ID ile ayna config gerekir.\n';
+                c += '\n# Doğrulama:\n# show l2circuit connections\n# show ldp neighbor\n# show ldp database\n';
+            } else if (t === 'vpls') {
+                const n = cgEsc(data.vp_name || ''), id = cgEsc(data.vp_id || '');
+                const pr = cgMxSplit(data.vp_peers, CG_MX_IPRE, 'PE adresi');
+                const R = 'set routing-instances ' + n;
+                c += R + ' instance-type vpls\n';
+                c += R + ' interface ' + lif + '\n';
+                if (data.vp_nts) c += R + ' protocols vpls no-tunnel-services\n';
+                c += R + ' protocols vpls vpls-id ' + id + '\n';
+                pr.ok.forEach(p => c += R + ' protocols vpls neighbor ' + p + '\n');
+                c += pr.warn;
+                c += 'set protocols ldp interface lo0.0\n';
+                c += '# NOT: BGP ve LDP sinyali aynı VPLS instance\'ında birlikte kullanılamaz (commit hatası).\n';
+                c += '\n# Doğrulama:\n# show vpls connections\n# show vpls mac-table instance ' + n + '\n# show ldp neighbor\n';
+            } else {
+                const n = cgEsc(data.ev_name || ''), rd = cgEsc(data.ev_rd || ''), rtIn = cgEsc(data.ev_rt || ''), g = cgEsc(data.ev_bgp || '');
+                const rt = /^auto$/i.test(rtIn) ? 'auto' : (/^target:/i.test(rtIn) ? rtIn : 'target:' + rtIn);
+                const R = 'set routing-instances ' + n;
+                c += R + ' instance-type evpn\n';
+                c += R + ' vlan-id ' + vl + '\n';
+                c += R + ' interface ' + lif + '\n';
+                if (/^auto$/i.test(rd)) c += '# UYARI: route-distinguisher için açık değer (ör. 192.0.2.1:100) girin; "auto" yazılmadı.\n';
+                else c += R + ' route-distinguisher ' + rd + '\n';
+                c += R + ' vrf-target ' + rt + '\n';
+                c += R + ' protocols evpn interface ' + lif + '\n';
+                if (g) c += '\nset protocols bgp group ' + g + ' family evpn signaling\n';
+                c += '# NOT: tek-bağlı CE; çoklu bağlantı (ESI) bu araçta yazılmaz.\n';
+                c += '\n# Doğrulama:\n# show evpn instance ' + n + ' extensive\n# show evpn database instance ' + n + '\n# show route table ' + n + '.evpn.0\n# show bgp summary\n';
+            }
+            return c;
+        });
+    }
+};
+
+// ── Juniper MX: Protect-RE (lo0 filtresi) ─────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/routing-policy/topics/example/routing-stateless-firewall-filter-security-protect-against-tcp-and-icmp-flood-configuring.html
+//   (firewall family inet filter … term … from source-prefix-list / protocol, then policer / count / accept,
+//    firewall policer … if-exceeding bandwidth-limit / burst-size-limit, then discard, interfaces lo0 unit 0 family inet filter input)
+//   + https://www.juniper.net/documentation/us/en/software/junos/routing-policy/bgp/topics/example/firewall-filter-stateless-example-prefix-list.html
+//   (prefix-list … apply-path "protocols bgp group <*> neighbor <*>")
+//   + https://www.juniper.net/documentation/us/en/software/junos/routing-policy/topics/concept/firewall-filter-match-conditions-for-ipv4-traffic.html
+//   (port / destination-port; port adları bgp, ldp, ntp, snmp, ssh)
+JuniperMX.protectre = {
+    label: 'Protect-RE (lo0 Filtresi)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-shield-alt',
+                title: 'Juniper MX — Protect-RE (lo0 Filtresi)',
+                desc: 'Routing Engine\'e giden trafiği (kontrol düzlemi) yalnız gerekli protokol ve kaynaklarla sınırlar; ICMP\'yi policer ile kısar, geri kalanı sayıp düşürür. Cisco CoPP\'nin Junos karşılığı.<br><small>Örn: <code>set policy-options prefix-list BGP-PEERS apply-path "protocols bgp group &lt;*&gt; neighbor &lt;*&gt;"</code> &nbsp;|&nbsp; <code>set interfaces lo0 unit 0 family inet filter input PROTECT-RE</code></small>'
+            },
+            sections: [
+                {
+                    title: 'Filtre & Yönetim Kaynakları',
+                    icon: 'fas fa-filter',
+                    warn: 'Eksik bir term cihaza erişimi veya bir protokolü keser. Mutlaka <code>commit confirmed 5</code> ile uygulayın ve konsol erişimini hazır tutun.',
+                    fields: [
+                        { name: 'fname', label: 'Filtre Adı', type: 'text', required: true, placeholder: 'PROTECT-RE', hint: 'firewall family inet filter adı', why: 'lo0 filtresi tüm arayüzlerden RE\'ye gelen trafiğe uygulanır; aynı adı başka bir amaçla kullanmak iki filtreyi birleştirir.' },
+                        { name: 'mgmt_pl', label: 'Yönetim (SSH) Kaynakları', type: 'text', required: true, placeholder: '192.0.2.0/24, 198.51.100.0/24', hint: 'Prefix listesi, virgülle', why: 'SSH yalnız bu ağlardan kabul edilir. Kendi bağlandığınız ağı unutmak, commit sonrası erişimi keser.' },
+                        { name: 'nms_pl', label: 'SNMP Yöneticileri', type: 'text', placeholder: '192.0.2.30/32', hint: 'Boşsa SNMP term yazılmaz', why: 'SNMP\'yi yalnız NMS\'lere açmak community tahmin saldırılarını ve polling yükünü sınırlar.' }
+                    ]
+                },
+                {
+                    title: 'İzin Verilen Protokoller',
+                    icon: 'fas fa-check-square',
+                    info: 'IS-IS IP paketi olmadığı için inet filtresinden etkilenmez. BGP/NTP kaynakları <code>apply-path</code> ile config\'ten otomatik türetilir (yalnız global instance).',
+                    fields: [
+                        { name: 'p_bgp', label: 'BGP (yalnız tanımlı komşular)', type: 'checkbox', checked: true, why: 'TCP/179 yalnız config\'teki BGP komşularından kabul edilir; yeni komşu eklendiğinde liste kendiliğinden güncellenir.' },
+                        { name: 'p_ospf', label: 'OSPF', type: 'checkbox', why: 'OSPF kullanılıyorsa bu term olmadan komşuluklar düşer.' },
+                        { name: 'p_ldp', label: 'LDP (TCP/UDP 646)', type: 'checkbox', checked: true, why: 'LDP hello (UDP) ve oturum (TCP) 646 portunu kullanır; engellenirse tüm MPLS servisleri durur.' },
+                        { name: 'p_bfd', label: 'BFD (UDP 3784 / 4784)', type: 'checkbox', checked: true, why: 'BFD paketleri düşerse BFD kullanan tüm protokoller aynı anda down olur.' },
+                        { name: 'p_ntp', label: 'NTP (yalnız tanımlı sunucular)', type: 'checkbox', checked: true, why: 'NTP yanıtları yalnız <code>system ntp server</code> listesinden kabul edilir.' },
+                        { name: 'p_icmp', label: 'ICMP (policer ile)', type: 'checkbox', checked: true, why: 'Ping/traceroute sorun giderme için gerekir; policer olmadan ICMP seli RE CPU\'sunu doldurabilir.' },
+                        { name: 'icmp_bw', label: 'ICMP Bant Genişliği', type: 'text', requiredIf: { field: 'p_icmp', checked: true }, placeholder: '1m', hint: 'bps (k/m/g sonekli)', why: 'RE\'ye giden ICMP toplamı bu hızı aşınca fazlası düşer.' },
+                        { name: 'icmp_bs', label: 'ICMP Burst', type: 'text', requiredIf: { field: 'p_icmp', checked: true }, placeholder: '15k', hint: 'bayt', why: 'Çok küçük burst meşru ping serilerini de düşürür.' },
+                        { name: 'apply_lo0', label: 'lo0 unit 0 input\'a uygula', type: 'checkbox', checked: true, why: 'Uygulanmayan filtre hiçbir şey yapmaz; önce hazırlayıp sonra ayrı commit ile uygulamak isterseniz kapatın.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const f = cgEsc(data.fname || '');
+            const mg = cgMxSplit(data.mgmt_pl, CG_MX_CIDRRE, 'prefix'), nm = cgMxSplit(data.nms_pl, CG_MX_CIDRRE, 'prefix');
+            const T = (n, s) => 'set firewall family inet filter ' + f + ' term ' + n + ' ' + s + '\n';
+            let c = cgMxHdr('Protect-RE');
+            c += '# Prefix listeleri\n';
+            mg.ok.forEach(p => c += 'set policy-options prefix-list MGMT-HOSTS ' + p + '\n');
+            c += mg.warn;
+            nm.ok.forEach(p => c += 'set policy-options prefix-list NMS-HOSTS ' + p + '\n');
+            c += nm.warn;
+            if (data.p_bgp) c += 'set policy-options prefix-list BGP-PEERS apply-path "protocols bgp group <*> neighbor <*>"\n';
+            if (data.p_ntp) c += 'set policy-options prefix-list NTP-SERVERS apply-path "system ntp server <*>"\n';
+            c += '\n# Filtre\n';
+            if (data.p_bgp) c += T('BGP', 'from source-prefix-list BGP-PEERS') + T('BGP', 'from protocol tcp') + T('BGP', 'from port bgp') + T('BGP', 'then accept');
+            if (data.p_ospf) c += T('OSPF', 'from protocol ospf') + T('OSPF', 'then accept');
+            if (data.p_ldp) c += T('LDP', 'from protocol tcp') + T('LDP', 'from protocol udp') + T('LDP', 'from port ldp') + T('LDP', 'then accept');
+            if (data.p_bfd) c += T('BFD', 'from protocol udp') + T('BFD', 'from destination-port 3784') + T('BFD', 'from destination-port 4784') + T('BFD', 'then accept');
+            if (mg.ok.length) c += T('SSH', 'from source-prefix-list MGMT-HOSTS') + T('SSH', 'from protocol tcp') + T('SSH', 'from destination-port ssh') + T('SSH', 'then accept');
+            if (nm.ok.length) c += T('SNMP', 'from source-prefix-list NMS-HOSTS') + T('SNMP', 'from protocol udp') + T('SNMP', 'from destination-port snmp') + T('SNMP', 'then accept');
+            if (data.p_ntp) c += T('NTP', 'from source-prefix-list NTP-SERVERS') + T('NTP', 'from protocol udp') + T('NTP', 'from port ntp') + T('NTP', 'then accept');
+            const bw = cgEsc(data.icmp_bw || ''), bs = cgEsc(data.icmp_bs || '');
+            if (data.p_icmp && bw && bs) {
+                c += T('ICMP', 'from protocol icmp') + T('ICMP', 'then policer ICMP-POLICER') + T('ICMP', 'then accept');
+            }
+            c += T('DISCARD-ALL', 'then count ' + f + '-DISCARD') + T('DISCARD-ALL', 'then discard');
+            if (data.p_icmp && bw && bs) {
+                c += '\nset firewall policer ICMP-POLICER if-exceeding bandwidth-limit ' + bw + '\n';
+                c += 'set firewall policer ICMP-POLICER if-exceeding burst-size-limit ' + bs + '\n';
+                c += 'set firewall policer ICMP-POLICER then discard\n';
+            }
+            if (data.apply_lo0) c += '\n# Uygulama (commit confirmed 5 ile)\nset interfaces lo0 unit 0 family inet filter input ' + f + '\n';
+            c += '# NOT: DNS, TACACS/RADIUS, syslog dönüş trafiği ve traceroute için gerekiyorsa ek term yazın; routing-instance\'lardaki BGP komşuları apply-path ile gelmez.\n';
+            c += '\n# Doğrulama:\n# show firewall filter ' + f + '\n# show interfaces filters lo0.0\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper MX: Policer (Rate-Limit) ──────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/routing-policy/topics/topic-map/policer-logical-interface-aggregate.html
+//   (firewall policer … logical-interface-policer, if-exceeding bandwidth-limit / burst-size-limit, then discard | loss-priority high | forwarding-class,
+//    interfaces … unit … family inet policer input|output; three-color-policer … two-rate color-blind,
+//    committed-information-rate / committed-burst-size / peak-information-rate / peak-burst-size, action loss-priority high then discard,
+//    interfaces … unit … layer2-policer input-three-color)
+JuniperMX.policer = {
+    label: 'Policer (Rate-Limit)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-tachometer-alt',
+                title: 'Juniper MX — Policer',
+                desc: 'Müşteri arayüzünde hız sınırlama: tek hızlı iki renkli policer (aş → düşür veya işaretle) ya da iki hızlı üç renkli (trTCM) policer.<br><small>Örn: <code>set firewall policer PL-100M if-exceeding bandwidth-limit 100m</code> &nbsp;|&nbsp; <code>set interfaces ge-0/0/3 unit 0 family inet policer input PL-100M</code></small>'
+            },
+            configTypes: [
+                { id: 'tc', label: 'İki Renkli', icon: 'fas fa-adjust', desc: 'bandwidth-limit + burst', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'trtcm', label: 'Üç Renkli (trTCM)', icon: 'fas fa-traffic-light', desc: 'CIR + PIR', badge: { text: 'SLA', cls: 'advanced' } }
+            ],
+            sections: [
+                {
+                    title: 'Policer',
+                    icon: 'fas fa-tachometer-alt',
+                    fields: [
+                        { name: 'pname', label: 'Policer Adı', type: 'text', required: true, placeholder: 'PL-100M', hint: 'firewall policer adı', why: 'Aynı policer birden çok arayüzde kullanılırsa, logical-interface-policer değilse her uygulama ayrı sayaç açar.' },
+                        { name: 'lifp', label: 'logical-interface-policer', type: 'checkbox', checked: true, why: 'Unit\'teki tüm aileler (inet, inet6, mpls) tek kova paylaşır; kapalıyken her aile ayrı sınırla geçer ve toplam sözleşme hızı aşılır.' }
+                    ]
+                },
+                {
+                    title: 'İki Renkli',
+                    icon: 'fas fa-adjust',
+                    showFor: ['tc'],
+                    fields: [
+                        { name: 'bw', label: 'Bandwidth Limit', type: 'text', requiredIf: { field: '_cgtype', in: ['tc'] }, placeholder: '100m', hint: 'bps (k/m/g)', why: 'Sözleşme hızı. Policer tamponlamaz; aşan paket anında düşer veya işaretlenir, TCP bu yüzden hedef hızın altında kalabilir.' },
+                        { name: 'bs', label: 'Burst Size Limit', type: 'text', requiredIf: { field: '_cgtype', in: ['tc'] }, placeholder: '625k', hint: 'bayt; ~5 ms × hız önerilir', why: 'Çok küçük burst, TCP pencere patlamalarını keser ve efektif hızı ciddi düşürür.' },
+                        { name: 'act', label: 'Aşımda', type: 'select', options: [
+                            { value: 'discard', label: 'discard (düşür)', selected: true },
+                            { value: 'lp', label: 'loss-priority high (işaretle)' }
+                        ], why: 'İşaretlenen trafik tıkanıklıkta ilk düşer; sıkışma yoksa geçer. Sert sözleşme için discard.' },
+                        { name: 'fclass', label: 'Forwarding-Class (işaretlerken)', type: 'text', placeholder: 'best-effort', hint: 'Yalnız "işaretle" seçiliyken', why: 'Aşan trafiği farklı bir kuyruğa taşır; tanımsız sınıf adı commit hatası verir.' }
+                    ]
+                },
+                {
+                    title: 'Üç Renkli (trTCM, color-blind)',
+                    icon: 'fas fa-traffic-light',
+                    showFor: ['trtcm'],
+                    fields: [
+                        { name: 'cir', label: 'CIR', type: 'text', requiredIf: { field: '_cgtype', in: ['trtcm'] }, placeholder: '40m', hint: 'committed-information-rate', why: 'Garanti edilen hız; CIR altı yeşil, CIR–PIR sarı (yüksek düşme önceliği), PIR üstü kırmızı (düşer).' },
+                        { name: 'cbs', label: 'CBS', type: 'text', requiredIf: { field: '_cgtype', in: ['trtcm'] }, placeholder: '100k', hint: 'committed-burst-size', why: 'Yeşil kova derinliği.' },
+                        { name: 'pir', label: 'PIR', type: 'text', requiredIf: { field: '_cgtype', in: ['trtcm'] }, placeholder: '60m', hint: 'peak-information-rate (≥ CIR)', why: 'Tepe hız; bunun üstü düşer.' },
+                        { name: 'pbs', label: 'PBS', type: 'text', requiredIf: { field: '_cgtype', in: ['trtcm'] }, placeholder: '200k', hint: 'peak-burst-size', why: 'Sarı kova derinliği.' }
+                    ]
+                },
+                {
+                    title: 'Uygulama',
+                    icon: 'fas fa-plug',
+                    fields: [
+                        { name: 'pif', label: 'Arayüz (unit ile)', type: 'text', validate: 'iface', required: true, placeholder: 'ge-0/0/3.0', hint: 'Ör. ge-0/0/3.0', why: 'Policer logical unit\'e uygulanır; fiziksel porta tüm unit\'ler için ayrı yöntem gerekir.' },
+                        { name: 'pdir', label: 'Yön', type: 'select', options: [
+                            { value: 'input', label: 'input (müşteriden gelen)', selected: true },
+                            { value: 'output', label: 'output (müşteriye giden)' }
+                        ], why: 'Üç renkli policer bu araçta yalnız input yönde yazılır. Çıkış yönünde sınırlama için shaping (CoS) genelde daha uygundur.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const t = data._cgtype || 'tc', n = cgEsc(data.pname || '');
+            const [p, u] = cgJnpIfUnit(cgEsc(data.pif || '')), dir = cgEsc(data.pdir || 'input');
+            let c = cgMxHdr(t === 'tc' ? 'Policer (iki renkli)' : 'Policer (trTCM)');
+            if (t === 'tc') {
+                const P = 'set firewall policer ' + n + ' ';
+                const bw = cgEsc(data.bw || ''), bs = cgEsc(data.bs || ''), fc = cgEsc(data.fclass || ''), act = data.act || 'discard';
+                if (data.lifp) c += P + 'logical-interface-policer\n';
+                c += P + 'if-exceeding bandwidth-limit ' + bw + '\n';
+                c += P + 'if-exceeding burst-size-limit ' + bs + '\n';
+                if (act === 'discard') {
+                    c += P + 'then discard\n';
+                    if (fc) c += '# NOT: forwarding-class yalnız işaretleme modunda yazılır; atlandı.\n';
+                } else {
+                    c += P + 'then loss-priority high\n';
+                    if (fc) c += P + 'then forwarding-class ' + fc + '\n';
+                }
+                c += '\nset interfaces ' + p + ' unit ' + u + ' family inet policer ' + dir + ' ' + n + '\n';
+            } else {
+                const P = 'set firewall three-color-policer ' + n + ' ';
+                if (data.lifp) c += P + 'logical-interface-policer\n';
+                c += P + 'two-rate color-blind\n';
+                c += P + 'two-rate committed-information-rate ' + cgEsc(data.cir || '') + '\n';
+                c += P + 'two-rate committed-burst-size ' + cgEsc(data.cbs || '') + '\n';
+                c += P + 'two-rate peak-information-rate ' + cgEsc(data.pir || '') + '\n';
+                c += P + 'two-rate peak-burst-size ' + cgEsc(data.pbs || '') + '\n';
+                c += P + 'action loss-priority high then discard\n';
+                if (dir !== 'input') c += '# NOT: üç renkli policer bu araçta yalnız input yönünde yazılır.\n';
+                c += '\nset interfaces ' + p + ' unit ' + u + ' layer2-policer input-three-color ' + n + '\n';
+            }
+            c += '\n# Doğrulama:\n# show policer\n# show interfaces policers ' + p + '.' + u + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper MX: BGP Route Reflector ───────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/bgp/topics/topic-map/bgp-rr.html
+//   (group … type internal, local-address, cluster, neighbor; non-client grubu cluster'sız)
+//   + https://www.juniper.net/documentation/us/en/software/junos/evpn/topics/example/example-evpn-a-s-basic.html (family evpn signaling)
+//   + mevcut JuniperMX.bgp / l3vpn araçları (family inet-vpn unicast, policy-options community … members, then community add)
+JuniperMX.bgprr = {
+    label: 'BGP Route Reflector',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-bullseye',
+                title: 'Juniper MX — BGP Route Reflector',
+                desc: 'iBGP full-mesh yerine route reflector: istemci grubu (<code>cluster</code>), diğer RR\'lerle non-client grubu, adres aileleri ve istemci rotalarına community etiketi.<br><small>Örn: <code>set protocols bgp group RR-CLIENTS cluster 192.0.2.1</code> &nbsp;|&nbsp; <code>… family inet-vpn unicast</code></small>'
+            },
+            sections: [
+                {
+                    title: 'RR Kimliği',
+                    icon: 'fas fa-id-badge',
+                    fields: [
+                        { name: 'rr_as', label: 'Yerel AS', type: 'text', validate: 'asn', placeholder: '65000', hint: 'Boşsa routing-options satırı yazılmaz', why: 'iBGP\'de tüm istemciler aynı AS\'te olmalıdır.' },
+                        { name: 'rr_lo', label: 'Local Address (loopback)', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', hint: 'Oturum kaynağı', why: 'iBGP loopback\'ler arasında kurulur; local-address yoksa oturum çıkış arayüzü adresinden kurulmaya çalışır ve karşı taraf reddeder.' },
+                        { name: 'rr_cl', label: 'Cluster ID', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', hint: 'IP biçiminde; yedek RR\'lerde politika gereği aynı veya farklı', why: 'Cluster-ID döngü önlemeye yarar: kendi cluster-ID\'sini CLUSTER_LIST\'te gören RR rotayı reddeder. Aynı cluster\'daki iki RR birbirinin yansıttığı rotaları görmez.' }
+                    ]
+                },
+                {
+                    title: 'Gruplar',
+                    icon: 'fas fa-users',
+                    fields: [
+                        { name: 'cl_grp', label: 'İstemci Grubu Adı', type: 'text', required: true, placeholder: 'RR-CLIENTS', hint: 'protocols bgp group', why: 'Aynı gruptaki komşular aynı aile/policy setini paylaşır.' },
+                        { name: 'cl_nbr', label: 'İstemci PE\'ler', type: 'text', required: true, placeholder: '192.0.2.11, 192.0.2.12', hint: 'Loopback\'ler, virgülle', why: 'İstemciler RR dışında birbirleriyle iBGP kurmaz; eksik istemci rotaları hiç almaz.' },
+                        { name: 'nc_grp', label: 'Non-Client (RR-RR) Grubu', type: 'text', placeholder: 'RR-MESH', hint: 'Boşsa yazılmaz', why: 'Birden fazla RR birbirleriyle normal (cluster\'sız) iBGP full-mesh kurmalıdır.' },
+                        { name: 'nc_nbr', label: 'Diğer RR\'ler', type: 'text', placeholder: '192.0.2.2', hint: 'Non-client grup girildiyse', why: 'Yedek RR ile oturum yoksa bir RR düştüğünde bazı istemciler rotaları kaybeder.' }
+                    ]
+                },
+                {
+                    title: 'Adres Aileleri',
+                    icon: 'fas fa-layer-group',
+                    info: 'Bir aile açıkça yazıldığında yalnız yazılanlar etkin olur; IPv4 unicast gerekiyorsa işaretli bırakın. Aile değişikliği oturumları sıfırlar.',
+                    fields: [
+                        { name: 'af_inet', label: 'inet unicast', type: 'checkbox', checked: true, why: 'İnternet/global tablo rotaları.' },
+                        { name: 'af_vpn', label: 'inet-vpn unicast (L3VPN)', type: 'checkbox', checked: true, why: 'VRF rotalarının PE\'ler arasında taşınması için gerekir.' },
+                        { name: 'af_evpn', label: 'evpn signaling', type: 'checkbox', why: 'EVPN-MPLS MAC/IP rotaları için gerekir.' }
+                    ]
+                },
+                {
+                    title: 'Community Etiketi (opsiyonel)',
+                    icon: 'fas fa-tag',
+                    fields: [
+                        { name: 'cm_name', label: 'Community Adı', type: 'text', placeholder: 'FROM-RR-CLIENTS', hint: 'policy-options community', why: 'İstemcilerden öğrenilen rotaları etiketlemek, sonradan export policy\'lerde seçmeyi kolaylaştırır.' },
+                        { name: 'cm_val', label: 'Community Değeri', type: 'text', placeholder: '65000:100', hint: 'AS:değer', why: 'Karşı taraflarda filtrelenen değerlerle çakışmamalıdır.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const as = cgEsc(data.rr_as || ''), lo = cgEsc(data.rr_lo || ''), cl = cgEsc(data.rr_cl || '');
+            const cg = cgEsc(data.cl_grp || ''), ng = cgEsc(data.nc_grp || '');
+            const cn = cgMxSplit(data.cl_nbr, CG_MX_IPRE, 'komşu'), nn = cgMxSplit(data.nc_nbr, CG_MX_IPRE, 'komşu');
+            const fams = [];
+            if (data.af_inet) fams.push('inet unicast');
+            if (data.af_vpn) fams.push('inet-vpn unicast');
+            if (data.af_evpn) fams.push('evpn signaling');
+            let c = cgMxHdr('BGP Route Reflector');
+            if (as) c += 'set routing-options autonomous-system ' + as + '\n\n';
+            const G = g => 'set protocols bgp group ' + g + ' ';
+            c += '# İstemci grubu\n';
+            c += G(cg) + 'type internal\n' + G(cg) + 'local-address ' + lo + '\n' + G(cg) + 'cluster ' + cl + '\n';
+            fams.forEach(f => c += G(cg) + 'family ' + f + '\n');
+            cn.ok.forEach(n => c += G(cg) + 'neighbor ' + n + '\n');
+            c += cn.warn;
+            if (ng) {
+                c += '\n# RR-RR (non-client) grubu\n';
+                c += G(ng) + 'type internal\n' + G(ng) + 'local-address ' + lo + '\n';
+                fams.forEach(f => c += G(ng) + 'family ' + f + '\n');
+                nn.ok.forEach(n => c += G(ng) + 'neighbor ' + n + '\n');
+                c += nn.warn;
+                if (!nn.ok.length) c += '# UYARI: non-client grubunda komşu yok.\n';
+            }
+            if (!fams.length) c += '# UYARI: aile seçilmedi — Junos varsayılanı (inet unicast) geçerli olur.\n';
+            const cmn = cgEsc(data.cm_name || ''), cmv = cgEsc(data.cm_val || '');
+            if (cmn && cmv) {
+                c += '\n# İstemci rotalarına community ekle (import)\n';
+                c += 'set policy-options community ' + cmn + ' members ' + cmv + '\n';
+                c += 'set policy-options policy-statement RR-TAG-CLIENTS term TAG then community add ' + cmn + '\n';
+                c += G(cg) + 'import RR-TAG-CLIENTS\n';
+            } else if (cmn) c += '# UYARI: community değeri boş — etiketleme yazılmadı.\n';
+            c += '\n# Doğrulama:\n# show bgp summary\n# show bgp group ' + cg + '\n';
+            if (data.af_vpn) c += '# show route table bgp.l3vpn.0 summary\n';
+            if (data.af_evpn) c += '# show route table bgp.evpn.0 summary\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper MX: CoS Rewrite Rules ─────────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/rewrite-rules-edit-cos.html
+//   (rewrite-rules (dscp | exp) NAME import default, forwarding-class FC loss-priority LP code-point CP)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cos/topics/example/example-rewriting-cos-network-border.html
+//   (class-of-service interfaces … unit 0 rewrite-rules dscp NAME)
+JuniperMX.cosrewrite = {
+    label: 'CoS Rewrite Rules',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-pen',
+                title: 'Juniper MX — CoS Rewrite Rules',
+                desc: 'Çıkış arayüzünde forwarding-class → DSCP (IP) veya EXP (MPLS) işaret yeniden yazma. Varsayılan dört sınıf (best-effort, expedited-forwarding, assured-forwarding, network-control) için.<br><small>Örn: <code>set class-of-service rewrite-rules dscp RW-CORE forwarding-class expedited-forwarding loss-priority low code-point ef</code></small>'
+            },
+            sections: [
+                {
+                    title: 'Rewrite Kuralı',
+                    icon: 'fas fa-pen',
+                    fields: [
+                        { name: 'rw_name', label: 'Kural Adı', type: 'text', required: true, placeholder: 'RW-CORE', hint: 'rewrite-rules adı', why: 'Kural tanımlanıp arayüze bağlanmazsa hiçbir paket yeniden yazılmaz.' },
+                        { name: 'rw_type', label: 'Tip', type: 'select', options: [
+                            { value: 'dscp', label: 'dscp (IPv4)', selected: true },
+                            { value: 'exp', label: 'exp (MPLS)' }
+                        ], why: 'Core\'a giden MPLS trafiğinde P router\'lar EXP\'ye bakar; yalnız DSCP yazmak core QoS\'unu etkilemez.' },
+                        { name: 'rw_imp', label: 'import default (yazılmayan sınıflar varsayılanı alsın)', type: 'checkbox', checked: true, why: 'Tanımsız bırakılan sınıf/düşme önceliği kombinasyonları varsayılan tablodan gelir; kapalıysa bu paketlerin işareti değişmeden kalır.' }
+                    ]
+                },
+                {
+                    title: 'Sınıf → Kod Noktası (loss-priority low)',
+                    icon: 'fas fa-list-ol',
+                    info: 'DSCP için ad (be, ef, af11, cs6) veya 6 bit (101110); EXP için 3 bit (000–111). Boş bırakılan sınıf yazılmaz.',
+                    fields: [
+                        { name: 'cp_be', label: 'best-effort', type: 'text', placeholder: 'be', hint: 'DSCP: be · EXP: 000', why: 'Varsayılan sınıf; çoğu trafik buradadır.' },
+                        { name: 'cp_ef', label: 'expedited-forwarding', type: 'text', placeholder: 'ef', hint: 'DSCP: ef · EXP: 101', why: 'Ses gibi gecikmeye duyarlı trafik; downstream cihazlar bu işarete göre öncelik verir.' },
+                        { name: 'cp_af', label: 'assured-forwarding', type: 'text', placeholder: 'af11', hint: 'DSCP: af11 · EXP: 001', why: 'İş kritik veri sınıfı.' },
+                        { name: 'cp_nc', label: 'network-control', type: 'text', placeholder: 'cs6', hint: 'DSCP: cs6 · EXP: 110', why: 'Protokol trafiği; yanlış işaret komşu cihazda protokol paketlerinin tıkanıklıkta düşmesine yol açabilir.' }
+                    ]
+                },
+                {
+                    title: 'Uygulama',
+                    icon: 'fas fa-plug',
+                    fields: [
+                        { name: 'rw_if', label: 'Çıkış Arayüzü (unit ile)', type: 'text', validate: 'iface', required: true, placeholder: 'xe-0/0/0.0', hint: 'Rewrite çıkışta uygulanır', why: 'Rewrite yalnız bağlandığı unit\'ten çıkan paketlere uygulanır.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const n = cgEsc(data.rw_name || ''), ty = cgEsc(data.rw_type || 'dscp');
+            const [p, u] = cgJnpIfUnit(cgEsc(data.rw_if || ''));
+            const R = 'set class-of-service rewrite-rules ' + ty + ' ' + n + ' ';
+            const ok = ty === 'exp' ? (v => /^[01]{3}$/.test(v)) : (v => /^[01]{6}$/.test(v) || /^(be|ef|af[1-4][1-3]|cs[0-7]|nc[12])$/i.test(v));
+            const rows = [['best-effort', data.cp_be], ['expedited-forwarding', data.cp_ef], ['assured-forwarding', data.cp_af], ['network-control', data.cp_nc]];
+            let c = cgMxHdr('CoS Rewrite (' + ty + ')');
+            let any = false;
+            if (data.rw_imp) c += R + 'import default\n';
+            rows.forEach(([fc, v]) => {
+                v = cgEsc(String(v || '').trim());
+                if (!v) return;
+                if (!ok(v)) { c += '# UYARI: ' + fc + ' için "' + v + '" ' + ty + ' kod noktası biçimine uymuyor; atlandı.\n'; return; }
+                c += R + 'forwarding-class ' + fc + ' loss-priority low code-point ' + v + '\n';
+                any = true;
+            });
+            if (!any && !data.rw_imp) c += '# UYARI: hiçbir eşleme yok ve import default kapalı — kural boş.\n';
+            c += '\nset class-of-service interfaces ' + p + ' unit ' + u + ' rewrite-rules ' + ty + ' ' + n + '\n';
+            c += '\n# Doğrulama:\n# show class-of-service rewrite-rule name ' + n + '\n# show class-of-service interface ' + p + '\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper MX: GRES / NSR ────────────────────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/high-availability/topics/task/nsr-configuring.html
+//   (chassis redundancy graceful-switchover, routing-options nonstop-routing, system commit synchronize, system switchover-on-routing-crash)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/redundancy-edit-chassis.html
+//   (failover on-disk-failure | on-loss-of-keepalives, keepalive-time, routing-engine N master|backup)
+//   + https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/nonstop-bridging-edit-protocols-layer2-control.html
+JuniperMX.gres = {
+    label: 'GRES / NSR (Çift RE)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'Juniper MX — GRES / NSR',
+                desc: 'Çift Routing Engine\'li MX\'te kesintisiz geçiş: graceful RE switchover (GRES), nonstop active routing (NSR), config senkronizasyonu ve otomatik failover tetikleyicileri.<br><small>Örn: <code>set chassis redundancy graceful-switchover</code> &nbsp;|&nbsp; <code>set routing-options nonstop-routing</code> &nbsp;|&nbsp; <code>set system commit synchronize</code></small>'
+            },
+            sections: [
+                {
+                    title: 'GRES / NSR',
+                    icon: 'fas fa-sync-alt',
+                    warn: 'NSR, <code>routing-options graceful-restart</code> ile birlikte etkinleştirilemez. Tek RE\'li platformda (MX204 vb.) bu araç gerekmez.',
+                    fields: [
+                        { name: 'g_gres', label: 'graceful-switchover (GRES)', type: 'checkbox', checked: true, why: 'Arayüz ve kernel durumu yedek RE\'ye kopyalanır; switchover\'da PFE yeniden başlamaz ve paket iletimi sürer.' },
+                        { name: 'g_nsr', label: 'nonstop-routing (NSR)', type: 'checkbox', checked: true, why: 'Protokol oturumları (BGP, IS-IS, LDP…) yedek RE\'de canlı tutulur; switchover komşulara görünmez. GRES olmadan çalışmaz.' },
+                        { name: 'g_sync', label: 'commit synchronize', type: 'checkbox', checked: true, why: 'NSR varken bu satır yoksa commit başarısız olur. Ayrıca iki RE\'nin config\'i farklılaşırsa switchover sonrası beklenmedik davranış görülür.' },
+                        { name: 'g_crash', label: 'switchover-on-routing-crash', type: 'checkbox', why: 'Birincil RE\'de rpd çökerse, yerinde yeniden başlatmak (tüm komşulukları düşürür) yerine NSR ile yedeğe geçilir.' },
+                        { name: 'g_nsb', label: 'nonstop-bridging (L2 kontrol protokolleri)', type: 'checkbox', why: 'LACP/STP gibi L2 kontrol protokolü durumunu da korur; bridge-domain/VPLS kullanan MX\'lerde anlamlıdır.' }
+                    ]
+                },
+                {
+                    title: 'Failover & Rol',
+                    icon: 'fas fa-exchange-alt',
+                    fields: [
+                        { name: 'g_disk', label: 'failover on-disk-failure', type: 'checkbox', checked: true, why: 'Birincil RE\'de disk hatası olursa yedek RE rolü devralır.' },
+                        { name: 'g_ka', label: 'failover on-loss-of-keepalives', type: 'checkbox', checked: true, why: 'Birincil RE yanıt vermez hale gelirse (kilitlenme) yedek RE otomatik devralır; aksi halde manuel müdahale gerekir.' },
+                        { name: 'g_kat', label: 'keepalive-time (sn)', type: 'text', min: 2, max: 10000, placeholder: '20', hint: 'Boşsa platform varsayılanı', why: 'GRES yokken varsayılan 300 sn\'dir. Çok kısa süre, yoğun CPU anlarında gereksiz switchover\'a yol açabilir.' },
+                        { name: 'g_master', label: 'Tercihli Birincil RE', type: 'select', options: [
+                            { value: '', label: 'Varsayılan (RE0 birincil)', selected: true },
+                            { value: '0', label: 'RE0 master / RE1 backup' },
+                            { value: '1', label: 'RE1 master / RE0 backup' }
+                        ], why: 'Açılışta hangi RE\'nin birincil olacağını belirler; bakım sonrası rolü sabitlemek için kullanılır.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const kat = cgEsc(data.g_kat || ''), m = cgEsc(data.g_master || '');
+            let c = cgMxHdr('GRES / NSR');
+            if (data.g_nsr && !data.g_gres) c += '# UYARI: NSR, GRES (graceful-switchover) gerektirir.\n';
+            if (data.g_nsr && !data.g_sync) c += '# UYARI: NSR varken commit synchronize yoksa commit başarısız olur.\n';
+            if (data.g_gres) c += 'set chassis redundancy graceful-switchover\n';
+            if (data.g_disk) c += 'set chassis redundancy failover on-disk-failure\n';
+            if (data.g_ka) c += 'set chassis redundancy failover on-loss-of-keepalives\n';
+            if (kat) c += 'set chassis redundancy keepalive-time ' + kat + '\n';
+            if (m === '0' || m === '1') {
+                c += 'set chassis redundancy routing-engine ' + m + ' master\n';
+                c += 'set chassis redundancy routing-engine ' + (m === '0' ? '1' : '0') + ' backup\n';
+            }
+            if (data.g_sync) c += 'set system commit synchronize\n';
+            if (data.g_nsr) c += 'set routing-options nonstop-routing\n';
+            if (data.g_crash) c += 'set system switchover-on-routing-crash\n';
+            if (data.g_nsb) c += 'set protocols layer2-control nonstop-bridging\n';
+            c += '# NOT: BGP varken switchover öncesi "show bgp replication" ile senkronizasyonun tamamlandığını doğrulayın.\n';
+            c += '\n# Doğrulama:\n# show chassis routing-engine\n# show system switchover\n# show task replication\n# show bgp replication\n';
+            return c;
+        });
+    }
+};
+
+// ── Juniper MX: Inline J-Flow (IPFIX / v9) ────────────────────────────────────
+// Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/flow-monitoring/topics/example/inline-sampling-configuring.html
+//   (services flow-monitoring version-ipfix|version9 template T ipv4-template / flow-active-timeout / flow-inactive-timeout /
+//    template-refresh-rate seconds, forwarding-options sampling instance I input rate N, family inet output flow-server IP port P,
+//    … flow-server IP version-ipfix|version9 template T, … inline-jflow source-address, chassis fpc N sampling-instance I)
+//   + https://www.juniper.net/documentation/us/en/software/junos/flow-monitoring/topics/concept/services-ipfix-flow-template-flow-aggregation-configuring.html
+//   (interfaces … unit … family inet sampling input|output)
+JuniperMX.jflow = {
+    label: 'Inline J-Flow (IPFIX / v9)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-stream',
+                title: 'Juniper MX — Inline J-Flow',
+                desc: 'Servis kartı gerektirmeden (Trio PFE) örneklenmiş akış kaydı: şablon, sampling-instance, FPC bağlama, toplayıcı ve arayüz örnekleme.<br><small>Örn: <code>set chassis fpc 0 sampling-instance SAMPLE-1</code> &nbsp;|&nbsp; <code>set forwarding-options sampling instance SAMPLE-1 family inet output inline-jflow source-address 192.0.2.1</code></small>'
+            },
+            configTypes: [
+                { id: 'ipfix', label: 'IPFIX', icon: 'fas fa-file-export', desc: 'version-ipfix', badge: { text: 'Önerilen', cls: 'recommended' } },
+                { id: 'v9', label: 'NetFlow v9', icon: 'fas fa-file-export', desc: 'version9', badge: { text: 'Eski toplayıcılar', cls: 'common' } }
+            ],
+            sections: [
+                {
+                    title: 'Şablon',
+                    icon: 'fas fa-file-alt',
+                    fields: [
+                        { name: 'tpl', label: 'Şablon Adı', type: 'text', required: true, placeholder: 'IPV4-TPL', hint: 'ipv4-template olarak tanımlanır', why: 'Toplayıcı kayıtları şablona göre çözer; şablon yenileme gelmeden gelen kayıtlar toplayıcıda atılır.' },
+                        { name: 'fat', label: 'flow-active-timeout (sn)', type: 'text', validate: 'posint', placeholder: '60', hint: 'Uzun akışların ara raporu', why: 'Uzun süren akışlar bu aralıkla raporlanır; büyük değer, trafik grafiklerinde sivri/gecikmeli görünüme yol açar.' },
+                        { name: 'fit', label: 'flow-inactive-timeout (sn)', type: 'text', validate: 'posint', placeholder: '30', hint: 'Sessiz akışın kapanma süresi', why: 'Kısa değer akış tablosunu hızlı boşaltır ama kayıt sayısını artırır.' },
+                        { name: 'trr', label: 'template-refresh-rate (sn)', type: 'text', validate: 'posint', placeholder: '30', hint: 'Şablon yeniden gönderme aralığı', why: 'Toplayıcı yeniden başladığında şablonu bu süre kadar bekler; o süredeki kayıtlar çözülemez.' }
+                    ]
+                },
+                {
+                    title: 'Örnekleme & Toplayıcı',
+                    icon: 'fas fa-bullseye',
+                    fields: [
+                        { name: 'si', label: 'Sampling Instance', type: 'text', required: true, placeholder: 'SAMPLE-1', hint: 'forwarding-options sampling instance', why: 'Instance FPC\'ye bağlanmazsa inline örnekleme hiç başlamaz.' },
+                        { name: 'srate', label: 'Örnekleme Oranı (1/N)', type: 'text', validate: 'posint', required: true, placeholder: '1000', hint: 'Her N pakette bir', why: 'Oran toplayıcıda ölçeklemek için kullanılır; çok düşük N (ör. 1) yüksek hızlı portta PFE ve toplayıcıyı zorlar.' },
+                        { name: 'fpc', label: 'FPC Slot', type: 'text', min: 0, max: 19, required: true, placeholder: '0', hint: 'Örneklenen arayüzlerin FPC\'si', why: 'Her FPC ayrı bağlanır; arayüzün bulunduğu FPC\'ye bağlanmayan instance o arayüzü örneklemez.' },
+                        { name: 'coll', label: 'Toplayıcı IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.50', hint: 'flow-server', why: 'Toplayıcıya giden yol inet.0\'da olmalıdır (mgmt_junos/fxp0 üzerinden inline export yapılamaz).' },
+                        { name: 'cport', label: 'Toplayıcı Port', type: 'text', validate: 'port', required: true, placeholder: '4739', hint: 'IPFIX 4739, v9 genelde 2055', why: 'Toplayıcının dinlediği UDP port ile aynı olmalı.' },
+                        { name: 'jsrc', label: 'Kaynak Adres', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', hint: 'inline-jflow source-address (loopback)', why: 'Toplayıcı cihazı bu adresle tanır; inline J-Flow\'da zorunludur.' }
+                    ]
+                },
+                {
+                    title: 'Arayüzler',
+                    icon: 'fas fa-ethernet',
+                    fields: [
+                        { name: 'sifs', label: 'Örneklenecek Arayüzler', type: 'text', required: true, placeholder: 'xe-0/0/0.0, xe-0/0/1.0', hint: 'Unit ile, virgülle', why: 'Genelde yalnız dış (peering/transit) arayüzlerde input örneklemek çift sayımı önler.' },
+                        { name: 'sdir', label: 'Yön', type: 'select', options: [
+                            { value: 'in', label: 'input', selected: true },
+                            { value: 'both', label: 'input + output' }
+                        ], why: 'İki yönde örneklemek, trafiğin iki arayüzden geçtiği durumda aynı akışı iki kez sayar.' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => {
+            const ver = (data._cgtype || 'ipfix') === 'v9' ? 'version9' : 'version-ipfix';
+            const tpl = cgEsc(data.tpl || ''), fat = cgEsc(data.fat || ''), fit = cgEsc(data.fit || ''), trr = cgEsc(data.trr || '');
+            const si = cgEsc(data.si || ''), rate = cgEsc(data.srate || ''), fpc = cgEsc(data.fpc || '');
+            const coll = cgEsc(data.coll || ''), port = cgEsc(data.cport || ''), src = cgEsc(data.jsrc || '');
+            const T = 'set services flow-monitoring ' + ver + ' template ' + tpl + ' ';
+            const O = 'set forwarding-options sampling instance ' + si + ' family inet output ';
+            let c = cgMxHdr('Inline J-Flow (' + (ver === 'version9' ? 'v9' : 'IPFIX') + ')');
+            c += T + 'ipv4-template\n';
+            if (fat) c += T + 'flow-active-timeout ' + fat + '\n';
+            if (fit) c += T + 'flow-inactive-timeout ' + fit + '\n';
+            if (trr) c += T + 'template-refresh-rate seconds ' + trr + '\n';
+            c += '\nset chassis fpc ' + fpc + ' sampling-instance ' + si + '\n';
+            c += 'set forwarding-options sampling instance ' + si + ' input rate ' + rate + '\n';
+            c += O + 'flow-server ' + coll + ' port ' + port + '\n';
+            c += O + 'flow-server ' + coll + ' ' + ver + ' template ' + tpl + '\n';
+            c += O + 'inline-jflow source-address ' + src + '\n\n';
+            cgJnpList(data.sifs).map(cgEsc).forEach(i => {
+                const [p, u] = cgJnpIfUnit(i);
+                c += 'set interfaces ' + p + ' unit ' + u + ' family inet sampling input\n';
+                if (data.sdir === 'both') c += 'set interfaces ' + p + ' unit ' + u + ' family inet sampling output\n';
+            });
+            c += '\n# Doğrulama:\n# show services accounting status inline-jflow fpc-slot ' + fpc + '\n# show services accounting flow inline-jflow fpc-slot ' + fpc + '\n# show services accounting errors inline-jflow fpc-slot ' + fpc + '\n';
             return c;
         });
     }
