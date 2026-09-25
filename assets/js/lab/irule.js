@@ -158,7 +158,7 @@ const CgIRule = (() => {
             if (c === '!') { i++; return bool(unary()) ? 0 : 1; }
             if (c === '-' && !/\d/.test(s[i + 1] || '')) { i++; const v = num(unary()); return v === null ? 0 : -v; }
             if (c === '$') { const r = parseInline.varFrom(s, i); i = r.end; return I.getVar(r.part.name, r.part.idx ? I.subst(r.part.idx.text) : null); }
-            if (c === '[') { let d = 0, j = i; for (; j < n; j++) { if (s[j] === '\\') { j++; continue; } if (s[j] === '[') d++; else if (s[j] === ']') { d--; if (!d) break; } else if (s[j] === '{') { let bd = 0; for (; j < n; j++) { if (s[j] === '{') bd++; else if (s[j] === '}') { bd--; if (!bd) break; } } } } const r = I.evalScript(parse(s.slice(i + 1, j))); i = j + 1; return r; }
+            if (c === '[') { let d = 0, j = i; for (; j < n; j++) { if (s[j] === '\\') { j++; continue; } if (s[j] === '[') d++; else if (s[j] === ']') { d--; if (!d) break; } else if (s[j] === '{') { let bd = 0; for (; j < n; j++) { if (s[j] === '{') bd++; else if (s[j] === '}') { bd--; if (!bd) break; } } } } const r = I.evalScript(parse(s.slice(i + 1, j), I.ctx.line)); i = j + 1; return r; }
             if (c === '"') { let j = i + 1; while (j < n && s[j] !== '"') { if (s[j] === '\\') j++; j++; } const v = I.subst(s.slice(i + 1, j)); i = j + 1; return v; }
             if (c === '{') { let d = 0, j = i; for (; j < n; j++) { if (s[j] === '{') d++; else if (s[j] === '}') { d--; if (!d) break; } } const v = s.slice(i + 1, j); i = j + 1; return v; }
             const m = s.slice(i).match(/^-?(0x[0-9a-fA-F]+|\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+)/); if (m) { i += m[0].length; return Number(m[0]); }
@@ -232,13 +232,15 @@ const CgIRule = (() => {
             evalScript(cmds) {
                 let r = '';
                 for (const c of cmds) {
-                    ctx.line = c.line; if (++ctx.steps > 20000) throw new TclError('iRule çok uzun çalıştı (sonsuz döngü?)', 'limit');
+                    ctx.line = c.line; if (ctx.trace) ctx.trace(c.line, c.text); if (++ctx.steps > 20000) throw new TclError('iRule çok uzun çalıştı (sonsuz döngü?)', 'limit');
                     try { const args = c.words.map(w => I.word(w)); r = I.call(args, c); }
                     catch (e) { if (e && e.tcl && e.cmdText === undefined) { e.cmdText = c.text; e.cmdLine = c.line; } throw e; }
                 }
                 return r;
             },
             evalText(text) { return I.evalScript(parse(text, ctx.line)); },
+            // gövdeyi kendi satırından çalıştır (c: çağıran komut, w: gövdenin sözcük sırası; satır izleme için)
+            evalBody(text, c, w, off) { const W = c && c.words && c.words[w]; if (W && W.line) ctx.line = W.line + (off || 0); return I.evalText(text); },
             call(args, c) {
                 const name = args[0];
                 const f = CORE[name] || F5[name] || (ctx.cmds && ctx.cmds[name]);
@@ -266,26 +268,31 @@ const CgIRule = (() => {
         append(I, a) { need(a, 1, undefined, 'append varName ?value ...?'); const cur = I.hasVar(a[0]) ? I.getVar(a[0]) : ''; return I.setVar(a[0], cur + a.slice(1).join('')); },
         lappend(I, a) { const cur = I.hasVar(a[0]) ? listSplit(I.getVar(a[0])) : []; return I.setVar(a[0], listJoin(cur.concat(a.slice(1)))); },
         expr(I, a) { return exprEval(I, a.join(' ')); },
-        if(I, a) {
+        if(I, a, cm) {
             let k = 0;
             for (;;) {
-                const c = a[k++]; if (c === undefined) throw new TclError('wrong # args: no expression after "if" argument');
-                let body = a[k++]; if (body === 'then') body = a[k++];
-                if (cond(I, c)) return I.evalText(body);
+                const ck = k, c = a[k++]; if (c === undefined) throw new TclError('wrong # args: no expression after "if" argument');
+                let bk = k, body = a[k++]; if (body === 'then') { bk = k; body = a[k++]; }
+                const W = cm && cm.words && cm.words[ck + 1]; if (W && W.line) I.ctx.line = W.line;
+                if (cond(I, c)) return I.evalBody(body, cm, bk + 1);
                 const nx = a[k++]; if (nx === undefined) return '';
                 if (nx === 'elseif') continue;
-                if (nx === 'else') return I.evalText(a[k]);
-                return I.evalText(nx);
+                if (nx === 'else') return I.evalBody(a[k], cm, k + 1);
+                return I.evalBody(nx, cm, k);
             }
         },
-        switch(I, a) {
+        switch(I, a, cm) {
             let mode = 'exact', k = 0, nocase = false;
             while (a[k] && a[k][0] === '-') { const o = a[k++]; if (o === '--') break; if (o === '-glob') mode = 'glob'; else if (o === '-exact') mode = 'exact'; else if (o === '-regexp') mode = 'regexp'; else if (o === '-nocase') nocase = true; else throw new TclError('bad option "' + o + '": must be -exact, -glob, -nocase, -regexp, or --'); }
-            const str = a[k++]; let pairs = a.slice(k); if (pairs.length === 1) pairs = listSplit(pairs[0]);
+            const str = a[k++]; let pairs = a.slice(k); const one = pairs.length === 1; if (one) pairs = listSplit(pairs[0]);
             if (pairs.length % 2) throw new TclError('extra switch pattern with no body');
             for (let j = 0; j < pairs.length; j += 2) {
                 const p = pairs[j]; const hit = p === 'default' && j === pairs.length - 2 ? true : mode === 'glob' ? glob(p, str, nocase) : mode === 'regexp' ? tclRe(p, nocase).test(str) : nocase ? p.toLowerCase() === String(str).toLowerCase() : p === str;
-                if (hit) { let b = j; while (pairs[b + 1] === '-') b += 2; if (b + 1 >= pairs.length) throw new TclError('no body specified for pattern "' + p + '"'); return I.evalText(pairs[b + 1]); }
+                if (hit) { let b = j; while (pairs[b + 1] === '-') b += 2; if (b + 1 >= pairs.length) throw new TclError('no body specified for pattern "' + p + '"'); const body = pairs[b + 1];
+                    if (!one) return I.evalBody(body, cm, k + b + 2);
+                    // tek liste biçimi: gövdenin liste içindeki satır kaydırması
+                    const W = cm && cm.words && cm.words[k + 1], raw = W && W.parts && W.parts[0] ? String(W.parts[0].v || '') : ''; const pi = raw.indexOf(p), bi = raw.indexOf(body, pi < 0 ? 0 : pi);
+                    return I.evalBody(body, cm, k + 1, bi < 0 ? 0 : (raw.slice(0, bi).match(/\n/g) || []).length); }
             }
             return '';
         },
@@ -342,11 +349,36 @@ const CgIRule = (() => {
             const re = new RegExp(tclRe(a[k], nc).source, (nc ? 'i' : '') + (all ? 'g' : '')); const sub = String(a[k + 2]).replace(/\\(\d)/g, '$$$1').replace(/&/g, '$$&');
             const out = String(a[k + 1]).replace(re, sub); if (a[k + 3] !== undefined) { I.setVar(a[k + 3], out); return String(re.test(String(a[k + 1])) ? 1 : 0); } return out;
         },
-        format(I, a) { let q = 1; return String(a[0]).replace(/%(-?\d*)(\.\d+)?([sdxX%])/g, (m, w, p, t) => { if (t === '%') return '%'; const v = a[q++]; let s = t === 'd' ? String(Math.trunc(Number(v))) : t === 'x' ? Number(v).toString(16) : t === 'X' ? Number(v).toString(16).toUpperCase() : String(v); if (w) s = w[0] === '-' ? s.padEnd(+w.slice(1)) : s.padStart(+w); return s; }); },
+        format(I, a) { let q = 1; return String(a[0]).replace(/%(-?\d*)(\.\d+)?([sdxX%])/g, (m, w, p, t) => { if (t === '%') return '%'; const v = a[q++]; let s = t === 'd' ? String(Math.trunc(Number(v))) : t === 'x' ? Number(v).toString(16) : t === 'X' ? Number(v).toString(16).toUpperCase() : String(v); if (w) s = w[0] === '-' ? s.padEnd(+w.slice(1)) : w[0] === '0' && t !== 's' ? (s[0] === '-' ? '-' + s.slice(1).padStart(+w - 1, '0') : s.padStart(+w, '0')) : s.padStart(+w); return s; }); },
         getfield(I, a) { need(a, 3, 3, 'getfield <string> <split> <field_number>'); const parts = String(a[0]).split(a[1]); return parts[Number(a[2]) - 1] || ''; },
         findstr(I, a) { const s = String(a[0]), k = s.indexOf(a[1]); if (k < 0) return ''; let st = k + Number(a[2] || 0); let r = s.slice(st); if (a[3] !== undefined) { if (/^\d+$/.test(a[3])) r = r.slice(0, +a[3]); else { const e = r.indexOf(a[3]); if (e >= 0) r = r.slice(0, e); } } return r; },
         substr(I, a) { const s = String(a[0]).slice(Number(a[1])); if (a[2] === undefined) return s; if (/^\d+$/.test(a[2])) return s.slice(0, +a[2]); const e = s.indexOf(a[2]); return e >= 0 ? s.slice(0, e) : s; },
-        clock(I, a) { const now = I.ctx.now ? I.ctx.now() : 1790000000000; if (a[0] === 'seconds') return String(Math.floor(now / 1000)); if (a[0] === 'milliseconds' || a[0] === 'clicks') return String(now); throw new TclError('bad option "' + a[0] + '": bu lab\'da clock seconds | milliseconds'); },
+        clock(I, a) { const now = I.ctx.now ? I.ctx.now() : 1790000000000; if (a[0] === 'seconds') return String(Math.floor(now / 1000)); if (a[0] === 'milliseconds' || a[0] === 'clicks') return String(now);
+            if (a[0] === 'format') { // simülatör saati UTC; -gmt yok sayılır
+                need(a, 2, 6, 'clock format clockval ?-format string? ?-gmt boolean?'); const t = Number(a[1]); if (!Number.isFinite(t)) throw new TclError('expected integer but got "' + a[1] + '"');
+                const k = a.indexOf('-format'), f = k > 0 ? a[k + 1] : '%a %b %d %H:%M:%S %Z %Y', D = new Date(t * 1000), p2 = x => String(x).padStart(2, '0');
+                const DN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'], MN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+                const M = { a: DN[D.getUTCDay()].slice(0, 3), A: DN[D.getUTCDay()], b: MN[D.getUTCMonth()].slice(0, 3), B: MN[D.getUTCMonth()], d: p2(D.getUTCDate()), H: p2(D.getUTCHours()), M: p2(D.getUTCMinutes()), S: p2(D.getUTCSeconds()), m: p2(D.getUTCMonth() + 1), Y: String(D.getUTCFullYear()), y: p2(D.getUTCFullYear() % 100), Z: 'UTC', u: String(D.getUTCDay() || 7), w: String(D.getUTCDay()), j: String(Math.floor((D - Date.UTC(D.getUTCFullYear(), 0, 1)) / 864e5) + 1).padStart(3, '0'), s: String(t), '%': '%' };
+                return f.replace(/%(.)/g, (m, c) => (M[c] !== undefined ? M[c] : m)); }
+            throw new TclError('bad option "' + a[0] + '": bu lab\'da clock seconds | milliseconds | format'); },
+        lsort(I, a) { need(a, 1, 6, 'lsort ?options? list'); const o = a.slice(0, -1); let L = listSplit(a[a.length - 1]); const int = o.includes('-integer') || o.includes('-real'), nc = o.includes('-nocase');
+            L.sort((x, y) => (int ? Number(x) - Number(y) : (nc ? x.toLowerCase() : x) < (nc ? y.toLowerCase() : y) ? -1 : (nc ? x.toLowerCase() : x) > (nc ? y.toLowerCase() : y) ? 1 : 0));
+            if (o.includes('-decreasing')) L.reverse(); if (o.includes('-unique')) L = L.filter((x, k) => L.indexOf(x) === k); return listJoin(L); },
+        lreplace(I, a) { need(a, 3, undefined, 'lreplace list first last ?element ...?'); const L = listSplit(a[0]); const ix = x => (x === 'end' ? L.length - 1 : /^end-\d+$/.test(x) ? L.length - 1 - +x.slice(4) : Number(x)); const f = Math.max(0, ix(a[1])), l = ix(a[2]); L.splice(f, Math.max(0, l - f + 1), ...a.slice(3)); return listJoin(L); },
+        scan(I, a) { need(a, 2, undefined, 'scan string format ?varName ...?'); const str = a[0], fmt = a[1], vals = []; let i = 0;
+            for (let k = 0; k < fmt.length; k++) { const c = fmt[k];
+                if (/\s/.test(c)) { while (i < str.length && /\s/.test(str[i])) i++; continue; }
+                if (c !== '%') { if (str[i] !== c) break; i++; continue; }
+                let w = ''; k++; while (/\d/.test(fmt[k])) w += fmt[k++]; const t = fmt[k], lim = w ? +w : Infinity; let m;
+                if (t === '%') { if (str[i] !== '%') break; i++; continue; }
+                if (t !== 'c' && t !== '[') while (i < str.length && /\s/.test(str[i])) i++;
+                const rest = str.slice(i);
+                if (t === 'd') m = rest.match(/^[+-]?\d+/); else if (t === 'x') m = rest.match(/^[0-9a-fA-F]+/); else if (t === 's') m = rest.match(/^\S+/); else if (t === 'c') m = rest.length ? [rest[0]] : null;
+                else if (t === '[') { let j = k + 1; if (fmt[j] === '^') j++; if (fmt[j] === ']') j++; while (j < fmt.length && fmt[j] !== ']') j++; const set = fmt.slice(k, j + 1); k = j; m = rest.match(new RegExp('^' + set.replace(/\\/g, '\\\\') + '+')); }
+                else throw new TclError('bad scan conversion character "' + t + '"');
+                if (!m) break; let v = m[0].slice(0, lim); i += v.length; if (t === 'd') v = String(parseInt(v, 10)); else if (t === 'x') v = String(parseInt(v, 16)); else if (t === 'c') v = String(v.charCodeAt(0)); vals.push(v); }
+            if (a.length > 2) { a.slice(2).forEach((n, k) => { if (k < vals.length) I.setVar(n, vals[k]); }); return String(vals.length); }
+            return listJoin(vals); },
         log(I, a) {
             let fac = 'local0.', args = a.slice(); if (/^-noname$/.test(args[0])) args.shift();
             if (args.length === 2) fac = args.shift(); if (args.length !== 1) throw new TclError('wrong # args: should be "log ?facility.level? message"');
@@ -590,7 +622,7 @@ const CgIRule = (() => {
 
     // Bir olayı çalıştır: dönen { ok, err, flow }
     function runEvent(ctx, ev) {
-        const I = Interp(ctx); ctx.event = ev.name; ctx.steps = 0;
+        const I = Interp(ctx); ctx.event = ev.name; ctx.steps = 0; if (ev.line) ctx.line = ev.line;
         try { I.evalText(ev.body); return { ok: true }; }
         catch (e) {
             if (e instanceof Flow) { if (e.flow === 'return') return { ok: true, ret: true }; return { ok: false, err: 'invoked "' + e.flow + '" outside of a loop', line: ctx.line }; }
