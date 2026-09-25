@@ -829,4 +829,6 @@ const CgLabIos = (() => {
 
     return { session, ifNorm, ifShort };
 })();
+// Motor kayıt defteri: vendor anahtarı → motor (test kapısı ve arayüz buradan bulur)
+(typeof window !== 'undefined' ? window : globalThis).CG_LAB_ENGINES = Object.assign((typeof window !== 'undefined' ? window : globalThis).CG_LAB_ENGINES || {}, { 'cisco-ios': CgLabIos });
 if (typeof module !== 'undefined') module.exports = CgLabIos;

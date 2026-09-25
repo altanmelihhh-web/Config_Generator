@@ -40,6 +40,15 @@ const CgLabFgt = (() => {
             admintimeout: { t: 'int', min: 1, max: 480, def: 5, d: 'Yönetici oturum zaman aşımı (dk)' },
             'admin-sport': { t: 'int', min: 1, max: 65535, def: 443, d: 'HTTPS yönetim portu' },
             'admin-ssh-port': { t: 'int', min: 1, max: 65535, def: 22, d: 'SSH yönetim portu' } } },
+        'system ha': { single: true, attrs: {
+            'group-name': { t: 'str', max: 32, d: 'Küme adı (iki üyede aynı)' },
+            mode: { t: 'enum', v: ['standalone', 'a-p', 'a-a'], def: 'standalone', d: 'HA modu' },
+            password: { t: 'secret', d: 'Küme parolası (iki üyede aynı)' },
+            hbdev: { t: 'hb', d: 'Heartbeat arayüzü ve önceliği, ör. "port4" 50' },
+            'session-pickup': { t: 'enum', v: ED, def: 'disable', d: 'Oturumları ikinciye eşitle' },
+            override: { t: 'enum', v: ED, def: 'disable', d: 'Önceliği uptime\'ın önüne koy' },
+            priority: { t: 'int', min: 0, max: 255, def: 128, d: 'Öncelik (yüksek = birincil adayı)' },
+            monitor: { t: 'refs', ds: 'physIntf', d: 'İzlenen arayüzler (düşerse failover)' } } },
         'system dns': { single: true, attrs: { primary: { t: 'ip', def: '0.0.0.0', d: 'Birincil DNS' }, secondary: { t: 'ip', def: '0.0.0.0', d: 'İkincil DNS' } } },
         'system interface': { key: 'name', fixed: true, attrs: {
             vdom: { t: 'str', def: 'root', d: 'VDOM' }, mode: { t: 'enum', v: ['static', 'dhcp', 'pppoe'], def: 'static', d: 'Adresleme modu' },
@@ -129,11 +138,13 @@ const CgLabFgt = (() => {
     };
     const PATHS = Object.keys(SCHEMA);
     const SERVICES = ['ALL', 'ALL_TCP', 'ALL_UDP', 'ALL_ICMP', 'PING', 'HTTP', 'HTTPS', 'SSH', 'DNS', 'NTP', 'SMTP', 'RDP', 'TELNET', 'SNMP', 'FTP'];
-    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all', 'vpn ipsec tunnel summary'];
+    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all', 'vpn ipsec tunnel summary', 'system arp', 'system ha status'];
 
     function session(lab, opts) {
         const S = { lab, ctx: null, ev: [], hist: [], pending: null, loggedOut: false, answers: {} };
         S.variant = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
+        // Teşhis simülasyonu verisi (lab.sim + varyant.sim): perf, procs, flows, hosts, ports, arp …
+        const SIM = Object.assign({}, lab.sim || {}, (S.variant && S.variant.sim) || {});
         // ── model
         function baseModel() {
             const m = { host: lab.hostname || 'FortiGate-VM64', t: {}, links: {} };
@@ -196,6 +207,11 @@ const CgLabFgt = (() => {
                 }
                 case 'port1': if (vals.length > 1 || !portOk(vals[0], false)) return bad(0); return { v: vals[0] };
                 case 'secret': if (vals.length > 1) return bad(1); return { v: vals[0] };
+                case 'hb': {
+                    if (vals.length % 2) return bad(vals.length);
+                    for (let i = 0; i < vals.length; i += 2) { if (!M().t['system interface'].v[vals[i]]) return { err: 'ds', at: i }; if (!/^\d+$/.test(vals[i + 1]) || +vals[i + 1] > 512) return bad(i + 1); }
+                    return { v: vals };
+                }
                 case 'ref': { if (vals.length > 1) return bad(1); if (!DS[a.ds]().includes(vals[0])) return { err: 'ds', at: 0 }; return { v: vals[0] }; }
                 case 'refs': { for (let i = 0; i < vals.length; i++) if (!DS[a.ds]().includes(vals[i])) return { err: 'ds', at: i }; return { v: [...new Set(vals)] }; }
                 default: return bad(0);
@@ -212,6 +228,7 @@ const CgLabFgt = (() => {
             if (a.t === 'str' || a.t === 'ref' || a.t === 'iprangeq') return qt(v);
             if (a.t === 'refs') return v.map(qt).join(' ');
             if (a.t === 'menum' || a.t === 'ports') return v.join(' ');
+            if (a.t === 'hb') { const o = []; for (let i = 0; i < v.length; i += 2) o.push(qt(v[i]) + ' ' + v[i + 1]); return o.join(' '); }
             if (a.t === 'secret') return 'ENC ' + fakeHash('enc' + v, 88);
             return v;
         }
@@ -326,27 +343,163 @@ const CgLabFgt = (() => {
             const g = M().t['system global'];
             return ['Version: FortiGate-VM64 v7.4 (eğitim simülatörü — gerçek cihaz değildir)', 'Serial-Number: FGVMSIM000000001', 'Hostname: ' + host(),
                 'Operation Mode: NAT', 'Current virtual domain: root', 'Max number of virtual domains: 1', 'Virtual domains status: 1 in NAT mode, 0 in TP mode',
-                'Virtual domain configuration: disable', 'Current HA mode: standalone', 'System time: ' + new Date().toString().slice(0, 24) + (g.timezone ? ' (' + g.timezone + ')' : '')].join('\n');
+                'Virtual domain configuration: disable', 'Current HA mode: ' + (haElect().formed ? 'a-p, ' + (haElect().meP ? 'primary' : 'secondary') : 'standalone'), 'System time: ' + new Date().toString().slice(0, 24) + (g.timezone ? ' (' + g.timezone + ')' : '')].join('\n');
+        }
+        // ── HA kümesi (karşı üye lab.ha / varyant.ha ile sabit)
+        const HAP = Object.assign({ sn: 'FGVMSIM000000002', host: 'FGT-A-2', group: 'HA-LAB', password: 'Lab-Ha-2026', prio: 128, override: 'disable', mode: 'a-p', uptime: 300, sync: true }, lab.ha || {}, (S.variant && S.variant.ha) || {});
+        S.ha = { forced: false, synced: false, history: [], onPeer: false, lastRole: null };
+        const MY_SN = 'FGVMSIM000000001', MY_UP = (SIM.haUptime !== undefined ? SIM.haUptime : 17645);
+        function haFormed() {
+            const h = M().t['system ha'];
+            if ((h.mode || 'standalone') !== 'a-p' || HAP.mode !== 'a-p') return { ok: false, why: 'mode' };
+            if ((h['group-name'] || '') !== HAP.group) return { ok: false, why: 'group' };
+            if ((h.password || '') !== HAP.password) return { ok: false, why: 'password' };
+            const hb = h.hbdev || [];
+            if (!hb.length || !hb.filter((x, i) => i % 2 === 0).some(n => M().links[n] && (M().t['system interface'].v[n].status || 'up') === 'up') || HAP.hbDown) return { ok: false, why: 'hb' };
+            return { ok: true };
+        }
+        function haElect() {
+            const h = M().t['system ha'], F = haFormed();
+            if (!F.ok) return { formed: false, why: F.why, meP: true };
+            const mon = h.monitor || [], myFail = mon.filter(n => !ifUp(n)).length, pFail = HAP.monFail || 0;
+            const me = { fail: myFail, up: MY_UP, prio: +(h.priority || 128), sn: MY_SN, ov: (h.override || 'disable') === 'enable' };
+            const pe = { fail: pFail, up: HAP.uptime, prio: HAP.prio, sn: HAP.sn, ov: HAP.override === 'enable' };
+            let meP, reason;
+            if (S.ha.forced) { meP = false; reason = 'forced'; }
+            else if (me.fail !== pe.fail) { meP = me.fail < pe.fail; reason = 'monitor'; }
+            else {
+                const ov = me.ov || pe.ov;
+                const byUp = () => Math.abs(me.up - pe.up) > 5 ? (meP = me.up > pe.up, reason = 'uptime', true) : false;
+                const byPrio = () => me.prio !== pe.prio ? (meP = me.prio > pe.prio, reason = 'priority', true) : false;
+                if (!(ov ? (byPrio() || byUp()) : (byUp() || byPrio()))) { meP = me.sn > pe.sn; reason = 'serial'; }
+            }
+            const role = meP ? 'primary' : 'secondary';
+            if (S.ha.lastRole && S.ha.lastRole !== role) S.ha.history.push(new Date().toISOString().slice(0, 19).replace('T', ' ') + ' ' + MY_SN + ' is ' + role + ' now (' + reason + ')');
+            S.ha.lastRole = role;
+            return { formed: true, meP, reason };
+        }
+        const cksum = seed => [0, 1, 2].map(k => fakeHash(seed + k, 32).toLowerCase().replace(/[^0-9a-f]/g, c => (c.charCodeAt(0) % 16).toString(16)));
+        function haInSync() { return HAP.sync || S.ha.synced; }
+        function haStatus(onPeer) {
+            const h = M().t['system ha'], E = haElect();
+            if ((h.mode || 'standalone') === 'standalone') return 'HA Health Status: OK\nModel: FortiGate-VM64\nMode: standalone';
+            const L = ['HA Health Status: ' + (E.formed && haInSync() ? 'OK' : 'WARNING'), 'Model: FortiGate-VM64', 'Mode: HA A-P', 'Group Name: ' + (h['group-name'] || ''), 'Group ID: 0', 'Debug: 0',
+                'Cluster Uptime: 12 days 3:5:22', 'Cluster state change time: 2026-09-24 03:12:46'];
+            if (!E.formed) { L.push('# [Simülatör] Küme kurulamadı: ' + ({ mode: 'mod (a-p) iki üyede aynı olmalı', group: 'group-name uyuşmuyor', password: 'küme parolası uyuşmuyor', hb: 'heartbeat arayüzü kapalı/bağlı değil' })[E.why], 'Primary     : ' + host() + ', ' + MY_SN + ', HA cluster index = 0'); return L.join('\n'); }
+            const pSn = E.meP ? MY_SN : HAP.sn, sSn = E.meP ? HAP.sn : MY_SN;
+            const why = { uptime: 'it has the largest value of uptime', priority: 'it has the largest value of override priority', monitor: 'it has the least value of failed monitor', serial: 'it has the largest value of serialno', forced: 'the other member was set to failover by user (execute ha failover set)' }[E.reason];
+            L.push('Primary selected using:', '    <2026/09/24 03:12:46> vcluster-1: ' + pSn + ' is selected as the primary because ' + why + '.',
+                'ses_pickup: ' + (h['session-pickup'] || 'disable'), 'override: ' + (h.override || 'disable'), 'Configuration Status:',
+                '    ' + MY_SN + '(updated 3 seconds ago): ' + (haInSync() ? 'in-sync' : 'out-of-sync'), '    ' + HAP.sn + '(updated 4 seconds ago): ' + (haInSync() ? 'in-sync' : 'out-of-sync'),
+                'HBDEV stats:', '    ' + MY_SN + '(updated 3 seconds ago):', '        ' + (h.hbdev || [])[0] + ': physical/10000auto, up, rx-bytes/packets/dropped/errors=48231988/187233/0/0, tx=51882012/187402/0/0',
+                'Primary     : ' + (E.meP ? host() : HAP.host) + '        , ' + pSn + ', HA cluster index = ' + (E.meP ? 0 : 1),
+                'Secondary   : ' + (E.meP ? HAP.host : host()) + '        , ' + sSn + ', HA cluster index = ' + (E.meP ? 1 : 0),
+                'number of vcluster: 1', 'vcluster 1: work 169.254.0.1', 'Primary: ' + pSn + ', HA operating index = 0', 'Secondary: ' + sSn + ', HA operating index = 1');
+            return L.join('\n');
+        }
+        function haChecksum() {
+            const E = haElect(); if (!E.formed) return 'is_manage_primary()=1, is_root_primary()=1\n# [Simülatör] Küme kurulu değil: yalnız bu üye.';
+            const mine = cksum(JSON.stringify(M().t) + 'x'), peer = haInSync() ? mine : cksum('peer-old');
+            const block = (sn, c, mp) => ['================== ' + sn + ' ==================', '', 'is_manage_primary()=' + (mp ? 1 : 0) + ', is_root_primary()=' + (mp ? 1 : 0), 'debugzone', 'global: ' + c[0], 'root: ' + c[1], 'all: ' + c[2], '', 'checksum', 'global: ' + c[0], 'root: ' + c[1], 'all: ' + c[2], ''];
+            return block(MY_SN, mine, E.meP).concat(block(HAP.sn, [mine[0], peer[1], haInSync() ? mine[2] : peer[2]], !E.meP)).join('\n');
+        }
+        function haHistory() { return S.ha.history.length ? S.ha.history.map((l, i) => '<' + i + '> ' + l).join('\n') : '<0> 2026-09-24 03:12:46 cluster formed, ' + (haElect().meP ? MY_SN : HAP.sn) + ' is primary'; }
+        function haExec(t, line) {
+            const a = t[2] ? pick(t[2].t, ['manage', 'failover', 'synchronize']) : { err: 1 };
+            if (!a.ok) { log({ raw: line, err: 'invalid' }); return perr(t[2] || null); }
+            const E = haElect();
+            if (a.ok === 'manage') {
+                if (!E.formed) { log({ raw: line, err: 'invalid' }); return '# [Simülatör] Küme kurulu değil; bağlanılacak üye yok.'; }
+                if (!t[3] || t[3].t === '?') { log({ raw: line, canon: 'execute ha manage ?' }); return '<id>    please input peer box index.\n<1>     Subsidary unit ' + HAP.sn; }
+                if (t[3].t !== '1' || !t[4]) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (t[4] ? t[4].t : t[3].t) + '\''; }
+                log({ raw: line, canon: 'execute ha manage 1 ' + t[4].t });
+                S.pending = { prompt: t[4].t + '@' + HAP.sn + '\'s password: ', secret: true, fn: () => { S.ha.onPeer = true; log({ raw: 'ha-login', canon: 'ha manage login' }); return '\n# [Simülatör] ' + HAP.sn + ' (' + (E.meP ? 'ikincil' : 'birincil') + ' üye) CLI\'ına bağlandınız. exit ile dönün.'; } };
+                return '';
+            }
+            if (a.ok === 'synchronize') {
+                if (!t[3] || !'start'.startsWith(t[3].t)) { log({ raw: line, err: 'invalid' }); return perr(t[3] || null); }
+                if (!E.formed) { log({ raw: line, err: 'invalid' }); return '# [Simülatör] Küme kurulu değil.'; }
+                S.ha.synced = true; log({ raw: line, canon: 'execute ha synchronize start' }); return 'Starting synchronizing with HA primary...';
+            }
+            const op = t[3] ? pick(t[3].t, ['set', 'unset', 'status']) : { err: 1 };
+            if (!op.ok) { log({ raw: line, err: 'invalid' }); return perr(t[3] || null); }
+            if (op.ok === 'status') { log({ raw: line, canon: 'execute ha failover status' }); return 'failover status: ' + (S.ha.forced ? 'set' : 'unset'); }
+            if (!t[4] || t[4].t !== '1') { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (t[4] ? t[4].t : '') + '\''; }
+            if (!E.formed) { log({ raw: line, err: 'invalid' }); return '# [Simülatör] Küme kurulu değil.'; }
+            if (op.ok === 'unset') { S.ha.forced = false; log({ raw: line, canon: 'execute ha failover unset 1' }); haElect(); return ''; }
+            S.pending = { prompt: 'Caution: This command will trigger an HA failover.\nIt is intended for testing purposes.\nDo you want to continue? (y/n)', fn: x => {
+                if (!/^y/i.test(x)) return 'Command aborted.';
+                S.ha.forced = true; log({ raw: line, canon: 'execute ha failover set 1' }); haElect(); return '';
+            } };
+            return '';
+        }
+
+        // ── Bağlantı testleri (FortiGate kaynaklı trafik: kurala tabi değildir — local-out)
+        S.pingOpt = { source: null, count: 5 }; S.arpDyn = {};
+        const macOf = ip => '00:09:0f:' + [1, 2, 3].map(k => ((ip2n(ip) >> (k * 5)) & 255).toString(16).padStart(2, '0')).join(':');
+        // Hedefe gidiş: {ok, src, dev, gw, reason}
+        function reach(ip, srcOverride) {
+            const hosts = (lab.hosts || []).concat((SIM.hosts || []));
+            const own = M().t['system interface'].o.find(n => ifUp(n) && ifIp(n) === ip);
+            if (own) return { ok: true, src: ip, dev: own, self: true };
+            const r = rib().filter(x => x.len === 0 || sameNet(x.net, ip, x.len)).sort((a, b) => b.len - a.len)[0];
+            if (!r || r.bh) return { ok: false, reason: 'noroute' };
+            let src = srcOverride || S.pingOpt.source || ifIp(r.dev);
+            if (isTun(r.dev)) {
+                const T = tun(r.dev), p2 = T.p2 && M().t['vpn ipsec phase2-interface'].v[T.p2];
+                if (!T.p2up || !p2) return { ok: false, reason: 'tunnel', src, dev: r.dev };
+                const [sn, sm] = norm(p2['src-subnet']).split(' '), [dn, dm] = norm(p2['dst-subnet']).split(' ');
+                if (!sameNet(sn, src, maskLen(sm)) || !sameNet(dn, ip, maskLen(dm))) return { ok: false, reason: 'selector', src, dev: r.dev };
+            }
+            const gw = r.c === 'C' ? ip : r.gw;
+            if (!isTun(r.dev) && r.c !== 'C' && !hosts.includes(gw)) return { ok: false, reason: 'gw', src, dev: r.dev, gw };
+            if (!hosts.includes(ip)) return { ok: false, reason: 'host', src, dev: r.dev, gw };
+            const info = (SIM.hostInfo || {})[ip];
+            if (info && info.replyTo && !info.replyTo.some(c => { const [n, l] = c.split('/'); return sameNet(n, src, +l); })) return { ok: false, reason: 'return', src, dev: r.dev, gw };
+            if (!isTun(r.dev)) S.arpDyn[gw] = r.dev;
+            return { ok: true, src, dev: r.dev, gw };
         }
         function ping(ip) {
-            const hosts = lab.hosts || [];
-            let ok = M().t['system interface'].o.some(n => ifUp(n) && (M().t['system interface'].v[n].ip || '').split(' ')[0] === ip);
-            if (!ok) {
-                const r = rib().filter(x => x.len === 0 || sameNet(x.net, ip, x.len)).sort((a, b) => b.len - a.len)[0];
-                ok = !!r && hosts.includes(ip) && (!r.gw || r.gw === '0.0.0.0' || hosts.includes(r.gw));
-            }
+            const R = reach(ip), n = S.pingOpt.count;
+            log({ ping: { ip, ok: R.ok, src: R.src } });
             const head = 'PING ' + ip + ' (' + ip + '): 56 data bytes\n';
-            if (!ok) return head + '\n--- ' + ip + ' ping statistics ---\n5 packets transmitted, 0 packets received, 100% packet loss';
+            if (!R.ok) return head + '\n--- ' + ip + ' ping statistics ---\n' + n + ' packets transmitted, 0 packets received, 100% packet loss';
             let L = '';
-            for (let i = 0; i < 5; i++) L += '64 bytes from ' + ip + ': icmp_seq=' + i + ' ttl=64 time=0.' + (4 + i % 3) + ' ms\n';
-            return head + L + '\n--- ' + ip + ' ping statistics ---\n5 packets transmitted, 5 packets received, 0% packet loss\nround-trip min/avg/max = 0.4/0.5/0.6 ms';
+            for (let i = 0; i < n; i++) L += '64 bytes from ' + ip + ': icmp_seq=' + i + ' ttl=' + (R.self ? 255 : R.gw === ip ? 64 : 63) + ' time=0.' + (4 + i % 3) + ' ms\n';
+            return head + L + '\n--- ' + ip + ' ping statistics ---\n' + n + ' packets transmitted, ' + n + ' packets received, 0% packet loss\nround-trip min/avg/max = 0.4/0.5/0.6 ms';
+        }
+        function traceroute(ip) {
+            const R = reach(ip), L = ['traceroute to ' + ip + ' (' + ip + '), 32 hops max, 3 probe packets per hop, 84 byte packets'];
+            log({ trace4: { ip, ok: R.ok } });
+            if (R.self) { L.push(' 1  ' + ip + '  0.051 ms  0.032 ms  0.030 ms'); return L.join('\n'); }
+            let hop = 1;
+            if (R.gw && R.gw !== ip && (R.ok || R.reason === 'host' || R.reason === 'return')) L.push(' ' + hop++ + '  ' + R.gw + '  0.412 ms  0.301 ms  0.288 ms');
+            if (R.ok) L.push(' ' + hop + '  ' + ip + '  3.102 ms  2.998 ms  3.050 ms');
+            else for (let k = 0; k < 3; k++) L.push(' ' + hop++ + '  * * *');
+            return L.join('\n');
+        }
+        function telnet(ip, port) {
+            const R = reach(ip);
+            log({ telnet: { ip, port, ok: R.ok } });
+            const open = ((SIM.ports || {})[ip] || []).includes(port);
+            const L = ['Trying ' + ip + '...'];
+            if (!R.ok) { L.push('telnet: Unable to connect to remote host: Connection timed out'); return L.join('\n'); }
+            if (!open) { L.push('telnet: Unable to connect to remote host: Connection refused'); return L.join('\n'); }
+            L.push('Connected to ' + ip + '.', 'Escape character is \'^]\'.', '# [Simülatör] TCP ' + port + ' açık; bağlantı kapatıldı.', 'Connection closed by foreign host.');
+            return L.join('\n');
+        }
+        function arpTable(diag) {
+            const rows = [];
+            for (const e of (SIM.arp || [])) rows.push(Object.assign({ age: 0 }, e));
+            for (const [ip, dev] of Object.entries(S.arpDyn)) if (!rows.some(r => r.ip === ip)) rows.push({ ip, mac: macOf(ip), intf: dev, age: 0 });
+            if (!diag) return ['Address           Age(min)   Hardware Addr      Interface'].concat(rows.filter(r => r.mac).map(r => pad(r.ip, 18) + pad(r.age, 11) + pad(r.mac, 19) + r.intf)).join('\n');
+            return rows.map((r, i) => 'index=' + (3 + i) + ' ifname=' + r.intf + ' ' + r.ip + ' ' + (r.mac || '00:00:00:00:00:00') + ' state=' + (r.mac ? '00000002' : '00000020') + ' use=' + (120 + i) + ' confirm=' + (r.mac ? 60 : 0) + ' update=' + (r.mac ? 3 : 0) + ' ref=' + (r.mac ? 3 : 1)).join('\n');
         }
 
 
         // ═══ Teşhis simülasyonu (Faz C) ═════════════════════════════════════
         // lab.sim (ve seçilen varyantın sim'i): perf, procs, conserve, crash, cfgErr, flows, bulk
         // flows: [{ src, sport, dst, dport, proto: 'tcp'|'udp'|'icmp', in: 'port2', reply: 'ok'|'none'|'rst', arrives: true }]
-        const SIM = Object.assign({}, lab.sim || {}, (S.variant && S.variant.sim) || {});
         S.dbg = { on: false, filter: {}, fn: false, trace: 0, tid: 0 };
         S.sessFilter = {};
         const SVC = { ALL: [['any']], ALL_TCP: [['tcp']], ALL_UDP: [['udp']], ALL_ICMP: [['icmp']], PING: [['icmp']], HTTP: [['tcp', 80]], HTTPS: [['tcp', 443]], SSH: [['tcp', 22]],
@@ -629,12 +782,13 @@ const CgLabFgt = (() => {
 
         // ── diagnose ağacı
         const DIAG = {
-            sys: { top: 'top', session: { stat: 'sstat', list: 'slist', clear: 'sclear', filter: 'sfilter' } },
+            sys: { ha: { checksum: { cluster: 'hacsum' }, history: { read: 'hahist' } }, top: 'top', session: { stat: 'sstat', list: 'slist', clear: 'sclear', filter: 'sfilter' } },
             hardware: { sysinfo: { memory: 'mem', conserve: 'conserve' } },
             debug: { reset: 'dreset', enable: 'denable', disable: 'ddisable', info: 'dinfo', crashlog: { read: 'crash' }, 'config-error-log': { read: 'cfgerr' },
                 flow: { filter: 'ffilter', show: { 'function-name': 'ffn' }, trace: { start: 'tstart', stop: 'tstop' } }, console: { timestamp: 'dts' } },
             sniffer: { packet: 'sniff' },
             vpn: { ike: { gateway: { list: 'ikegw' }, 'log-filter': 'ikelf' }, tunnel: { list: 'tunlist' } },
+            ip: { arp: { list: 'arplist' } },
         };
         DIAG.debug.application = { ike: 'appike', sslvpn: 'appssl' };
         S.dbg.apps = {}; S.ikeFilter = null;
@@ -743,6 +897,9 @@ const CgLabFgt = (() => {
                 case 'ffn': { const v = a[0] && pick(a[0].t, ['enable', 'disable']); if (!v || !v.ok) { log({ raw: line, err: 'invalid' }); return perr(a[0] || null); } S.dbg.fn = v.ok === 'enable'; return ok(''); }
                 case 'tstart': { const n = a[0] && /^\d+$/.test(a[0].t) ? +a[0].t : 0; if (!n) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (a[0] ? a[0].t : '') + '\''; } S.dbg.trace = n; log({ raw: line, canon }); return runTrace(); }
                 case 'tstop': S.dbg.trace = 0; return ok('');
+                case 'arplist': return ok(arpTable(true));
+                case 'hacsum': return ok(haChecksum());
+                case 'hahist': return ok(haHistory());
                 case 'ikegw': { const nm = a[0] && 'name'.startsWith(a[0].t) && a[1] ? a[1].t : null; if (nm && !M().t['vpn ipsec phase1-interface'].v[nm]) { log({ raw: line, err: 'invalid' }); return perr(a[1]); } return ok(ikeGw(nm)); }
                 case 'tunlist': { const nm = a[0] && 'name'.startsWith(a[0].t) && a[1] ? a[1].t : null; if (nm && !M().t['vpn ipsec phase1-interface'].v[nm]) { log({ raw: line, err: 'invalid' }); return perr(a[1]); } return ok(tunList(nm)); }
                 case 'ikelf': {
@@ -773,6 +930,7 @@ const CgLabFgt = (() => {
         function prompt() {
             if (S.pending) return S.pending.prompt;
             if (S.loggedOut) return '';
+            if (S.ha && S.ha.onPeer) return HAP.host + ' # ';
             return host() + (S.ctx ? ' (' + ctxName() + ')' : '') + ' # ';
         }
         // Kısaltma: benzersiz önek
@@ -807,6 +965,15 @@ const CgLabFgt = (() => {
             raw = String(raw).replace(/\r/g, '');
             if (S.pending) { const p = S.pending; S.pending = null; log({ raw: p.secret ? '***' : raw, prompt: true }); return p.fn(raw.trim()); }
             if (S.loggedOut) { S.loggedOut = false; return lab.loginBanner || ''; }
+            if (S.ha && S.ha.onPeer) {
+                const l = raw.trim(); if (!l) return '';
+                const tt = tok(l), v0 = pick(tt[0].t, ['get', 'exit', 'show', 'diagnose', 'config', 'execute']);
+                if (v0.ok === 'exit') { S.ha.onPeer = false; log({ raw: l, canon: 'ha peer exit' }); return '\n# [Simülatör] ' + MY_SN + ' üyesine geri döndünüz.'; }
+                const rest = tt.slice(1).map(x => x.t.toLowerCase()).join(' ');
+                if (v0.ok === 'get' && 'system status'.startsWith(rest) && rest.length > 6) { log({ raw: l, canon: 'peer get system status' }); return sysStatus().replace(MY_SN, HAP.sn).replace('Hostname: ' + host(), 'Hostname: ' + HAP.host).replace('Current HA mode: standalone', 'Current HA mode: a-p, ' + (haElect().meP ? 'secondary' : 'primary')); }
+                if (v0.ok === 'get' && /^sys\S* ha\S* st/.test(rest)) { log({ raw: l, canon: 'peer get system ha status' }); return haStatus(true); }
+                log({ raw: l, err: 'unsupported' }); return '# [Simülatör] Diğer üyede yalnız get system status, get system ha status ve exit desteklenir.';
+            }
             const line = raw.trim();
             if (!line) return '';
             if (line === '\x1a') return '';
@@ -851,6 +1018,8 @@ const CgLabFgt = (() => {
                     if (rest.length === gw.length && gw.every((w, k) => w.startsWith(rest[k]))) {
                         log({ raw: line, canon: 'get ' + g });
                         if (g === 'vpn ipsec tunnel summary') return tunSummary();
+                        if (g === 'system arp') return arpTable(false);
+                        if (g === 'system ha status') return haStatus();
                         return g === 'system status' ? sysStatus() : g === 'system performance status' ? perfStatus() : g === 'system session status' ? 'The total number of sessions for the current VDOM: ' + sessTotal() : g === 'system session list' ? sessTable() : showRib();
                     }
                 }
@@ -866,9 +1035,33 @@ const CgLabFgt = (() => {
                 return perr(t[1] || null);
             }
             if (v.ok === 'execute') {
-                if (t[1] && 'ping'.startsWith(t[1].t.toLowerCase()) && t[2] && isIp(t[2].t) && t.length === 3) { log({ raw: line, canon: 'execute ping ' + t[2].t }); return ping(t[2].t); }
-                log({ raw: line, err: 'unsupported' });
-                return '# [Simülatör] Bu lab sürümünde yalnız "execute ping <ip>" destekleniyor.';
+                const ex = t[1] ? pick(t[1].t, ['ping', 'ping-options', 'traceroute', 'telnet', 'ha']) : { err: 'none' };
+                if (!ex.ok) { log({ raw: line, err: t[1] ? 'unsupported' : 'incomplete' }); return t[1] ? '# [Simülatör] Bu sürümde execute ping, ping-options, traceroute, telnet ve ha destekleniyor.' : perr(null); }
+                if (ex.ok === 'ping' || ex.ok === 'traceroute') {
+                    if (!t[2] || !isIp(t[2].t) || t.length > 3) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (t[2] ? t[2].t : '') + '\''; }
+                    log({ raw: line, canon: 'execute ' + ex.ok + ' ' + t[2].t });
+                    return ex.ok === 'ping' ? ping(t[2].t) : traceroute(t[2].t);
+                }
+                if (ex.ok === 'telnet') {
+                    if (!t[2] || !isIp(t[2].t) || (t[3] && !/^\d+$/.test(t[3].t))) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + ((t[3] || t[2] || {}).t || '') + '\''; }
+                    const port = t[3] ? +t[3].t : 23;
+                    log({ raw: line, canon: 'execute telnet ' + t[2].t + ' ' + port });
+                    return telnet(t[2].t, port);
+                }
+                if (ex.ok === 'ping-options') {
+                    const o = t[2] ? pick(t[2].t, ['source', 'repeat-count', 'reset', 'view-settings']) : { err: 1 };
+                    if (!o.ok) { log({ raw: line, err: 'invalid' }); return perr(t[2] || null); }
+                    if (o.ok === 'reset') { S.pingOpt = { source: null, count: 5 }; log({ raw: line, canon: 'execute ping-options reset' }); return ''; }
+                    if (o.ok === 'view-settings') { log({ raw: line, canon: 'execute ping-options view-settings' }); return 'Ping Options:\n   Repeat Count: ' + S.pingOpt.count + '\n   Data Size: 56\n   Timeout: 2\n   TOS: 0\n   TTL: 64\n   Source Address: ' + (S.pingOpt.source || 'auto'); }
+                    if (o.ok === 'source') {
+                        if (!t[3] || !(isIp(t[3].t) || t[3].t === 'auto')) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (t[3] ? t[3].t : '') + '\''; }
+                        if (t[3].t !== 'auto' && !M().t['system interface'].o.some(n => ifIp(n) === t[3].t)) { log({ raw: line, err: 'value' }); return 'invalid source address ' + t[3].t + ' (bu cihazın arayüz adreslerinden biri olmalı)'; }
+                        S.pingOpt.source = t[3].t === 'auto' ? null : t[3].t; log({ raw: line, canon: 'execute ping-options source ' + t[3].t }); return '';
+                    }
+                    if (!t[3] || !/^\d+$/.test(t[3].t) || +t[3].t < 1 || +t[3].t > 2000) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (t[3] ? t[3].t : '') + '\''; }
+                    S.pingOpt.count = +t[3].t; log({ raw: line, canon: 'execute ping-options repeat-count ' + t[3].t }); return '';
+                }
+                if (ex.ok === 'ha') return haExec(t, line);
             }
             if (v.ok === 'diagnose') return diagCmd(t, line);
             if (v.ok === 'exit') { log({ raw: line, canon: 'exit' }); S.loggedOut = true; return '\n[Simülatör] Oturum kapatıldı. Yeniden bağlanmak için Enter.\n'; }
@@ -1024,10 +1217,16 @@ const CgLabFgt = (() => {
                 for (let k = 1; k < done.length; k++) { if (!node || typeof node !== 'object') return []; const r = pick(done[k].t, Object.keys(node)); if (!r.ok) return null; node = node[r.ok]; }
                 const DH = { sys: 'Sistem (süreç, oturum)', top: 'En çok CPU/bellek kullanan süreçler', session: 'Oturum tablosu', stat: 'Oturum istatistikleri', list: 'Oturumları listele (filtreyle)', clear: 'Filtredeki oturumları sil', filter: 'Filtre ayarla',
                     hardware: 'Donanım', sysinfo: 'Sistem bilgisi', memory: 'Bellek kullanımı', conserve: 'Bellek koruma (conserve) modu', debug: 'Debug', reset: 'Tüm debug ayarlarını sıfırla', enable: 'Debug çıktısını aç', disable: 'Debug çıktısını kapat', info: 'Debug durumu',
-                    crashlog: 'Çökme kaydı', 'config-error-log': 'Yapılandırma hata kaydı', read: 'Oku', flow: 'Paket akışı izleme', show: 'Gösterim ayarı', 'function-name': 'Fonksiyon adlarını göster', trace: 'İzleme', start: 'N paket izle', stop: 'İzlemeyi durdur', console: 'Konsol', timestamp: 'Zaman damgası', sniffer: 'Paket yakalama', vpn: 'VPN', ike: 'IKE (faz 1)', gateway: 'IKE ağ geçitleri', 'log-filter': 'IKE debug filtresi', tunnel: 'IPsec tünelleri', application: 'Uygulama debug\'ı (ike, sslvpn)', packet: '<arayüz|any> \'<filtre>\' <1-6> <adet>' };
+                    crashlog: 'Çökme kaydı', 'config-error-log': 'Yapılandırma hata kaydı', read: 'Oku', flow: 'Paket akışı izleme', show: 'Gösterim ayarı', 'function-name': 'Fonksiyon adlarını göster', trace: 'İzleme', start: 'N paket izle', stop: 'İzlemeyi durdur', console: 'Konsol', timestamp: 'Zaman damgası', sniffer: 'Paket yakalama', ha: 'HA', checksum: 'Yapılandırma sağlaması', cluster: 'Tüm üyeler', history: 'HA olay geçmişi', ip: 'IP', arp: 'ARP tablosu', vpn: 'VPN', ike: 'IKE (faz 1)', gateway: 'IKE ağ geçitleri', 'log-filter': 'IKE debug filtresi', tunnel: 'IPsec tünelleri', application: 'Uygulama debug\'ı (ike, sslvpn)', packet: '<arayüz|any> \'<filtre>\' <1-6> <adet>' };
                 return node && typeof node === 'object' ? Object.keys(node).map(w => [w, DH[w] || '']) : [['<Enter>', '']];
             }
-            if (!c && v.ok === 'execute') return done.length === 1 ? [['ping', 'ICMP erişilebilirlik testi']] : done.length === 2 ? [['<ip>', 'Hedef IP']] : [];
+            if (!c && v.ok === 'execute') {
+                if (done.length === 1) return [['ping', 'ICMP erişilebilirlik testi'], ['ping-options', 'Ping kaynağı, tekrar sayısı'], ['traceroute', 'Yol izleme'], ['telnet', 'TCP port testi: telnet <ip> <port>'], ['ha', 'HA yönetimi (manage, failover, synchronize)']];
+                const e1 = pick(done[1].t, ['ping', 'ping-options', 'traceroute', 'telnet', 'ha']);
+                if (e1.ok === 'ping-options') return done.length === 2 ? [['source', 'Kaynak IP (arayüz adresi)'], ['repeat-count', 'Paket sayısı'], ['reset', 'Varsayılana dön'], ['view-settings', 'Ayarları göster']] : [];
+                if (e1.ok === 'ha') return done.length === 2 ? [['manage', 'Diğer üyeye bağlan: manage <index> <kullanıcı>'], ['failover', 'Kontrollü failover: failover set|unset 1'], ['synchronize', 'Yapılandırmayı eşitle: synchronize start']] : [];
+                return done.length === 2 ? [['<ip>', 'Hedef IP']] : e1.ok === 'telnet' && done.length === 3 ? [['<port>', 'TCP port (varsayılan 23)']] : [];
+            }
             if (c && (c.key !== undefined || c.single) && ['set', 'unset', 'append', 'unselect'].includes(v.ok)) {
                 const sc = SCHEMA[c.path];
                 if (done.length === 1) return Object.entries(sc.attrs).filter(([k, a]) => a.t !== 'ro' && (!a.when || a.when(c.draft)) && (v.ok === 'set' || v.ok === 'unset' || ['refs', 'menum', 'ports'].includes(a.t))).map(([k, a]) => [k, a.d || '']);
@@ -1090,6 +1289,7 @@ const CgLabFgt = (() => {
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
             _toRoot: () => { S.ctx = null; S.pending = null; S.loggedOut = false; },
             get answers() { return S.answers; }, set answers(v) { S.answers = v || {}; },
+            ha: () => { const E = haElect(); return { formed: E.formed, primary: E.formed ? E.meP : true, reason: E.reason || E.why, synced: haInSync(), onPeer: S.ha.onPeer }; },
             tun: n => { const T = tun(n); return { p1up: T.p1up, p2up: T.p2up, reason: T.reason }; },
             variant: () => S.variant, decide: f => decide(Object.assign({ sport: 50000, proto: 'tcp', reply: 'ok', arrives: true }, f)),
             get model() { return S.m; }, ev: E, mode: () => (S.ctx ? (S.ctx.key !== undefined ? 'edit' : 'config') : 'root'),
@@ -1100,4 +1300,6 @@ const CgLabFgt = (() => {
     }
     return { session, SCHEMA };
 })();
+// Motor kayıt defteri: vendor anahtarı → motor (test kapısı ve arayüz buradan bulur)
+(typeof window !== 'undefined' ? window : globalThis).CG_LAB_ENGINES = Object.assign((typeof window !== 'undefined' ? window : globalThis).CG_LAB_ENGINES || {}, { 'fortigate': CgLabFgt });
 if (typeof module !== 'undefined') module.exports = CgLabFgt;
