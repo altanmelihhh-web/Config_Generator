@@ -51,6 +51,8 @@
         { id: 'fortigate-fw', vendor: 'fortigate', title: 'FortiGate: sıfırdan üretime', desc: 'Yeni bir FortiGate\'i kurulumdan HA\'ya ve arıza teşhisine adım adım üretime hazırlayın.',
           modules: FW({ 1: ['fgt-00', 'fgt-01'], 2: ['fgt-17'], 3: ['fgt-02'], 4: ['fgt-13'], 5: ['fgt-03'], 6: ['fgt-04', 'fgt-05'], 7: ['fgt-26'], 8: ['fgt-06'], 9: ['fgt-07', 'fgt-08'],
               10: ['fgt-09'], 11: ['fgt-10'], 12: ['fgt-14', 'fgt-20'], 13: ['fgt-11', 'fgt-23'], 14: ['fgt-12', 'fgt-24'], 15: ['fgt-18'], 16: ['fgt-25', 'fgt-27'], 17: ['fgt-15', 'fgt-16', 'fgt-21', 'fgt-22'] }) },
+        { id: 'paloalto-fw', vendor: 'paloalto', title: 'Palo Alto: sıfırdan üretime', desc: 'PAN-OS güvenlik duvarını kurulumdan güvenlik profillerine ve arıza teşhisine adım adım üretime hazırlayın.',
+          modules: FW({ 1: ['pan-01'], 2: ['pan-07'], 3: ['pan-08'], 4: ['pan-02'], 5: ['pan-03'], 6: ['pan-05'], 9: ['pan-04'], 11: ['pan-10'], 15: ['pan-12'], 17: ['pan-06', 'pan-13'] }) },
         { id: 'huawei-swrt', vendor: 'huawei', title: 'Huawei Switch & Router: sıfırdan üretime', desc: 'VRP ile aynı yolu Huawei S/AR cihazlarında yürüyün.',
           modules: SWRT('huawei', { 1: ['hua-01', 'hua-04'], 2: ['hua-05'], 3: ['hua-02'], 4: ['hua-08'], 5: ['hua-09'], 6: ['hua-10'], 7: ['hua-11'], 8: ['hua-03'], 9: ['hua-12'], 10: ['hua-13'], 11: ['hua-14'], 12: ['hua-15'], 13: ['hua-06'], 14: ['hua-07'], 15: ['hua-16'], 16: ['hua-17'], 17: ['hua-40', 'hua-42'] }) },
         { id: 'dell-swrt', vendor: 'dell', title: 'Dell OS10 Switch: sıfırdan üretime', desc: 'OS10 ile veri merkezi erişim switch\'ini adım adım kurun.',

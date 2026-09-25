@@ -103,6 +103,10 @@ const CgLabSetCli = (() => {
         vid: s => (/^\d{1,4}$/.test(s) && +s >= 1 && +s <= 4094 ? String(+s) : null),
         pref: s => (/^\d{1,10}$/.test(s) && +s <= 4294967295 ? String(+s) : null),
         port: s => (/^\d{1,5}$/.test(s) && +s >= 1 && +s <= 65535 ? String(+s) : null),
+        // PAN-OS yönetim: idle-timeout 0–1440 dk, admin-lockout failed-attempts 0–10, lockout-time 0–60 dk
+        pidle: s => (/^\d{1,4}$/.test(s) && +s <= 1440 ? String(+s) : null),
+        pfail: s => (/^\d{1,2}$/.test(s) && +s <= 10 ? String(+s) : null),
+        plock: s => (/^\d{1,2}$/.test(s) && +s <= 60 ? String(+s) : null),
         ports: s => (portsOk(s) ? s : null),
         metric: s => (/^\d{1,5}$/.test(s) && +s <= 65535 ? String(+s) : null),
         adist: s => (/^\d{1,3}$/.test(s) && +s >= 10 && +s <= 240 ? String(+s) : null),
@@ -2264,9 +2268,18 @@ const CgLabSetCli = (() => {
             category: V('word', 'URL kategorisi', { multi: 'brack', ref: () => ['any'] }),
             action: V(['allow', 'deny', 'drop', 'reset-client', 'reset-server', 'reset-both'], 'Eylem'),
             'log-end': V(YN, 'Oturum sonunda logla'), 'log-start': V(YN, 'Oturum başında logla'),
+            'profile-setting': K({ group: V('word', 'Profil grubu', { multi: 'brack', grp: 'ps', ref: () => ['default'] }),
+                profiles: K({ virus: V('word', 'Antivirüs', { multi: 'brack', ref: () => ['default'] }), spyware: V('word', 'Anti-spyware', { multi: 'brack', ref: () => ['default', 'strict'] }),
+                    vulnerability: V('word', 'Zafiyet koruması (IPS)', { multi: 'brack', ref: () => ['default', 'strict'] }), 'url-filtering': V('word', 'URL filtreleme', { multi: 'brack', ref: () => ['default'] }),
+                    'file-blocking': V('word', 'Dosya engelleme', { multi: 'brack', ref: () => ['basic file blocking', 'strict file blocking'] }), 'wildfire-analysis': V('word', 'WildFire analizi', { multi: 'brack', ref: () => ['default'] }) }, 'Tek tek profiller', { grp: 'ps' }) }, 'Güvenlik profilleri'),
         });
         return K({
-            deviceconfig: K({ system: K({ hostname: V('word', 'Cihaz adı'), timezone: V('word', 'Saat dilimi'), 'dns-setting': K({ servers: K({ primary: V('ip', 'Birincil DNS'), secondary: V('ip', 'İkincil DNS') }, 'DNS sunucuları') }, 'DNS ayarları'), 'ntp-servers': K({ 'primary-ntp-server': K({ 'ntp-server-address': V('word', 'NTP sunucusu') }, 'Birincil NTP') }, 'NTP sunucuları') }, 'Sistem', { u: ['ip-address', 'netmask', 'default-gateway', 'login-banner', 'service', 'panorama', 'update-schedule', 'permitted-ip'] }) }, 'Cihaz ayarları', { u: ['setting', 'high-availability'] }),
+            deviceconfig: K({ system: K({ hostname: V('word', 'Cihaz adı'), timezone: V('word', 'Saat dilimi'), 'dns-setting': K({ servers: K({ primary: V('ip', 'Birincil DNS'), secondary: V('ip', 'İkincil DNS') }, 'DNS sunucuları') }, 'DNS ayarları'), 'ntp-servers': K({ 'primary-ntp-server': K({ 'ntp-server-address': V('word', 'NTP sunucusu') }, 'Birincil NTP'), 'secondary-ntp-server': K({ 'ntp-server-address': V('word', 'NTP sunucusu') }, 'İkincil NTP') }, 'NTP sunucuları'),
+                'login-banner': V('str', 'Giriş afişi'),
+                service: K({ 'disable-http': V(YN, 'Yönetim arayüzünde HTTP\'yi kapat'), 'disable-https': V(YN, 'HTTPS\'i kapat'), 'disable-telnet': V(YN, 'Telnet\'i kapat'), 'disable-ssh': V(YN, 'SSH\'ı kapat') }, 'Yönetim arayüzü hizmetleri', { u: ['disable-snmp', 'disable-icmp', 'disable-userid-service'] }),
+                'permitted-ip': L('prefix', {}, 'Yönetim arayüzüne erişebilecek ağlar', { wrap: true }) }, 'Sistem', { u: ['ip-address', 'netmask', 'default-gateway', 'panorama', 'update-schedule'] }),
+                setting: K({ management: K({ 'idle-timeout': V('pidle', 'Boşta kalma zaman aşımı (dk, 0 = sınırsız)'),
+                    'admin-lockout': K({ 'failed-attempts': V('pfail', 'Kilitlenmeden önceki hatalı giriş'), 'lockout-time': V('plock', 'Kilit süresi (dk)') }, 'Hatalı girişte hesap kilidi') }, 'Yönetim ayarları', { u: ['hostname-type-in-syslog', 'api', 'auto-acquire-commit-lock'] }) }, 'Cihaz ayarları', { u: ['session', 'config', 'application'] }) }, 'Cihaz ayarları', { u: ['high-availability'] }),
             network: K({
                 interface: K({
                     ethernet: L('pif', {
@@ -2280,7 +2293,9 @@ const CgLabSetCli = (() => {
                     interface: V('pif', 'Bu VR\'a ait arayüzler', { multi: 'brack', ref: ifRef }),
                     'routing-table': K({ ip: K({ 'static-route': L('name', { destination: V('prefix', 'Hedef ağ'), nexthop: K({ 'ip-address': V('ip', 'Sonraki atlama IP', { grp: 'nh' }), discard: F('Düşür', { grp: 'nh' }) }, 'Sonraki atlama'), interface: V('pif', 'Çıkış arayüzü', { ref: ifRef }), metric: V('metric', 'Metrik (varsayılan 10)'), 'admin-dist': V('adist', 'Yönetsel mesafe (varsayılan 10)') }, 'Statik rota', { wrap: true }) }, 'IPv4') }, 'Yönlendirme tablosu'),
                 }, 'Sanal yönlendirici', { wrap: true, ref: () => ['default'], u: ['protocol', 'ecmp', 'multicast', 'admin-dists'] }),
-            }, 'Ağ', { u: ['ike', 'tunnel', 'vlan', 'dhcp', 'dns-proxy', 'qos', 'lldp', 'logical-router', 'shared-gateway'] }),
+                dhcp: K({ interface: L('pif', { server: K({ mode: V(['auto', 'enabled', 'disabled'], 'Sunucu durumu'), 'ip-pool': V('paddr', 'Dağıtım aralığı a.b.c.d-e.f.g.h ya da önek', { multi: 'brack' }),
+                    option: K({ gateway: V('ip', 'Ağ geçidi'), 'subnet-mask': V('ip', 'Alt ağ maskesi'), dns: K({ primary: V('ip', 'Birincil DNS'), secondary: V('ip', 'İkincil DNS') }, 'DNS sunucuları') }, 'İstemcilere verilecek seçenekler', { u: ['lease', 'wins', 'nis', 'ntp', 'pop3-server', 'smtp-server', 'dns-suffix', 'user-defined'] }) }, 'DHCP sunucusu', { u: ['reserved'] }) }, 'Arayüz', { wrap: true, ref: ifRef, u: ['relay'] }) }, 'DHCP'),
+            }, 'Ağ', { u: ['ike', 'tunnel', 'vlan', 'dns-proxy', 'qos', 'lldp', 'logical-router', 'shared-gateway'] }),
             zone: L('name', { network: K({ layer3: V('pif', 'Zone üyesi L3 arayüzler', { multi: 'brack', ref: ifRef }) }, 'Zone tipi ve üyeleri', { u: ['layer2', 'virtual-wire', 'tap', 'tunnel', 'zone-protection-profile', 'log-setting'] }) }, 'Güvenlik zone\'u', { wrap: true, ref: zoneRef, u: ['user-acl', 'enable-user-identification'] }),
             address: L('name', { 'ip-netmask': V('prefix', 'IP/maske', { grp: 'at' }), fqdn: V('word', 'Tam alan adı', { grp: 'at' }), 'ip-range': V('paddr', 'Aralık a.b.c.d-e.f.g.h', { grp: 'at' }), description: V('str', 'Açıklama') }, 'Adres nesnesi', { wrap: true, ref: st => [...(getIn(st.cand.t, ['address']) || new Map()).keys()], u: ['tag'] }),
             'address-group': L('name', { static: V('word', 'Üye adres nesneleri', { multi: 'brack', ref: st => [...(getIn(st.cand.t, ['address']) || new Map()).keys()] }), description: V('str', 'Açıklama') }, 'Adres grubu', { wrap: true, u: ['dynamic', 'tag'] }),
@@ -2443,6 +2458,38 @@ const CgLabSetCli = (() => {
                 return { name: rn, idx, r, st: getIn(r, ['source-translation']), dt: getIn(r, ['destination-translation']) };
             }
             return null;
+        }
+        // ── NTP (lab.sim.ntp: ulaşılabilir sunucular) ve DHCP kiraları (lab.sim.dhcp: [{ mac, intf, host }]) — running yapılandırmadan
+        function panNtp() {
+            const t = S.run.t, a = ['primary-ntp-server', 'secondary-ntp-server'].map(k => getIn(t, ['deviceconfig', 'system', 'ntp-servers', k, 'ntp-server-address'])).filter(Boolean);
+            const ok = x => (SIM.ntp || []).includes(x), sel = a.find(ok);
+            log({ ntp: !!sel });
+            if (!a.length) return 'NTP state:\n    NTP not synched, using local clock\n# [Simülatör] NTP sunucusu yapılandırılmamış.';
+            return ['NTP state:', '    ' + (sel ? 'NTP synched to ' + sel : 'NTP not synched, using local clock')].concat(...a.map(x => ['    NTP server: ' + x, '        status: ' + (ok(x) ? (x === sel ? 'synched' : 'available') : 'rejected'), '        reachable: ' + (ok(x) ? 'yes' : 'no')]),
+                ['# [Simülatör] Çıktı sadeleştirildi (kimlik doğrulama satırları gösterilmez).']).join('\n');
+        }
+        function panDhcpLeases() {
+            const t = S.run.t, out = [], used = {}, W = view();
+            (SIM.dhcp || []).forEach(c => {
+                const sv = getIn(t, ['network', 'dhcp', 'interface', c.intf, 'server']), x = ifo(W, c.intf);
+                if (!(sv instanceof Map) || sv.get('mode') === 'disabled' || !x || !x.up || !x.ips[0]) return out.push(Object.assign({}, c, { reason: 'nosrv' }));
+                const net = pfx(x.ips[0]); let ip = null;
+                for (const r of (sv.get('ip-pool') || [])) {
+                    const [a, b] = String(r).includes('-') ? r.split('-') : [pfx(r).ip, n2ip(ip2n(pfx(r).ip) + 2 ** (32 - pfx(r).len) - 1)];
+                    if (!inNet(a, net) || !inNet(b, net)) continue;
+                    for (let n = ip2n(a); n <= ip2n(b); n++) { const y = n2ip(n); if (y !== net.ip && !used[y]) { ip = y; break; } }
+                    if (ip) break;
+                }
+                if (!ip) return out.push(Object.assign({}, c, { reason: 'range' }));
+                used[ip] = true; out.push(Object.assign({}, c, { ip, gw: getIn(sv, ['option', 'gateway']) || null }));
+            });
+            return out;
+        }
+        function panLeases(which) {
+            const L2 = [], ls = panDhcpLeases().filter(x => x.ip && (!which || which === 'all' || x.intf === which));
+            [...new Set(ls.map(x => x.intf))].forEach(n => { L2.push('interface: "' + n + '"', 'ip                mac               state      hostname'); ls.filter(x => x.intf === n).forEach(x => L2.push(pad(x.ip, 18) + pad(x.mac.toLowerCase(), 18) + pad('committed', 11) + (x.host || ''))); });
+            log({ leases: ls.length });
+            return (L2.length ? L2 : ['# [Simülatör] Kira yok.']).concat(['# [Simülatör] Sütunlar sadeleştirildi (süre/lease-time alanları gösterilmez).']).join('\n');
         }
         function decide(f0, cfg) {
             const f = Object.assign({ proto: 'tcp', sport: 51234, dport: 443 }, f0);
@@ -2626,6 +2673,8 @@ const CgLabSetCli = (() => {
                 session: { d: 'Oturumlar', c: { all: { d: 'Tüm oturumlar', run: () => sessions([]).text, args: [['filter', 'source/destination/destination-port/from/to/application/state/count']], runArgs: a => sessions(a) }, info: { d: 'Oturum özeti', run: () => UNSUP, unsup: true }, id: { d: 'Tek oturum', run: () => UNSUP, unsup: true } } },
                 jobs: { d: 'İş kuyruğu (commit/validate)', c: { all: { d: 'Tüm işler', run: () => ['Enqueued              Dequeued     ID  PositionInQ                              Type                         Status Result Completed', '------------------------------------------------------------------------------------------------------------------------------'].concat(S.jobs.slice().reverse().map(jobLine)).join('\n') }, id: { d: 'İş ayrıntısı', args: [['<id>', 'İş numarası']], runArgs: a => { const j = S.jobs.find(x => String(x.id) === a[0].t); if (!j) return { text: '# [Simülatör] Böyle bir iş yok.', errk: 'value' }; return { text: ['Enqueued              Dequeued     ID  PositionInQ                              Type                         Status Result Completed', '------------------------------------------------------------------------------------------------------------------------------', jobLine(j)].concat(j.errs.length ? ['Warnings:', 'Details:'].concat(j.errs) : ['Warnings:', 'Details:', 'Configuration committed successfully'].slice(0, j.type === 'Commit' ? 3 : 2)).join('\n') }; } } } },
                 clock: { d: 'Saat', run: () => SIMCLK(S.job).replace(' ', ' ') + ' UTC' },
+                ntp: { d: 'NTP eşitleme durumu', run: () => panNtp() },
+                dhcp: { d: 'DHCP', c: { server: { d: 'DHCP sunucusu', c: { lease: { d: 'Kiralar', c: { interface: { d: 'Arayüz', args: [['all', 'Tüm arayüzler'], ['<ethernet1/N>', 'Tek arayüz']], runArgs: a => ({ text: panLeases(a[0] && a[0].t) }) } } } } } } },
             }, known: ['counter', 'high-availability', 'vpn', 'user', 'log', 'arp', 'mac', 'zone-protection', 'running', 'admins', 'ntp', 'dns-proxy', 'global-protect-gateway', 'neighbor', 'lldp', 'transceiver', 'rule-hit-count', 'advanced-routing', 'netstat', 'vlan', 'dos-protection', 'config-locks'] },
             test: { d: 'Test (kural eşleşmesi, rota)', c: {
                 'security-policy-match': { d: 'Bir akışın eşleşeceği güvenlik kuralı (running)', args: [['from', '<zone>'], ['to', '<zone>'], ['source', '<IP>'], ['destination', '<IP>'], ['destination-port', '<port>'], ['protocol', '<6|17|1>'], ['application', '<app>']], runArgs: a => secTest(a) },
@@ -2687,7 +2736,7 @@ const CgLabSetCli = (() => {
         }
 
         const CFG_VERBS = ['set', 'delete', 'edit', 'up', 'top', 'exit', 'quit', 'show', 'commit', 'validate', 'revert', 'move', 'run', 'rename', 'copy', 'load', 'save', 'check', 'clone', 'override', 'annotate'];
-        const CFG_UNSUP = ['rename', 'copy', 'load', 'save', 'check', 'clone', 'override', 'annotate'];
+        const CFG_UNSUP = ['rename', 'copy', 'check', 'clone', 'override', 'annotate'];
         const VERB_H = { set: 'Değer ata / nesne oluştur', delete: 'Sil', edit: 'Hiyerarşide bir seviyeye in', up: 'Bir seviye yukarı', top: 'En üst seviye', exit: 'Bir seviye yukarı / yapılandırma modundan çık', quit: 'exit ile aynı', show: 'Candidate yapılandırmayı göster', commit: 'Candidate\'i running yap', validate: 'Commit etmeden doğrula', revert: 'Candidate\'i running\'e geri döndür', move: 'Kural sırasını değiştir', run: 'Operasyonel komut çalıştır', rename: 'Yeniden adlandır', copy: 'Kopyala', load: 'Yükle', save: 'Kaydet', check: 'Kontrol', clone: 'Klonla', override: 'Geçersiz kıl', annotate: 'Not ekle' };
         const cerr = (raw, r, toks) => {
             if (r.err === 'unsupported') { log({ raw, err: 'unsupported' }); return cfgOut(UNSUP); }
@@ -2729,6 +2778,16 @@ const CgLabSetCli = (() => {
                 S.jobs.push({ id, type: 'Validate', ok: !errs.length, n: id, errs });
                 log({ raw, canon: 'validate full', validate: errs.length ? 'fail' : 'ok' });
                 return cfgOut('Validate job enqueued with jobid ' + id + '\n' + id);
+            }
+            // save config to <dosya> / load config from <dosya>: candidate'in adlı kopyası (yükleme candidate'i değiştirir, commit gerekir)
+            if (v === 'save' || v === 'load') {
+                const w = rest.map(x => x.t), kw = v === 'save' ? 'to' : 'from';
+                if (w[0] !== 'config' || w[1] !== kw || !w[2] || w.length > 3 || !VT.file(w[2])) { log({ raw, err: w.length < 3 ? 'incomplete' : 'invalid' }); return cfgOut(INV); }
+                S.files = S.files || {};
+                if (v === 'save') { S.files[w[2]] = cfgClone(S.cand); log({ raw, canon: 'save config to ' + w[2] }); return cfgOut('Config saved to ' + w[2]); }
+                if (!S.files[w[2]]) { log({ raw, err: 'value' }); return cfgOut('# [Simülatör] ' + w[2] + ' adlı kayıtlı yapılandırma yok.'); }
+                S.cand = cfgClone(S.files[w[2]]); log({ raw, canon: 'load config from ' + w[2], loaded: w[2] });
+                return cfgOut('Config loaded from ' + w[2]);
             }
             if (v === 'revert') {
                 if (!rest[0] || pick(rest[0].t, ['config']).ok !== 'config' || rest.length > 1) { log({ raw, err: rest[0] ? 'invalid' : 'incomplete' }); return cfgOut(INV); }
@@ -2887,7 +2946,7 @@ const CgLabSetCli = (() => {
             val, has: (p, w) => val(p, w) !== undefined,
             committed: () => sameCfg(),
             decide: (f, which) => decide(f, which === 'cand' ? S.cand : undefined),
-            mgmtAllows: (i, svc) => mgmtAllows(i, svc), hostname: () => host(),
+            mgmtAllows: (i, svc) => mgmtAllows(i, svc), hostname: () => host(), dhcpLeases: () => panDhcpLeases(), files: () => Object.keys(S.files || {}),
             rules: (kind, which) => [...((getIn((which === 'cand' ? S.cand : S.run).t, ['rulebase', kind || 'security', 'rules'])) || new Map()).keys()],
             route: (ip, vr) => { const r = view().lookup(vr || 'default', ip); return r ? { iface: r.iface, nh: r.nh, flags: r.flags } : null; },
             iface: n => ifo(view(), n),
