@@ -586,7 +586,8 @@ const CgLabFgt = (() => {
             after: (a, b) => { const i = S.ev.findIndex(e => e.canon && a.test(e.canon)); return i >= 0 && S.ev.slice(i + 1).some(e => e.canon && b.test(e.canon)); },
             afterErr: re => { const i = S.ev.findIndex(e => e.err); return i >= 0 && S.ev.slice(i + 1).some(e => e.canon && re.test(e.canon)); },
             err: k => S.ev.some(e => e.err === k),
-            helped: () => S.ev.some(e => e.help !== undefined),
+            // re verilirse yalnız o satır için istenen yardım sayılır (ör. /^config\s/)
+            helped: re => S.ev.some(e => e.help !== undefined && (!re || re.test(e.help))),
             abbrev: canon => S.ev.some(e => e.canon === canon && e.raw.trim().toLowerCase() !== canon),
             list: () => S.ev
         };
@@ -595,6 +596,7 @@ const CgLabFgt = (() => {
         return {
             vendor: 'fortigate',
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
+            _toRoot: () => { S.ctx = null; S.pending = null; S.loggedOut = false; },
             get model() { return S.m; }, ev: E, mode: () => (S.ctx ? (S.ctx.key !== undefined ? 'edit' : 'config') : 'root'),
             obj, keys: p => M().t[p].o.filter(k => !M().t[p].v[k]._builtin), order: p => M().t[p].o.slice(),
             rib, ifUp, saved: () => !S.ctx,

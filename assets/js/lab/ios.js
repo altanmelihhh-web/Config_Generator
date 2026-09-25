@@ -800,7 +800,7 @@ const CgLabIos = (() => {
             ran: (re) => S.ev.some(e => e.canon && re.test(e.canon)),
             ranRaw: (re) => S.ev.some(e => e.canon && re.test(e.raw.trim())),
             abbrev: (canon) => S.ev.some(e => e.canon === canon && e.raw.trim().toLowerCase() !== canon),
-            helped: () => S.ev.some(e => e.help !== undefined),
+            helped: re => S.ev.some(e => e.help !== undefined && (!re || re.test(e.help))),
             err: (k) => S.ev.some(e => e.err === k),
             after: (reA, reB) => { const i = S.ev.findIndex(e => e.canon && reA.test(e.canon)); return i >= 0 && S.ev.slice(i + 1).some(e => e.canon && reB.test(e.canon)); },
             afterErr: (re) => { const i = S.ev.findIndex(e => e.err === 'invalid'); return i >= 0 && S.ev.slice(i + 1).some(e => e.canon && re.test(e.canon)); },
@@ -813,6 +813,8 @@ const CgLabIos = (() => {
             prompt: promptText,
             secret: () => !!(S.pending && S.pending.secret),
             input, help, complete,
+            _toPriv: () => { S.mode = 'priv'; S.ctx = []; S.pending = null; S.loggedOut = false; },
+
             get model() { return S.m; },
             get startupModel() { return S.startup; },
             ev: E,

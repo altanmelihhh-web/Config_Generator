@@ -275,6 +275,15 @@ const CgLab = {
         if (!side) return;
         const n = st.done.filter(Boolean).length, tot = lab.tasks.length, pct = tot ? Math.round(100 * n / tot) : 0;
         const cur = lab.ordered ? st.done.findIndex((d, i) => !d) : -1;
+        const stepsHtml = t => (t.steps || []).map(x => typeof x === 'object' ? '<code>' + cgEsc(x.help) + '</code> yazıp <kbd>?</kbd>' : x === '' ? '(Enter)' : '<code>' + cgEsc(x) + '</code>').join('<br>');
+        // Tam çözümün hangi modda yazılacağı (IOS: yapılandırma modu komutları conf t ister)
+        const EXEC = /^(en|ena|enable|conf|configure|sh|show|shw|copy|wr|write|reload|exit|do|ping)\b/i;
+        const modeNote = t => {
+            if (lab.vendor !== 'cisco-ios') return '';
+            const f = t.from || (typeof t.steps[0] === 'string' && t.steps[0] && !EXEC.test(t.steps[0]) ? 'config' : '');
+            return f === 'config' ? '<small>Yapılandırma modunda (<code>configure terminal</code>):</small><br>' : f === 'priv' ? '<small>Ayrıcalıklı modda (<code>#</code>):</small><br>' : '';
+        };
+        const hintsOf = t => t.hints.length >= 3 ? t.hints : t.hints.concat([modeNote(t) + stepsHtml(t)]);
         const tasks = lab.tasks.map((t, i) => {
             const done = !!st.done[i], hl = (st.hints || {})[i] || 0;
             const locked = lab.ordered && i > 0 && !st.done[i - 1] && !done;
@@ -284,7 +293,7 @@ const CgLab = {
                 <div class="cg-lab-task-b">
                     <div class="cg-lab-task-t">${t.t}</div>
                     ${!locked ? `<details class="cg-lab-why"><summary>Neden?</summary><div>${t.why}</div></details>` : ''}
-                    ${!done && !locked ? `<div class="cg-lab-hints">${t.hints.slice(0, hl).map((h, k) => `<div class="cg-lab-hint lv${k + 1}"><b>${['İpucu', 'Komut iskeleti', 'Çözüm'][k]}:</b> ${h}</div>`).join('')}
+                    ${!done && !locked ? `<div class="cg-lab-hints">${hintsOf(t).slice(0, hl).map((h, k) => `<div class="cg-lab-hint lv${k + 1}"><b>${['İpucu', 'Komut iskeleti', 'Çözüm'][k]}:</b> ${h}</div>`).join('')}
                         ${hl < 3 ? `<button class="cg-lab-hbtn" data-hint="${i}"><i class="far fa-lightbulb"></i> ${['İpucu', 'Komut iskeleti', 'Tam çözüm'][hl]}${hl >= 1 ? ' <small>(★ düşürür)</small>' : ''}</button>` : ''}</div>` : ''}
                     ${this._fb && this._fb[i] && !done ? `<div class="cg-lab-fb"><i class="fas fa-exclamation-circle"></i> ${this._fb[i]}</div>` : ''}
                 </div>
