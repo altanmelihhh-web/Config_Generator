@@ -2,6 +2,21 @@
 
 const CiscoIOS = {};
 
+// ── Lab bulgularından türetilen girdi uyarıları (CLI Lab ios-30/34/45/46/47 arıza senaryoları) ──
+const _ccN = ip => String(ip || '').trim().split('.').reduce((a, o) => a * 256 + (+o), 0);
+const _ccIsIp = ip => /^(\d{1,3}\.){3}\d{1,3}$/.test(String(ip || '').trim());
+// Wildcard alanına alt ağ maskesi yazılmış mı? (255.255.255.0 gibi; 255.255.255.255 = "any" ile eşdeğer, uyarılmaz)
+function _ccWildLooksMask(w) {
+    const t = String(w || '').trim();
+    return _ccIsIp(t) && /^255\./.test(t) && t !== '255.255.255.255' && typeof cgMaskLen === 'function' && cgMaskLen(t) !== '';
+}
+// Adres, wildcard'ın "önemsiz" bitlerinde 1 içeriyor mu? (10.64.10.5 0.0.0.255 → IOS 10.64.10.0'a normalize eder)
+function _ccHostBits(ip, wild) {
+    if (!_ccIsIp(ip) || !_ccIsIp(wild) || _ccWildLooksMask(wild)) return false;   // maske yazılmışsa ayrı uyarı verilir
+    const a = _ccN(ip), w = _ccN(wild), oct = (n, b) => Math.floor(n / 2 ** b) % 256;
+    return [24, 16, 8, 0].some(b => (oct(a, b) & oct(w, b)) !== 0);
+}
+
 // ── VLAN ──────────────────────────────────────────────────────────────────────
 CiscoIOS.vlan = {
     label: 'VLAN',
@@ -201,7 +216,23 @@ CiscoIOS.acl = {
             const iface  = data.iface;
             const dir    = data.direction || 'in';
             let config = '! ========================================\n! Cisco IOS ACL Configuration\n! ========================================\n\n';
-            if (data._cgtype === 'named' || isNaN(name)) {
+            const warnings = [];
+            if (_ccWildLooksMask(wild) || _ccWildLooksMask(data.dst_wild)) warnings.push('\u26A0 Wildcard alanına alt ağ maskesi yazılmış görünüyor (ör. 255.255.255.0). Cisco ACL ters maske ister: /24 için 0.0.0.255.');
+            if (_ccHostBits(src, wild) || _ccHostBits(data.dst_ip, data.dst_wild)) warnings.push('\u26A0 Adres, wildcard\'ın kapsadığı bitlerde değer içeriyor (ör. 10.1.1.5 0.0.0.255). IOS bunu ağ adresine (10.1.1.0) çevirir; niyetiniz tek host ise wildcard 0.0.0.0 olmalı.');
+            if (data.src_port && /^(tcp|udp)$/.test(proto) && !data.dst_port) warnings.push('\u26A0 Yalnız kaynak port girildi. İstemcinin kaynak portu rastgeledir; sunucu portu (ör. 443) hedef porttur — kural büyük olasılıkla hiç eşleşmez.');
+            // Sonda örtük "deny any" var: tek bir deny satırı tüm trafiği keser (CLI Lab ios-46 "noany" arızası)
+            const tail = action === 'deny';
+            if (tail) warnings.push('\u2139 Tek satır "deny" olduğu için sona "permit … any" eklendi. Eklenmeseydi ACL\'nin sonundaki örtük deny, arayüzdeki diğer tüm trafiği de keserdi.');
+            else warnings.push('\u2139 Bu ACL yalnız tanımladığınız trafiğe izin verir; diğer her şey sondaki (örtük) deny ile düşer. Arayüzden başka trafik de geçiyorsa gerekli permit satırlarını ekleyin.');
+            const extended = data._cgtype === 'named' || data._cgtype === 'extended' || isNaN(name);
+            if (extended && !isNaN(name)) {
+                // Numaralı extended (100-199): satır protokol ve hedef içermeli
+                const srcAddr = wild === '0.0.0.0' ? 'host ' + src : src + ' ' + wild;
+                const dstWild = data.dst_wild || '0.0.0.0';
+                const dstAddr = data.dst_ip ? (dstWild === '0.0.0.0' ? 'host ' + data.dst_ip : data.dst_ip + ' ' + dstWild) : 'any';
+                config += 'access-list ' + name + ' ' + ccFormatAclEntryWildcard({ action, proto, src: srcAddr, dst: dstAddr, src_port: data.src_port, dst_port: data.dst_port }) + '\n';
+                config += tail ? 'access-list ' + name + ' permit ip any any\n!\n' : 'access-list ' + name + ' deny ip any any log\n!\n';
+            } else if (extended) {
                 // Extended/Named ACL: aynı 5-tuple satırı Dönüştürücü'nün ccFormatAclEntryWildcard'ı ile paylaşılıyor,
                 // yalnızca "kaynak" yazan eski davranış burada terk edildi.
                 const srcAddr = wild === '0.0.0.0' ? 'host ' + src : src + ' ' + wild;
@@ -210,16 +241,17 @@ CiscoIOS.acl = {
                 const dstAddr = dstIp ? (dstWild === '0.0.0.0' ? 'host ' + dstIp : dstIp + ' ' + dstWild) : 'any';
                 config += 'ip access-list extended ' + name + '\n';
                 config += ' ' + ccFormatAclEntryWildcard({ action, proto, src: srcAddr, dst: dstAddr, src_port: data.src_port, dst_port: data.dst_port }) + '\n';
-                config += ' deny ip any any log\n!\n';
+                config += tail ? ' permit ip any any\n!\n' : ' deny ip any any log\n!\n';
             } else {
-                config += 'access-list ' + name + ' ' + action + ' ' + src + ' ' + wild + '\n!\n';
+                config += 'access-list ' + name + ' ' + action + ' ' + src + ' ' + wild + '\n';
+                config += tail ? 'access-list ' + name + ' permit any\n!\n' : '!\n';
             }
             if (iface) {
                 config += 'interface ' + iface + '\n';
                 config += ' ip access-group ' + name + ' ' + dir + '\n!\n';
             }
-            config += '! Doğrulama:\n! show ip access-lists ' + name + '\n! show interfaces ' + (iface || '<iface>') + ' | include access list\n';
-            return config;
+            config += '! Doğrulama:\n! show ip access-lists ' + name + '       ! hit sayaçları: hangi satır çalışıyor?\n! show ip interface ' + (iface || '<iface>') + ' | include access list   ! doğru yön mü?\n';
+            return { config, warnings };
         });
     }
 };
@@ -306,6 +338,10 @@ CiscoIOS.nat = {
             const inside  = data.inside_if;
             const outside = data.outside_if;
             let config = '! ========================================\n! Cisco IOS NAT Configuration\n! ========================================\n\n';
+            const warnings = [];
+            if (inside && outside && inside.trim().toLowerCase() === outside.trim().toLowerCase()) warnings.push('\u26D4 Inside ve outside aynı arayüz. NAT yalnız inside → outside geçişinde çevirir; bu yapılandırma hiçbir şeyi çevirmez.');
+            if ((type === 'pat' || type === 'dynamic') && _ccWildLooksMask(data.inside_wild)) warnings.push('\u26A0 Wildcard alanına alt ağ maskesi yazılmış görünüyor. NAT ACL\'si ters maske ister (/24 → 0.0.0.255); yanlış maske bazı kullanıcıları çeviri dışında bırakır.');
+            if ((type === 'pat' || type === 'dynamic') && _ccHostBits(data.inside_net, data.inside_wild)) warnings.push('\u26A0 İç ağ adresi wildcard\'ın kapsadığı bitlerde değer içeriyor; ağ adresini yazın (ör. 10.64.10.0).');
             config += 'interface ' + inside + '\n ip nat inside\n!\ninterface ' + outside + '\n ip nat outside\n!\n';
             if (type === 'pat') {
                 const net  = data.inside_net;
@@ -325,8 +361,8 @@ CiscoIOS.nat = {
                 config += 'ip access-list extended NAT_ACL\n permit ip ' + net + ' ' + wild + ' any\n!\n';
                 config += 'ip nat inside source list NAT_ACL pool NAT_POOL\n';
             }
-            config += '\n! Doğrulama:\n! show ip nat translations\n! show ip nat statistics\n';
-            return config;
+            config += '\n! Doğrulama:\n! show ip nat statistics      ! inside/outside rolleri doğru mu?\n! show ip nat translations    ! kim, hangi adresle çevriliyor?\n! Değişiklikten sonra eski çeviriler kalabilir: clear ip nat translation *\n';
+            return { config, warnings };
         });
     }
 };
@@ -760,7 +796,9 @@ function cgDhcpGen(data) {
         const dom = g('domain'); if (dom) c += ' domain-name ' + dom + '\n';
         c += '!\n';
         const sm = g('static_mac'), si = g('static_ip');
-        if (sm && si) c += 'ip dhcp pool HOST-' + sm.replace(/[:\-.]/g,'') + '\n host ' + si + ' ' + g('mask') + '\n client-identifier ' + sm + '\n!\n';
+        // client-identifier = 01 (Ethernet) + MAC, noktalı dörtlü gruplar: 0100.5056.a101.01
+        const hex = sm.replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+        if (sm && si) c += 'ip dhcp pool HOST-' + hex + '\n host ' + si + ' ' + g('mask') + '\n client-identifier ' + ('01' + hex).replace(/(.{4})(?=.)/g, '$1.') + '\n!\n';
     } else if (mode === 'relay') {
         c += 'interface ' + g('relay_iface') + '\n ip helper-address ' + g('relay_server') + '\nexit\n';
     } else if (mode === 'snooping') {
@@ -772,7 +810,30 @@ function cgDhcpGen(data) {
         c += '!\n';
     }
     c += '! Doğrulama: show ip dhcp pool | show ip dhcp binding | show ip dhcp snooping\n';
-    return c;
+    return { config: c, warnings: cgDhcpWarn(data, mode) };
+}
+// DHCP lab/arıza bulguları (ios-30, ios-47): ağ geçidi yok, havuz ağı/maske uyumsuz, hariç aralık havuzu yutuyor
+function cgDhcpWarn(data, mode) {
+    const w = [], v = k => (data[k] || '').toString().trim();
+    if (mode === 'server') {
+        const net = v('network'), mask = v('mask'), gw = v('gateway'), es = v('excl_start'), ee = v('excl_end') || v('excl_start');
+        const len = typeof cgMaskLen === 'function' ? +cgMaskLen(mask) : NaN;
+        if (!gw) w.push('\u26A0 default-router (ağ geçidi) boş: istemciler IP alır ama başka ağlara/internete çıkamaz — sahadaki en sık "IP var internet yok" nedeni.');
+        if (_ccIsIp(net) && len >= 0 && len <= 32) {
+            const size = 2 ** (32 - len), base = Math.floor(_ccN(net) / size) * size, inNet = ip => _ccIsIp(ip) && Math.floor(_ccN(ip) / size) * size === base;
+            if (base !== _ccN(net)) w.push('\u26A0 Havuz "network" değeri ağ adresi değil (maskeyle uyumsuz). Havuz, istemcinin geldiği arayüzün ağıyla eşleşmeli.');
+            if (gw && !inNet(gw)) w.push('\u26D4 Ağ geçidi havuzun ağında değil: istemciler geçide ulaşamaz.');
+            if (_ccIsIp(es) && _ccIsIp(ee)) {
+                if (_ccN(ee) < _ccN(es)) w.push('\u26D4 Hariç aralığın bitişi başlangıçtan küçük.');
+                else if (_ccN(es) <= base + 1 && _ccN(ee) >= base + size - 2) w.push('\u26D4 Hariç tutulan aralık havuzun tamamını kapsıyor: hiçbir istemci adres alamaz.');
+                if (gw && inNet(gw) && !(_ccN(gw) >= _ccN(es) && _ccN(gw) <= _ccN(ee))) w.push('\u2139 Ağ geçidi adresi hariç aralıkta değil. IOS çakışmayı ping ile yakalamaya çalışır ama statik adresleri (geçit, yazıcı) hariç tutmak en güvenlisi.');
+            } else if (!es) w.push('\u2139 Hariç adres tanımlanmadı: ağ geçidi ve statik cihaz adresleri de dağıtılabilir.');
+        }
+        if (v('static_mac') && v('static_mac').replace(/[^0-9a-fA-F]/g, '').length !== 12) w.push('\u26A0 Statik eşleme MAC adresi 12 onaltılık haneden oluşmalı.');
+    } else if (mode === 'relay') {
+        w.push('\u2139 ip helper-address, istemcilerin bağlı olduğu (DHCP isteğinin geldiği) arayüze yazılır; sunucuya bakan arayüze değil. Sunucu havuzu, relay\'in eklediği arayüz adresine (giaddr) göre seçer.');
+    }
+    return w;
 }
 
 // ── SNMP ──────────────────────────────────────────────────────────────────────
@@ -1384,7 +1445,8 @@ CiscoIOS.portSecurity = {
             }
             c += 'interface ' + ifaceStr + '\n switchport mode access\n';
             if (data.access_vlan) c += ' switchport access vlan ' + data.access_vlan + '\n';
-            c += ' switchport port-security\n';
+            // Sıra önemli (CLI Lab ios-34): önce kurallar, en son "switchport port-security". Tersi, zaten birden
+            // fazla cihaz bağlı canlı bir portu varsayılan shutdown eylemiyle anında err-disable yapar.
             c += ' switchport port-security maximum ' + (data.max_mac || '1') + '\n';
             c += ' switchport port-security violation ' + (data.violation || 'shutdown') + '\n';
             if (data.sticky === true) {
@@ -1395,8 +1457,13 @@ CiscoIOS.portSecurity = {
                 c += ' switchport port-security aging time ' + data.aging_time + '\n';
                 if (data.aging_type) c += ' switchport port-security aging type ' + data.aging_type + '\n';
             }
+            c += ' switchport port-security\n';
             c += 'exit\n!\n! Doğrulama: show port-security | show port-security address\n';
-            return c;
+            if (data.sticky) c += '! Sticky MAC\'ler running-config\'e yazılır: kalıcı olması için write memory\n';
+            const warnings = [];
+            if (data.violation === 'protect') warnings.push('\u26A0 protect ihlali sessizce düşürür: log ve sayaç yok, ihlali fark etmezsiniz. Üretimde restrict (log + sayaç) ya da shutdown önerilir.');
+            if ((+data.max_mac || 1) === 1) warnings.push('\u2139 En fazla 1 MAC: IP telefon + arkasında PC olan portlarda en az 2 gerekir (telefon + PC; ses VLAN\'ı ayrıca sayılabilir).');
+            return { config: c, warnings };
         });
     }
 };

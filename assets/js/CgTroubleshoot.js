@@ -160,11 +160,20 @@ const CgTroubleshoot = {
         }
     },
 
+    // fix: metin ya da [{ cause, cmd }] listesi (cmd isteğe bağlı, satırlar \n ile)
+    _fixHtml(fix) {
+        if (typeof fix === 'string') return `<p>${cgEsc(fix)}</p>`;
+        return '<ul>' + fix.map(f => `<li>${cgEsc(f.cause)}${f.cmd ? `<code data-code="${cgEsc(f.cmd)}" title="Kopyala">${cgEsc(f.cmd)}</code>` : ''}</li>`).join('') + '</ul>';
+    },
     _resultHtml(x, st, t) {
         const tools = this._tools(x, t);
         const others = this._list.filter(y => y.topic === x.topic && !(y.vendor === x.vendor && y.n === x.n) && y.vendor === x.vendor);
         const toolHtml = tools.length ? `<div class="cg-ts-rel"><b><i class="fas fa-magic"></i> Düzeltmek için config araçları:</b>
             ${tools.map(r => `<a class="cg-chip" href="#/${r.v}/${r.id}">${this._mark(r.v)}<span class="cg-chip-l">${cgEsc(CG_REGISTRY[r.v].label)} · ${cgEsc(r.label)}</span></a>`).join('')}</div>` : '';
+        // Senaryonun pratiği: CLI Lab'daki karşılık gelen arıza lab'ı (varsa)
+        const lab = x.s.lab && (window.CG_LAB_IDS ? window.CG_LAB_IDS.includes(x.s.lab) : true) ? x.s.lab : null;
+        const labHtml = lab ? `<div class="cg-ts-rel"><b><i class="fas fa-flask"></i> Pratik:</b>
+            <a class="cg-chip" href="#/lab/${cgEsc(lab)}"><span class="cg-chip-l">Bu arızayı CLI Lab'da çözün</span></a></div>` : '';
         const cliHtml = `<div class="cg-ts-rel"><b><i class="fas fa-terminal"></i> Daha fazla komut:</b>
             <a class="cg-chip" href="#/cli/${x.vendor}"><span class="cg-chip-l">${cgEsc(x.vname)} komut kütüphanesi</span></a></div>`;
         const otherHtml = others.length ? `<div class="cg-ts-rel"><b><i class="fas fa-random"></i> İlgili senaryolar:</b>
@@ -175,13 +184,14 @@ const CgTroubleshoot = {
                 <h3><i class="fas fa-bullseye"></i> Teşhis: sorun ${st.found + 1}. adımda</h3>
                 <p><code>${cgEsc(s.code)}</code> çıktısında beklenmeyen durum var.${s.desc ? ` Bu adımda kontrol edilen: <em>${cgEsc(s.desc)}</em>` : ''}</p>
                 <p>Önceki ${st.found} adım normal çıktığı için sorun büyük olasılıkla bu katmanda. Yapılandırmayı düzeltip aynı komutla tekrar doğrulayın.</p>
-                ${toolHtml}${cliHtml}${otherHtml}
+                ${s.fix ? `<div class="cg-ts-fix"><b><i class="fas fa-wrench"></i> Olası nedenler ve düzeltme:</b>${this._fixHtml(s.fix)}</div>` : ''}
+                ${labHtml}${toolHtml}${cliHtml}${otherHtml}
             </div>`;
         }
         return `<div class="cg-ts-result is-ok">
             <h3><i class="fas fa-check-double"></i> Tüm kontroller normal</h3>
             <p>Bu senaryonun ${x.s.steps.length} adımı sorun göstermedi. Sorun başka bir katmanda olabilir: aşağıdaki ilgili senaryolara geçin ya da komut kütüphanesinde daha ayrıntılı debug komutlarına bakın.</p>
-            ${otherHtml}${cliHtml}${toolHtml}
+            ${labHtml}${otherHtml}${cliHtml}${toolHtml}
         </div>`;
     },
 

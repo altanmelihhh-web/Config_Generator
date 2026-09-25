@@ -1109,6 +1109,10 @@
 #config-generator-root .cg-ts-rel { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; font-size: .82rem; }
 #config-generator-root .cg-ts-rel b { width: 100%; }
 #config-generator-root .cg-ts-rel a.cg-chip { text-decoration: none; }
+#config-generator-root .cg-ts-fix { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--bg-primary, #fff); border: 1px solid var(--border-color, #e5e7eb); font-size: .86rem; }
+#config-generator-root .cg-ts-fix ul { margin: 6px 0 0; padding-left: 18px; }
+#config-generator-root .cg-ts-fix li { margin: 4px 0; line-height: 1.5; }
+#config-generator-root .cg-ts-fix li code { display: block; margin-top: 3px; white-space: pre-wrap; cursor: copy; }
 [data-theme="dark"] #config-generator-root .cg-ts-topic, [data-theme="dark"] #config-generator-root .cg-ts-scen, [data-theme="dark"] #config-generator-root .cg-ts-btn { background: #161b22; border-color: #30363d; color: #e6edf3; }
 [data-theme="dark"] #config-generator-root .cg-ts-btn.ok { background: #059669; border-color: #059669; }
 [data-theme="dark"] #config-generator-root .cg-ts-btn.bad { background: #dc2626; border-color: #dc2626; }
