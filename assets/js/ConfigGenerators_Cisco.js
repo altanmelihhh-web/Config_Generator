@@ -438,13 +438,19 @@ CiscoIOS.ospf = {
             const area    = data.area || '0';
             const passive = data.passive;
             let config = '! ========================================\n! Cisco IOS OSPF Configuration\n! ========================================\n\n';
+            // CLI Lab ios-18/44 bulguları
+            const warnings = [];
+            if (_ccWildLooksMask(wild)) warnings.push('\u26A0 network ifadesine alt ağ maskesi yazılmış görünüyor. OSPF network ifadesi wildcard ister (/30 → 0.0.0.3, /24 → 0.0.0.255). Bazı IOS sürümleri maskeyi kendisi çevirse de buna güvenmeyin: yanlış yorumlanırsa arayüz OSPF\'e girmez ve komşuluk kurulmaz.');
+            if (_ccHostBits(net, wild)) warnings.push('\u2139 Ağ adresi wildcard\'ın kapsadığı bitlerde değer içeriyor; IOS bunu ağ adresine çevirir. Tek arayüz için "adres 0.0.0.0" kullanılabilir.');
+            if (!rid) warnings.push('\u2139 router-id verilmedi: IOS en yüksek loopback (yoksa en yüksek aktif arayüz) adresini seçer; adres değişince kimlik de değişir. Sabit bir router-id önerilir.');
+            if (String(area) !== '0') warnings.push('\u2139 Alan ' + area + ': komşunun aynı arayüzü de aynı alanda olmalı (alan uyuşmazlığı komşuluğu sessizce engeller). Çok alanlı tasarımda alan 0 (omurga) zorunludur.');
             config += 'router ospf ' + pid + '\n';
             if (rid) config += ' router-id ' + rid + '\n';
             config += ' network ' + net + ' ' + wild + ' area ' + area + '\n';
             if (passive) config += ' passive-interface ' + passive + '\n';
             config += '!\n';
-            config += '\n! Doğrulama:\n! show ip ospf neighbor\n! show ip ospf database\n! show ip route ospf\n';
-            return config;
+            config += '\n! Doğrulama:\n! show ip ospf neighbor           ! FULL olmalı; EXSTART/EXCHANGE = MTU farkı\n! show ip ospf interface brief    ! arayüz listede mi, alan doğru mu?\n! show ip route ospf\n';
+            return { config, warnings };
         });
     }
 };
@@ -1224,6 +1230,7 @@ CiscoIOS.vrrp = {
                         { name: 'hello', why: "Hello ve hold değerleri gruptaki tüm üyelerde aynı olmalı. Agresif (msec) değerler hızlı failover verir ama CPU yükü ve tek paket kaybında gereksiz rol değişimi riski getirir.", label: 'Hello Timer (sn)', type: 'number', placeholder: '3', optional: true },
                         { name: 'hold', why: "Hold, hello'nun yaklaşık <b>3 katı</b> olmalı. Daha kısa vermek tek bir kaybolan hello paketinde gereksiz failover tetikler.", label: 'Hold Timer (sn)', type: 'number', placeholder: '10', optional: true },
                         { name: 'track_num', why: 'İzlenen nesne (ör. WAN arayüzü) down olduğunda öncelik düşer ve rol devredilir. <b>Track olmadan FHRP, kendi arayüzü dışındaki arızalardan habersizdir</b> — WAN kopsa bile aktif kalmaya devam eder.', label: 'Track Object No', type: 'text', placeholder: '1', optional: true },
+                        { name: 'track_if', why: 'Track nesnesinin izleyeceği arayüz (genelde WAN). <code>standby … track N</code> yalnız bir nesne numarasıdır; nesnenin kendisi <code>track N interface … line-protocol</code> ile tanımlanmazsa izleme çalışmaz.', label: 'İzlenecek Arayüz (WAN)', type: 'text', validate: 'iface', placeholder: 'GigabitEthernet0/0', optional: true, hint: 'Track Object No ile birlikte' },
                         { name: 'track_dec', why: "Öncelik düşüş miktarı, yedek router'ın önceliğini <b>geçecek</b> kadar olmalı. Yetersiz düşüş failover'ın hiç gerçekleşmemesine yol açar.", label: 'Priority Decrement', type: 'number', placeholder: '20', optional: true }
                     ]
                 },
@@ -1254,6 +1261,8 @@ CiscoIOS.vrrp = {
             const vip = data.virtual_ip, pri = data.priority, ak = data.auth_key;
             const hello = data.hello, hold = data.hold, tn = data.track_num, td = data.track_dec;
             let c = '! ========================================\n! Cisco IOS FHRP (' + (proto||'').toUpperCase() + ') Configuration\n! ========================================\n\n';
+            // İzlenen nesne tanımı (standby/vrrp track yalnız numarayı referans eder)
+            if (tn && data.track_if) c += 'track ' + tn + ' interface ' + data.track_if + ' line-protocol\n!\n';
             if (proto === 'hsrp') {
                 if (data.hsrp_v2 === true) c += 'standby version 2\n';
                 c += 'interface ' + iface + '\n';
@@ -1265,12 +1274,14 @@ CiscoIOS.vrrp = {
                 if (hello && hold) c += ' standby ' + grp + ' timers ' + hello + ' ' + hold + '\n';
                 c += 'exit\n';
             } else if (proto === 'vrrp') {
+                // IOS-XE: address-family biçimi VRRPv3'tür ve önce global olarak etkinleştirilmelidir
+                c += 'fhrp version vrrp v3\n!\n';
                 c += 'interface ' + iface + '\n';
                 c += ' vrrp ' + grp + ' address-family ipv4\n';
                 c += '  address ' + vip + ' primary\n';
                 if (pri) c += '  priority ' + pri + '\n';
                 if (data.preempt === true) c += '  preempt\n';
-                if (hello) c += '  timers advertise ' + hello + '\n';
+                if (hello) c += '  timers advertise ' + (+hello * 1000) + '\n';   // VRRPv3: milisaniye (100–40950)
                 if (tn && td) c += '  track ' + tn + ' decrement ' + td + '\n';
                 c += ' exit-address-family\nexit\n';
             } else {
@@ -1283,8 +1294,15 @@ CiscoIOS.vrrp = {
                 if (hello && hold) c += ' glbp ' + grp + ' timers ' + hello + ' ' + hold + '\n';
                 c += 'exit\n';
             }
-            c += '!\n! Doğrulama: show standby | show vrrp | show glbp\n';
-            return c;
+            c += '!\n! Doğrulama: ' + (proto === 'hsrp' ? 'show standby brief | show track' : proto === 'vrrp' ? 'show vrrp brief | show track' : 'show glbp brief') + '\n';
+            // CLI Lab ios-22 bulguları
+            const warnings = [], p = +pri || 100;
+            if (p > 100 && data.preempt !== true) warnings.push('\u26A0 Öncelik ' + p + ' ama preempt kapalı: grupta zaten bir aktif varsa bu router önceliği yüksek olsa da aktif olmaz.');
+            if (tn && !data.track_if) warnings.push('\u26A0 Track ' + tn + ' referans ediliyor ama nesne tanımlanmadı ("İzlenecek Arayüz" boş). Nesne yoksa izleme çalışmaz.');
+            if (tn && td && p - (+td) >= 100) warnings.push('\u26A0 Düşüş yetersiz: ' + p + ' − ' + td + ' = ' + (p - +td) + ' ≥ 100 (karşı router varsayılan). WAN kopsa bile rol devredilmez; düşüş öncelik farkını aşmalı.');
+            if (tn && td) warnings.push('\u2139 Devrin olması için karşı router\'da da preempt açık olmalı; rolü devralan taraf odur.');
+            if (proto === 'vrrp' && hello && (+hello * 1000 < 100 || +hello * 1000 > 40950)) warnings.push('\u26D4 VRRPv3 advertise aralığı 0,1–40,95 sn olmalı.');
+            return { config: c, warnings };
         });
     }
 };
@@ -1381,8 +1399,12 @@ CiscoIOS.stp = {
             if (data.access_int) { c += '!\ninterface ' + data.access_int + '\n spanning-tree portfast' + (data.pf_syntax === 'classic' ? '' : ' edge') + '\n spanning-tree bpduguard enable\nexit\n'; }
             if (data.trunk_int) { c += '!\ninterface ' + data.trunk_int + '\n spanning-tree port-priority 64\nexit\n'; }
             if (data.rootguard_ports) { c += '!\ninterface ' + data.rootguard_ports + '\n spanning-tree guard root\nexit\n'; }
-            c += '!\n! Doğrulama: show spanning-tree | show spanning-tree detail\n';
-            return c;
+            c += '!\n! Doğrulama: show spanning-tree | show spanning-tree root\n';
+            // CLI Lab ios-13/14 bulguları
+            const warnings = [];
+            if (data.portfast_def === true && data.bpduguard_def !== true) warnings.push('\u26A0 PortFast varsayılan açık ama BPDU Guard kapalı: kenar porta biri switch takarsa port hemen iletime geçer ve döngü riski doğar. "bpduguard default" önerilir.');
+            if (mode !== 'mst' && !data.root_vlans) warnings.push('\u2139 Kök köprü ayarlanmadı: tüm switch\'ler varsayılan öncelikteyse en düşük MAC\'li (genelde en eski) switch kök olur. Dağıtım/çekirdek switch\'te "root primary" önerilir.');
+            return { config: c, warnings };
         });
     }
 };
@@ -1925,6 +1947,11 @@ CiscoIOS.etherchannel = {
             const desc = fv('desc'), allowedVlans = fv('allowed_vlans');
             const nativeVlan = fv('native_vlan'), accessVlan = fv('access_vlan');
             let c = '! ========================================\n! Cisco IOS — EtherChannel / LACP\n! ========================================\n\n';
+            // Sıra: önce üyeler (channel-group port-channel arayüzünü oluşturur), sonra port-channel'ın L2 ayarları (üyelere yayılır)
+            c += '! Üye Interfaces\ninterface range ' + memberRange + '\n';
+            if (desc) c += ' description ' + desc + '-MEMBER\n';
+            c += ' channel-group ' + pcNum + ' mode ' + lacpMode + '\n';
+            c += ' no shutdown\n!\n\n';
             c += '! Port-Channel Interface\ninterface Port-channel' + pcNum + '\n';
             if (desc) c += ' description ' + desc + '\n';
             if (pcMode === 'trunk') {
@@ -1936,12 +1963,13 @@ CiscoIOS.etherchannel = {
                 if (accessVlan) c += ' switchport access vlan ' + accessVlan + '\n';
             }
             c += ' no shutdown\n!\n\n';
-            c += '! Üye Interfaces\ninterface range ' + memberRange + '\n';
-            if (desc) c += ' description ' + desc + '-MEMBER\n';
-            c += ' channel-group ' + pcNum + ' mode ' + lacpMode + '\n';
-            c += ' no shutdown\n!\n\n';
+            // CLI Lab ios-15 bulguları
+            const warnings = [];
+            if (lacpMode === 'passive') warnings.push('\u26A0 passive: karşı uç mutlaka active olmalı; iki uç da passive ise kanal hiç kurulmaz (üyeler I).');
+            if (lacpMode === 'on') warnings.push('\u26A0 on: pazarlık yok. Karşı uç da "on" olmalı; karşı uç LACP konuşuyorsa kanal kurulmaz ve Catalyst port-channel\'ı err-disable yapabilir.');
+            warnings.push('\u2139 Üyelerin hız/dupleks ve switchport ayarları aynı olmalı; farklı olan üye askıya alınır (s). Ayarları port-channel\'a yapın.');
             c += '! Doğrulama:\n! show etherchannel summary\n! show etherchannel ' + pcNum + ' detail\n! show interfaces Port-channel' + pcNum + '\n';
-            return c;
+            return { config: c, warnings };
         });
     }
 };

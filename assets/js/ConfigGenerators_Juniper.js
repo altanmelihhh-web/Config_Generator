@@ -2,6 +2,20 @@
 
 const Juniper = {};
 
+// ── Lab bulgularından türetilen girdi uyarıları (CLI Lab jun-13/15/17/19/21 arıza ve "çalışır ama yanlış" durumları) ──
+const _junWip = ip => /^(\d{1,3}\.){3}\d{1,3}$/.test(String(ip || '').trim()) && String(ip).trim().split('.').every(o => +o <= 255);
+const _junWn = ip => String(ip || '').trim().split('.').reduce((a, o) => a * 256 + (+o), 0);
+// '10.64.20.1/24' → { ip, len, base, size } (geçersizse null)
+function _junWpfx(s) {
+    const m = String(s || '').trim().match(/^([\d.]+)\/(\d{1,2})$/);
+    if (!m || !_junWip(m[1]) || +m[2] > 32) return null;
+    const len = +m[2], size = 2 ** (32 - len);
+    return { ip: m[1], len, base: Math.floor(_junWn(m[1]) / size) * size, size };
+}
+const _junWin = (ip, p) => !!p && _junWip(ip) && Math.floor(_junWn(ip) / p.size) * p.size === p.base;
+// 'ge-0/0/1.10' → ['ge-0/0/1', '10'];  'ge-0/0/1' → ['ge-0/0/1', '0']
+const _junWifl = i => { const m = String(i || '').trim().match(/^(.+?)\.(\d+)$/); return m ? [m[1], m[2]] : [String(i || '').trim(), '0']; };
+
 // ── Juniper: General ──────────────────────────────────────────────────────────
 Juniper.general = {
     label: 'General',
@@ -157,7 +171,7 @@ Juniper.dhcp = {
             topic: {
                 icon: 'fas fa-dhcp',
                 title: 'Juniper JunOS — DHCP Konfigürasyonu',
-                desc: 'DHCP Server (IRB üzerinde), Global static bind veya Relay Agent yapılandırması.<br><small>Örn: <code>set access address-assignment pool my-pool family inet network 192.168.20.0/24</code></small>'
+                desc: 'DHCP Server (IRB üzerinde), Global static bind veya Relay Agent yapılandırması.<br><small>Örn: <code>set access address-assignment pool my-pool family inet network 10.64.20.0/24</code></small>'
             },
             configTypes: [
                 { id: 'server', label: 'Server (IRB)', icon: 'fas fa-server', desc: 'IRB arayüzünde DHCP sunucu', badge: { text: 'En Yaygın', cls: 'recommended' } },
@@ -171,10 +185,10 @@ Juniper.dhcp = {
                     showFor: ['server'],
                     fields: [
                         { name: 'srv_pool', why: 'DHCP havuzunun adı; <code>dhcp-local-server</code> grubu ile havuz eşleşmesi bu adla yapılır. Ad tutarsızlığında sunucu ayakta görünür ama hiçbir istemciye OFFER gitmez.', label: 'Havuz Adı', type: 'text', required: true, placeholder: 'my-pool', hint: 'DHCP adres havuzu adı' },
-                        { name: 'srv_network', why: "Havuzun ağ adresi, IRB arayüzünün subnet'iyle birebir örtüşmelidir. Örtüşmezse JunOS isteği hangi havuzdan karşılayacağını bulamaz ve DISCOVER cevapsız kalır.", label: 'Network (CIDR)', type: 'text', required: true, placeholder: '192.168.20.0/24', hint: 'Havuzun kapsadığı ağ adresi' },
-                        { name: 'srv_irb_ip', why: "IRB adresi hem gateway hem de DHCP sunucunun istemci bacağıdır. Bu adres yoksa <code>dhcp-local-server</code> ilgili VLAN'da isteği hiç dinlemez.", label: 'IRB IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.20.1/24', hint: 'IRB arayüzü IP adresi (CIDR)' },
+                        { name: 'srv_network', why: "Havuzun ağ adresi, IRB arayüzünün subnet'iyle birebir örtüşmelidir. Örtüşmezse JunOS isteği hangi havuzdan karşılayacağını bulamaz ve DISCOVER cevapsız kalır.", label: 'Network (CIDR)', type: 'text', required: true, placeholder: '10.64.20.0/24', hint: 'Havuzun kapsadığı ağ adresi' },
+                        { name: 'srv_irb_ip', why: "IRB adresi hem gateway hem de DHCP sunucunun istemci bacağıdır. Bu adres yoksa <code>dhcp-local-server</code> ilgili VLAN'da isteği hiç dinlemez.", label: 'IRB IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.64.20.1/24', hint: 'IRB arayüzü IP adresi (CIDR)' },
                         { name: 'srv_vlan_id', why: 'IRB unit numarası. <code>irb.20</code> ile VLAN 20 arasındaki bağ otomatik değildir; VLAN altında <code>l3-interface irb.20</code> tanımlı değilse gateway ölü durur.', label: 'VLAN ID (IRB unit)', type: 'text', validate: 'vlan', required: true, placeholder: '20', hint: 'IRB unit numarası = VLAN ID' },
-                        { name: 'srv_gw', why: 'İstemcilere option 3 olarak gider ve genellikle IRB adresiyle aynı olmalıdır. Farklı yazmak klasik <b>IP alıyor ama internete çıkmıyor</b> tablosunu üretir.', label: 'Gateway', type: 'text', required: true, placeholder: '192.168.20.1', hint: 'İstemcilere atanacak gateway IP' },
+                        { name: 'srv_gw', why: 'İstemcilere option 3 olarak gider ve genellikle IRB adresiyle aynı olmalıdır. Farklı yazmak klasik <b>IP alıyor ama internete çıkmıyor</b> tablosunu üretir.', label: 'Gateway', type: 'text', required: true, placeholder: '10.64.20.1', hint: 'İstemcilere atanacak gateway IP' },
                         { name: 'srv_dns', why: 'Option 6 ile iletilir. Ulaşılamayan bir DNS vermek en yanıltıcı arızadır: IP ile ping çalışır, isimle çalışmaz ve kullanıcı internet yok der.', label: 'DNS Sunucusu', type: 'text', required: true, placeholder: '8.8.8.8', hint: 'İstemcilere atanacak DNS IP' }
                     ]
                 },
@@ -185,7 +199,16 @@ Juniper.dhcp = {
                     fields: [
                         { name: 'srv_static_host', why: 'Statik rezervasyonun adı; JunOS bunu <code>static-binding</code> anahtarı olarak kullanır. Aynı adı ikinci kez kullanmak önceki kaydı sessizce ezer.', label: 'Static Host Adı', type: 'text', optional: true, placeholder: 'Linux-2', hint: 'Sabit IP atanacak host adı' },
                         { name: 'srv_static_mac', why: 'Rezervasyon MAC ile eşleşir. Sunucuda birden fazla NIC veya bonding varsa istek beklemediğiniz MAC ile gelir, rezervasyon tutmaz ve cihaz havuzdan rastgele IP alır.', label: 'Static MAC', type: 'text', optional: true, placeholder: 'aa:aa:aa:00:00:02', hint: 'Host MAC adresi' },
-                        { name: 'srv_static_ip', why: 'Sabit atanan adres, dinamik aralığın <b>dışında</b> ya da exclude edilmiş olmalıdır; aksi halde aynı IP başka bir istemciye de dağıtılır ve çakışma yaşanır.', label: 'Static IP', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.20.100', hint: 'Atanacak sabit IP adresi' }
+                        { name: 'srv_static_ip', why: 'Sabit atanan adres, dinamik aralığın <b>dışında</b> ya da exclude edilmiş olmalıdır; aksi halde aynı IP başka bir istemciye de dağıtılır ve çakışma yaşanır.', label: 'Static IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.64.20.30', hint: 'Atanacak sabit IP adresi' }
+                    ]
+                },
+                {
+                    title: 'Server — Dağıtım Aralığı (opsiyonel)',
+                    icon: 'fas fa-sort-numeric-up',
+                    showFor: ['server'],
+                    fields: [
+                        { name: 'srv_range_low', why: "Havuzdan istemcilere verilecek ilk adres. Aralığı ağın başından (.1) başlatmak ağ geçidi, yazıcı ve sunucu gibi statik adreslerle çakışma demektir.", label: 'Aralık Başlangıç', type: 'text', validate: 'ip', optional: true, placeholder: '10.64.20.50', hint: 'family inet range … low' },
+                        { name: 'srv_range_high', why: "Aralığın son adresi; ağın yayın adresini ve ağ dışını kapsamamalıdır.", label: 'Aralık Bitiş', type: 'text', validate: 'ip', optional: true, placeholder: '10.64.20.200', hint: 'family inet range … high' }
                     ]
                 },
                 {
@@ -193,8 +216,8 @@ Juniper.dhcp = {
                     icon: 'fas fa-ban',
                     showFor: ['server'],
                     fields: [
-                        { name: 'srv_excl_low', why: "Gateway, sunucu ve yazıcı gibi sabit adresleri havuzun dışında tutar. Exclude tanımlamadan gateway IP'sini havuz içinde bırakmak, bir istemcinin gateway adresini kapıp tüm VLAN'ı düşürmesi demektir.", label: 'Exclude Low', type: 'text', optional: true, placeholder: '192.168.20.1', hint: 'Hariç tutulacak aralık başlangıcı' },
-                        { name: 'srv_excl_high', why: "Aralığın üst sınırı. Low/high değerlerini ters yazmak veya alt ağ dışına taşırmak commit'te yakalanmaz; havuz sadece beklediğiniz gibi davranmaz.", label: 'Exclude High', type: 'text', optional: true, placeholder: '192.168.20.19', hint: 'Hariç tutulacak aralık sonu' }
+                        { name: 'srv_excl_low', why: "Gateway, sunucu ve yazıcı gibi sabit adresleri havuzun dışında tutar. Exclude tanımlamadan gateway IP'sini havuz içinde bırakmak, bir istemcinin gateway adresini kapıp tüm VLAN'ı düşürmesi demektir.", label: 'Exclude Low', type: 'text', optional: true, placeholder: '10.64.20.1', hint: 'Hariç tutulacak aralık başlangıcı' },
+                        { name: 'srv_excl_high', why: "Aralığın üst sınırı. Low/high değerlerini ters yazmak veya alt ağ dışına taşırmak commit'te yakalanmaz; havuz sadece beklediğiniz gibi davranmaz.", label: 'Exclude High', type: 'text', optional: true, placeholder: '10.64.20.19', hint: 'Hariç tutulacak aralık sonu' }
                     ]
                 },
                 {
@@ -203,10 +226,10 @@ Juniper.dhcp = {
                     showFor: ['global'],
                     fields: [
                         { name: 'gbl_pool', why: 'Global DHCP havuzunun adı. Global havuz tüm arayüzler için ortaktır; VLAN başına farklı gateway/DNS gerekiyorsa global yerine ayrı havuzlar kullanın.', label: 'Havuz Adı', type: 'text', required: true, placeholder: 'LAN1', hint: 'Global havuz adı' },
-                        { name: 'gbl_bind_ip', why: "MAC'e sabitlenen adres. Havuzun ağı içinde ama dinamik dağıtım aralığının dışında olmalı; değilse aynı adres ikinci bir istemciye de verilebilir.", label: 'Static Bind IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.2.15', hint: 'MAC\'e bağlanacak sabit IP' },
+                        { name: 'gbl_bind_ip', why: "MAC'e sabitlenen adres. Havuzun ağı içinde ama dinamik dağıtım aralığının dışında olmalı; değilse aynı adres ikinci bir istemciye de verilebilir.", label: 'Static Bind IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.2.15', hint: 'MAC\'e bağlanacak sabit IP' },
                         { name: 'gbl_bind_mac', why: "Bağlamanın anahtarı MAC'tir. Sanal makinede klonlama veya NIC değişimi MAC'i değiştirdiğinde rezervasyon sessizce çalışmaz ve cihaz rastgele IP alır.", label: 'Static Bind MAC', type: 'text', required: true, placeholder: 'aa:bb:cc:dd:ee:ff', hint: 'Sabit IP atanacak MAC adresi' },
                         { name: 'gbl_iface', why: '<code>dhcp-local-server</code> yalnızca burada listelenen arayüzlerde istek dinler. Arayüzü eklemeyi unutmak, havuz doğru olsa bile hiçbir istemcinin IP alamaması demektir.', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'ge-0/0/1', hint: 'DHCP local server arayüzü' },
-                        { name: 'gbl_ip', why: "Arayüz adresi, istemcilere verilecek gateway ile aynı subnet'te olmalıdır; DHCP sunucu hangi havuzu kullanacağına bu adrese bakarak karar verir.", label: 'Arayüz IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.2.1/24', hint: 'Arayüz IP adresi (CIDR)' }
+                        { name: 'gbl_ip', why: "Arayüz adresi, istemcilere verilecek gateway ile aynı subnet'te olmalıdır; DHCP sunucu hangi havuzu kullanacağına bu adrese bakarak karar verir.", label: 'Arayüz IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.64.2.1/24', hint: 'Arayüz IP adresi (CIDR)' }
                     ]
                 },
                 {
@@ -229,35 +252,88 @@ Juniper.dhcp = {
                 const vid = cgEsc(data.srv_vlan_id || ''), gw = cgEsc(data.srv_gw || ''), dns = cgEsc(data.srv_dns || '');
                 const shost = cgEsc(data.srv_static_host || ''), smac = cgEsc(data.srv_static_mac || ''), sip = cgEsc(data.srv_static_ip || '');
                 const exLow = cgEsc(data.srv_excl_low || ''), exHigh = cgEsc(data.srv_excl_high || '');
+                const rLow = cgEsc(data.srv_range_low || ''), rHigh = cgEsc(data.srv_range_high || '');
+                const P = 'set access address-assignment pool ' + pool + ' family inet ';
                 c += '# VLAN + IRB\nset vlans ' + pool + ' vlan-id ' + vid + ' l3-interface irb.' + vid + '\n';
                 c += 'set interfaces irb unit ' + vid + ' family inet address ' + irbip + '\n\n';
-                c += '# DHCP Address Pool\nset access address-assignment pool ' + pool + ' family inet network ' + network + '\n';
-                c += 'set access address-assignment pool ' + pool + ' family inet dhcp-attributes name-server { ' + dns + '; }\n';
-                c += 'set access address-assignment pool ' + pool + ' family inet dhcp-attributes router { ' + gw + '; }\n';
+                c += '# DHCP Address Pool\n' + P + 'network ' + network + '\n';
+                if (rLow && rHigh) c += P + 'range ' + pool + '-RANGE low ' + rLow + '\n' + P + 'range ' + pool + '-RANGE high ' + rHigh + '\n';
+                // set biçiminde tek değer yazılır ('{ …; }' yalnız hiyerarşik görünümdedir)
+                c += P + 'dhcp-attributes name-server ' + dns + '\n';
+                c += P + 'dhcp-attributes router ' + gw + '\n';
                 if (shost && smac && sip) {
-                    c += 'set access address-assignment pool ' + pool + ' family inet host ' + shost + ' hardware-address ' + smac + ' ip-address ' + sip + '\n';
+                    c += P + 'host ' + shost + ' hardware-address ' + smac + ' ip-address ' + sip + '\n';
                 }
                 if (exLow && exHigh) {
-                    c += 'set access address-assignment pool ' + pool + ' family inet excluded-range my-range low ' + exLow + ' high ' + exHigh + '\n';
+                    c += P + 'excluded-range my-range low ' + exLow + ' high ' + exHigh + '\n';
                 }
                 c += '\n# DHCP Local Server\nset system services dhcp-local-server group my-group interface irb.' + vid + '\n';
             } else if (mode === 'global') {
                 const pool = cgEsc(data.gbl_pool || ''), bip = cgEsc(data.gbl_bind_ip || ''), bmac = cgEsc(data.gbl_bind_mac || '');
                 const iface = cgEsc(data.gbl_iface || ''), gip = cgEsc(data.gbl_ip || '');
-                c += 'set access address-assignment pool ' + pool + ' static-bind ip-address ' + bip + ' mac-address ' + bmac + '\n';
-                c += 'set interfaces ' + iface + ' unit 0 family inet address ' + gip + '\n';
-                c += 'set system services dhcp-local-server group my-group interface ' + iface + '.0\n';
+                const [ifd, unit] = _junWifl(data.gbl_iface), gp = _junWpfx(data.gbl_ip);
+                const P = 'set access address-assignment pool ' + pool + ' family inet ';
+                // Sabit atama: havuzun network satırı + 'host <ad> hardware-address <MAC> ip-address <IP>'
+                if (gp) c += P + 'network ' + [24, 16, 8, 0].map(b => Math.floor(gp.base / 2 ** b) % 256).join('.') + '/' + gp.len + '\n';
+                else c += '# UYARI: arayüz IP/prefix geçersiz — havuzun network satırı yazılamadı.\n';
+                c += P + 'host STATIC-' + String(data.gbl_bind_mac || '').replace(/[^0-9a-fA-F]/g, '').toLowerCase() + ' hardware-address ' + bmac + ' ip-address ' + bip + '\n';
+                c += 'set interfaces ' + cgEsc(ifd) + ' unit ' + cgEsc(unit) + ' family inet address ' + gip + '\n';
+                c += 'set system services dhcp-local-server group my-group interface ' + cgEsc(ifd) + '.' + cgEsc(unit) + '\n';
+                if (!iface) c += '# UYARI: arayüz boş.\n';
             } else {
-                const riface = cgEsc(data.relay_iface || ''), rsrv = cgEsc(data.relay_server || ''), vrf = cgEsc(data.relay_vrf || '');
-                c += 'set forwarding-options dhcp-relay server-group RelayGroup server ' + rsrv + '\n';
-                c += 'set forwarding-options dhcp-relay interface ' + riface + '.0\n';
-                if (vrf) c += 'set forwarding-options dhcp-relay server-group RelayGroup vrf ' + vrf + '\n';
+                const rsrv = cgEsc(data.relay_server || ''), vrf = cgEsc(data.relay_vrf || '');
+                const [ifd, unit] = _junWifl(data.relay_iface);
+                // dhcp-relay: sunucu grubu + istemci grubu (active-server-group) + istemci arayüzü; VRF'te routing-instances altında
+                const R = (vrf ? 'set routing-instances ' + vrf + ' ' : 'set ') + 'forwarding-options dhcp-relay ';
+                c += R + 'server-group RelayGroup ' + rsrv + '\n';
+                c += R + 'group RelayClients active-server-group RelayGroup\n';
+                c += R + 'group RelayClients interface ' + cgEsc(ifd) + '.' + cgEsc(unit) + '\n';
             }
             c += '\ncommit\n';
-            return c;
+            c += '\n# Doğrulama:\n# show dhcp ' + (mode === 'relay' ? 'relay' : 'server') + ' binding\n';
+            return { config: c, warnings: _junWdhcp(data, mode) };
         });
     }
 };
+// DHCP lab bulguları (jun-13): havuz/IRB alt ağ uyumsuzluğu, ağ geçidi ağ dışında, aralık statik adresleri kapsıyor
+function _junWdhcp(data, mode) {
+    const w = [], v = k => String(data[k] == null ? '' : data[k]).trim();
+    if (mode === 'server') {
+        const net = _junWpfx(v('srv_network')), irb = _junWpfx(v('srv_irb_ip'));
+        if (v('srv_network') && !net) w.push('\u26D4 Havuz ağı CIDR biçiminde olmalı (ör. 10.64.20.0/24).');
+        if (net && _junWn(net.ip) !== net.base) w.push('\u26A0 Havuz "network" değeri ağ adresi değil (' + v('srv_network') + '); ağ adresini yazın.');
+        if (net && irb && (net.len !== irb.len || net.base !== irb.base)) w.push('\u26D4 Havuz ağı (' + v('srv_network') + ') IRB alt ağıyla (' + v('srv_irb_ip') + ') aynı değil: sunucu isteği bu havuzla eşleştiremez, istemci yanıt alamaz.');
+        if (net && _junWip(v('srv_gw'))) {
+            if (!_junWin(v('srv_gw'), net)) w.push('\u26D4 Ağ geçidi (' + v('srv_gw') + ') havuzun ağında değil: istemciler adres alır ama ağ geçidine ulaşamaz — "IP var, internet yok".');
+            else if (irb && v('srv_gw') !== irb.ip) w.push('\u2139 Ağ geçidi IRB adresinden (' + irb.ip + ') farklı. Bilinçli değilse (ör. VRRP sanal adresi) istemciler yanlış geçide gider.');
+        }
+        const lo = v('srv_range_low'), hi = v('srv_range_high');
+        if ((lo && !hi) || (!lo && hi)) w.push('\u26A0 Aralığın iki ucu da girilmeli; range satırı yazılmadı.');
+        if (lo && hi && _junWip(lo) && _junWip(hi)) {
+            if (_junWn(hi) < _junWn(lo)) w.push('\u26D4 Aralığın bitişi başlangıçtan küçük.');
+            if (net && (!_junWin(lo, net) || !_junWin(hi, net))) w.push('\u26D4 Dağıtım aralığı havuz ağının dışına taşıyor: commit reddedilir ya da adresler dağıtılamaz.');
+            if (net && _junWn(lo) <= net.base + 1 && _junWn(hi) >= net.base + net.size - 2) w.push('\u26A0 Aralık ağın tamamını kapsıyor: ağ geçidi, yazıcı ve sunucu gibi statik adresler de dağıtılabilir (IP çakışması). Aralığı statik adreslerin dışında başlatın.');
+            if (irb && _junWn(irb.ip) >= _junWn(lo) && _junWn(irb.ip) <= _junWn(hi)) w.push('\u26A0 IRB (ağ geçidi) adresi dağıtım aralığının içinde; aralığı geçidin dışında tutun.');
+        }
+        if (!lo && !hi) w.push('\u2139 Dağıtım aralığı (range) girilmedi. Havuzda range tanımlayıp statik adresleri (ağ geçidi, yazıcı, sunucu) aralığın dışında bırakın.');
+        const el = v('srv_excl_low'), eh = v('srv_excl_high');
+        if (el && eh && _junWip(el) && _junWip(eh) && _junWn(eh) < _junWn(el)) w.push('\u26D4 Hariç aralığın bitişi başlangıçtan küçük.');
+        if (v('srv_static_ip') && net && !_junWin(v('srv_static_ip'), net)) w.push('\u26D4 Sabit atanan adres (' + v('srv_static_ip') + ') havuz ağının dışında.');
+        if (v('srv_static_mac') && v('srv_static_mac').replace(/[^0-9a-fA-F]/g, '').length !== 12) w.push('\u26A0 Statik atama MAC adresi 12 onaltılık haneden oluşmalı (ör. 00:50:56:a1:01:01).');
+        w.push('\u2139 Havuz tek başına dağıtım yapmaz: istemci arayüzü (irb.' + (v('srv_vlan_id') || 'N') + ') dhcp-local-server group\'unda olmalı. Eski (non-ELS) "system services dhcp pool" sözdizimi ELS EX\'te yoktur.');
+    } else if (mode === 'global') {
+        const gp = _junWpfx(v('gbl_ip'));
+        if (v('gbl_ip') && !gp) w.push('\u26D4 Arayüz IP/prefix CIDR biçiminde olmalı (ör. 10.64.2.1/24).');
+        if (gp && _junWip(v('gbl_bind_ip')) && !_junWin(v('gbl_bind_ip'), gp)) w.push('\u26D4 Sabit atanan adres (' + v('gbl_bind_ip') + ') arayüzün alt ağında değil: istemci bu adresi alamaz.');
+        if (gp && v('gbl_bind_ip') === gp.ip) w.push('\u26D4 Sabit atanan adres arayüzün kendi adresiyle aynı.');
+        if (v('gbl_bind_mac') && v('gbl_bind_mac').replace(/[^0-9a-fA-F]/g, '').length !== 12) w.push('\u26A0 MAC adresi 12 onaltılık haneden oluşmalı (ör. 00:50:56:a1:01:01).');
+        w.push('\u2139 Bu havuzda yalnız sabit atama var; diğer istemcilere de adres verilecekse havuza range ve dhcp-attributes router ekleyin.');
+    } else {
+        w.push('\u2139 Relay, istemcilerin bağlı olduğu arayüzde (ör. irb.30) çalışır; sunucuya bakan arayüzde değil. Sunucuda bu ağ için havuz ve relay ağına dönüş rotası olmalı.');
+        if (v('relay_server') && !_junWip(v('relay_server'))) w.push('\u26D4 Relay sunucu adresi geçersiz.');
+    }
+    return w;
+}
 
 // ── Juniper: ACL (Firewall Filter) ───────────────────────────────────────────
 Juniper.acl = {
@@ -337,6 +413,8 @@ Juniper.acl = {
             const type = data._cgtype || 'standard', action = cgEsc(data.action || 'accept');
             const src = cgEsc(data.src || 'any'), srcip = cgEsc(data.src_ip || '');
             const base = 'set firewall family inet filter ' + fname + ' term ' + term;
+            const applyIface = cgEsc(data.apply_iface || ''), applyDir = cgEsc(data.apply_dir || 'input');
+            const lo0 = /^lo0(\.|$)/.test(data.apply_iface || '');
             let c = '# ========================================\n# Juniper JunOS — Firewall Filter (ACL)\n# ========================================\n\n';
             if (src === 'specific' && !srcip) c += '# UYARI: kaynak "Belirli IP" seçili ama IP boş — term her kaynağı eşler.\n';
             if (type !== 'standard' && data.dst === 'specific' && !data.dst_ip) c += '# UYARI: hedef "Belirli IP" seçili ama IP boş — term her hedefi eşler.\n';
@@ -350,7 +428,8 @@ Juniper.acl = {
             } else {
                 const proto = cgEsc(data.proto || 'tcp'), dst = cgEsc(data.dst || 'any'), dstip = cgEsc(data.dst_ip || '');
                 const sp = cgEsc(data.src_port || ''), dp = cgEsc(data.dst_port || ''), icmpType = cgEsc(data.icmp_type || '');
-                c += base + ' from protocol ' + proto + '\n';
+                // Junos'ta 'protocol ip' diye bir değer yoktur: tüm IP trafiği için protokol koşulu yazılmaz.
+                if (proto !== 'ip') c += base + ' from protocol ' + proto + '\n';
                 if (src === 'specific' && srcip) {
                     const prefix = srcip.includes('/') ? srcip : srcip + '/32';
                     c += base + ' from source-address ' + prefix + '\n';
@@ -370,17 +449,43 @@ Juniper.acl = {
                 }
                 c += base + ' then ' + action + '\n';
             }
-            c += base.replace(' term ' + term, ' term default') + ' then accept\n\n';
-            const applyIface = cgEsc(data.apply_iface || ''), applyDir = cgEsc(data.apply_dir || 'input');
+            // Filtrenin sonunda örtük discard vardır. Engelleme (discard/reject) teriminden sonra kalan trafiğin geçmesi için
+            // son terim "then accept" olmalı. Kabul (accept) teriminde ise sona accept eklemek filtreyi etkisiz kılar
+            // (her şey kabul edilir); o durumda örtük discard bilinçli olarak bırakılır ve uyarı verilir.
+            if (action !== 'accept') c += base.replace(' term ' + term, ' term default') + ' then accept\n';
+            c += '\n';
             if (applyIface) {
-                c += 'set interfaces ' + applyIface + ' unit 0 family inet filter ' + applyDir + ' ' + fname + '\n';
+                const [ifd, unit] = _junWifl(data.apply_iface);
+                c += 'set interfaces ' + cgEsc(ifd) + ' unit ' + cgEsc(unit) + ' family inet filter ' + applyDir + ' ' + fname + '\n';
             }
-            c += '\ncommit\n';
-            c += '\n# Doğrulama:\n# show firewall filter ' + fname + '\n# run show firewall filter ' + fname + '\n';
-            return c;
+            // lo0 filtresi yönetim erişimini kesebilir: onaylı commit, 5 dk içinde onaylanmazsa geri alınır
+            c += lo0 ? '\ncommit confirmed 5\n# Erişim sürüyorsa 5 dakika içinde onaylayın: commit\n' : '\ncommit\n';
+            c += '\n# Doğrulama:\n# show firewall filter ' + fname + '           ! (operasyonel) sayaçlar\n# show firewall family inet filter ' + fname + '   ! (yapılandırma) terim sırası\n';
+            return { config: c, warnings: _junWfilter(data, type, lo0) };
         });
     }
 };
+// Firewall filter lab bulguları (jun-19): örtük discard, lo0'da kontrol trafiğini unutmak, her şeyi eşleyen discard terimi
+function _junWfilter(data, type, lo0) {
+    const w = [], v = k => String(data[k] == null ? '' : data[k]).trim();
+    const act = v('action') || 'accept', proto = type === 'standard' ? 'ip' : (v('proto') || 'tcp');
+    const anySrc = v('src') !== 'specific' || !v('src_ip'), anyDst = type === 'standard' || v('dst') !== 'specific' || !v('dst_ip');
+    const noPort = !(/^(tcp|udp)$/.test(proto) && ((v('src_port') && v('src_port') !== 'any') || (v('dst_port') && v('dst_port') !== 'any'))) && !(proto === 'icmp' && v('icmp_type'));
+    const matchAll = anySrc && anyDst && proto === 'ip' && noPort;
+    if (act !== 'accept' && matchAll) w.push('\u26D4 Bu terim her paketi eşliyor (kaynak/hedef any, protokol yok) ve ' + act + ' ediyor: alttaki "default … then accept" terimine hiç ulaşılmaz, arayüzdeki TÜM trafik düşer.');
+    else if (act !== 'accept') w.push('\u2139 Engelleme teriminden sonra "term default then accept" eklendi. Eklenmeseydi filtrenin sonundaki örtük discard, eşleşmeyen diğer tüm trafiği de keserdi.');
+    else if (matchAll) w.push('\u26A0 Terim her paketi kabul ediyor: filtre hiçbir şeyi engellemez.');
+    else w.push('\u26A0 Yalnız bu terime uyan trafik kabul edilir; diğer her şey filtre sonundaki örtük discard ile düşer. Başka trafik de geçecekse önce ona accept terimi ekleyin.');
+    if (lo0 && act === 'accept' && !matchAll) w.push('\u26D4 lo0 input filtresi yönlendirme motoruna (RE) giden TÜM trafiği süzer: SSH\'ın yanında OSPF/BGP/BFD, NTP, SNMP ve DNS yanıtları için de accept terimi yoksa komşuluklar düşer ve yönetim erişimi kilitlenir. "commit confirmed 5" ile uygulandı.');
+    else if (lo0) w.push('\u26A0 lo0 filtresi RE\'ye giden tüm trafiği etkiler; kontrol protokollerini (OSPF/BGP/BFD) ve yönetim erişimini kesmediğinizden emin olun. "commit confirmed 5" ile uygulandı.');
+    if (/^(tcp|udp)$/.test(proto) && v('src_port') && v('src_port') !== 'any' && !v('dst_port')) w.push('\u26A0 Yalnız kaynak port girildi. İstemcinin kaynak portu rastgeledir; sunucu portu hedef porttur — terim büyük olasılıkla hiç eşleşmez.');
+    if (type !== 'standard' && proto !== 'tcp' && proto !== 'udp' && (v('src_port') || v('dst_port'))) w.push('\u2139 Port koşulları yalnız TCP/UDP\'de yazılır; ' + proto.toUpperCase() + ' teriminde yok sayıldı.');
+    if (v('src_ip') && !v('src_ip').includes('/') && /\.0$/.test(v('src_ip'))) w.push('\u26A0 Kaynak adres prefix\'siz yazıldı ve /32 (tek host) sayıldı; bir ağ kastediliyorsa /24 gibi uzunluk ekleyin.');
+    if (v('dst_ip') && !v('dst_ip').includes('/') && /\.0$/.test(v('dst_ip'))) w.push('\u26A0 Hedef adres prefix\'siz yazıldı ve /32 (tek host) sayıldı; bir ağ kastediliyorsa /24 gibi uzunluk ekleyin.');
+    if (v('apply_iface')) w.push('\u2139 Filtre stateless\'tir: dönüş trafiği ayrı değerlendirilir. Yeni terim listenin sonuna eklenir; araya almak için "insert … term X before term Y".');
+    else w.push('\u2139 Uygulama arayüzü girilmedi: filtre bir arayüze bağlanmadıkça hiçbir şey yapmaz.');
+    return w;
+}
 
 // ── Juniper MX: Interface ─────────────────────────────────────────────────────
 const JuniperMX = {};
@@ -683,13 +788,15 @@ Juniper.lag = {
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
             const aeId = cgEsc(data.ae_id || ''), lacpMode = cgEsc(data.lacp_mode || 'active');
-            const members = cgEsc(data.members || '').split(',').map(s => s.trim()).filter(Boolean);
+            const members = cgJnpList(data.members).map(cgEsc);
             const aeIp = cgEsc(data.ae_ip || ''), vlans = cgEsc(data.vlans || '');
+            // device-count, en yüksek ae numarasından büyük olmalı (ae10 için en az 11); değilse ae arayüzü oluşmaz
+            const dc = Math.max(10, (+data.ae_id || 0) + 1);
             let c = '# ========================================\n# Juniper JunOS — LAG (ae Interface)\n# ========================================\n\n';
-            c += 'set chassis aggregated-devices ethernet device-count 10\n\n';
+            c += 'set chassis aggregated-devices ethernet device-count ' + dc + '\n\n';
+            // EX/QFX (ELS): üyeler 'ether-options 802.3ad'. (MX'te karşılığı 'gigether-options 802.3ad'; ikisi birden yazılmaz.)
             members.forEach(m => {
                 c += 'set interfaces ' + m + ' ether-options 802.3ad ae' + aeId + '\n';
-                c += 'set interfaces ' + m + ' gigether-options 802.3ad ae' + aeId + '\n';
             });
             c += '\nset interfaces ae' + aeId + ' aggregated-ether-options lacp ' + lacpMode + '\n';
             if (aeIp) {
@@ -698,8 +805,16 @@ Juniper.lag = {
                 c += 'set interfaces ae' + aeId + ' unit 0 family ethernet-switching interface-mode trunk\n';
                 vlans.split(/[\s,]+/).filter(Boolean).forEach(v => c += 'set interfaces ae' + aeId + ' unit 0 family ethernet-switching vlan members ' + v + '\n');
             }
-            c += '\n# Doğrulama:\n# show interfaces ae' + aeId + ' detail\n# show lacp interfaces ae' + aeId + '\n';
-            return c;
+            c += '\n# Doğrulama:\n# show interfaces ae' + aeId + ' detail\n# show lacp interfaces ae' + aeId + '   ! üyeler Collecting/Distributing mi?\n';
+            // LACP lab bulguları (jun-21): device-count, iki uç passive, üyede kalan eski ayar
+            const warnings = [];
+            if (!/^\d+$/.test(data.ae_id || '')) warnings.push('\u26D4 AE numarası bir sayı olmalı (ör. 0 → ae0).');
+            if (lacpMode === 'passive') warnings.push('\u26A0 LACP passive: karşı uç da passive ise hiçbir uç LACP paketi başlatmaz ve ae hiç kalkmaz. En az bir uç active olmalı.');
+            else warnings.push('\u2139 Karşı uçta da LACP (active ya da passive) açık olmalı; karşı uç statik toplamadaysa üyeler bağlanmaz.');
+            if (members.length < 2) warnings.push('\u26A0 Tek üyeli ae yedeklilik sağlamaz; en az iki üye girin.');
+            warnings.push('\u2139 Üye portlarda "unit 0 family …" (VLAN/adres) kalmışsa commit reddedilir: önce "delete interfaces <üye> unit 0". VLAN/adres ayarları ae' + aeId + ' altına yazılır.');
+            if (aeIp && vlans) warnings.push('\u26A0 Hem IP hem trunk VLAN girildi: ae aynı anda routed ve L2 trunk olamaz — IP kullanıldı, VLAN listesi (' + (data.vlans || '') + ') yazılmadı.');
+            return { config: c, warnings };
         });
     }
 };
@@ -1764,7 +1879,15 @@ Juniper.stp = {
                 });
             }
             c += '\n# Doğrulama:\n# show spanning-tree bridge\n# show spanning-tree interface\n# show ethernet-switching interfaces\n';
-            return c;
+            // STP lab bulguları (jun-17): varsayılan öncelik, eşit öncelikte MAC, edge korumasız, uplink edge
+            const warnings = [];
+            if (!prio || prio === '32k' || /^(3[6-9]|[4-6]\d)k$/.test(prio)) warnings.push('\u2139 Köprü önceliği ' + (prio || 'varsayılan (32k)') + ': kök seçimi MAC adresine kalır, genelde en eski switch kök olur. Kök olacak çekirdekte 0 ya da 4k verin.');
+            else warnings.push('\u2139 Komşu da ' + prio + ' kullanıyorsa eşitlikte küçük MAC kazanır; kök olunduğunu "show spanning-tree bridge" ile doğrulayın, gerekirse bir adım daha düşük öncelik seçin.');
+            if (edges.length && !data.bpdu_block) warnings.push('\u26A0 Edge portlar BPDU korumasız: kullanıcı portuna takılan switch topolojiyi değiştirebilir. bpdu-block-on-edge açın.');
+            if (edges.some(i => /^(ae|xe-|et-)/.test(i))) warnings.push('\u26A0 Edge listesinde ae/xe/et arayüzü var: bunlar genelde switch\'ler arası bağlantıdır; edge yapmak döngü riski doğurur.');
+            if (data.bpdu_block && edges.length) warnings.push('\u2139 BPDU gelen edge port kapanır; açmak için takılan cihazı sökün ve "clear error bpdu interface <port>" çalıştırın — korumayı silerek "çözmeyin".');
+            if (type === 'mstp' && !data.revision) warnings.push('\u2139 Revision boş (0). configuration-name, revision-level ve MSTI–VLAN eşlemesi bölgedeki tüm switch\'lerde birebir aynı olmalı.');
+            return { config: c, warnings };
         });
     }
 };
@@ -2037,7 +2160,17 @@ Juniper.vrrp = {
             else if (key) c += V + ' authentication-type md5\n' + V + ' authentication-key "' + key + '"\n';
             c += '\n# Doğrulama:\n# show vrrp\n# show vrrp detail\n';
             if (tif) c += '# show vrrp track detail\n';
-            return c;
+            // VRRP lab bulguları (jun-21): sanal adres gerçek adresle aynı, alt ağ dışında, eşit öncelik, yetersiz track
+            const warnings = [], rp = _junWpfx(data.real), pr = data.prio ? +data.prio : 100;
+            if (data.real && !rp) warnings.push('\u26D4 IRB adresi CIDR biçiminde olmalı (ör. 10.64.10.2/24).');
+            if (rp && _junWip(data.vip)) {
+                if (!_junWin(data.vip, rp)) warnings.push('\u26D4 Sanal adres (' + data.vip + ') IRB alt ağında (' + data.real + ') değil: VRRP grubu çalışmaz.');
+                else if (data.vip === rp.ip) warnings.push('\u26A0 Sanal adres gerçek IRB adresiyle aynı olmamalı: her switch\'e ayrı gerçek adres, ikisine ortak bir sanal adres verin.');
+            }
+            if (pr <= 100) warnings.push('\u2139 Öncelik ' + pr + (data.prio ? '' : ' (varsayılan)') + ': karşı switch de ' + pr + ' ise Master\'ı büyük IP belirler. Master olacak switch\'e 100\'ün üstünde öncelik verin.');
+            if (tif && tcost && pr - +tcost >= 100) warnings.push('\u26A0 priority-cost yetersiz: uplink düşünce öncelik ' + pr + ' − ' + tcost + ' = ' + (pr - +tcost) + ' olur, yedeğin (varsayılan 100) altına inmez; Master değişmez.');
+            if (pre === 'no-preempt') warnings.push('\u2139 no-preempt: arızadan dönen yüksek öncelikli switch Master rolünü geri almaz; trafik yedekte kalır.');
+            return { config: c, warnings };
         });
     }
 };

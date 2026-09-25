@@ -291,6 +291,8 @@ const CgLabIos = (() => {
             { p: 'spanning-tree vlan VLIST$l root !<primary|secondary>$r', sw: 1, run: (a) => vlanList(a.l).forEach(v => { M().stpPri[v] = a.r === 'secondary' ? 28672 : stpRootPrimary(v); }), no: (a) => vlanList(a.l).forEach(v => { delete M().stpPri[v]; }) },
             { p: 'spanning-tree mode !<pvst|rapid-pvst|mst>$m', sw: 1, run: (a) => { M().stpMode = a.m; }, no: () => { M().stpMode = 'pvst'; } },
             { p: 'spanning-tree portfast default', sw: 1, run: () => { M().portfastDefault = true; return '%Warning: this command enables portfast by default on all interfaces. You\n should now disable portfast explicitly on switched ports leading to hubs,\n switches and bridges as they may create temporary bridging loops.'; }, no: () => { M().portfastDefault = false; } },
+            { p: 'spanning-tree portfast edge default', sw: 1, run: () => { M().portfastDefault = true; return '%Warning: this command enables portfast by default on all interfaces. You\n should now disable portfast explicitly on switched ports leading to hubs,\n switches and bridges as they may create temporary bridging loops.'; }, no: () => { M().portfastDefault = false; } },
+            { p: 'spanning-tree portfast edge bpduguard default', sw: 1, run: () => { M().bpduguardDefault = true; }, no: () => { M().bpduguardDefault = false; } },
             { p: 'spanning-tree portfast bpduguard default', sw: 1, run: () => { M().bpduguardDefault = true; }, no: () => { M().bpduguardDefault = false; } },
             { p: 'errdisable recovery cause bpduguard', sw: 1, run: () => { M().errRecovery.bpduguard = true; }, no: () => { M().errRecovery.bpduguard = false; } },
             { p: 'errdisable recovery interval !(30-86400)$s', sw: 1, run: (a) => { M().errRecovery.interval = a.s; }, no: () => { M().errRecovery.interval = 300; } },
@@ -334,6 +336,7 @@ const CgLabIos = (() => {
             { p: 'speed !<10|100|1000|auto>$s', phys: 1, run: (a) => secsIf().forEach(i => { i.speed = a.s; }), no: () => secsIf().forEach(i => { i.speed = 'auto'; }) },
             { p: 'duplex !<auto|full|half>$d', phys: 1, run: (a) => secsIf().forEach(i => { i.duplex = a.d; }), no: () => secsIf().forEach(i => { i.duplex = 'auto'; }) },
             { p: 'spanning-tree portfast', sw: 1, phys: 1, run: () => { secsIf().forEach(i => { i.portfast = true; }); return portfastWarn(); }, no: () => secsIf().forEach(i => { i.portfast = false; }) },
+            { p: 'spanning-tree portfast edge', sw: 1, phys: 1, run: () => { secsIf().forEach(i => { i.portfast = true; }); return portfastWarn(); }, no: () => secsIf().forEach(i => { i.portfast = false; }) },
             { p: 'spanning-tree bpduguard !<enable|disable>$x', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { i.bpduguard = a.x === 'enable'; }), no: () => secsIf().forEach(i => { i.bpduguard = false; }) },
         ];
         const IFMODE = X(IFC.concat(COMMON));

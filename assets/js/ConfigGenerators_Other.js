@@ -3,6 +3,19 @@
 const Dell = {};
 const ExtremeNet = {};
 
+// ── Dell OS10: lab bulgularından türetilen girdi uyarıları (CLI Lab dell-09/12/14/16 arıza ve "çalışır ama yanlış" durumları) ──
+const _os10Wip = ip => /^(\d{1,3}\.){3}\d{1,3}$/.test(String(ip || '').trim()) && String(ip).trim().split('.').every(o => +o <= 255);
+const _os10Wn = ip => String(ip || '').trim().split('.').reduce((a, o) => a * 256 + (+o), 0);
+function _os10Wpfx(s) {
+    const m = String(s || '').trim().match(/^([\d.]+)\/(\d{1,2})$/);
+    if (!m || !_os10Wip(m[1]) || +m[2] > 32) return null;
+    const len = +m[2], size = 2 ** (32 - len);
+    return { ip: m[1], len, base: Math.floor(_os10Wn(m[1]) / size) * size, size };
+}
+const _os10Win = (ip, p) => !!p && _os10Wip(ip) && Math.floor(_os10Wn(ip) / p.size) * p.size === p.base;
+// OS10 ACL adres ifadesi: 'any' | 'host A.B.C.D' | 'A.B.C.D/len' (yalın IP → host)
+const _os10Waddr = x => { const t = String(x || '').trim(); return !t || /^any$/i.test(t) ? 'any' : _os10Wip(t) ? 'host ' + t : /^host\s+/i.test(t) ? t.replace(/^host\s+/i, 'host ') : t; };
+
 // ── Dell: General ─────────────────────────────────────────────────────────────
 Dell.general = {
     label: 'General',
@@ -231,7 +244,7 @@ Dell.portchannel = {
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
             const pcId = cgEsc(data.pc_id || ''), lacpMode = cgEsc(data.lacp_mode || 'active');
-            const members = (data.members || '').split(',').map(s => cgEsc(s.trim())).filter(Boolean);
+            const members = _otherDellIfList(data.members);   // 'ethernet1/1/11-1/1/12' aralığı tek tek açılır
             const swMode = cgEsc(data.sw_mode || 'trunk'), vlanIp = cgEsc(data.vlan_ip || '');
             let c = '# ========================================\n# Dell OS10 — Port-Channel / LAG\n# ========================================\n\n';
             members.forEach(m => {
@@ -251,7 +264,19 @@ Dell.portchannel = {
             }
             c += ' no shutdown\n!\n\n';
             c += '# Doğrulama:\n# show port-channel summary\n# show lacp ' + pcId + '\n';
-            return c;
+            // LACP lab bulguları (dell-16): mode on, iki uç passive, üyede VLAN ayarı, mod/değer uyumsuzluğu
+            const w = [], vi = String(data.vlan_ip || '').trim();
+            if (!/^\d+$/.test(data.pc_id || '') || +data.pc_id < 1 || +data.pc_id > 128) w.push('\u26D4 Port-channel numarası 1-128 arası bir sayı olmalı.');
+            if (lacpMode === 'on') w.push('\u26A0 mode on = LACP yok: yanlış kablolanan üye fark edilmez; karşı uç LACP (active) ise üyeler hiç bağlanmaz. Mümkünse iki uçta active kullanın.');
+            else if (lacpMode === 'passive') w.push('\u26A0 LACP passive: karşı uç da passive ise hiçbir uç LACP başlatmaz ve port-channel kalkmaz. En az bir uç active olmalı.');
+            else w.push('\u2139 Karşı uç da LACP (active/passive) olmalı; bir uç active, diğeri on ise üyeler bağlanmaz.');
+            if (members.length < 2) w.push('\u26A0 Tek üyeli port-channel yedeklilik sağlamaz; en az iki üye girin.');
+            w.push('\u2139 VLAN/adres ayarlarını üyelere değil port-channel' + pcId + ' arayüzüne yazın; üyelerde farklı ayar kalırsa üye bundle\'a katılmaz.');
+            const isIp = /^[\d.]+\/\d{1,2}$/.test(vi), vl = /^[\d,\s-]+$/.test(vi);
+            if (swMode === 'routed' && vi && !isIp) w.push('\u26D4 Routed modda IP/prefix girilmeli (ör. 10.64.0.1/30); "' + vi + '" bir adres değil.');
+            if (swMode !== 'routed' && vi && isIp) w.push('\u26D4 ' + swMode + ' modunda IP adresi yazılamaz: L2 port-channel\'a VLAN girilir. IP için modu routed seçin (ya da VLAN arayüzü kullanın).');
+            if (swMode === 'access' && vi && vl && /[,\s-]/.test(vi)) w.push('\u26D4 Access modu tek VLAN taşır; birden fazla VLAN için trunk seçin.');
+            return { config: c, warnings: w };
         });
     }
 };
@@ -459,15 +484,31 @@ Dell.acl = {
             let c = '# ========================================\n# Dell OS10 — ACL\n# ========================================\n\n';
             c += 'configure terminal\n\n';
             c += 'ip access-list ' + aclName + '\n';
-            c += ' seq ' + seqStart + ' ' + action + ' ' + proto + ' ' + src + ' ' + dst + '\n';
-            c += ' seq ' + (parseInt(seqStart) + 10) + ' deny ip any any\n!\n\n';
+            // Yalın IP 'host A.B.C.D' olarak yazılır (OS10 adres: any | host A.B.C.D | A.B.C.D/len)
+            c += ' seq ' + seqStart + ' ' + action + ' ' + proto + ' ' + cgEsc(_os10Waddr(data.src)) + ' ' + cgEsc(_os10Waddr(data.dst)) + '\n';
+            // Sonda örtük deny var (dell-14). Tek "deny" satırından sonra "deny ip any any" eklemek arayüzdeki TÜM trafiği
+            // keserdi; deny kuralında sona "permit ip any any" yazılır. permit kuralında açık deny, örtük deny'ı görünür kılar.
+            const tail = action === 'deny';
+            c += ' seq ' + ((parseInt(seqStart, 10) || 10) + 10) + (tail ? ' permit ip any any' : ' deny ip any any') + '\n!\n\n';
             if (applyIf) {
                 c += 'interface ' + applyIf + '\n';
                 c += ' ip access-group ' + aclName + ' ' + direction + '\n!\n\n';
             }
             c += 'end\n\n';
-            c += '# Doğrulama:\n# show ip access-lists ' + aclName + '\n# show running-configuration access-list\n';
-            return c;
+            c += '# Doğrulama:\n# show ip access-lists ' + aclName + '   ! kural başına eşleşme sayacı\n# show running-configuration access-list\n';
+            const w = [], v = k => String(data[k] == null ? '' : data[k]).trim();
+            if (tail) w.push('\u2139 Tek satır "deny" olduğu için sona "permit ip any any" eklendi. Eklenmeseydi sondaki örtük deny, arayüzdeki diğer tüm trafiği (internet dahil) de keserdi.');
+            else w.push('\u26A0 Bu ACL yalnız tanımladığınız trafiğe izin verir; diğer her şey sondaki deny ile düşer. Arayüzden başka trafik de geçiyorsa gerekli permit satırlarını deny\'dan önce (daha küçük seq ile) ekleyin.');
+            ['src', 'dst'].forEach((k, i) => {
+                const x = v(k), p = _os10Wpfx(x);
+                if (x && !/^any$/i.test(x) && !_os10Wip(x) && !/^host\s+/i.test(x) && !p) w.push('\u26D4 ' + (i ? 'Hedef' : 'Kaynak') + ' "' + x + '" geçersiz: any, tek host IP ya da A.B.C.D/uzunluk (ör. 10.64.20.0/24) girin.');
+                else if (p && _os10Wn(p.ip) !== p.base) w.push('\u26A0 ' + (i ? 'Hedef' : 'Kaynak') + ' prefix ağ adresi değil (' + x + '); ağ adresini yazın (ör. ' + [24, 16, 8, 0].map(b => Math.floor(p.base / 2 ** b) % 256).join('.') + '/' + p.len + ').');
+            });
+            if (/^any$/i.test(v('src')) && /^any$/i.test(v('dst')) && (data.protocol || 'ip') === 'ip') w.push(action === 'deny' ? '\u26D4 Kaynak ve hedef any, protokol ip: deny satırı tüm trafiği keser; alttaki permit\'e hiç ulaşılmaz.' : '\u26A0 permit ip any any her şeye izin verir; alttaki satırlar hiç çalışmaz.');
+            if (applyIf && direction === 'out') w.push('\u2139 out yönü arayüzden ÇIKAN trafiği süzer. Bir VLAN\'dan gelen trafiği süzmek için ACL, o VLAN\'ın arayüzüne in yönünde uygulanır.');
+            if (!applyIf) w.push('\u2139 Uygulama arayüzü girilmedi: ACL bir arayüze bağlanmadıkça hiçbir şey yapmaz.');
+            w.push('\u2139 Kurallar seq sırasıyla denenir, ilk eşleşen kazanır. Araya kural eklemek için daha küçük bir seq verin (ör. 5).');
+            return { config: c, warnings: w };
         });
     }
 };
@@ -1196,7 +1237,15 @@ Dell.stp = {
             c += '\nend\n\n';
             c += '# Doğrulama:\n# show spanning-tree brief\n';
             c += '# show running-configuration | grep spanning-tree\n';
-            return c;
+            // STP lab bulguları (dell-12): varsayılan öncelik, rapid-pvst'de VLAN'sız öncelik, edge korumasız
+            const w = [], p = +(t === 'mst' ? (data.mst_prio || 32768) : (data.priority || 32768));
+            if (t === 'rpvst' && pr && !vlans) w.push('\u26A0 Rapid-PVST+\'ta öncelik VLAN başına verilir: VLAN listesi boş olduğu için öncelik satırı yazılmadı.');
+            if (p >= 32768) w.push('\u2139 Öncelik varsayılan (32768) ya da daha yüksek: kök seçimi MAC adresine kalır, genelde en eski switch kök olur. Kök olacak switch\'te 0/4096 verin.');
+            else w.push('\u2139 Komşu da aynı önceliği kullanıyorsa eşitlikte küçük MAC kazanır; kök olunduğunu "show spanning-tree" ile doğrulayın.');
+            if (edges.length && !data.bpduguard) w.push('\u26A0 Edge portlar BPDU Guard\'sız: kullanıcı portuna takılan switch döngü yaratabilir ya da kökü ele geçirebilir.');
+            if (edges.length && data.bpduguard) w.push('\u2139 BPDU gelen edge port kapanır; takılan cihaz sökülüp port shutdown / no shutdown ile açılır. BPDU Guard\'ı kaldırarak "çözmeyin". Uplink/trunk portlarını edge yapmayın.');
+            if (edges.some(e => roots.includes(e))) w.push('\u26A0 Aynı port hem edge hem root guard listesinde: root guard aşağı yönlü switch portları içindir, uç cihaz portu değil.');
+            return { config: c, warnings: w };
         });
     }
 };
@@ -1445,7 +1494,17 @@ Dell.vrrp = {
             c += ' no shutdown\n!\n\n';
             c += 'end\n\n';
             c += '# Doğrulama:\n# show vrrp brief\n# show vrrp ' + grp + '\n';
-            return c;
+            // VRRP lab bulguları (dell-16): eşit öncelik, sanal adres alt ağ dışında / gerçek adresle aynı
+            const w = [], rp = _os10Wpfx(data.real_ip), pv = data.priority ? +data.priority : 100;
+            if (data.real_ip && !rp) w.push('\u26D4 Arayüz IP\'si A.B.C.D/uzunluk biçiminde olmalı (ör. 10.64.10.2/24).');
+            if (rp && _os10Wip(data.vip)) {
+                if (!_os10Win(data.vip, rp)) w.push('\u26D4 Sanal IP (' + data.vip + ') arayüz alt ağında (' + data.real_ip + ') değil: grup çalışmaz.');
+                else if (data.vip === rp.ip) w.push('\u26A0 Sanal IP arayüzün gerçek adresiyle aynı: her switch\'e ayrı gerçek IP, ikisine ortak bir sanal IP verin.');
+            }
+            if (pv <= 100) w.push('\u2139 Öncelik ' + pv + (data.priority ? '' : ' (varsayılan)') + ': karşı switch de ' + pv + ' ise Master\'ı büyük arayüz IP\'si belirler. Master olacak switch\'e 100\'ün üstünde (ör. 110) verin.');
+            if (!data.preempt) w.push('\u2139 Preempt kapalı: arızadan dönen yüksek öncelikli switch rolü geri almaz, trafik yedekte kalır.');
+            if (data.v3) w.push('\u2139 vrrp version 3 globaldir; karşı switch de aynı sürümde olmalı, yoksa iki taraf da Master olur.');
+            return { config: c, warnings: w };
         });
     }
 };
@@ -1546,7 +1605,17 @@ Dell.iface = {
             });
             c += '\nend\n\n';
             c += '# Doğrulama:\n# show interface status\n';
-            return c;
+            // Arayüz lab bulguları (dell-09/40): aynı IP birden çok portta, trunk'ta edge, sabit hız, MTU tek uç
+            const w = [];
+            if (mode === 'routed' && ports.length > 1 && rip) w.push('\u26D4 Aynı IP (' + data.routed_ip + ') ' + ports.length + ' porta yazılıyor: her routed portun ayrı alt ağı olmalı, ikinci port çakışma nedeniyle reddedilir. Routed modda tek port seçin.');
+            const rp = _os10Wpfx(data.routed_ip);
+            if (mode === 'routed' && rp && rp.len < 31 && (_os10Wn(rp.ip) === rp.base || _os10Wn(rp.ip) === rp.base + rp.size - 1)) w.push('\u26A0 ' + data.routed_ip + ' ağ ya da yayın adresi; arayüze bir host adresi girin.');
+            if (data.edge && mode === 'trunk') w.push('\u26A0 Trunk portu STP edge yapılıyor: trunk genelde switch\'ler arası bağlantıdır; edge yapmak döngü riski doğurur.');
+            if (mode === 'access' && av === '1') w.push('\u2139 Access VLAN 1: kullanıcı trafiği için VLAN 1 yerine ayrı bir VLAN kullanın.');
+            if (speed && speed !== 'auto') w.push('\u2139 Hız sabitlendi: karşı uçta da aynı sabit hız olmalı; bir uç auto kalırsa link kalkmayabilir.');
+            if (mtu) w.push('\u2139 MTU ' + mtu + ': yolun iki ucunda (sunucu ve karşı switch) aynı olmalı; uyuşmazlıkta küçük paket (ping) geçer, büyük aktarımlar takılır.');
+            if (data.admin === 'down') w.push('\u26A0 Portlar kapatılacak: listede kullanılan bir port ya da uplink olmadığını kontrol edin.');
+            return { config: c, warnings: w };
         });
     }
 };

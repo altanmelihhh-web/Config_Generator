@@ -2,6 +2,38 @@
 
 const HuaweiVRP = {};
 
+// ── Lab bulgularından türetilen girdi uyarıları (CLI Lab hua-07/10/11/13/15/17 arıza ve "çalışır ama yanlış" durumları) ──
+const _vrpWip = ip => /^(\d{1,3}\.){3}\d{1,3}$/.test(String(ip || '').trim()) && String(ip).trim().split('.').every(o => +o <= 255);
+const _vrpWn = ip => String(ip || '').trim().split('.').reduce((a, o) => a * 256 + (+o), 0);
+// '24' | '/24' | '255.255.255.0' → 24; geçersizse NaN
+function _vrpWlen(m) {
+    const t = String(m || '').trim().replace(/^\//, '');
+    if (/^\d{1,2}$/.test(t)) return +t <= 32 ? +t : NaN;
+    const l = typeof cgMaskLen === 'function' ? cgMaskLen(t) : '';
+    return l === '' ? NaN : +l;
+}
+// Adresin ağı: { base, size } (len geçersizse null)
+function _vrpWnet(ip, len) {
+    if (!_vrpWip(ip) || !(len >= 0 && len <= 32)) return null;
+    const size = 2 ** (32 - len);
+    return { base: Math.floor(_vrpWn(ip) / size) * size, size };
+}
+const _vrpWstr = n => [24, 16, 8, 0].map(b => Math.floor(n / 2 ** b) % 256).join('.');
+const _vrpWinNet = (ip, net) => !!net && _vrpWip(ip) && Math.floor(_vrpWn(ip) / net.size) * net.size === net.base;
+// Arayüz adresi ağ ya da yayın adresi mi? (/31 ve /32 hariç)
+const _vrpWnetOrBc = (ip, len) => { const n = _vrpWnet(ip, len); return !!n && len < 31 && (_vrpWn(ip) === n.base || _vrpWn(ip) === n.base + n.size - 1); };
+// Wildcard alanına alt ağ maskesi yazılmış mı? (255.255.255.0 gibi; 255.255.255.255 "her şey" anlamında kullanılabilir)
+function _vrpWwildMask(w) {
+    const t = String(w || '').trim();
+    return _vrpWip(t) && /^255\./.test(t) && t !== '255.255.255.255' && !isNaN(_vrpWlen(t));
+}
+// Adres, wildcard'ın "önemsiz" bitlerinde 1 içeriyor mu? (10.64.10.5 0.0.0.255 gibi)
+function _vrpWhostBits(ip, wild) {
+    if (!_vrpWip(ip) || !_vrpWip(wild) || _vrpWwildMask(wild)) return false;
+    const a = _vrpWn(ip), w = _vrpWn(wild), oct = (n, b) => Math.floor(n / 2 ** b) % 256;
+    return [24, 16, 8, 0].some(b => (oct(a, b) & oct(w, b)) !== 0);
+}
+
 // ── Huawei: Basic ─────────────────────────────────────────────────────────────
 HuaweiVRP.basic = {
     label: 'Basic',
@@ -188,6 +220,7 @@ HuaweiVRP.dhcp = {
                     fields: [
                         { name: 'relay_iface', why: "Relay arayüzünde <code>dhcp select relay</code> aktif edilir. Aynı arayüzde relay ile server modu birlikte olamaz; yanlışlıkla ikisi denenirse ikinci komut reddedilir veya mevcut yapı sessizce devre dışı kalır.", label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/2', hint: 'Relay agent olacak arayüz' },
                         { name: 'relay_ip', why: "Bu IP relay edilen isteklerin <b>giaddr</b> alanına yazılır ve DHCP sunucusu hangi havuzdan adres vereceğine buna bakarak karar verir. Yanlış IP verirseniz sunucu yanlış subnetten adres dağıtır veya hiç yanıt vermez.", label: 'Relay Interface IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.3.1', hint: 'Relay arayüzüne atanacak IP' },
+                        { name: 'relay_prefix', why: "Relay arayüzünün maskesi istemci ağının maskesiyle aynı olmalıdır; sunucu havuzu, relay'in eklediği arayüz adresine (giaddr) ve bu ağa göre seçer.", label: 'Prefix (CIDR)', type: 'text', optional: true, placeholder: '24', hint: 'Subnet prefix uzunluğu (boşsa 24)' },
                         { name: 'relay_servers', why: "Sunucu listesindeki adreslere cihazdan yönlendirilebilir bir yol olmalı ve dönüş trafiği için sunucu tarafında relay subnetine rota bulunmalıdır. Sunucuya giden yol tek yönlüyse istemci DISCOVER gönderir, OFFER asla geri dönmez.", label: 'DHCP Sunucu IP(leri)', type: 'text', required: true, placeholder: '10.128.10.1', hint: 'Virgülle ayrılmış DHCP sunucu IP listesi' }
                     ]
                 }
@@ -206,8 +239,12 @@ HuaweiVRP.dhcp = {
             } else if (mode === 'global') {
                 const pool = cgEsc(data.pool_name || ''), gw = cgEsc(data.pool_gw || ''), dns = cgEsc(data.pool_dns || '');
                 const giface = cgEsc(data.gbl_iface || ''), gip = cgEsc(data.gbl_ip || ''), gprefix = cgEsc(data.gbl_prefix || '');
+                // Havuzun "network" satırı zorunludur: onsuz havuzda dağıtılacak adres yoktur ve arayüz de havuzla eşleşmez.
+                const gnet = _vrpWnet(data.gbl_ip, _vrpWlen(data.gbl_prefix));
                 c += '[' + dn + '] ip pool ' + pool + '\n';
                 c += '[' + dn + '-ip-pool-' + pool + '] gateway-list ' + gw + '\n';
+                if (gnet) c += '[' + dn + '-ip-pool-' + pool + '] network ' + _vrpWstr(gnet.base) + ' mask ' + _vrpWlen(data.gbl_prefix) + '\n';
+                else c += '# UYARI: arayüz IP/prefix geçersiz — havuzun network satırı yazılamadı (network <ağ> mask <prefix>).\n';
                 if (dns) c += '[' + dn + '-ip-pool-' + pool + '] dns-list ' + dns + '\n';
                 c += '[' + dn + '-ip-pool-' + pool + '] quit\n\n';
                 c += '[' + dn + '] interface ' + giface + '\n';
@@ -215,21 +252,48 @@ HuaweiVRP.dhcp = {
                 c += '[' + dn + '-' + giface + '] dhcp select global\n';
                 c += '[' + dn + '-' + giface + '] quit\n';
             } else {
-                const riface = cgEsc(data.relay_iface || ''), rip = cgEsc(data.relay_ip || '');
+                const riface = cgEsc(data.relay_iface || ''), rip = cgEsc(data.relay_ip || ''), rpfx = cgEsc(data.relay_prefix || '') || '24';
                 const servers = cgEsc(data.relay_servers || '').split(',').map(s => s.trim()).filter(Boolean);
                 c += '[' + dn + '] interface ' + riface + '\n';
-                c += '[' + dn + '-' + riface + '] ip address ' + rip + ' 24\n';
+                c += '[' + dn + '-' + riface + '] ip address ' + rip + ' ' + rpfx + '\n';
                 c += '[' + dn + '-' + riface + '] dhcp select relay\n';
                 servers.forEach(srv => {
                     c += '[' + dn + '-' + riface + '] dhcp relay server-ip ' + srv + '\n';
                 });
                 c += '[' + dn + '-' + riface + '] quit\n';
             }
-            return c;
+            c += '\n# Doğrulama:\n# display ip pool' + (mode === 'global' ? ' name ' + cgEsc(data.pool_name || '') + ' used' : '') + '   ! dağıtılan adresler\n';
+            return { config: c, warnings: _vrpWdhcp(data, mode) };
         });
     }
 };
-
+// DHCP lab bulguları (hua-11): ağ geçidi ağ dışında, arayüz adresi ağ/yayın adresi, relay yanlış arayüz
+function _vrpWdhcp(data, mode) {
+    const w = [], v = k => String(data[k] == null ? '' : data[k]).trim();
+    const chk = (ip, pfx, what) => {
+        const len = _vrpWlen(v(pfx) || (pfx === 'relay_prefix' ? '24' : ''));
+        if (v(pfx) && isNaN(len)) { w.push('\u26D4 ' + what + ' prefix değeri geçersiz: 8-30 arası bir uzunluk (ör. 24) ya da noktalı maske girin.'); return null; }
+        if (len > 30 && len <= 32) w.push('\u26A0 /' + len + ' ağında istemciye verilecek adres kalmaz; DHCP için /30\'dan geniş bir ağ gerekir.');
+        if (_vrpWnetOrBc(v(ip), len)) w.push('\u26D4 ' + what + ' IP adresi (' + v(ip) + '/' + len + ') ağ ya da yayın adresi; arayüze bir host adresi girin (ör. .1).');
+        return _vrpWnet(v(ip), len);
+    };
+    if (mode === 'server') {
+        chk('srv_ip', 'srv_prefix', 'Arayüz');
+        w.push('\u2139 "dhcp select interface" arayüz IP\'sini istemcilere ağ geçidi olarak verir ve arayüzün tüm ağından dağıtır. Yazıcı/sunucu gibi statik adresleri korumak için arayüz görünümünde "dhcp server excluded-ip-address <ilk> <son>" ekleyin.');
+    } else if (mode === 'global') {
+        const net = chk('gbl_ip', 'gbl_prefix', 'Arayüz');
+        if (net && _vrpWip(v('pool_gw'))) {
+            if (!_vrpWinNet(v('pool_gw'), net)) w.push('\u26D4 Ağ geçidi (gateway-list ' + v('pool_gw') + ') havuzun ağında değil: istemciler adres alır ama ağ geçidine ulaşamaz — "IP var, internet yok".');
+            else if (v('pool_gw') !== v('gbl_ip')) w.push('\u2139 Ağ geçidi arayüz adresinden (' + v('gbl_ip') + ') farklı. Bilinçli değilse (ör. VRRP sanal adresi) istemciler yanlış geçide gider.');
+        }
+        w.push('\u2139 Havuzdan dağıtılmaması gereken adresleri (ağ geçidi, yazıcı, sunucu) havuz görünümünde "excluded-ip-address <ilk> <son>" ile hariç tutun; yoksa IP çakışması olur.');
+    } else {
+        chk('relay_ip', 'relay_prefix', 'Relay arayüzü');
+        w.push('\u2139 "dhcp select relay", istemcilerin bağlı olduğu (isteğin geldiği) arayüze yazılır; sunucuya bakan arayüze değil. Sunucuda da bu ağ için bir havuz ve relay ağına dönüş rotası olmalı.');
+        v('relay_servers').split(',').map(x => x.trim()).filter(Boolean).forEach(x => { if (!_vrpWip(x)) w.push('\u26D4 DHCP sunucu adresi geçersiz: "' + x + '" (virgülle ayrılmış IPv4 adresleri girin).'); });
+    }
+    return w;
+}
 // ── Huawei: SNMP ─────────────────────────────────────────────────────────────
 HuaweiVRP.snmp = {
     label: 'SNMP',
@@ -338,16 +402,25 @@ HuaweiVRP.nat = {
             topic: {
                 icon: 'fas fa-random',
                 title: 'NAT / Port Forwarding (Huawei VRP)',
-                desc: 'Huawei NAT statik port yönlendirme — inside/outside arayüz tanımı ve TCP/UDP/her ikisi için port forwarding kuralı.'
+                desc: 'Huawei AR NAT — Easy IP (nat outbound) ile internet çıkışı ve NAT Server ile port yönlendirme. VRP\'de Cisco\'daki gibi inside/outside işaretlemesi yoktur: her iki kural da WAN (çıkış) arayüzüne yazılır.'
             },
             sections: [
                 {
                     title: 'Arayüzler',
                     icon: 'fas fa-ethernet',
                     fields: [
-                        { name: 'in_iface', why: "Bu arayüze <code>nat inside</code> mantığı uygulanır; iç arayüz yanlış seçilirse NAT hiç tetiklenmez ve paketler özel IP ile WAN tarafına çıkıp ISP tarafında düşer. Arıza internet kesintisi gibi görünür ama sebep yön tanımıdır.", label: 'Inside Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'İç ağa bağlı arayüz (nat inside)' },
-                        { name: 'out_iface', why: "NAT dönüşümü çıkış arayüzünde yapılır; <code>nat server</code> veya <code>nat outbound</code> yanlış arayüze bağlanırsa kurallar hiç devreye girmez. Yedek WAN varsa her iki arayüzde de ayrı tanım gerekir.", label: 'Outside Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'WAN/İnternet arayüzü (nat outside)' },
-                        { name: 'out_ip', why: "Port yönlendirmede dış dünyanın bağlandığı adres budur; ISP tarafından size atanmamış bir IP yazarsanız trafik cihaza hiç ulaşmaz. Dinamik WAN IP kullanılıyorsa sabit IP yerine arayüz temelli NAT gerekir.", label: 'Dış IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'Outside arayüze atanacak public IP' }
+                        { name: 'in_iface', why: "VRP'de iç arayüze NAT komutu yazılmaz (Cisco'daki <code>ip nat inside</code> karşılığı yoktur). Bu alan yalnız kontrol içindir: iç ve dış arayüz aynı girilirse ya da <code>nat outbound</code> iç arayüze yazılırsa hiçbir paket çevrilmez.", label: 'İç (LAN) Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/1', hint: 'İç ağa bağlı arayüz (yalnız kontrol; komut yazılmaz)' },
+                        { name: 'out_iface', why: "NAT dönüşümü çıkış arayüzünde yapılır; <code>nat server</code> veya <code>nat outbound</code> yanlış arayüze bağlanırsa kurallar hiç devreye girmez. Yedek WAN varsa her iki arayüzde de ayrı tanım gerekir.", label: 'WAN (Çıkış) Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0/0', hint: 'nat outbound ve nat server bu arayüze yazılır' },
+                        { name: 'out_ip', why: "Port yönlendirmede dış dünyanın bağlandığı adres budur; ISP tarafından size atanmamış bir IP yazarsanız trafik cihaza hiç ulaşmaz. Dinamik WAN IP kullanılıyorsa sabit IP yerine arayüz temelli NAT gerekir.", label: 'Dış (Global) IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'NAT Server global adresi (genelde WAN arayüz adresi)' },
+                        { name: 'out_mask', why: "Doluysa WAN arayüzüne bu maske ile adres yazılır. Arayüzde adres zaten varsa boş bırakın; yanlış maske ISP ağ geçidini alt ağ dışına düşürür ve internet tamamen kesilir.", label: 'WAN Arayüz Maskesi', type: 'text', validate: 'subnet', optional: true, placeholder: '255.255.255.252', hint: 'Opsiyonel — doluysa arayüze ip address yazılır' }
+                    ]
+                },
+                {
+                    title: 'Easy IP (internet çıkışı)',
+                    icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'lan_net', why: "ACL 2000'deki permit kuralı hangi iç adreslerin çevrileceğini belirler; kurala uymayan kaynak çevrilmez ve özel adresle dışarı çıkıp kaybolur. <code>rule permit</code> (kaynaksız) yazmak tüm kaynakları çevirir.", label: 'Çevrilecek İç Ağ', type: 'text', validate: 'ip', optional: true, placeholder: '10.64.0.0', hint: 'Opsiyonel — doluysa ACL 2000 + nat outbound 2000 üretilir' },
+                        { name: 'lan_wc', why: "VRP ACL'si <b>wildcard</b> (ters maske) ister: /16 için <code>0.0.255.255</code>. Maske (255.255.0.0) yazmak hiçbir iç adresi eşlemez ve kimse internete çıkamaz.", label: 'İç Ağ Wildcard', type: 'text', validate: 'wildcard', optional: true, placeholder: '0.0.255.255', hint: 'Ters maske: /16 → 0.0.255.255, /24 → 0.0.0.255' }
                     ]
                 },
                 {
@@ -360,7 +433,7 @@ HuaweiVRP.nat = {
                             { value: 'both', label: 'Both (TCP+UDP)' }
                         ]},
                         { name: 'pub_port', why: "Dış port doğrudan internete açılır; 3389 veya 22 gibi portları tüm dünyaya açmak saldırı yüzeyini ciddi büyütür. Ayrıca aynı dış portu iki farklı iç sunucuya yönlendiremezsiniz, ikinci kural ilkini geçersiz kılar.", label: 'Dış Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'İnternet tarafından erişilen port' },
-                        { name: 'priv_ip', why: "İç sunucunun IP adresi sabit olmalıdır; DHCP ile değişen bir adrese yönlendirme yapılırsa kural bir süre sonra yanlış makineye trafik taşır. Sunucuya giden yönlendirme yolu ve sunucunun yerel güvenlik duvarı da açık olmalıdır.", label: 'İç IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Yönlendirilecek iç sunucu IP adresi' },
+                        { name: 'priv_ip', why: "İç sunucunun IP adresi sabit olmalıdır; DHCP ile değişen bir adrese yönlendirme yapılırsa kural bir süre sonra yanlış makineye trafik taşır. Sunucuya giden yönlendirme yolu ve sunucunun yerel güvenlik duvarı da açık olmalıdır.", label: 'İç IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.50.10', hint: 'Yönlendirilecek iç sunucu IP adresi' },
                         { name: 'priv_port', why: "Sunucunun gerçekten dinlediği port yazılmalı; dış port ile iç port farklı olabilir. İç portta servis kapalıysa NAT çalışır ama bağlantı reddedilir ve sorun NAT hatası sanılarak boşa vakit harcanır.", label: 'İç Port', type: 'text', validate: 'port', required: true, placeholder: '443', hint: 'İç sunucudaki hedef port' }
                     ]
                 }
@@ -368,24 +441,47 @@ HuaweiVRP.nat = {
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
             const iniface = cgEsc(data.in_iface || ''), outiface = cgEsc(data.out_iface || ''), outip = cgEsc(data.out_ip || '');
-            const proto = cgEsc(data.proto || 'tcp'), pubport = cgEsc(data.pub_port || '');
-            const privip = cgEsc(data.priv_ip || ''), privport = cgEsc(data.priv_port || '');
-            let c = '# ========================================\n# Huawei — NAT / Port Forwarding\n# ========================================\n\n';
+            const outmask = cgEsc(data.out_mask || ''), proto = cgEsc(data.proto || 'tcp'), pubport = cgEsc(data.pub_port || '');
+            const privip = cgEsc(data.priv_ip || ''), privport = cgEsc(data.priv_port || '') || pubport;
+            const lannet = cgEsc(data.lan_net || ''), lanwc = cgEsc(data.lan_wc || '');
+            let c = '# ========================================\n# Huawei AR — NAT (Easy IP / NAT Server)\n# ========================================\n\n';
+            c += '# VRP\'de inside/outside işareti yoktur; NAT komutları yalnız WAN arayüzüne (' + outiface + ') yazılır.\n';
+            c += '# İç arayüz ' + (iniface || '(boş)') + ' üzerinde NAT komutu gerekmez.\n';
             c += '[Huawei] system-view\n\n';
-            c += '# Interface Konfigürasyonu\n';
-            c += '[Huawei] interface ' + iniface + '\n[Huawei-' + iniface + '] nat inside\n[Huawei-' + iniface + '] quit\n\n';
-            c += '[Huawei] interface ' + outiface + '\n[Huawei-' + outiface + '] ip address ' + outip + ' 255.255.255.252\n[Huawei-' + outiface + '] nat outside\n[Huawei-' + outiface + '] quit\n\n';
-            c += '# Port Forwarding\n';
-            if (proto === 'both') {
-                c += '[Huawei] nat static tcp global ' + outip + ' ' + pubport + ' inside ' + privip + ' ' + privport + '\n';
-                c += '[Huawei] nat static udp global ' + outip + ' ' + pubport + ' inside ' + privip + ' ' + privport + '\n';
-            } else {
-                c += '[Huawei] nat static ' + proto + ' global ' + outip + ' ' + pubport + ' inside ' + privip + ' ' + privport + '\n';
+            if (lannet) {
+                c += '# Easy IP: ACL 2000\'e uyan iç kaynaklar WAN arayüz adresine çevrilir\n';
+                c += '[Huawei] acl number 2000\n[Huawei-acl-basic-2000] rule 5 permit source ' + lannet + ' ' + (lanwc || '0') + '\n[Huawei-acl-basic-2000] quit\n\n';
             }
-            return c;
+            c += '[Huawei] interface ' + outiface + '\n';
+            if (outmask) c += '[Huawei-' + outiface + '] ip address ' + outip + ' ' + outmask + '\n';
+            if (lannet) c += '[Huawei-' + outiface + '] nat outbound 2000\n';
+            if (pubport && privip) {
+                (proto === 'both' ? ['tcp', 'udp'] : [proto]).forEach(p => {
+                    c += '[Huawei-' + outiface + '] nat server protocol ' + p + ' global ' + outip + ' ' + pubport + ' inside ' + privip + ' ' + privport + '\n';
+                });
+            }
+            c += '[Huawei-' + outiface + '] quit\n';
+            c += '\n# Doğrulama:\n# display nat outbound        ! ACL ve arayüz eşleşmesi\n# display nat server          ! yayınlanan servisler\n# display nat session all     ! çevrilen akışlar\n';
+            return { config: c, warnings: _vrpWnat(data) };
         });
     }
 };
+// NAT lab bulguları (hua-10): nat outbound LAN arayüzünde, ACL'de maske/wildcard karışıklığı, kaynaksız permit
+function _vrpWnat(data) {
+    const w = [], v = k => String(data[k] == null ? '' : data[k]).trim();
+    if (v('in_iface') && v('out_iface') && v('in_iface').toLowerCase() === v('out_iface').toLowerCase()) w.push('\u26D4 İç ve WAN arayüzü aynı. nat outbound / nat server trafiğin ÇIKTIĞI WAN arayüzüne yazılır; iç arayüze yazılan kural hiçbir paketi çevirmez.');
+    if (v('lan_net')) {
+        if (_vrpWwildMask(v('lan_wc'))) w.push('\u26A0 Wildcard alanına maske yazılmış görünüyor (' + v('lan_wc') + '). VRP ACL\'si ters maske ister (/16 → 0.0.255.255); bu hâliyle iç adresler eşleşmez ve kimse internete çıkamaz.');
+        else if (_vrpWhostBits(v('lan_net'), v('lan_wc'))) w.push('\u26A0 İç ağ adresi wildcard\'ın kapsadığı bitlerde değer içeriyor; ağ adresini yazın (ör. 10.64.0.0 0.0.255.255).');
+        if (!v('lan_wc')) w.push('\u26A0 Wildcard boş: kural yalnız ' + v('lan_net') + ' tek adresini çevirir. Bir ağ için ters maske girin (ör. 0.0.0.255).');
+        if (v('lan_wc') === '255.255.255.255') w.push('\u26A0 Wildcard 255.255.255.255 her kaynağı çevirir (rule permit ile aynı). Yalnız kendi iç ağınızı yazın.');
+    }
+    if (v('pub_port')) {
+        if (['22', '23', '3389', '445', '161'].includes(v('pub_port'))) w.push('\u26A0 Dış port ' + v('pub_port') + ' yönetim/dosya paylaşımı servisidir; internete açmak kaba kuvvet saldırılarına kapı açar. VPN ya da kaynak kısıtlaması tercih edin.');
+        if (_vrpWip(v('out_ip')) && v('out_ip') === v('priv_ip')) w.push('\u26D4 Dış IP ile iç sunucu IP\'si aynı.');
+    }
+    return w;
+}
 
 // ── Huawei: TACACS ────────────────────────────────────────────────────────────
 HuaweiVRP.tacacs = {
@@ -478,20 +574,20 @@ HuaweiVRP.acl = {
             topic: {
                 icon: 'fas fa-filter',
                 title: 'ACL (Huawei VRP)',
-                desc: 'Huawei ACL yapılandırması — standart (2000-2699) ve extended (2700-3799) erişim listesi kuralları.'
+                desc: 'Huawei ACL yapılandırması — temel (basic, 2000-2999) ve gelişmiş (advanced, 3000-3999) erişim listesi kuralları.'
             },
             configTypes: [
-                { id: 'standard', label: 'Standart ACL', icon: 'fas fa-list', desc: '2000-2699 — kaynak IP bazlı filtreleme', badge: { text: 'Basit', cls: 'common' } },
-                { id: 'extended', label: 'Extended ACL', icon: 'fas fa-sliders-h', desc: '2700-3799 — protokol, port ve hedef bazlı filtreleme', badge: { text: 'Detaylı', cls: 'advanced' } }
+                { id: 'standard', label: 'Standart ACL', icon: 'fas fa-list', desc: '2000-2999 (basic) — kaynak IP bazlı filtreleme', badge: { text: 'Basit', cls: 'common' } },
+                { id: 'extended', label: 'Extended ACL', icon: 'fas fa-sliders-h', desc: '3000-3999 (advanced) — protokol, port ve hedef bazlı filtreleme', badge: { text: 'Detaylı', cls: 'advanced' } }
             ],
             sections: [
                 {
                     title: 'ACL Tanımı',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'acl_num', why: "Numara aralığı ACL yeteneğini belirler: 2000-2999 yalnızca kaynak IP bakar, 3000-3999 protokol ve port eşlemesi yapar. Basic aralıkta port kuralı yazmaya çalışırsanız komut reddedilir; en sık karşılaşılan hata budur.", label: 'ACL Numarası', type: 'text', required: true, placeholder: '2000', hint: 'Standart: 2000-2699, Extended: 2700-3799' },
+                        { name: 'acl_num', why: "Numara aralığı ACL yeteneğini belirler: 2000-2999 yalnızca kaynak IP bakar, 3000-3999 protokol ve port eşlemesi yapar. Basic aralıkta port kuralı yazmaya çalışırsanız komut reddedilir; en sık karşılaşılan hata budur.", label: 'ACL Numarası', type: 'text', required: true, placeholder: '2000', hint: 'Temel (basic): 2000-2999, Gelişmiş (advanced): 3000-3999' },
                         { name: 'rule_id', why: "Kurallar ID sırasına göre değerlendirilir ve ilk eşleşen uygulanır. Araya kural ekleyebilmek için 5 veya 10ar atlamalı numaralandırın; ardışık numaralar sonradan kural ekleme imkânını tamamen ortadan kaldırır.", label: 'Kural ID', type: 'text', optional: true, placeholder: '10', hint: 'Kural sıra numarası (varsayılan: 10)' },
-                        { name: 'action', why: "Huawei ACL sonunda örtük bir <code>permit</code> yoktur; uygulandığı yere göre eşleşmeyen trafiğin akıbeti değişir. Yanlış seçilen aksiyon uzaktan yönetim oturumunuzu da keserek cihaza erişimi kaybettirebilir.", label: 'Eylem', type: 'select', options: [
+                        { name: 'action', why: "Eşleşmeyen trafiğin akıbeti ACL'nin uygulandığı yere göre değişir: <code>traffic-filter</code>'da hiçbir kurala uymayan paket <b>geçer</b> (Cisco'nun tersi), NAT'ta çevrilmez, VTY'de reddedilir. Yanlış seçilen aksiyon uzaktan yönetim oturumunuzu da keserek cihaza erişimi kaybettirebilir.", label: 'Eylem', type: 'select', options: [
                             { value: 'permit', label: 'Permit', selected: true },
                             { value: 'deny', label: 'Deny' }
                         ]}
@@ -529,7 +625,7 @@ HuaweiVRP.acl = {
                         { name: 'dst_ip', why: "Hedef adres yine wildcard maske ile yazılır. Hedef subnet yanlışsa kural sessizce hiç eşleşmez; ACLnin çalışmadığını ancak <code>display acl</code> çıktısındaki match sayacının sıfır kalmasından anlarsınız.", label: 'Hedef IP', type: 'text', requiredIf: { field: 'dst', in: ['host', 'specific'] }, validate: 'ip', placeholder: '10.0.0.1', hint: 'Hedef olarak "Belirli IP" seçildiğinde doldurulur' },
                         { name: 'dst_wc', why: 'VRP ACL <b>wildcard</b> maske kullanır (0.0.0.255 = /24), subnet maskesi değil. 255.255.255.0 yazmak bambaşka adresleri eşler.', label: 'Hedef Wildcard', type: 'text', validate: 'wildcard', requiredIf: { field: 'dst', in: ['specific'] }, placeholder: '0.0.0.255', hint: 'Ters maske: /24 için 0.0.0.255' },
                         { name: 'src_port', why: "Kaynak port çoğu istemci trafiğinde rastgeledir; buraya sabit port yazmak kuralın neredeyse hiç eşleşmemesine neden olur. Servis kısıtlaması genelde hedef portla yapılır.", label: 'Kaynak Port', type: 'text', validate: 'port', optional: true, placeholder: '80', hint: 'Boş bırakılırsa tüm portlar' },
-                        { name: 'dst_port', why: "Servisin gerçek portu yazılmalıdır; pasif FTP veya SIP gibi dinamik port kullanan protokollerde tek port yeterli olmaz ve bağlantı el sıkışmadan sonra kopar. Aralık gerekiyorsa <code>range</code> operatörünü kullanın.", label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '443', hint: 'Boş bırakılırsa tüm portlar' }
+                        { name: 'dst_port', why: "Servisin gerçek portu yazılmalıdır (<code>destination-port eq 443</code>); pasif FTP veya SIP gibi dinamik port kullanan protokollerde tek port yeterli olmaz ve bağlantı el sıkışmadan sonra kopar. Aralık gerekiyorsa <code>range</code> operatörünü kullanın.", label: 'Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '443', hint: 'Boş bırakılırsa tüm portlar' }
                     ]
                 },
                 {
@@ -560,18 +656,46 @@ HuaweiVRP.acl = {
                 const proto = cgEsc(data.proto || 'tcp'), dst = cgEsc(data.dst || 'any'), dstip = cgEsc(data.dst_ip || '');
                 const sp = cgEsc(data.src_port || ''), dp = cgEsc(data.dst_port || '');
                 const dstStr = addr(dst, dstip, cgEsc(data.dst_wc || ''));
+                const ports = proto === 'tcp' || proto === 'udp';   // port eşlemesi yalnız TCP/UDP'de
                 c = c.replace('acl number ', warnAny(dst, dstip, 'hedef') + 'acl number ');
-                c += ' rule ' + rid + ' ' + action + ' ' + proto + ' source ' + srcStr;
-                if (sp && sp !== 'any') c += ' eq ' + sp;
-                c += ' destination ' + dstStr;
-                if (dp && dp !== 'any') c += ' eq ' + dp;
+                // VRP: port anahtar kelimeleri 'source-port eq N' / 'destination-port eq N' (adresin ardına 'eq' yazılmaz)
+                c += ' rule ' + rid + ' ' + action + ' ' + proto + ' source ' + srcStr + ' destination ' + dstStr;
+                if (ports && sp && sp !== 'any') c += ' source-port eq ' + sp;
+                if (ports && dp && dp !== 'any') c += ' destination-port eq ' + dp;
                 if (tr) c += ' time-range ' + tr;
                 c += '\nquit\n';
             }
-            return c;
+            c += '\n# Uygulama örneği (arayüze giren trafik):\n# interface <arayüz>\n#  traffic-filter inbound acl ' + num + '\n';
+            c += '# Doğrulama: display acl ' + num + '   ! kural başına eşleşme (matched) sayacı\n';
+            return { config: c, warnings: _vrpWacl(data, type) };
         });
     }
 };
+// ACL lab bulguları (hua-07): numara aralığı ile tür uyumsuzluğu, maske/wildcard karışıklığı, traffic-filter'da örtük permit
+function _vrpWacl(data, type) {
+    const w = [], v = k => String(data[k] == null ? '' : data[k]).trim();
+    const num = +v('acl_num'), adv = type !== 'standard';
+    if (!/^\d+$/.test(v('acl_num')) || num < 2000 || num > 3999) w.push('\u26D4 ACL numarası ' + (v('acl_num') || '(boş)') + ' geçersiz: temel (basic) 2000-2999, gelişmiş (advanced) 3000-3999.');
+    else if (adv && num < 3000) w.push('\u26D4 Gelişmiş (protokol/hedef/port) kural 2000-2999 aralığındaki temel ACL\'ye yazılamaz; VRP komutu reddeder. 3000-3999 arası bir numara seçin.');
+    else if (!adv && num >= 3000) w.push('\u2139 3000-3999 gelişmiş ACL aralığıdır; yalnız kaynak eşlemesi için 2000-2999 (basic) yeterli.');
+    if (v('rule_id') && (!/^\d+$/.test(v('rule_id')) || +v('rule_id') > 4294967294)) w.push('\u26D4 Kural ID 0-4294967294 arası bir sayı olmalı.');
+    const wild = [['src', 'src_ip', 'src_wc', 'Kaynak'], ['dst', 'dst_ip', 'dst_wc', 'Hedef']];
+    wild.forEach(([sel, ip, wc, what]) => {
+        if (sel === 'dst' && !adv) return;
+        if (v(sel) !== 'specific' || !v(ip)) return;
+        if (_vrpWwildMask(v(wc))) w.push('\u26A0 ' + what + ' wildcard alanına alt ağ maskesi yazılmış görünüyor (' + v(wc) + '). VRP ACL\'si ters maske ister: /24 için 0.0.0.255.');
+        else if (_vrpWhostBits(v(ip), v(wc))) w.push('\u26A0 ' + what + ' adresi wildcard\'ın kapsadığı bitlerde değer içeriyor (ör. 10.64.10.5 0.0.0.255). Ağ için ağ adresini, tek host için "Tek host" seçeneğini kullanın.');
+    });
+    if (adv) {
+        const ports = /^(tcp|udp)$/.test(v('proto') || 'tcp');
+        if (!ports && (v('src_port') || v('dst_port'))) w.push('\u2139 Port alanları yalnız TCP/UDP\'de kullanılır; ' + (v('proto') || 'ip').toUpperCase() + ' kuralında yok sayıldı.');
+        if (ports && v('src_port') && v('src_port') !== 'any' && !v('dst_port')) w.push('\u26A0 Yalnız kaynak port girildi. İstemcinin kaynak portu rastgeledir; sunucu portu (ör. 443) hedef porttur — kural büyük olasılıkla hiç eşleşmez.');
+    }
+    if ((data.action || 'permit') === 'permit') w.push('\u26A0 traffic-filter ile uygulanırsa hiçbir kurala uymayan trafik de GEÇER (VRP\'de örtük permit; Cisco\'nun tersi). "Yalnız bunlar geçsin" istiyorsanız sona daha büyük numaralı "rule deny ip" ekleyin.');
+    else w.push('\u2139 traffic-filter\'da bu deny yalnız eşleşen trafiği keser; diğer trafik örtük olarak geçer. Kuralların sırası numaraya göredir, ilk eşleşen kazanır.');
+    if (v('time_range')) w.push('\u2139 time-range ' + v('time_range') + ' önceden tanımlı değilse kural etkin olmaz (display time-range all).');
+    return w;
+}
 
 // ── Huawei: Security Policy ───────────────────────────────────────────────────
 HuaweiVRP.security = {
@@ -590,9 +714,9 @@ HuaweiVRP.security = {
                     fields: [
                         { name: 'ps_enable', why: "Port security MAC öğrenmeyi kilitler; yanlış uygulanırsa cihaz taşındığında veya kullanıcı değiştiğinde port kendini kapatır ve saha müdahalesi gerekir. Uplink ve sunucu portlarında asla açılmamalıdır.", label: 'Port Security Etkinleştir', type: 'checkbox', checked: false },
                         { name: 'ps_iface', why: "Yalnızca son kullanıcı erişim portlarında anlamlıdır. Uplink veya trunk portunda açarsanız komşu switchten gelen yüzlerce MAC limiti anında aşar ve tüm ağ segmentini düşürürsünüz.", label: 'Arayüz', type: 'text', requiredIf: { field: 'ps_enable', checked: true }, validate: 'iface', placeholder: 'GigabitEthernet0/0/1', hint: 'Port security uygulanacak arayüz' },
-                        { name: 'ps_max_mac', why: "Limit çok dar ise IP telefon arkasındaki bilgisayar gibi meşru ikinci cihaz portu ihlale sokar; çok geniş ise koruma anlamını yitirir. Telefon + PC senaryosunda en az 2 gerekir.", label: 'Maks. MAC Sayısı', type: 'text', optional: true, placeholder: '2', hint: 'İzin verilen maksimum MAC adresi sayısı' },
+                        { name: 'ps_max_mac', why: "Limit çok dar ise IP telefon arkasındaki bilgisayar gibi meşru ikinci cihaz portu ihlale sokar; çok geniş ise koruma anlamını yitirir. Telefon + PC senaryosunda en az 2 gerekir.", label: 'Maks. MAC Sayısı', type: 'text', optional: true, min: 1, max: 4096, placeholder: '2', hint: 'port-security max-mac-num (varsayılan 1)' },
                         { name: 'ps_violation', why: "<code>shutdown</code> modu portu err-down durumuna alır ve manuel müdahale olmadan geri gelmez; <code>protect</code> sessizce düşürür ve kimse fark etmez, <code>restrict</code> ise log üretir. Seçim doğrudan arıza süresini belirler.", label: 'İhlal Modu', type: 'select', options: [
-                            { value: '', label: 'Seçin', selected: true },
+                            { value: '', label: 'Varsayılan (restrict)', selected: true },
                             { value: 'shutdown', label: 'Shutdown' },
                             { value: 'restrict', label: 'Restrict' },
                             { value: 'protect', label: 'Protect' }
@@ -605,8 +729,8 @@ HuaweiVRP.security = {
                     icon: 'fas fa-search',
                     fields: [
                         { name: 'ds_enable', why: "DHCP snooping globalde açılmadan arayüz veya VLAN seviyesindeki komutlar etkisizdir. Ayrıca snooping açıldığında tüm portlar varsayılan olarak untrusted olur; gerçek DHCP sunucusuna giden portu trusted yapmazsanız ağdaki herkes adres almayı bırakır.", label: 'DHCP Snooping Etkinleştir', type: 'checkbox', checked: false },
-                        { name: 'ds_iface', why: "Bu arayüz meşru DHCP sunucusunun bulunduğu yön ise trusted olmalıdır. Yanlış yönü trusted yapmak sahte DHCP sunucusuna kapı açar; doğru yönü unutmak ise tüm istemcileri adressiz bırakır.", label: 'Arayüz', type: 'text', requiredIf: { field: 'ds_enable', checked: true }, validate: 'iface', placeholder: 'GigabitEthernet0/0/2', hint: 'DHCP snooping uygulanacak arayüz' },
-                        { name: 'ds_vlan', why: "Snooping VLAN bazında çalışır; sadece bir VLANda açmak diğer VLANlardaki sahte DHCP sunucularını engellemez. Ayrıca DAI ve IP Source Guard bu VLANdaki snooping binding tablosuna dayanır.", label: 'VLAN', type: 'text', validate: 'vlan_list', optional: true, placeholder: '10', hint: 'DHCP snooping VLAN numarası' }
+                        { name: 'ds_iface', why: "Bu arayüz meşru DHCP sunucusunun bulunduğu yön (uplink) olmalı ve <code>dhcp snooping trusted</code> yapılır. Yanlış yönü trusted yapmak sahte DHCP sunucusuna kapı açar; doğru yönü unutmak ise tüm istemcileri adressiz bırakır.", label: 'Trusted Arayüz (DHCP sunucusu yönü)', type: 'text', requiredIf: { field: 'ds_enable', checked: true }, validate: 'iface', placeholder: 'GigabitEthernet0/0/2', hint: 'dhcp snooping trusted yazılacak uplink' },
+                        { name: 'ds_vlan', why: "Snooping VLAN bazında çalışır; sadece bir VLANda açmak diğer VLANlardaki sahte DHCP sunucularını engellemez. Ayrıca DAI ve IP Source Guard bu VLANdaki snooping binding tablosuna dayanır.", label: 'VLAN', type: 'text', validate: 'vlan_list', optional: true, placeholder: '10', hint: 'Snooping açılacak VLAN(lar) — boşsa hiçbir VLAN korunmaz' }
                     ]
                 },
                 {
@@ -638,32 +762,50 @@ HuaweiVRP.security = {
         }, (data) => {
             let c = '# ========================================\n# Huawei — Security Configuration\n# ========================================\n\n';
             c += '[Huawei] system-view\n\n';
+            const warnings = [];
             if (data.ps_enable) {
                 const iface = cgEsc(data.ps_iface || ''), maxmac = cgEsc(data.ps_max_mac || '');
                 const viol = cgEsc(data.ps_violation || ''), sticky = data.ps_sticky;
                 if (iface) {
+                    // VRP (S serisi): önce port-security enable, sonra sınır/eylem (enable olmadan diğer komutlar reddedilir).
+                    // Komut adları: max-mac-num ve protect-action (Cisco'daki maximum/violation karşılıkları).
                     c += '# Port Security\ninterface ' + iface + '\n port-security enable\n';
-                    if (maxmac) c += ' port-security max-mac-number ' + maxmac + '\n';
-                    if (viol) c += ' port-security violation ' + viol + '\n';
+                    if (maxmac) c += ' port-security max-mac-num ' + maxmac + '\n';
+                    if (viol) c += ' port-security protect-action ' + viol + '\n';
                     if (sticky) c += ' port-security mac-address sticky\n';
                     c += 'quit\n\n';
+                    const mx = +(data.ps_max_mac || 1);
+                    if (viol === 'protect') warnings.push('\u26A0 protect ihlali sessizce düşürür: alarm üretmez, ihlali kimse fark etmez. İz bırakması için restrict (varsayılan) ya da shutdown seçin.');
+                    if (viol === 'shutdown') warnings.push('\u2139 shutdown ihlalde portu error-down yapar; port elle shutdown / undo shutdown ile açılır. Port kapanınca port güvenliğini kaldırarak "çözmeyin".');
+                    if (mx === 1) warnings.push('\u2139 En fazla 1 MAC (varsayılan): IP telefon + arkasında PC olan portta en az 2 gerekir; yoksa ikinci cihaz ihlal sayılır.');
+                    if (mx > 10) warnings.push('\u26A0 MAC sınırı ' + mx + ': masaya takılan bir switch arkasındaki cihazlar da sınırın altında kalır, koruma anlamını yitirir.');
+                    if (sticky) warnings.push('\u2139 Sticky MAC\'ler yapılandırmaya yazılır; kalıcı olması için save gerekir.');
+                    if (/^(eth-trunk|vlanif)/i.test(data.ps_iface || '')) warnings.push('\u26D4 Port güvenliği fiziksel erişim portunda çalışır; ' + data.ps_iface + ' üzerinde uygulanamaz.');
                 }
             }
             if (data.ds_enable) {
                 const iface = cgEsc(data.ds_iface || ''), vlan = cgHwVlanList(cgEsc(data.ds_vlan || ''));
                 if (iface) {
-                    c += '# DHCP Snooping\ninterface ' + iface + '\n dhcp snooping enable\n';
-                    if (vlan) c += ' dhcp snooping vlan ' + vlan + '\n';
-                    c += 'quit\n\n';
+                    // VRP (S serisi): global "dhcp enable" + "dhcp snooping enable", VLAN'da etkinleştirme,
+                    // meşru sunucu yönündeki arayüz trusted (diğerleri varsayılan untrusted).
+                    c += '# DHCP Snooping\ndhcp enable\ndhcp snooping enable\n';
+                    if (vlan) c += 'dhcp snooping enable vlan ' + vlan + '\n';
+                    c += 'interface ' + iface + '\n dhcp snooping trusted\nquit\n\n';
+                    if (!vlan) warnings.push('\u26A0 DHCP snooping için VLAN girilmedi: global açık ama hiçbir VLAN\'da etkin değil, sahte DHCP sunucusu engellenmez.');
+                    warnings.push('\u2139 Snooping açılınca tüm portlar untrusted olur: yalnız meşru DHCP sunucusuna (ya da relay\'e) giden uplink trusted olmalı, yoksa istemciler adres alamaz.');
                 }
             }
             if (data.dai_enable) {
                 const iface = cgEsc(data.dai_iface || '');
-                if (iface) c += '# DAI\ninterface ' + iface + '\n arp anti-attack enable\nquit\n\n';
+                // DAI: ARP paketlerini snooping bağlama tablosuna göre denetler (arp anti-attack check user-bind enable)
+                if (iface) c += '# DAI\ninterface ' + iface + '\n arp anti-attack check user-bind enable\nquit\n\n';
+                if (iface && !data.ds_enable) warnings.push('\u26A0 DAI, DHCP snooping bağlama tablosunu kullanır; snooping kapalıysa tablo boştur ve bu porttaki ARP trafiği düşer (statik IP\'li cihazlar için user-bind static gerekir).');
             }
             if (data.isg_enable) {
                 const iface = cgEsc(data.isg_iface || '');
-                if (iface) c += '# IP Source Guard\ninterface ' + iface + '\n ip source guard enable\nquit\n\n';
+                // IP Source Guard: kaynak IP/MAC'i bağlama tablosuna göre denetler (ip source check user-bind enable)
+                if (iface) c += '# IP Source Guard\ninterface ' + iface + '\n ip source check user-bind enable\nquit\n\n';
+                if (iface && !data.ds_enable) warnings.push('\u26A0 IP Source Guard, DHCP snooping bağlama tablosunu kullanır; snooping kapalıysa bu portun tüm IP trafiği düşer.');
             }
             if (data.bpdu_enable) {
                 const iface = cgEsc(data.bpdu_iface || '');
@@ -673,10 +815,11 @@ HuaweiVRP.security = {
                     c += '# BPDU Guard\nstp bpdu-protection\n';
                     cgExpandIfList(iface).forEach(i => { c += 'interface ' + i + '\n stp edged-port enable\nquit\n'; });
                     c += '\n';
+                    warnings.push('\u2139 BPDU koruması edge porta BPDU gelince portu error-down yapar. Uplink/trunk portunu edge yapmayın; port kapanınca korumayı kaldırmak yerine takılan cihazı sökün.');
                 }
             }
             if (c.endsWith('[Huawei] system-view\n\n')) c += '# En az bir güvenlik özelliği etkinleştirin.\n';
-            return c;
+            return { config: c, warnings };
         });
     }
 };
@@ -747,8 +890,9 @@ HuaweiVRP.ethtunk = {
                     fields: [
                         { name: 'trunk_id', why: "Eth-Trunk numarası yereldir ama iki uçta aynı tutmak sorun gidermeyi kolaylaştırır. Zaten kullanılan bir ID seçerseniz mevcut trunk üyeleri etkilenir ve yedekli uplink bir anda tek bacağa düşer.", label: 'Eth-Trunk ID', type: 'text', required: true, placeholder: '1', hint: 'Eth-Trunk arayüz numarası (örn: 1 → Eth-Trunk1)' },
                         { name: 'mode', why: "Statik (manual) ve LACP modları karşılıklı uyumsuzdur; bir uç LACP diğer uç manual ise link fiziksel olarak kalkar fakat trafik döngüye girer veya kara deliğe düşer. LACP en azından bir tarafta active olmalıdır.", label: 'Mod', type: 'select', options: [
-                            { value: 'lacp-static', label: 'LACP (Dynamic)', selected: true },
-                            { value: 'manual load-balance', label: 'Manual (Static)' }
+                            { value: 'lacp', label: 'LACP (mode lacp — V200R005 ve sonrası)', selected: true },
+                            { value: 'lacp-static', label: 'LACP (mode lacp-static — eski sürümler)' },
+                            { value: 'manual load-balance', label: 'Manual (LACP yok)' }
                         ]}
                     ]
                 },
@@ -763,8 +907,8 @@ HuaweiVRP.ethtunk = {
             ],
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
-            const trunkId = cgEsc(data.trunk_id || ''), mode = cgEsc(data.mode || 'lacp-static');
-            const members = cgEsc(data.members || '').split(',').map(s => s.trim()).filter(Boolean);
+            const trunkId = cgEsc(data.trunk_id || ''), mode = cgEsc(data.mode || 'lacp');
+            const members = cgExpandIfList(cgEsc(data.members || ''));   // 'GE0/0/1-2, GE0/0/5' → tek tek
             const ip = cgEsc(data.ip || '');
             let c = '# ========================================\n# Huawei VRP — Eth-Trunk (LAG)\n# ========================================\n\n';
             c += 'interface Eth-Trunk' + trunkId + '\n mode ' + mode + '\n';
@@ -773,8 +917,16 @@ HuaweiVRP.ethtunk = {
             members.forEach(m => {
                 c += 'interface ' + m + '\n eth-trunk ' + trunkId + '\n#\n';
             });
-            c += '\n# Doğrulama:\n# display eth-trunk ' + trunkId + '\n# display lacp statistics\n';
-            return c;
+            c += '\n# Doğrulama:\n# display eth-trunk ' + trunkId + '   ! üyeler Selected mi?\n# display lacp statistics eth-trunk ' + trunkId + '\n';
+            // LACP lab bulguları (hua-17): tek uçta mod, manual'da yanlış kablolama, üyede kalan eski ayar
+            const warnings = [];
+            if (!/^\d+$/.test(data.trunk_id || '')) warnings.push('\u26D4 Eth-Trunk ID bir sayı olmalı (ör. 1 → Eth-Trunk1).');
+            if (mode === 'manual load-balance') warnings.push('\u26A0 Manual modda LACP yok: yanlış kablolanan ya da karşı uçta başka gruba bağlı üye fark edilmez, trafik kara deliğe düşebilir. Karşı uç destekliyorsa LACP kullanın.');
+            else warnings.push('\u2139 Karşı uç da LACP olmalı. Bir uç LACP, diğeri manual/statik ise üyeler Unselect kalır ve trunk trafik taşımaz.');
+            if (members.length < 2) warnings.push('\u26A0 Tek üyeli Eth-Trunk yedeklilik sağlamaz; en az iki üye girin.');
+            warnings.push('\u2139 Üye portlar varsayılan durumda olmalı: üzerinde VLAN/port tipi ayarı kalan port Eth-Trunk\'a eklenemez. VLAN ayarlarını üyelere değil interface Eth-Trunk' + trunkId + ' altına yazın.');
+            if (ip) warnings.push('\u2139 S serisi switch\'te Eth-Trunk varsayılan L2\'dir; IP adresi için önce Eth-Trunk görünümünde "undo portswitch" gerekir (destekleyen modellerde). Aksi hâlde Vlanif kullanın.');
+            return { config: c, warnings };
         });
     }
 };
@@ -903,7 +1055,13 @@ HuaweiVRP.interface = {
             c += ' ' + shutdown + '\n';
             c += '#\n';
             c += '\n# Doğrulama:\n# display interface ' + intfName + '\n# display ip interface brief\n';
-            return c;
+            // Arayüz lab bulguları (hua-12/40): ağ/yayın adresi, maske, portswitch
+            const warnings = [], len = _vrpWlen(data.mask);
+            if (_vrpWnetOrBc(data.ip, len)) warnings.push('\u26D4 ' + data.ip + '/' + len + ' ağ ya da yayın adresi; arayüze bir host adresi girin (ör. .1).');
+            if (/^loopback/i.test(data.intf_name || '') && len !== 32 && !isNaN(len)) warnings.push('\u2139 Loopback adresleri genelde /32 (255.255.255.255) verilir; daha geniş maske bu ağı gereksiz yere yönlendirme tablosuna sokar.');
+            if (/^(gigabitethernet|ge|xgigabitethernet|xge|ethernet|eth)\s*\d/i.test(data.intf_name || '')) warnings.push('\u2139 S serisi switch\'te fiziksel port varsayılan L2\'dir: IP için önce "undo portswitch" (destekleyen modellerde) gerekir; kullanıcı VLAN\'ları için Vlanif kullanın. AR router portları zaten L3\'tür.');
+            if (data.shutdown === 'shutdown') warnings.push('\u26A0 Arayüz kapatılacak: uzaktan bu arayüz üzerinden bağlıysanız erişiminizi kaybedersiniz.');
+            return { config: c, warnings };
         });
     }
 };
@@ -1064,19 +1222,33 @@ HuaweiVRP.mstp = {
             const mode = cgEsc(data.mode || 'mstp'), priority = cgEsc(data.priority || ''), instance = cgEsc(data.instance || '');
             const vlanMap = cgHwVlanList(cgEsc(data.vlan_map || ''));
             const portfastIntfs = cgExpandIfList(cgEsc(data.portfast_intfs || ''));   // VRP aralik kabul etmez, tek tek acilir
+            const mstp = mode === 'mstp';
             let c = '# ========================================\n# Huawei VRP — MSTP / STP\n# ========================================\n\n';
             c += 'stp mode ' + mode + '\n';
-            c += 'stp instance ' + instance + ' priority ' + priority + '\n';
-            if (vlanMap) {
+            // "stp instance N priority" MSTP örneğine aittir; STP/RSTP modunda köprü önceliği "stp priority" ile verilir.
+            c += (mstp ? 'stp instance ' + instance + ' priority ' : 'stp priority ') + priority + '\n';
+            if (vlanMap && mstp) {
                 c += 'stp region-configuration\n';
                 c += ' instance ' + instance + ' vlan ' + vlanMap + '\n';
                 c += ' active region-configuration\n';
+                c += ' quit\n';
             }
             portfastIntfs.forEach(intf => {
                 c += 'interface ' + intf + '\n stp edged-port enable\n#\n';
             });
-            c += '\n# Doğrulama:\n# display stp brief\n# display stp instance ' + instance + '\n';
-            return c;
+            c += '\n# Doğrulama:\n# display stp brief\n# display stp' + (mstp ? ' instance ' + instance : '') + '   ! Root ID kendi köprü kimliğiniz mi?\n';
+            if (mstp && vlanMap) c += '# display stp region-configuration   ! bölge adı/revizyon/eşleme komşuyla aynı mı?\n';
+            // STP lab bulguları (hua-15): varsayılan öncelik, eşit öncelikte MAC, bölge adı varsayılanı, edge port korumasız
+            const warnings = [], pr = +priority;
+            if (!/^\d+$/.test(priority) || pr > 61440 || pr % 4096) warnings.push('\u26D4 Köprü önceliği 0-61440 arasında 4096\'nın katı olmalı (0, 4096, 8192 …); diğer değerleri VRP reddeder.');
+            else if (pr >= 32768) warnings.push('\u2139 Öncelik varsayılan (32768) ya da daha yüksek: kök seçimi MAC adresine kalır, genelde en eski switch kök olur. Kök olacak çekirdekte 0/4096 (ya da "stp root primary") verin.');
+            else warnings.push('\u2139 Komşu da aynı önceliği kullanıyorsa eşitlikte küçük MAC kazanır; kök olunduğunu "display stp" çıktısındaki CIST Root ile doğrulayın.');
+            if (!mstp && vlanMap) warnings.push('\u2139 VLAN eşlemesi yalnız MSTP modunda anlamlıdır; ' + mode.toUpperCase() + ' modunda region-configuration yazılmadı.');
+            if (mstp && instance !== '' && (!/^\d+$/.test(instance) || +instance > 4094)) warnings.push('\u26D4 Instance numarası geçersiz (0 = CIST, diğerleri pozitif bir sayı).');
+            if (mstp && vlanMap && +instance === 0) warnings.push('\u26A0 VLAN\'lar instance 0\'a (CIST) zaten eşlidir; ayrı bir ağaç için 1 ya da üstü bir instance kullanın.');
+            if (mstp && vlanMap) warnings.push('\u26A0 Bölge adı yazılmadı: VRP\'de varsayılan bölge adı köprünün MAC adresidir, yani her switch farklı bölgede kalır ve eşleme çalışmaz. region-configuration altında tüm switch\'lerde aynı "region-name" ve "revision-level" verin.');
+            if (portfastIntfs.length) warnings.push('\u2139 Edge port BPDU korumasız: sisteme "stp bpdu-protection" ekleyin (STP Port Koruması aracı). Uplink/trunk portunu edge yapmayın.');
+            return { config: c, warnings };
         });
     }
 };
@@ -1771,11 +1943,28 @@ HuaweiVRP.vrrp = {
             if (tif) c += ' vrrp vrid ' + vrid + ' track interface ' + tif + (red ? ' reduced ' + red : '') + '\n';
             if (key) c += ' vrrp vrid ' + vrid + ' authentication-mode md5 ' + key + '\n';
             c += ' quit\n#\n';
-            c += '\n# Doğrulama:\n# display vrrp brief\n# display vrrp\n';
-            return c;
+            c += '\n# Doğrulama:\n# display vrrp brief   ! hangi cihaz Master?\n# display vrrp\n';
+            return { config: c, warnings: _vrpWvrrp(data) };
         });
     }
 };
+
+// VRRP lab bulguları (hua-17): eşit öncelik, sanal IP alt ağ dışında, yetersiz track düşüşü
+function _vrpWvrrp(data) {
+    const w = [], v = k => String(data[k] == null ? '' : data[k]).trim();
+    const pr = v('priority') ? +v('priority') : 100, vip = v('vip');
+    const m = v('if_ip').split(/\s+/), rip = m[0], len = _vrpWlen(m[1]);
+    if (v('if_ip') && _vrpWip(rip) && !isNaN(len) && _vrpWip(vip)) {
+        const net = _vrpWnet(rip, len);
+        if (!_vrpWinNet(vip, net)) w.push('\u26D4 Sanal IP (' + vip + ') arayüz alt ağında (' + v('if_ip') + ') değil: istemciler bu geçide ulaşamaz, grup çalışmaz.');
+        else if (vip === rip) w.push('\u26A0 Sanal IP arayüz adresiyle aynı: bu cihaz IP sahibi (owner) olur, önceliği 255 sayılır ve hep Master kalır; öncelik/track ayarları etkisizleşir. Her cihaza ayrı gerçek IP, ortak bir sanal IP verin.');
+    }
+    if (pr <= 100) w.push('\u2139 Öncelik ' + pr + (v('priority') ? '' : ' (varsayılan)') + ': karşı cihaz da ' + pr + ' ise Master\'ı büyük arayüz IP\'si belirler. Master olması istenen cihaza 100\'ün üstünde (ör. 120) verin.');
+    if (v('track_if') && v('reduced') && pr - +v('reduced') >= 100) w.push('\u26A0 Track düşüşü yetersiz: uplink kopunca öncelik ' + pr + ' − ' + v('reduced') + ' = ' + (pr - +v('reduced')) + ' olur ve yedeğin (varsayılan 100) altına inmez; Master değişmez.');
+    if (v('track_if') && !v('reduced')) w.push('\u2139 Düşüş değeri boş: VRP varsayılan düşüşü uygular; yedeğin altına indiğini "display vrrp" ile doğrulayın.');
+    if (v('md5_key')) w.push('\u2139 MD5 anahtarı iki cihazda birebir aynı olmalı; farklıysa ilanlar reddedilir ve iki cihaz da Master olur.');
+    return w;
+}
 
 // ── Huawei VRP: Port Mirroring ───────────────────────────────────────────────
 // Sözdizimi: https://support.huawei.com/enterprise/en/doc/EDOC1000178174/4be883cd/example-for-configuring-local-mn-port-mirroring

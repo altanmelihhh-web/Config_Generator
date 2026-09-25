@@ -2,6 +2,21 @@
 
 const JuniperSRX = {};
 
+// ── Lab bulgularından türetilen girdi uyarıları (CLI Lab jun-06/07/12 SRX arıza ve "çalışır ama yanlış" durumları) ──
+const _srxWip = ip => /^(\d{1,3}\.){3}\d{1,3}$/.test(String(ip || '').trim()) && String(ip).trim().split('.').every(o => +o <= 255);
+const _srxWn = ip => String(ip || '').trim().split('.').reduce((a, o) => a * 256 + (+o), 0);
+function _srxWpfx(s) {
+    const m = String(s || '').trim().match(/^([\d.]+)(?:\/(\d{1,2}))?$/);
+    if (!m || !_srxWip(m[1]) || (m[2] !== undefined && +m[2] > 32)) return null;
+    const len = m[2] === undefined ? 32 : +m[2], size = 2 ** (32 - len);
+    return { ip: m[1], len, bare: m[2] === undefined, base: Math.floor(_srxWn(m[1]) / size) * size, size };
+}
+const _srxWin = (ip, p) => !!p && _srxWip(ip) && Math.floor(_srxWn(ip) / p.size) * p.size === p.base;
+// NAT bağlamı: 'ge-0/0/0.0' gibi değer arayüzdür ('from interface'), 'trust' gibi değer bölgedir ('from zone')
+const _srxWctx = z => /^([a-z]{2,4}-\d+\/\d+\/\d+|(ae|reth|irb|lo|st)\d+)(\.\d+)?$/.test(String(z || '').trim()) ? 'interface' : 'zone';
+const _srxWout = z => /untrust|outside|internet|wan|isp/i.test(String(z || ''));
+const _srxWinz = z => /^(trust|inside|lan|internal)$/i.test(String(z || '').trim());
+
 // ── Juniper SRX: Security Zone ────────────────────────────────────────────────
 JuniperSRX.zone = {
     label: 'Security Zone',
@@ -85,7 +100,7 @@ JuniperSRX.policy = {
                     title: 'Eşleşme Kriterleri',
                     icon: 'fas fa-filter',
                     fields: [
-                        { name: 'src_addr', why: '<code>any</code> yerine address-book nesnesi kullanmak politikayı okunur ve denetlenebilir kılar. Geniş kaynak tanımı, ilk eşleşen kazandığı için aşağıdaki daha özel politikaların hiç değerlendirilmemesine yol açar.', label: 'Kaynak Adres', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.0/24', hint: '"any" veya CIDR formatında adres' },
+                        { name: 'src_addr', why: '<code>any</code> yerine address-book nesnesi kullanmak politikayı okunur ve denetlenebilir kılar. Geniş kaynak tanımı, ilk eşleşen kazandığı için aşağıdaki daha özel politikaların hiç değerlendirilmemesine yol açar.', label: 'Kaynak Adres', type: 'text', required: true, placeholder: '10.64.10.0/24', hint: '"any" veya CIDR formatında adres' },
                         { name: 'dst_addr', why: "Politika, destination NAT'tan <b>sonraki</b> gerçek iç adrese göre yazılır; dışarıdan görünen genel IP'yi yazmak DNAT kurulumlarındaki en yaygın hatadır ve trafik deny'e takılır.", label: 'Hedef Adres', type: 'text', required: true, placeholder: 'any', hint: '"any" veya CIDR formatında adres' },
                         { name: 'app', why: '<code>junos-</code> önekli hazır uygulamalar port ve ALG davranışını birlikte getirir. <code>any</code> seçmek portu tamamen serbest bırakır; özel portlar için ayrı bir application tanımlayın.', label: 'Uygulama', type: 'text', required: true, placeholder: 'any', hint: '"any", "junos-https", "junos-http" vb.' }
                     ]
@@ -132,7 +147,21 @@ function cgSrxPolicyGen(data) {
     c += pfx + ' then ' + action + '\n';
     if (log !== 'none') c += pfx + ' then log ' + log + '\n';
     c += '\n# Doğrulama:\n# show security policies from-zone ' + fromZone + ' to-zone ' + toZone + '\n';
-    return c;
+    c += '# show security match-policies from-zone ' + fromZone + ' to-zone ' + toZone + ' source-ip <ip> destination-ip <ip> source-port 1024 destination-port 443 protocol tcp\n';
+    return { config: c, warnings: _srxWpolicy(data, action) };
+}
+// SRX politika lab bulguları (jun-06/07): politika sırası, application any, reddetmede log, NAT sonrası adres
+function _srxWpolicy(data, action) {
+    const w = [], v = k => String(data[k] == null ? '' : data[k]).trim();
+    ['src_addr', 'dst_addr'].forEach((k, i) => { const x = v(k); if (x && x !== 'any' && !/^([\d.]+)\/\d{1,2}$/.test(x)) w.push('\u26D4 ' + (i ? 'Hedef' : 'Kaynak') + ' adres "any" ya da CIDR (ör. 10.64.10.0/24) olmalı: "' + x + '".'); });
+    if (action === 'permit' && v('app') === 'any') w.push('\u26A0 application any: kural tüm portlara izin verir (ör. yalnız web isterken SSH de geçer). Gereken uygulamaları yazın (junos-https, junos-dns-udp …).');
+    if (action === 'permit' && v('src_addr') === 'any' && v('dst_addr') === 'any' && v('app') === 'any') w.push('\u26A0 Kaynak, hedef ve uygulama any: bu bölge çifti için güvenlik politikası fiilen kapalı.');
+    if (action !== 'permit' && v('log') === 'session-close') w.push('\u26A0 Reddedilen trafikte oturum kurulmaz; session-close logu üretilmez. Engellenenleri görmek için "session-init" seçin.');
+    if (action !== 'permit' && v('log') === 'none') w.push('\u2139 Log yok: bu kurala takılan trafiği sonradan göremezsiniz; sorun gidermede session-init logu işe yarar.');
+    if (_srxWout(v('from_zone')) && v('dst_addr') !== 'any') w.push('\u2139 Hedef NAT / statik NAT varsa hedef adres NAT SONRASI iç adres olmalı; genel (dış) adresle yazılan politika eşleşmez.');
+    if (v('from_zone') && v('from_zone') === v('to_zone')) w.push('\u2139 From ve to aynı bölge: yalnız bölge içi (intra-zone) trafiğe uygulanır.');
+    w.push('\u2139 Yeni politika listenin sonuna eklenir; önünde daha geniş bir deny/permit varsa hiç eşleşmez. Sırayı "insert security policies from-zone ' + (v('from_zone') || '<A>') + ' to-zone ' + (v('to_zone') || '<B>') + ' policy ' + (v('pol_name') || '<ad>') + ' before policy <ad>" ile düzeltin. Arayüzlerin bölgeye atandığını da doğrulayın.');
+    return w;
 }
 
 // ── Juniper SRX: NAT ──────────────────────────────────────────────────────────
@@ -185,8 +214,10 @@ function cgSrxNatGen(data) {
     const dstPrefix = cgEsc(data.dst_prefix || ''), xlatAddr = cgEsc(data.xlat_addr || '');
     let c = '# ========================================\n# Juniper SRX — NAT (' + natType.toUpperCase() + ')\n# ========================================\n\n';
     const pfxRS = 'set security nat ' + natType + ' rule-set ' + rulesetName;
-    c += pfxRS + ' from zone ' + fromZone + '\n';
-    c += pfxRS + ' to zone ' + toZone + '\n';
+    // Bağlam: bölge adı → 'zone', arayüz adı (ge-0/0/0.0) → 'interface'.
+    // Destination ve static NAT rule-set'lerinde yalnız 'from' vardır ('to' sözdiziminde yok; commit reddeder).
+    c += pfxRS + ' from ' + _srxWctx(data.from_zone) + ' ' + fromZone + '\n';
+    if (natType === 'source') c += pfxRS + ' to ' + _srxWctx(data.to_zone) + ' ' + toZone + '\n';
     const pfxR = pfxRS + ' rule ' + ruleName;
     if (natType === 'source') {
         c += pfxR + ' match source-address ' + srcPrefix + '\n';
@@ -205,8 +236,38 @@ function cgSrxNatGen(data) {
         c += pfxR + ' match destination-address ' + dstPrefix + '\n';
         c += pfxR + ' then static-nat prefix ' + xlatAddr + '\n';
     }
-    c += '\n# Doğrulama:\n# show security nat ' + natType + ' rule all\n# show security nat ' + natType + ' pool all\n';
-    return c;
+    c += '\n# Doğrulama:\n# show security nat ' + natType + ' rule all\n';
+    if (natType !== 'static') c += '# show security nat ' + natType + ' pool all\n';
+    c += '# show security flow session   ! akış hangi adresle çevriliyor?\n';
+    return { config: c, warnings: _srxWnat(data, natType) };
+}
+// SRX NAT lab bulguları (jun-06/07/12): zone yönü, kural sırası, proxy-ARP, politikada NAT öncesi adres
+function _srxWnat(data, t) {
+    const w = [], v = k => String(data[k] == null ? '' : data[k]).trim();
+    const from = v('from_zone'), to = v('to_zone');
+    if (t === 'source') {
+        if (from && from === to) w.push('\u26A0 From ve to aynı (' + from + '): kaynak NAT yalnız bu bölge içinde kalan (hairpin) trafiğe uygulanır. İnternet çıkışı için from iç bölge, to dış bölge olmalı.');
+        else if (_srxWout(from) && !_srxWout(to)) w.push('\u26A0 Yön ters görünüyor: kaynak NAT\'ta from iç bölge (trust), to dış bölge (untrust) olmalı. Ters yazılırsa iç kullanıcıların trafiği çevrilmez ve dönüş gelmez.');
+        const sp = _srxWpfx(v('src_prefix'));
+        if (v('src_prefix') && !sp) w.push('\u26D4 Kaynak prefix geçersiz (ör. 10.64.10.0/24).');
+        else if (sp && sp.bare && /\.0$/.test(sp.ip)) w.push('\u26A0 Kaynak adres prefix\'siz yazıldı ve /32 (tek host) sayılır; ağ için /24 gibi uzunluk ekleyin.');
+        else if (sp && _srxWn(sp.ip) !== sp.base) w.push('\u26A0 Kaynak prefix ağ adresi değil (' + v('src_prefix') + '); ağ adresini yazın.');
+        if (v('xlat_addr') && v('xlat_addr') !== 'interface') w.push('\u2139 Havuz adresi dış arayüzün kendi adresi değilse ama aynı alt ağdaysa proxy-ARP gerekir: set security nat proxy-arp interface <dış-arayüz.0> address ' + v('xlat_addr') + '. Yoksa dönüş paketleri SRX\'e hiç ulaşmaz.');
+    } else {
+        if (_srxWinz(from)) w.push('\u26A0 ' + (t === 'destination' ? 'Hedef' : 'Statik') + ' NAT\'ta from, isteğin GELDİĞİ bölgedir (genelde untrust). "' + from + '" yazılırsa internetten gelen istek kurala uymaz.');
+        const dp = _srxWpfx(v('dst_prefix'));
+        if (v('dst_prefix') && !dp) w.push('\u26D4 Hedef prefix geçersiz (ör. 203.0.113.10/32).');
+        w.push('\u2139 Genel adres (' + (v('dst_prefix') || '…') + ') SRX arayüzünün kendi adresi değilse proxy-ARP gerekir: set security nat proxy-arp interface <dış-arayüz.0> address ' + (v('dst_prefix') || '<adres>') + '. Yoksa paket SRX\'e ulaşmaz, oturum tablosu boş kalır.');
+        w.push('\u2139 Güvenlik politikasında hedef olarak NAT SONRASI iç adres (' + (v('xlat_addr') || '…') + ') kullanılır; genel adresle yazılan politika eşleşmez.');
+        if (t === 'destination' && !v('xlat_addr')) w.push('\u26D4 Çevrilecek iç adres (havuz) boş.');
+        if (t === 'static') {
+            const a = _srxWpfx(v('dst_prefix')), b = _srxWpfx(v('xlat_addr'));
+            if (a && b && a.len !== b.len) w.push('\u26D4 Statik NAT\'ta genel ve iç prefix uzunlukları aynı olmalı (' + a.len + ' ≠ ' + b.len + ').');
+        }
+        if (t === 'destination') w.push('\u2139 Bu kural genel adrese gelen TÜM portları iç adrese taşır. Yalnız bir servisi yayınlamak için kurala "match destination-port <port>" ekleyin.');
+    }
+    w.push('\u2139 Kurallar rule-set içinde sırayla denenir ve yeni kural sona eklenir. Önünde daha geniş bir kural varsa bu kural hiç eşleşmez: "insert security nat ' + t + ' rule-set ' + (v('ruleset_name') || '<set>') + ' rule ' + (v('rule_name') || '<kural>') + ' before rule <kural>".');
+    return w;
 }
 
 // ── Juniper SRX: IPsec VPN ────────────────────────────────────────────────────
@@ -470,11 +531,19 @@ function cgSrxIntfGen(data) {
     const intfName = cgEsc(data.intf_name || ''), unit = cgEsc(data.unit || '0'), ipPrefix = cgEsc(data.ip_prefix || '');
     const description = cgEsc(data.description || ''), vlanId = cgEsc(data.vlan_id || '');
     let c = '# ========================================\n# Juniper SRX — Interface\n# ========================================\n\n';
+    // 802.1Q: unit'e vlan-id yazmak için fiziksel arayüzde vlan-tagging açık olmalı (yoksa commit reddeder)
+    if (vlanId) c += 'set interfaces ' + intfName + ' vlan-tagging\n';
     if (description) c += 'set interfaces ' + intfName + ' unit ' + unit + ' description "' + description + '"\n';
-    c += 'set interfaces ' + intfName + ' unit ' + unit + ' family inet address ' + ipPrefix + '\n';
     if (vlanId) c += 'set interfaces ' + intfName + ' unit ' + unit + ' vlan-id ' + vlanId + '\n';
+    c += 'set interfaces ' + intfName + ' unit ' + unit + ' family inet address ' + ipPrefix + '\n';
     c += '\n# Doğrulama:\n# show interfaces ' + intfName + '\n# show interfaces terse\n';
-    return c;
+    const w = [], p = _srxWpfx(data.ip_prefix);
+    if (/\./.test(data.intf_name || '')) w.push('\u26D4 Arayüz adına unit yazılmış (' + data.intf_name + '): adı birimsiz (ge-0/0/2) girin, unit ayrı alandadır.');
+    if (!p || p.bare) w.push('\u26D4 IP / Prefix CIDR biçiminde olmalı (ör. 10.64.0.1/30).');
+    else if (p.len < 31 && (_srxWn(p.ip) === p.base || _srxWn(p.ip) === p.base + p.size - 1)) w.push('\u26A0 ' + data.ip_prefix + ' ağ ya da yayın adresi; arayüze bir host adresi girin (ör. .1).');
+    if (!vlanId && unit !== '0') w.push('\u26D4 VLAN etiketi olmadan yalnız unit 0 kullanılabilir; unit ' + unit + ' için VLAN ID girin (vlan-tagging ile).');
+    w.push('\u2139 SRX\'te arayüz bir güvenlik bölgesine atanmadıkça trafiği düşer: set security zones security-zone <bölge> interfaces ' + (String(data.intf_name || '<arayüz>').split('.')[0]) + '.' + (data.unit || '0') + ' (ping/ssh gibi cihaza gelen servisler için host-inbound-traffic de gerekir).');
+    return { config: c, warnings: w };
 }
 
 // ── Juniper SRX: Address Book Object ─────────────────────────────────────────
@@ -706,7 +775,8 @@ JuniperSRX.dhcp = {
                     icon: 'fas fa-server',
                     fields: [
                         { name: 'pool_name', why: "Havuz adı aktivasyondaki tek bağdır. JunOS'ta havuzu tanımlamak yetmez; ilgili arayüzde DHCP sunucunun etkinleştirilmesi gerekir, aksi halde havuz ayakta görünür ama OFFER çıkmaz.", label: 'Pool Adı', type: 'text', required: true, placeholder: 'POOL-LAN', hint: 'DHCP adres havuzu için tanımlayıcı ad' },
-                        { name: 'network', why: "Havuz ağı, dağıtım yapacak arayüzün subnet'iyle örtüşmelidir. Örtüşmezse SRX isteği hangi havuza eşleştireceğini bulamaz ve istemci hiçbir cevap alamaz.", label: 'Network (CIDR)', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'DHCP scope network adresi' }
+                        { name: 'network', why: "Havuz ağı, dağıtım yapacak arayüzün subnet'iyle örtüşmelidir. Örtüşmezse SRX isteği hangi havuza eşleştireceğini bulamaz ve istemci hiçbir cevap alamaz.", label: 'Network (CIDR)', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'DHCP scope network adresi' },
+                        { name: 'srv_iface', why: "Havuz tek başına adres dağıtmaz: istemcilerin bağlı olduğu mantıksal arayüz <code>dhcp-local-server group</code>'a eklenmelidir. Ayrıca SRX bu arayüzün bölgesinde <code>host-inbound-traffic system-services dhcp</code> açık değilse DHCP isteklerini düşürür.", label: 'LAN Arayüzü', type: 'text', optional: true, placeholder: 'ge-0/0/1.0', hint: 'dhcp-local-server group arayüzü (ör. ge-0/0/1.0, irb.10)' }
                     ]
                 },
                 {
@@ -744,8 +814,30 @@ function cgSrxDhcpGen(data) {
     c += 'set access address-assignment pool ' + poolName + ' family inet dhcp-attributes router ' + router + '\n';
     c += 'set access address-assignment pool ' + poolName + ' family inet dhcp-attributes name-server ' + dns + '\n';
     c += 'set access address-assignment pool ' + poolName + ' family inet dhcp-attributes maximum-lease-time ' + lease + '\n';
+    const ifl = String(data.srv_iface || '').trim();
+    if (ifl) c += 'set system services dhcp-local-server group ' + poolName + '-GRP interface ' + cgEsc(/\.\d+$/.test(ifl) ? ifl : ifl + '.0') + '\n';
     c += '\n# Doğrulama:\n# show dhcp server binding\n# show dhcp server statistics\n';
-    return c;
+    return { config: c, warnings: _srxWdhcp(data) };
+}
+// DHCP lab bulguları (jun-13): aralık ağ dışında / statik adresleri kapsıyor, ağ geçidi ağ dışında, grup arayüzü eksik
+function _srxWdhcp(data) {
+    const w = [], v = k => String(data[k] == null ? '' : data[k]).trim();
+    const net = _srxWpfx(v('network')), lo = v('range_start'), hi = v('range_end'), gw = v('router');
+    if (v('network') && (!net || net.bare)) w.push('\u26D4 Havuz ağı CIDR biçiminde olmalı (ör. 10.64.10.0/24).');
+    else if (net && _srxWn(net.ip) !== net.base) w.push('\u26A0 Havuz ağı ağ adresi değil (' + v('network') + '); ağ adresini yazın.');
+    if (net && !net.bare) {
+        if (_srxWip(lo) && _srxWip(hi)) {
+            if (_srxWn(hi) < _srxWn(lo)) w.push('\u26D4 Aralığın bitişi başlangıçtan küçük.');
+            if (!_srxWin(lo, net) || !_srxWin(hi, net)) w.push('\u26D4 Dağıtım aralığı havuz ağının dışına taşıyor: commit reddedilir ya da adresler dağıtılamaz.');
+            else if (_srxWn(lo) <= net.base + 1 && _srxWn(hi) >= net.base + net.size - 2) w.push('\u26A0 Aralık ağın tamamını kapsıyor: ağ geçidi, yazıcı ve sunucu gibi statik adresler de dağıtılabilir (IP çakışması).');
+            if (_srxWip(gw) && _srxWn(gw) >= _srxWn(lo) && _srxWn(gw) <= _srxWn(hi)) w.push('\u26A0 Ağ geçidi (' + gw + ') dağıtım aralığının içinde; aralığı geçidin dışında başlatın.');
+        }
+        if (_srxWip(gw) && !_srxWin(gw, net)) w.push('\u26D4 Ağ geçidi (' + gw + ') havuzun ağında değil: istemciler adres alır ama ağ geçidine ulaşamaz — "IP var, internet yok".');
+    }
+    if (v('lease') && !/^\d+$/.test(v('lease'))) w.push('\u26D4 Kira süresi saniye cinsinden bir sayı olmalı (ör. 86400).');
+    if (!v('srv_iface')) w.push('\u26A0 LAN arayüzü girilmedi: havuz tek başına dağıtım yapmaz. "set system services dhcp-local-server group <grup> interface <arayüz.0>" ekleyin.');
+    w.push('\u2139 SRX, bölgede izin verilmeyen DHCP isteklerini düşürür: set security zones security-zone <iç-bölge> interfaces ' + (v('srv_iface') || '<arayüz.0>') + ' host-inbound-traffic system-services dhcp');
+    return w;
 }
 
 // ── Juniper SRX: Screens DoS ──────────────────────────────────────────────────
