@@ -55,9 +55,9 @@ CheckPoint.setup = {
                     icon: 'fas fa-id-card',
                     fields: [
                         { name: 'hostname', why: "Gaia'da hostname, SIC sertifikasının içine gömülür. Sonradan değiştirirsen <b>SIC'i sıfırlayıp yeniden kurman</b> gerekir — bu yüzden baştan doğru ver.", label: 'Hostname', type: 'text', required: true, placeholder: 'CP-GW-01', hint: 'Gaia cihazının host adı' },
-                        { name: 'mgmt_ip', why: "Yönetim arayüzünün IP'si. Bu adresi değiştirirken SmartConsole bağlantın kopar; konsol erişimin olmadan uzaktan değiştirme.", label: 'Management Interface IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'eth0 yönetim arayüzü IP adresi' },
+                        { name: 'mgmt_ip', why: "Yönetim arayüzünün IP'si. Bu adresi değiştirirken SmartConsole bağlantın kopar; konsol erişimin olmadan uzaktan değiştirme.", label: 'Management Interface IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.0.1', hint: 'eth0 yönetim arayüzü IP adresi' },
                         { name: 'mgmt_prefix', why: 'Gaia CIDR bekler (<code>/24</code>), nokta-ondalık maske değil. Yanlış prefix yönetim ağını erişilemez yapar.', label: 'Prefix Uzunluğu', type: 'text', required: true, placeholder: '24', hint: 'CIDR prefix (örn: 24 → /24)' },
-                        { name: 'gw', why: 'Varsayılan ağ geçidi. Management Server farklı bir ağdaysa bu rota olmadan SIC kurulamaz.', label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.254', hint: 'Varsayılan çıkış gateway\'i' }
+                        { name: 'gw', why: 'Varsayılan ağ geçidi. Management Server farklı bir ağdaysa bu rota olmadan SIC kurulamaz.', label: 'Default Gateway', type: 'text', validate: 'ip', required: true, placeholder: '10.64.0.254', hint: 'Varsayılan çıkış gateway\'i' }
                     ]
                 },
                 {
@@ -147,7 +147,7 @@ CheckPoint.interface = {
                     showFor: ['single'],
                     fields: [
                         { name: 'iface', why: "Gaia'da arayüz adları <code>eth0</code>, <code>eth1</code> biçimindedir. Yanlış arayüze IP vermek yönetim erişimini koparabilir.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'eth1', hint: 'Yapılandırılacak fiziksel arayüz adı' },
-                        { name: 'iface_ip', why: "CIDR formatında (<code>10.0.0.1/24</code>). Gaia'da topoloji Management tarafından okunur; IP değişikliğinden sonra <b>gateway topolojisini yeniden çekmen</b> gerekir.", label: 'IP / Prefix (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında IP adresi (örn: 10.0.0.1/24)' },
+                        { name: 'iface_ip', why: "CIDR formatında (<code>10.64.0.1/24</code>). Gaia'da topoloji Management tarafından okunur; IP değişikliğinden sonra <b>gateway topolojisini yeniden çekmen</b> gerekir.", label: 'IP / Prefix (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '203.0.113.1/30', hint: 'CIDR formatında IP adresi (örn: 10.64.0.1/24)' },
                         { name: 'desc', why: "Arayüz açıklaması SmartConsole'da ve <code>show interfaces</code> çıktısında görünür. Hangi hatta bağlı olduğunu yazmak, arıza anında kablo takip etmekten çok daha hızlıdır.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN', hint: 'Interface yorumu (comments)' }
                     ]
                 },
@@ -198,12 +198,16 @@ function cgCpIfaceGen(data) {
         if (data.bond_id && !/^bond\d+$/.test(String(data.bond_id).trim())) w.push('⛔ Bond adı bondN biçiminde olmalı (ör. bond0); grup numarası addan çıkarılır, bu değerle komutlar geçersiz olur.');
         if (m1 && m1 === m2) w.push('⛔ İki üye arayüz aynı: bond tek üyeyle yedeklilik sağlamaz.');
         w.push('ℹ Üye arayüzlerde IP adresi olmamalı (varsa önce delete interface <üye> ipv4-address). Karşı anahtarda da aynı iki port LACP (802.3ad) port-channel olarak yapılandırılmalı; tek taraflı yapılandırmada bond kurulmaz.');
+        w.push('ℹ lacp-rate slow (30 sn) karşı anahtarın varsayılanıyla uyumludur; anahtarda LACP rate fast ise burada da fast yazın. Bond arayüzüne "set interface ' + bondId + ' state" uygulanmaz: durumu bonding sürücüsü yönetir.');
+        // R81.20 Gaia Admin Guide (Bond, Gaia Clish): grup → üyeler UP → üye ekle → mod; bond arayüzünün
+        // state'i elle değiştirilmez ("set interface bondN state" yazılmaz, bonding sürücüsü yönetir).
         c += 'add bonding group ' + bondNum + '\n';
-        c += 'set bonding group ' + bondNum + ' mode 8023AD\n';
+        c += 'set interface ' + m1 + ' state on\n';
+        c += 'set interface ' + m2 + ' state on\n';
         c += 'add bonding group ' + bondNum + ' interface ' + m1 + '\n';
         c += 'add bonding group ' + bondNum + ' interface ' + m2 + '\n';
+        c += 'set bonding group ' + bondNum + ' mode 8023AD lacp-rate slow\n';
         c += 'set interface ' + bondId + ' ipv4-address ' + parts[0] + ' mask-length ' + (parts[1] || '') + '\n';
-        c += 'set interface ' + bondId + ' state on\n';
         if (descQ) c += 'set interface ' + bondId + ' comments ' + descQ + '\n';
         verify += '# show bonding group ' + bondNum + '\n# cat /proc/net/bonding/' + bondId + '   (expert)\n';
     }
@@ -221,14 +225,14 @@ CheckPoint.route = {
             topic: {
                 icon: 'fas fa-route',
                 title: 'Static Route',
-                desc: 'Gaia clish ile statik rota tanımı.<br><code>set static-route 10.0.0.0/8 nexthop gateway address 203.0.113.2 priority 1 on</code>'
+                desc: 'Gaia clish ile statik rota tanımı.<br><code>set static-route 10.128.0.0/16 nexthop gateway address 203.0.113.2 priority 1 on</code>'
             },
             sections: [
                 {
                     title: 'Rota Bilgileri',
                     icon: 'fas fa-route',
                     fields: [
-                        { name: 'dst', why: "Hedef ağ CIDR olarak. Check Point'te statik rota eklemek yetmez — trafiğin geçmesi için ayrıca <b>firewall kuralı</b> gerekir.", label: 'Hedef Network (CIDR)', type: 'text', required: true, placeholder: '10.0.0.0/8', hint: 'Hedef subnet CIDR formatında (örn: 192.168.0.0/24)' },
+                        { name: 'dst', why: "Hedef ağ CIDR olarak. Check Point'te statik rota eklemek yetmez — trafiğin geçmesi için ayrıca <b>firewall kuralı</b> gerekir.", label: 'Hedef Network (CIDR)', type: 'text', required: true, placeholder: '10.128.0.0/16', hint: 'Hedef subnet CIDR formatında (örn: 10.128.0.0/24)' },
                         { name: 'gw', why: 'Varsayılan ağ geçidi. Management Server farklı bir ağdaysa bu rota olmadan SIC kurulamaz.', label: 'Next-Hop Gateway', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.2', hint: 'Bir sonraki atlama noktası IP adresi' },
                         { name: 'priority', why: 'Aynı hedefe birden fazla rota varsa düşük öncelik kazanır. Yedek hat için yüksek öncelik vererek failover kurabilirsin.', label: 'Öncelik', type: 'text', optional: true, placeholder: '1', hint: 'Düşük değer = daha yüksek öncelik (varsayılan: 1)' }
                     ]
@@ -273,14 +277,14 @@ CheckPoint.ospf = {
             topic: {
                 icon: 'fas fa-project-diagram',
                 title: 'OSPF (Gaia clish)',
-                desc: 'Check Point Gaia üzerinde OSPF yönlendirme protokolü yapılandırması.<br><code>set ospf on</code> → <code>set ospf instance default router-id 1.1.1.1</code>'
+                desc: 'Check Point Gaia üzerinde OSPF yönlendirme protokolü yapılandırması.<br><code>set router-id 192.0.2.1</code> → <code>set ospf area backbone on</code> → <code>set ospf interface eth1 area backbone on</code>'
             },
             sections: [
                 {
                     title: 'OSPF Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'rid', why: 'Router-ID benzersiz olmalı; Loopback IP tercih edilir çünkü hiç down olmaz. Değiştirmek OSPF komşuluklarını sıfırlar.', label: 'Router-ID', type: 'text', validate: 'ip', required: true, placeholder: '1.1.1.1', hint: 'Genellikle Loopback veya management IP adresi' },
+                        { name: 'rid', why: 'Router-ID benzersiz olmalı; Loopback IP tercih edilir çünkü hiç down olmaz. Değiştirmek OSPF komşuluklarını sıfırlar.', label: 'Router-ID', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', hint: 'Genellikle Loopback veya management IP adresi' },
                         { name: 'area', why: "Backbone <code>0</code>'dır ve tüm alanlar ona bitişik olmalıdır. Komşuyla alan numarası eşleşmezse komşuluk kurulmaz.", label: 'Area', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Backbone için 0.0.0.0, diğerleri için ör: 0.0.0.1' }
                     ]
                 },
@@ -298,8 +302,8 @@ CheckPoint.ospf = {
         });
     }
 };
-// Sözdizimi: R81.x Gaia Advanced Routing — router-id genel ayardır (set router-id); alan 0
-// "backbone" adıyla yazılır; alan ve arayüz satırları "on" ile etkinleşir.
+// Sözdizimi (doğrulandı): R81.20 Gaia Advanced Routing Admin Guide — "set router-id <IPv4>" (genel),
+// "set ospf [instance …] area <ID|backbone> on", "set ospf [instance …] interface <ad> area <ID> on".
 function cgCpOspfGen(data) {
     const w = [];
     const rid = cgEsc(data.rid || ''), iface = cgEsc(data.iface || '');
@@ -504,7 +508,7 @@ CheckPoint.bgp = {
             topic: {
                 icon: 'fas fa-route',
                 title: 'BGP (Gaia clish)',
-                desc: 'Check Point Gaia üzerinde BGP peer yapılandırması.<br><code>set bgp as 65001</code> → <code>set bgp peer 10.0.0.2 remote-as 65002</code>'
+                desc: 'Check Point Gaia üzerinde BGP peer yapılandırması.<br><code>set as 65001</code> → <code>set bgp external remote-as 65002 peer 192.0.2.2 on</code>'
             },
             sections: [
                 {
@@ -512,7 +516,7 @@ CheckPoint.bgp = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'local_as', why: "Kendi AS numaran. Peer'ın AS'i farklıysa eBGP, aynıysa iBGP olur.", label: 'Local AS', type: 'text', validate: 'asn', required: true, placeholder: '65001', hint: 'Yerel Autonomous System numarası' },
-                        { name: 'neighbor_ip', why: "BGP komşusunun IP'si. Check Point'te BGP oturumunun kurulabilmesi için <b>komşu IP'sine giden trafiğe izin veren kural</b> da gerekir.", label: 'Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'BGP komşu IP adresi' },
+                        { name: 'neighbor_ip', why: "BGP komşusunun IP'si. Check Point'te BGP oturumunun kurulabilmesi için <b>komşu IP'sine giden trafiğe izin veren kural</b> da gerekir.", label: 'Neighbor IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.2', hint: 'BGP komşu IP adresi' },
                         { name: 'remote_as', why: "Komşunun AS numarası. Yanlışsa oturum Idle/Active'de takılır.", label: 'Remote AS', type: 'text', validate: 'asn', required: true, placeholder: '65002', hint: 'Komşunun Autonomous System numarası' },
                         { name: 'description', why: "Nesne açıklaması. Altı ay sonra bu kaydı neden oluşturduğunu hatırlamayacaksın — ticket numarası veya sorumlu ekip yazmak denetimlerde hayat kurtarır.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'ISP-PEER', hint: 'BGP komşu açıklaması' },
                         { name: 'redistribute_static', why: "Statik rotaları BGP'ye duyurur. Dikkatli kullan — istemeden tüm iç ağını dışarı duyurabilirsin.", label: 'Redistribute Static', type: 'select', options: [
@@ -528,9 +532,9 @@ CheckPoint.bgp = {
         });
     }
 };
-// Sözdizimi: R81.x Gaia Advanced Routing — yerel AS genel ayardır (set as); eBGP eşleri
-// "bgp external remote-as <AS>" grubunda, iBGP eşleri "bgp internal" grubunda tanımlanır;
-// yeniden dağıtım route-redistribution ile yapılır.
+// Sözdizimi (doğrulandı): R81.20 Gaia Advanced Routing Admin Guide — yerel AS "set as <AS>";
+// eBGP "set bgp external remote-as <AS> {on|off}" ve "… peer <IP> {on|off}", iBGP "set bgp internal peer <IP>";
+// statikten BGP'ye "set route-redistribution to bgp-as <AS> from static-route all-ipv4-routes on".
 function cgCpBgpGen(data) {
     const w = [];
     const localAs = cgEsc(data.local_as || ''), neighborIp = cgEsc(data.neighbor_ip || ''), remoteAs = cgEsc(data.remote_as || '');
@@ -539,6 +543,7 @@ function cgCpBgpGen(data) {
     const grp = ibgp ? 'bgp internal' : 'bgp external remote-as ' + remoteAs;
     if (ibgp) w.push('ℹ Yerel ve uzak AS aynı: iBGP. iBGP eşinden öğrenilen rotalar başka bir iBGP eşine duyurulmaz (tam örgü ya da route reflector gerekir).');
     if (redistStatic) w.push('⚠ Statik rotaların tümü BGP\'ye dağıtılıyor (varsayılan rota ve iç ağlar dahil). Karşı tarafa yalnız duyurulacak önekleri gönderin; gerekirse route-redistribution satırını belirli bir önekle sınırlayın.');
+    w.push('ℹ Oturum Established olduğu hâlde eşten gelen rotalar yönlendirme tablosuna girmiyorsa (show route bgp boş) gelen rota süzgecini tanımlayın: set inbound-route-filter bgp-policy <no> based-on-as as ' + (remoteAs || '<AS>') + ' on ve set inbound-route-filter bgp-policy <no> accept-all-ipv4.');
     w.push('ℹ BGP oturumu (TCP 179) gateway\'in kendisine gelir: güvenlik politikasında komşudan gateway\'e bgp servisine izin veren kural olmalı; yoksa oturum Active\'de kalır ve zdebug\'da "Rulebase drop" görünür (cp-03).');
     let c = '# ========================================\n# Check Point Gaia — BGP (clish)\n# ========================================\n\n';
     c += 'set as ' + localAs + '\n';
@@ -568,7 +573,7 @@ CheckPoint.vlanintf = {
                     fields: [
                         { name: 'vlan_id', why: "802.1Q VLAN etiketi (1-4094). Karşı switch portu <b>trunk</b> modda ve bu VLAN'a izin veriyor olmalı, aksi halde tag'li trafik düşer.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası' },
                         { name: 'parent_bond', why: "VLAN alt arayüzünün bağlanacağı fiziksel veya bond arayüz. Gaia'da isim <code>bond0.100</code> biçiminde oluşur.", label: 'Parent Bond / Interface', type: 'text', required: true, placeholder: 'bond0', hint: 'VLAN\'ın oluşturulacağı üst arayüz (örn: bond0, eth1)' },
-                        { name: 'ip', why: "Host nesnesinin IP'si. Aynı IP için ikinci bir nesne oluşturmak, kural analizinde yanlış eşleşmeye ve çelişkili politikalara yol açar.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1', hint: 'VLAN interface IP adresi' },
+                        { name: 'ip', why: "Host nesnesinin IP'si. Aynı IP için ikinci bir nesne oluşturmak, kural analizinde yanlış eşleşmeye ve çelişkili politikalara yol açar.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '172.24.100.1', hint: 'VLAN interface IP adresi' },
                         { name: 'mask', why: "Ağ maskesi. Çok geniş tanımlamak kuralı istemeden komşu segmentlere de açar.", label: 'Subnet Mask', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0)' },
                         { name: 'comment', why: "Nesne yorumu. Check Point'te nesne silmeden önce nerede kullanıldığına bakılır; iyi yazılmış bir yorum bu aramayı gereksiz kılar.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'Server VLAN', hint: 'Interface yorumu (comments)' }
                     ]
@@ -609,7 +614,7 @@ CheckPoint.hostobj = {
             topic: {
                 icon: 'fas fa-desktop',
                 title: 'Host Object (mgmt_cli)',
-                desc: 'SmartCenter üzerinde host nesnesi oluşturma ve gruplara ekleme.<br><code>mgmt_cli add host name "SRV-WEB-01" ip-address "192.168.1.10"</code>'
+                desc: 'SmartCenter üzerinde host nesnesi oluşturma ve gruplara ekleme.<br><code>mgmt_cli add host name "SRV-WEB-01" ip-address "172.24.50.10"</code>'
             },
             sections: [
                 {
@@ -617,7 +622,7 @@ CheckPoint.hostobj = {
                     icon: 'fas fa-desktop',
                     fields: [
                         { name: 'name', why: "Nesne adı SmartConsole veritabanında benzersiz olmalı. Tutarlı isimlendirme (<code>SRV_WEB_01</code>) 500 nesneli bir kurulumda aranabilirliği belirler.", label: 'Nesne Adı', type: 'text', required: true, placeholder: 'SRV-WEB-01', hint: 'SmartConsole\'da görünecek nesne adı' },
-                        { name: 'ip', why: "Host nesnesinin IP'si. Aynı IP için ikinci bir nesne oluşturmak, kural analizinde yanlış eşleşmeye ve çelişkili politikalara yol açar.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Host\'un IP adresi' },
+                        { name: 'ip', why: "Host nesnesinin IP'si. Aynı IP için ikinci bir nesne oluşturmak, kural analizinde yanlış eşleşmeye ve çelişkili politikalara yol açar.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '172.24.50.10', hint: 'Host\'un IP adresi' },
                         { name: 'color', why: "SmartConsole'da nesne rengi. Kurumsal renk şeması (ör. kırmızı=DMZ, yeşil=LAN) büyük kural listelerinde hata oranını gözle görülür azaltır.", label: 'Renk', type: 'select', options: [
                             { value: 'blue', label: 'blue', selected: true },
                             { value: 'red', label: 'red' },
@@ -659,7 +664,7 @@ CheckPoint.netobj = {
             topic: {
                 icon: 'fas fa-network-wired',
                 title: 'Network Object (mgmt_cli)',
-                desc: 'SmartCenter üzerinde network (subnet) nesnesi oluşturma.<br><code>mgmt_cli add network name "NET-DMZ" subnet "192.168.2.0" mask-length 24</code>'
+                desc: 'SmartCenter üzerinde network (subnet) nesnesi oluşturma.<br><code>mgmt_cli add network name "NET-DMZ" subnet "172.24.50.0" mask-length 24</code>'
             },
             sections: [
                 {
@@ -667,7 +672,7 @@ CheckPoint.netobj = {
                     icon: 'fas fa-network-wired',
                     fields: [
                         { name: 'name', why: "Nesne adı SmartConsole veritabanında benzersiz olmalı. Tutarlı isimlendirme (<code>SRV_WEB_01</code>) 500 nesneli bir kurulumda aranabilirliği belirler.", label: 'Nesne Adı', type: 'text', required: true, placeholder: 'NET-DMZ', hint: 'SmartConsole\'da görünecek nesne adı' },
-                        { name: 'subnet', why: 'Ağ nesnesi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet', type: 'text', validate: 'subnet', required: true, placeholder: '192.168.2.0', hint: 'Ağ adresi (host bitleri sıfır olmalı)' },
+                        { name: 'subnet', why: 'Ağ nesnesi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet', type: 'text', validate: 'subnet', required: true, placeholder: '172.24.50.0', hint: 'Ağ adresi (host bitleri sıfır olmalı)' },
                         { name: 'mask', why: "Ağ maskesi. Çok geniş tanımlamak kuralı istemeden komşu segmentlere de açar.", label: 'Subnet Mask', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0 → /24)' },
                         { name: 'color', why: "SmartConsole'da nesne rengi. Kurumsal renk şeması (ör. kırmızı=DMZ, yeşil=LAN) büyük kural listelerinde hata oranını gözle görülür azaltır.", label: 'Renk', type: 'select', options: [
                             { value: 'green', label: 'green', selected: true },
@@ -776,7 +781,7 @@ CheckPoint.clusterxl = {
                             { value: 'New High Availability', label: 'New High Availability', selected: true },
                             { value: 'Load Sharing Multicast', label: 'Load Sharing Multicast' }
                         ], hint: 'ClusterXL çalışma modu', badge: { text: 'Yüksek Erişilebilirlik', cls: 'recommended' } },
-                        { name: 'cluster_ip', why: "Sanal cluster IP'si — istemcilerin gördüğü adres budur. Üye IP'lerinden farklı olmalı ve aynı subnet'te bulunmalı.", label: 'Cluster IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'Sanal cluster IP adresi (VIP)' },
+                        { name: 'cluster_ip', why: "Sanal cluster IP'si — istemcilerin gördüğü adres budur. Üye IP'lerinden farklı olmalı ve aynı subnet'te bulunmalı.", label: 'Cluster IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.0.100', hint: 'Sanal cluster IP adresi (VIP)' },
                         { name: 'cluster_intf', why: "Cluster IP'sinin bulunacağı arayüz. Bu arayüz iki üyede de <b>aynı isimde</b> olmalı, aksi halde ClusterXL topoloji uyuşmazlığı verir.", label: 'Cluster Interface', type: 'text', validate: 'iface', required: true, placeholder: 'eth0', hint: 'Cluster trafiğini taşıyan fiziksel arayüz' },
                         { name: 'sync_intf', why: "Senkronizasyon arayüzü üyeler arasında <b>doğrudan</b> (switch üzerinden değil) bağlanmalıdır. Sync kopması split-brain'e yol açar.", label: 'Sync Interface', type: 'text', validate: 'iface', required: true, placeholder: 'eth1', hint: 'State senkronizasyon trafiği için arayüz' }
                     ]
@@ -785,8 +790,8 @@ CheckPoint.clusterxl = {
                     title: 'Cluster Üyeleri',
                     icon: 'fas fa-users',
                     fields: [
-                        { name: 'member1_ip', why: "Her üyenin kendi fiziksel IP'si. Cluster IP ile aynı subnet'te olmalı.", label: 'Member 1 IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.1', hint: 'Birinci üye gateway IP adresi' },
-                        { name: 'member2_ip', why: "İkinci üyenin fiziksel IP'si. Cluster IP ile aynı subnet'te ve birinci üyeden farklı olmalıdır.", label: 'Member 2 IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.2', hint: 'İkinci üye gateway IP adresi' }
+                        { name: 'member1_ip', why: "Her üyenin kendi fiziksel IP'si. Cluster IP ile aynı subnet'te olmalı.", label: 'Member 1 IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.0.1', hint: 'Birinci üye gateway IP adresi' },
+                        { name: 'member2_ip', why: "İkinci üyenin fiziksel IP'si. Cluster IP ile aynı subnet'te ve birinci üyeden farklı olmalıdır.", label: 'Member 2 IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.0.2', hint: 'İkinci üye gateway IP adresi' }
                     ]
                 }
             ],
@@ -810,7 +815,7 @@ function cgCpClusterXLGen(data) {
     if (v !== null && a !== null && b !== null && !(_cpSameNet(v, a, 24) && _cpSameNet(v, b, 24))) w.push('⚠ VIP ile üye IP\'leri aynı /24 içinde değil (önek bilinmiyor, /24 varsayıldı). VIP ve üye adresleri aynı alt ağda olmalı.');
     if (clusterIntf && clusterIntf === syncIntf) w.push('⛔ Küme arayüzü ile sync arayüzü aynı: sync trafiği ayrı, tercihen üyeler arasında doğrudan bir hatta taşınmalı.');
     if (/Load Sharing/.test(data.mode || '')) w.push('⚠ Load Sharing Multicast: anahtarların küme MAC\'ine gelen multicast trafiği iki üyeye birden iletmesi gerekir ve asimetrik yönlendirmeye açıktır. Özel bir gerekçe yoksa High Availability seçin.');
-    w.push('ℹ Varsayılan "Maintain current active Cluster Member": bakımdan dönen üye STANDBY kalır, gereksiz ikinci failover yapılmaz. Planlı bakımda kablo çekmek yerine clusterXL_admin down / up kullanın (cp-05).');
+    w.push('ℹ Varsayılan "Maintain current active Cluster Member": bakımdan dönen üye STANDBY kalır, gereksiz ikinci failover yapılmaz. Kontrollü failover için kablo çekmek yerine tek satırda clusterXL_admin down;clusterXL_admin up kullanın; uzun bakımda üyeyi yalnız down (gerekirse -p) ile bekletin (cp-05).');
     const modeKey = /Load Sharing/.test(data.mode || '') ? 'cluster-ls-multicast' : 'cluster-xl-ha';
     let c = '# ========================================\n# Check Point Gaia — ClusterXL HA\n# ========================================\n\n';
     c += '# 1) Her iki üyede (clish): arayüzlere ÜYENİN KENDİ adresi verilir; VIP hiçbir üyeye yazılmaz.\n';
@@ -846,7 +851,7 @@ CheckPoint.vsx = {
                         { name: 'vs_name', why: "VSX'te her Virtual System bağımsız bir firewall gibi davranır; ayrı policy ve ayrı routing tablosu tutar.", label: 'VS Adı', type: 'text', required: true, placeholder: 'VS-CUSTOMER1', hint: 'SmartConsole\'da görünecek virtual system adı' },
                         { name: 'vs_id', why: "VS ID benzersiz olmalı. Silinen bir VS'in ID'si yeniden kullanılabilir ama önce tam temizlik gerekir.", label: 'VS ID', type: 'text', required: true, placeholder: '1', hint: 'Virtual system benzersiz kimlik numarası (VSID)' },
                         { name: 'vs_intf', why: "Virtual System'in kullanacağı arayüz. VSX'te arayüzler VS'ler arasında paylaşılabilir ama VLAN ile ayrılmaları gerekir.", label: 'VS Interface', type: 'text', validate: 'iface', required: true, placeholder: 'bond0.100', hint: 'Virtual system\'e atanacak arayüz (örn: bond0.100)' },
-                        { name: 'vs_ip', why: "VS'in arayüz IP'si. Her VS bağımsız routing tablosu tuttuğundan, farklı VS'lerde <b>aynı IP</b> kullanılabilir — bu VSX'in temel avantajıdır.", label: 'VS IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1', hint: 'Virtual system ana IP adresi' },
+                        { name: 'vs_ip', why: "VS'in arayüz IP'si. Her VS bağımsız routing tablosu tuttuğundan, farklı VS'lerde <b>aynı IP</b> kullanılabilir — bu VSX'in temel avantajıdır.", label: 'VS IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '172.24.100.1', hint: 'Virtual system ana IP adresi' },
                         { name: 'vs_mask', why: "CIDR uzunluğu. VS'ler arası trafik Virtual Router üzerinden geçer; doğrudan değil.", label: 'Mask Length (CIDR)', type: 'text', validate: 'prefix', required: true, placeholder: '24', hint: 'Prefix uzunluğu (örn: 24 → /24)' }
                     ]
                 }
@@ -907,8 +912,8 @@ CheckPoint.s2svpn = {
                     title: 'Network Tanımları',
                     icon: 'fas fa-sitemap',
                     fields: [
-                        { name: 'local_net', why: "Şifrelenecek yerel ağ (encryption domain). Check Point'te encryption domain yanlışsa tünel kurulur ama trafik geçmez.", label: 'Local Network (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.0/24', hint: 'Yerel taraftaki korunan ağ (CIDR)' },
-                        { name: 'remote_net', why: "Karşı tarafın ağı. İki tarafın encryption domain'leri <b>ayna</b> olmalı — uyuşmazlık en sık görülen VPN sorunudur.", label: 'Remote Network (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '10.0.0.0/24', hint: 'Uzak taraftaki korunan ağ (CIDR)' }
+                        { name: 'local_net', why: "Şifrelenecek yerel ağ (encryption domain). Check Point'te encryption domain yanlışsa tünel kurulur ama trafik geçmez.", label: 'Local Network (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '10.64.10.0/24', hint: 'Yerel taraftaki korunan ağ (CIDR)' },
+                        { name: 'remote_net', why: "Karşı tarafın ağı. İki tarafın encryption domain'leri <b>ayna</b> olmalı — uyuşmazlık en sık görülen VPN sorunudur.", label: 'Remote Network (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '10.128.0.0/24', hint: 'Uzak taraftaki korunan ağ (CIDR)' }
                     ]
                 }
             ],
@@ -918,8 +923,12 @@ CheckPoint.s2svpn = {
         });
     }
 };
-// Sözdizimi: Management API örneği "add-vpn-community-meshed" (encryption-method, encryption-suite custom,
-// ike-phase-1/2.* küçük harfli değerler). Karşı uç başka marka olduğu için "interoperable-device" nesnesi
+// Sözdizimi (doğrulandı): Management API v2.2 başvurusu "add-vpn-community-meshed" enum listeleri —
+// encryption-method "ikev2 only" | "ikev1 for ipv4 and ikev2 for ipv6 only"; encryption-suite "custom";
+// ike-phase-1/2 encryption-algorithm "aes-256", data-integrity "sha256", diffie-hellman-group "group-14";
+// tunnel-granularity per_host | per_subnet | universal (alt çizgili); paylaşılan anahtar örneği
+// "use-shared-secret true shared-secrets.1.external-gateway … shared-secrets.1.shared-secret …".
+// Karşı uç başka marka olduğu için "interoperable-device" nesnesi
 // kullanılır (simple-gateway, bu management'ın SIC ile yönettiği Check Point gateway'i içindir).
 function cgCpS2sVpnGen(data) {
     const w = [];
@@ -938,7 +947,7 @@ function cgCpS2sVpnGen(data) {
     if (/^\s|\s$/.test(psk)) w.push('⚠ Paylaşılan anahtarın başında ya da sonunda boşluk var: karşı uca kopyalanırken kaybolur ve kimlik doğrulama başarısız olur.');
     if (!ikeV2) w.push('⚠ IKEv1 seçildi: yalnız karşı uç IKEv2 desteklemiyorsa kullanın. İki uçta sürüm farklıysa faz 1 hiç başlamaz.');
     w.push('ℹ Öneriler karşı uçla birebir eşleşmeli: bu çıktı ' + (ikeV2 ? 'IKEv2, ' : 'IKEv1, ') + 'faz 1 AES-256 / SHA-256 / DH 14, faz 2 AES-256 / SHA-256 yazar. Uyuşmazlıkta IKE günlüğünde NO_PROPOSAL_CHOSEN görünür (vpn debug trunc → $FWDIR/log/ikev2.xmll, cp-07).');
-    w.push('ℹ Check Point bitişik ağları birleştirip daha geniş bir faz 2 seçicisi önerebilir; başka marka uçlar bunu TS_UNACCEPTABLE ile reddeder. Bu yüzden tunnel-granularity "per-subnet" yazıldı; yerel encryption domain\'i de karşı uçtaki tanımla birebir eşleyin (cp-07).');
+    w.push('ℹ Check Point bitişik ağları birleştirip daha geniş bir faz 2 seçicisi önerebilir; başka marka uçlar bunu TS_UNACCEPTABLE ile reddeder. Bu yüzden tunnel-granularity "per_subnet" yazıldı; yerel encryption domain\'i de karşı uçtaki tanımla birebir eşleyin (cp-07).');
     w.push('ℹ Yerel gateway\'i community\'ye ekleyin (SmartConsole ya da gateways.add) ve encryption domain\'ini NET-LOCAL-' + peerRaw + ' olarak ayarlayın; ardından politikayı kurun. publish tek başına gateway\'e hiçbir şey göndermez.');
     let c = '#!/bin/bash\n# ========================================\n# Check Point — Site-to-Site VPN (mgmt_cli)\n# ========================================\n\n';
     c += 'mgmt_cli login -r true > id.txt\n\n';
@@ -957,8 +966,9 @@ function cgCpS2sVpnGen(data) {
     c += '  ike-phase-1.diffie-hellman-group "group-14" \\\n';
     c += '  ike-phase-2.encryption-algorithm "aes-256" \\\n';
     c += '  ike-phase-2.data-integrity "sha256" \\\n';
-    c += '  tunnel-granularity "per-subnet" \\\n';
+    c += '  tunnel-granularity "per_subnet" \\\n';
     c += '  gateways.1 ' + peerGw + ' \\\n';
+    c += '  use-shared-secret true \\\n';
     c += '  shared-secrets.1.external-gateway ' + peerGw + ' \\\n';
     c += '  shared-secrets.1.shared-secret ' + _cpQ(psk) + ' -s id.txt\n\n';
     c += 'mgmt_cli publish -s id.txt\nmgmt_cli logout -s id.txt\n\n';
@@ -974,14 +984,14 @@ CheckPoint.ravpn = {
             topic: {
                 icon: 'fas fa-user-shield',
                 title: 'Remote Access VPN (mgmt_cli)',
-                desc: 'Check Point Remote Access VPN community yapılandırması — kimlik doğrulama, kullanıcı grubu ve şifreleme.<br><code>mgmt_cli set remote-access-community name "RA-VPN-PROFILE" ...</code>',
+                desc: 'Check Point Remote Access VPN community yapılandırması — kimlik doğrulama, kullanıcı grubu ve şifreleme.<br><code>mgmt_cli set vpn-community-remote-access name "RemoteAccess" user-groups.add "VPN-USERS"</code>',
             },
             sections: [
                 {
                     title: 'VPN Profili',
                     icon: 'fas fa-user-shield',
                     fields: [
-                        { name: 'profile_name', why: "IPS profili gateway'e atanmalı; oluşturmak tek başına yetmez. Atanmayan profil hiçbir şey korumaz.", label: 'Profil Adı', type: 'text', required: true, placeholder: 'RA-VPN-PROFILE', hint: 'Remote access community adı' },
+                        { name: 'profile_name', why: "Uzaktan erişim topluluğu. Varsayılan kurulumda adı <code>RemoteAccess</code>'tir; gateway'in bu topluluğa katılımcı olarak eklenmesi gerekir (SmartConsole: VPN Communities).", label: 'Topluluk Adı', type: 'text', required: true, placeholder: 'RemoteAccess', hint: 'Remote access community adı' },
                         { name: 'auth_method', why: "Remote Access'te sertifika tabanlı doğrulama, parola tabanlıya göre çok daha güvenlidir. RADIUS/LDAP entegrasyonu merkezi yönetim sağlar.", label: 'Auth Yöntemi', type: 'select', options: [
                             { value: 'Password+Cert', label: 'Password + Certificate', selected: true },
                             { value: 'Certificate', label: 'Certificate Only' },
@@ -991,17 +1001,13 @@ CheckPoint.ravpn = {
                     ]
                 },
                 {
-                    title: 'Şifreleme & Topoloji',
+                    title: 'Şifreleme',
                     icon: 'fas fa-lock',
                     fields: [
                         { name: 'encryption', why: '<code>3DES</code> ve <code>DES</code> artık güvensizdir; <code>AES-256</code> kullan. İki tarafta en az bir ortak algoritma bulunmalı.', label: 'Şifreleme', type: 'select', options: [
                             { value: 'AES-256', label: 'AES-256', selected: true },
                             { value: '3DES', label: '3DES' }
-                        ], hint: 'Phase 2 şifreleme algoritması' },
-                        { name: 'topology', why: "VPN topolojisi: <b>Star</b> merkez-şube, <b>Mesh</b> herkes-herkese. Mesh'te tünel sayısı n(n-1)/2 ile büyür; 10 şube = 45 tünel.", label: 'Topoloji', type: 'select', options: [
-                            { value: 'Hub', label: 'Hub', selected: true },
-                            { value: 'Peer-to-Peer', label: 'Peer-to-Peer' }
-                        ], hint: 'VPN topoloji tipi' }
+                        ], hint: 'Global Properties > Remote Access > VPN - Authentication and Encryption' }
                     ]
                 }
             ],
@@ -1012,19 +1018,21 @@ CheckPoint.ravpn = {
     }
 };
 function cgCpRaVpnGen(data) {
-    const topology = cgEsc(data.topology || 'Hub');
-    const w = ['⚠ Doğrulanmamış taslak: bu satırdaki remote-access-community parametreleri Management API başvurusuyla eşleşmiyor olabilir. Uzaktan erişim topluluğu (RemoteAccess) çoğunlukla SmartConsole\'da düzenlenir; API ile yapılacaksa sürümünüzün API başvurusundaki vpn-community-remote-access komutunu kontrol edin.'];
+    // Sözdizimi: Management API "set-vpn-community-remote-access" (user-groups alanı). Şifreleme ve kimlik doğrulama
+    // topluluğa değil, Global Properties ve gateway nesnesine aittir; bunlar SmartConsole adımı olarak verilir.
+    const w = [];
     if (data.encryption === '3DES') w.push('⚠ 3DES eski ve zayıftır; AES-256 kullanın.');
     if (data.auth_method === 'RADIUS') w.push('ℹ RADIUS: gateway\'den RADIUS sunucusuna (UDP 1812) erişim ve sunucuda gateway\'in istemci olarak tanımlı olması gerekir.');
-    let c = '# ========================================\n# Check Point — Remote Access VPN (mgmt_cli)\n# ========================================\n\n';
-    c += '# UYARI: doğrulanmamış taslak (uyarılara bakın)\n';
-    c += 'mgmt_cli set remote-access-community name ' + _cpQ(data.profile_name || '') + ' \\\n';
-    c += '  user-encryption.method ' + _cpQ(data.auth_method || '') + ' \\\n';
-    c += '  participant-user-groups.add.name ' + _cpQ(data.user_group || '') + ' \\\n';
-    c += '  encryption-method.ike-p2.transform-algorithm ' + _cpQ(data.encryption || 'AES-256') + '\n';
-    c += 'mgmt_cli publish\n\n';
-    c += '# Topoloji: ' + topology + '\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show remote-access-community name ' + _cpQ(data.profile_name || '') + '\n# SmartConsole > VPN Communities > Remote Access\n';
+    w.push('ℹ Kullanıcı grubu önceden var olmalı (SmartConsole > Users ya da mgmt_cli add user-group). Değişiklik publish ve ardından install-policy ile gateway\'e gider.');
+    const name = _cpQ(data.profile_name || 'RemoteAccess');
+    const body = 'mgmt_cli set vpn-community-remote-access name ' + name + ' user-groups.add ' + _cpQ(data.user_group || '') + ' -s id.txt\n';
+    let c = cgCpSession('Remote Access VPN', body, '# mgmt_cli show vpn-community-remote-access name ' + name + ' -r true\n');
+    c += '\n# SmartConsole adımları (API\'de topluluk dışında tutulur):\n';
+    c += '# - Gateway nesnesi > IPsec VPN: gateway RemoteAccess topluluğunda katılımcı olmalı\n';
+    c += '# - Gateway nesnesi > VPN Clients > Authentication: ' + cgEsc(data.auth_method || '') + '\n';
+    c += '# - Global Properties > Remote Access > VPN - Authentication and Encryption: ' + cgEsc(data.encryption || 'AES-256') + '\n';
+    c += '# - Erişim kuralı: kaynak ' + cgEsc(data.user_group || '') + ' (Access Role), VPN sütunu RemoteAccess\n';
+    c += '# Sonra: mgmt_cli install-policy policy-package standard targets.1 <gateway> -r true\n';
     return { config: c, warnings: w };
 }
 
@@ -1074,16 +1082,15 @@ function cgCpIpsGen(data) {
     const w = [];
     if (perfApi === 'high') w.push('⚠ Performans etkisi high: tüm korumalar etkinleşir ve gateway CPU\'su ciddi yüklenir. Önce medium ile başlayıp cpview ile yükü ölçün (cp-06).');
     w.push('ℹ set threat-profile var olan bir profili değiştirir; profil yoksa aynı parametrelerle add threat-profile kullanın. Profil, Threat Prevention politikasındaki kuralın Action sütununda seçilip politika kurulmadıkça hiçbir şeyi korumaz.');
-    let c = '# ========================================\n# Check Point — IPS Profile (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli set threat-profile name ' + _cpQ(data.profile_name || '') + ' \\\n';
-    c += '  active-protections-performance-impact "' + perfApi + '" \\\n';
-    c += '  active-protections-severity "Medium or above" \\\n';
-    c += '  use-extended-attributes true\n';
-    c += 'mgmt_cli publish\n\n';
-    c += '# Kapsam: ' + scope + '\n';
-    c += '# Güncelleme: ' + updateSchedule + '\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show threat-profile name ' + _cpQ(data.profile_name || '') + '\n# SmartConsole > Threat Prevention Profiles\n';
-    return { config: c, warnings: w };
+    // use-extended-attributes true yazılmaz: korumaları genişletilmiş özniteliklere göre seçtirir ve
+    // performans etkisi / önem eşiğini devre dışı bırakır (API v2.2 alan açıklaması).
+    let body = 'mgmt_cli set threat-profile name ' + _cpQ(data.profile_name || '') + ' \\\n';
+    body += '  ips true \\\n';
+    body += '  active-protections-performance-impact "' + perfApi + '" \\\n';
+    body += '  active-protections-severity "Medium or above" -s id.txt\n';
+    body += '# Kapsam: ' + scope + '\n';
+    body += '# Güncelleme: ' + updateSchedule + '\n';
+    return { config: cgCpSession('IPS Profile', body, '# mgmt_cli show threat-profile name ' + _cpQ(data.profile_name || '') + '\n# SmartConsole > Threat Prevention Profiles\n'), warnings: w };
 }
 
 // ── Check Point: Anti-Bot + Anti-Virus ────────────────────────────────────────
@@ -1094,7 +1101,7 @@ CheckPoint.antibot = {
             topic: {
                 icon: 'fas fa-bug',
                 title: 'Anti-Bot + Anti-Virus (mgmt_cli)',
-                desc: 'Threat Prevention Anti-Bot ve Anti-Virus profil ayarları — confidence seviyesi, aksiyon ve güncelleme takvimi.<br><code>mgmt_cli set threat-profile name "AB-AV-PROFILE" anti-bot.action "Prevent" ...</code>'
+                desc: 'Threat Prevention Anti-Bot ve Anti-Virus profil ayarları — confidence seviyesi, aksiyon ve güncelleme takvimi.<br><code>mgmt_cli set threat-profile name "AB-AV-PROFILE" anti-bot true anti-virus true confidence-level-high "Prevent" ...</code>'
             },
             sections: [
                 {
@@ -1138,14 +1145,11 @@ function cgCpAntiBotGen(data) {
     if (action === 'Detect') w.push('⚠ Aksiyon Detect: tehditler yalnız loglanır, engellenmez. Başlangıç izlemesi için uygundur; kalıcı olmamalı.');
     if (action === 'Ask') w.push('ℹ Ask kullanıcıya bir sayfa gösterir; yalnız web (HTTP/HTTPS) trafiğinde anlamlıdır.');
     w.push('ℹ set threat-profile var olan bir profili değiştirir; profil yoksa add threat-profile kullanın. Anti-Bot ve Anti-Virus blade\'leri gateway nesnesinde de etkin ve lisanslı olmalı; ardından politikayı kurun.');
-    let c = '# ========================================\n# Check Point — Anti-Bot + Anti-Virus (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli set threat-profile name ' + _cpQ(data.profile_name || '') + ' \\\n';
-    c += '  anti-bot true anti-virus true \\\n';
-    c += ' ' + lv + '\n';
-    c += 'mgmt_cli publish\n\n';
-    c += '# Güncelleme takvimi: ' + updateSchedule + '\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show threat-profile name ' + _cpQ(data.profile_name || '') + '\n';
-    return { config: c, warnings: w };
+    let body = 'mgmt_cli set threat-profile name ' + _cpQ(data.profile_name || '') + ' \\\n';
+    body += '  anti-bot true anti-virus true \\\n';
+    body += ' ' + lv + ' -s id.txt\n';
+    body += '# Güncelleme takvimi: ' + updateSchedule + '\n';
+    return { config: cgCpSession('Anti-Bot + Anti-Virus', body, '# mgmt_cli show threat-profile name ' + _cpQ(data.profile_name || '') + '\n'), warnings: w };
 }
 
 // ── Check Point: HTTPS Inspection Policy ──────────────────────────────────────
@@ -1156,7 +1160,7 @@ CheckPoint.httpsinspect = {
             topic: {
                 icon: 'fas fa-search',
                 title: 'HTTPS Inspection Policy (mgmt_cli)',
-                desc: 'HTTPS trafik denetimi — CA sertifikası, bypass kategorileri ve aksiyon tanımı.<br><code>mgmt_cli set https-inspection-rule name "HTTPS-INSPECT" certificate "CP-INTERNAL-CA" ...</code>'
+                desc: 'HTTPS trafik denetimi — CA sertifikası, bypass kategorileri ve aksiyon tanımı.<br><code>mgmt_cli add https-rule layer "Default Layer" position "top" name "HTTPS-INSPECT" action "Inspect" ...</code>'
             },
             sections: [
                 {
@@ -1180,8 +1184,10 @@ CheckPoint.httpsinspect = {
         });
     }
 };
-// Sözdizimi: Management API (R81+) "add-https-rule": layer (HTTPS Inspection katmanı), position, name,
-// source, destination, site-category, action (Inspect|Bypass), certificate, track. Eski sürümdeki
+// Sözdizimi (doğrulandı): Management API v2.2 "add-https-rule": zorunlu layer + position (top|bottom|sayı),
+// name, source, destination, site-category, action "Inspect"|"Bypass", track "Log". certificate yalnız gelen
+// (inbound) denetimde sunucu sertifikasıdır; verilmezse "Outbound Certificate" kullanılır. Giden denetimin
+// CA'sı "set outbound-inspection-certificate name … is-default true" ile varsayılan yapılır. Eski sürümdeki
 // "set https-inspection-rule" ve kategori başına application-site oluşturma API karşılığı olmayan satırlardı;
 // kategoriler bypass kuralının site-category listesine yazılır.
 function cgCpHttpsInspectGen(data) {
@@ -1190,8 +1196,9 @@ function cgCpHttpsInspectGen(data) {
     const cats = String(data.bypass_categories || '').split(',').map(x => x.trim()).filter(Boolean);
     const name = _cpQ(data.policy_name || ''), src = _cpQ(data.src_zone || ''), cert = _cpQ(data.ca_cert || '');
     const layer = '"Default Layer"';
-    w.push('⚠ API sözdizimi (add https-rule, katman adı "Default Layer") sürüme göre değişebilir; HTTPS Inspection katmanınızın adını SmartConsole\'da ya da mgmt_cli show https-layers ile doğrulayın.');
+    w.push('ℹ "Default Layer" API örneklerindeki varsayılan HTTPS Inspection katmanıdır; sizde farklıysa mgmt_cli show https-layers ile adını öğrenip layer değerini değiştirin.');
     w.push('ℹ Kaynak, SmartConsole\'daki bir ağ ya da güvenlik bölgesi (ör. InternalZone) nesnesinin adı olmalı; "trust" gibi başka markaların zone adları Check Point\'te tanımlı değildir.');
+    w.push('ℹ ' + cert + ' adlı sertifika SmartConsole\'da (HTTPS Inspection → Outbound Certificate) ya da mgmt_cli add/import-outbound-inspection-certificate ile önceden oluşturulmuş olmalı; kuralda certificate alanı yalnız gelen (inbound) denetimdeki sunucu sertifikası içindir, bu yüzden yazılmadı.');
     w.push('ℹ CA sertifikası tüm istemcilere güvenilir kök olarak dağıtılmalı (ör. GPO); dağıtılmazsa her HTTPS sitesinde sertifika uyarısı çıkar.');
     if (cats.length) w.push('ℹ Kategori adları Check Point URL kategorisi adlarıyla birebir aynı olmalı (ör. Financial Services, Health); eşleşmeyen ad API tarafından reddedilir.');
     else if (action === 'Inspect') w.push('⚠ Bypass kategorisi yok: bankacılık, sağlık gibi hassas trafik ve sertifika sabitleyen (pinning) uygulamalar denetime girer; yasal sorun ve bozulan uygulamalar beklenir.');
@@ -1201,7 +1208,9 @@ function cgCpHttpsInspectGen(data) {
         body += 'mgmt_cli add https-rule layer ' + layer + ' position "top" name ' + _cpQ(String(data.policy_name || '') + '-BYPASS') + ' source ' + src;
         body += cats.map((x, i) => ' site-category.' + (i + 1) + ' ' + _cpQ(x)).join('') + ' action "Bypass" track "Log" -s id.txt\n\n';
     }
-    body += 'mgmt_cli add https-rule layer ' + layer + ' position ' + (cats.length ? '"bottom"' : '"top"') + ' name ' + name + ' source ' + src + ' action "' + action + '" certificate ' + cert + ' track "Log" -s id.txt\n';
+    body += '# Giden denetimde kullanılacak CA (outbound inspection sertifikası olarak önceden eklenmiş olmalı)\n';
+    body += 'mgmt_cli set outbound-inspection-certificate name ' + cert + ' is-default true -s id.txt\n\n';
+    body += 'mgmt_cli add https-rule layer ' + layer + ' position ' + (cats.length ? '"bottom"' : '"top"') + ' name ' + name + ' source ' + src + ' action "' + action + '" track "Log" -s id.txt\n';
     body += '# NOT: HTTPS Inspection politikası da kurulmalı (Install Policy).\n';
     return { config: cgCpSession('HTTPS Inspection Policy', body, '# mgmt_cli show https-rulebase name ' + layer + '\n'), warnings: w };
 }
@@ -1222,7 +1231,7 @@ CheckPoint.logging = {
                     icon: 'fas fa-clipboard-list',
                     fields: [
                         { name: 'exp_name', label: 'Exporter Adı', type: 'text', validate: 'objname', required: true, placeholder: 'SIEM-EXPORT', hint: 'Log Exporter hedef tanımının adı' },
-                        { name: 'server_ip', why: 'Syslog/SmartEvent hedefi. Log gönderimi kesilirse gateway diski dolabilir ve trafik işleme etkilenir — disk kullanımını izle.', label: 'Syslog Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.50', hint: 'Logların iletileceği SIEM veya syslog sunucusu' },
+                        { name: 'server_ip', why: 'Syslog/SmartEvent hedefi. Log gönderimi kesilirse gateway diski dolabilir ve trafik işleme etkilenir — disk kullanımını izle.', label: 'Syslog Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.240.0.50', hint: 'Logların iletileceği SIEM veya syslog sunucusu' },
                         { name: 'protocol', why: "Servis nesnesinin protokolü. TCP/UDP ayrımını yanlış yapmak en sık görülen 'kural çalışmıyor' sebebidir.", label: 'Protokol', type: 'select', options: [
                             { value: 'udp', label: 'syslog-udp', selected: true },
                             { value: 'tcp', label: 'syslog-tcp' }
@@ -1267,7 +1276,7 @@ CheckPoint.snmp = {
             topic: {
                 icon: 'fas fa-chart-line',
                 title: 'SNMP v3 (Gaia clish)',
-                desc: 'Gaia üzerinde SNMP v3 kullanıcısı ve trap hedefi yapılandırması.<br><code>set snmp user snmp-v3-user auth-pass ... auth-proto SHA priv-pass ... priv-proto AES</code>'
+                desc: 'Gaia üzerinde SNMP v3 kullanıcısı ve trap hedefi yapılandırması.<br><code>add snmp usm user snmp-v3-user security-level authPriv auth-pass-phrase ... privacy-pass-phrase ... privacy-protocol AES authentication-protocol SHA256</code>'
             },
             sections: [
                 {
@@ -1276,8 +1285,8 @@ CheckPoint.snmp = {
                     fields: [
                         { name: 'username', why: "SNMPv3 kullanıcısı. v1/v2c community'lerinden farklı olarak kullanıcı bazlı yetki ve şifreleme sağlar.", label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'snmp-v3-user', hint: 'SNMP v3 kullanıcı adı' },
                         { name: 'auth_proto', why: "SNMPv3'te <code>MD5</code> ve <code>SHA1</code> zayıftır; mümkünse <code>SHA256</code> kullan.", label: 'Auth Protokol', type: 'select', options: [
-                            { value: 'SHA', label: 'SHA (Önerilen)', selected: true },
-                            { value: 'MD5', label: 'MD5 (Eski)' }
+                            { value: 'SHA', label: 'SHA256 (Önerilen)', selected: true },
+                            { value: 'MD5', label: 'MD5 (R81+ desteklemez)' }
                         ], hint: 'SNMP kimlik doğrulama hash algoritması' },
                         { name: 'auth_pass', why: "Kimlik doğrulama parolası en az 8 karakter olmalı. Kısa parola SNMPv3'ü v2c seviyesine düşürür.", label: 'Auth Şifresi', type: 'text', required: true, placeholder: 'AuthPass123!', hint: 'Authentication şifresi (en az 8 karakter)' },
                         { name: 'priv_proto', why: 'Şifreleme protokolü. <code>DES</code> kırılabilir; <code>AES</code> tercih edilmeli. authPriv seviyesi olmadan SNMP verisi açık geçer.', label: 'Priv Protokol', type: 'select', options: [
@@ -1291,7 +1300,7 @@ CheckPoint.snmp = {
                     title: 'Trap Hedefi',
                     icon: 'fas fa-bell',
                     fields: [
-                        { name: 'trap_target', why: "Trap alıcısı. Tanımlanmazsa gateway arıza bildirmez; sorunları ancak kullanıcı şikayetiyle öğrenirsin.", label: 'Trap Hedef IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'SNMP trap mesajlarının gönderileceği NMS sunucusu IP adresi' }
+                        { name: 'trap_target', why: "Trap alıcısı. Tanımlanmazsa gateway arıza bildirmez; sorunları ancak kullanıcı şikayetiyle öğrenirsin.", label: 'Trap Hedef IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.0.100', hint: 'SNMP trap mesajlarının gönderileceği NMS sunucusu IP adresi' }
                     ]
                 }
             ],
@@ -1301,34 +1310,39 @@ CheckPoint.snmp = {
         });
     }
 };
-// Sözdizimi: R81.x Gaia Administration Guide — SNMP: USM kullanıcısı "add snmp usm user", v3 trap alıcısı
-// "add snmp traps receiver … version v3" ve "set snmp traps trap-user". Eski sürümdeki "set snmp user …
-// auth-proto" ve community'li notif target satırları Gaia komutu değildi. Kesin seçenek adlarını
-// sürümünüzde "add snmp usm user ?" ile doğrulayın.
+// Sözdizimi (doğrulandı): R81.20 Gaia Administration Guide — Configuring SNMP in Gaia Clish:
+//   add snmp usm user <ad> security-level authPriv auth-pass-phrase <p> privacy-pass-phrase <p>
+//       privacy-protocol {DES | AES} authentication-protocol {SHA256 | SHA512}
+//   set snmp agent {on|off}; set snmp agent-version {any | v3-Only}; set snmp traps trap-user <ad>
+//   add snmp traps receiver <IPv4> version {v1|v2|v3} community <dizi>  (v3'te community kullanımı doğrulanamadı)
+// Önceki "auth-pass-type / privacy-pass-type" anahtar sözcükleri Gaia'da yoktur. R81+ SHA1/MD5 kabul etmez.
 function cgCpSnmpGen(data) {
     const w = [];
     const username = cgEsc(data.username || ''), authPass = cgEsc(data.auth_pass || '');
     const privPass = cgEsc(data.priv_pass || ''), trapTarget = cgEsc(data.trap_target || '');
-    const authType = data.auth_proto === 'MD5' ? 'MD5' : 'SHA256';
-    const privType = data.priv_proto === 'DES' ? 'DES' : 'AES128';
+    const authType = 'SHA256';
+    const privType = data.priv_proto === 'DES' ? 'DES' : 'AES';
+    const uRaw = String(data.username || '');
+    if (uRaw && (!/^[A-Za-z0-9]+$/.test(uRaw) || uRaw.length > 31)) w.push('⛔ Gaia USM kullanıcı adı yalnız harf ve rakamdan oluşmalı (boşluk, tire, ters bölü, iki nokta yok) ve en fazla 31 karakter olmalı (VSX/MDPS\'te 26).');
     [['Auth şifresi', data.auth_pass], ['Priv şifresi', data.priv_pass]].forEach(([l, p]) => {
         const s = String(p || '');
         if (s && s.length < 8) w.push('⛔ ' + l + ' en az 8 karakter olmalı; SNMPv3 daha kısasını reddeder.');
         if (/[\s"'\\]/.test(s)) w.push('⛔ ' + l + ' boşluk, tırnak ya da ters bölü içeriyor: clish satırında tırnaksız yazıldığı için komut bölünür. Bu karakterleri kullanmayın.');
     });
     if (data.auth_pass && data.auth_pass === data.priv_pass) w.push('⚠ Auth ve priv şifreleri aynı: biri ele geçerse ikisi de açığa çıkar; farklı değerler kullanın.');
-    if (authType === 'MD5') w.push('⚠ MD5 zayıftır; SHA256 kullanın.');
-    else w.push('ℹ SHA seçimi SHA256 olarak yazıldı; eski NMS SHA256 desteklemiyorsa SHA1 yazın.');
+    if (data.auth_proto === 'MD5') w.push('⛔ Gaia R81 ve üstü SNMPv3 kimlik doğrulamasında yalnız SHA256 ve SHA512 kabul eder (MD5 ve SHA1 yok): çıktı SHA256 olarak yazıldı. NMS tarafını da SHA256 yapın.');
+    else w.push('ℹ SHA seçimi SHA256 olarak yazıldı: Gaia R81 ve üstü SHA1 desteklemez. NMS\'te de SHA256 (usmHMAC192SHA256) seçin.');
     if (privType === 'DES') w.push('⚠ DES kırılabilir; AES kullanın.');
+    w.push('⚠ Trap alıcısı satırı doğrulanamadı: R81.20 kılavuzundaki sözdizimi "add snmp traps receiver <IP> version {v1|v2|v3} community <dizi>" biçimindedir; clish v3 alıcıda community isterse satırın sonuna ekleyin (Gaia Administration Guide → SNMP → Configuring SNMP in Gaia Clish).');
     w.push('ℹ Şifreler clish komut satırında görünür: komutu yazdıktan sonra ekran ve oturum kayıtlarını temizleyin. NMS\'den gateway\'e UDP 161 politikada izinli olmalı.');
     let c = '# ========================================\n# Check Point Gaia — SNMP v3 (clish)\n# ========================================\n\n';
     c += 'set snmp agent on\n';
     c += 'set snmp agent-version v3-Only\n';
-    c += 'add snmp usm user ' + username + ' security-level authPriv auth-pass-type ' + authType + ' auth-pass-phrase ' + authPass + ' privacy-pass-type ' + privType + ' privacy-pass-phrase ' + privPass + '\n';
+    c += 'add snmp usm user ' + username + ' security-level authPriv auth-pass-phrase ' + authPass + ' privacy-pass-phrase ' + privPass + ' privacy-protocol ' + privType + ' authentication-protocol ' + authType + '\n';
     c += 'add snmp traps receiver ' + trapTarget + ' version v3\n';
     c += 'set snmp traps trap-user ' + username + '\n';
     c += 'save config\n\n';
-    c += '# Doğrulama:\n# show snmp agent\n# show snmp usm users\n# show snmp traps receivers\n# show config-state\n';
+    c += '# Doğrulama:\n# show configuration snmp\n# show config-state\n';
     return { config: c, warnings: w };
 }
 
