@@ -60,14 +60,16 @@ const CgLabIos = (() => {
         nonegotiate: 'DTP pazarlığını kapat', address: 'IP adresi', speed: 'Hız', duplex: 'Çift yönlülük', 'spanning-tree': 'Spanning Tree ayarları', portfast: 'Kenar port (hemen forwarding)',
         bpduguard: 'BPDU gelirse portu err-disable yap', range: 'Arayüz aralığı', 'ip': 'IP ayarları', default: 'Varsayılan', errdisable: 'err-disable ayarları', recovery: 'Otomatik kurtarma',
         cause: 'Kurtarma nedeni', include: 'Eşleşen satırlar', exclude: 'Eşleşmeyen satırlar', begin: 'Eşleşmeden itibaren', section: 'Eşleşen bölümler', 'time-out': 'Zaman aşımı', 'authentication-retries': 'Deneme sayısı',
-        'extend': 'Genişletilmiş sistem kimliği', 'rapid-pvst': 'Rapid PVST+', pvst: 'PVST+', mst: 'MST', trunk_: '', users: 'Oturumlar', clock: 'Saat', length: 'Sayfa uzunluğu'
+        'extend': 'Genişletilmiş sistem kimliği', 'access-list': 'Numaralı erişim listesi', 'access-lists': 'Erişim listeleri', 'access-group': 'Arayüze ACL uygula', standard: 'Standart ACL (yalnız kaynak)', extended: 'Genişletilmiş ACL',
+        permit: 'İzin ver', deny: 'Engelle', remark: 'Açıklama satırı', nat: 'NAT', inside: 'İç (NAT inside)', outside: 'Dış (NAT outside)', source: 'Kaynak', list: 'ACL ile', overload: 'PAT (port çevirme)', static: 'Statik', translations: 'Çeviri tablosu', statistics: 'İstatistik', translation: 'Çeviri', connected: 'Bağlı ağlar',
+        errdisable: 'err-disable', 'err-disabled': 'err-disable portlar', clear: 'Temizle', in: 'Giriş yönü', out: 'Çıkış yönü', 'rapid-pvst': 'Rapid PVST+', pvst: 'PVST+', mst: 'MST', trunk_: '', users: 'Oturumlar', clock: 'Saat', length: 'Sayfa uzunluğu'
     };
     const VARH = { 'A.B.C.D': 'IP adresi / maske', WORD: 'Kelime', LINE: 'Metin', IFNAME: 'Arayüz (ör. GigabitEthernet0/1, g0/1)', VLIST: 'VLAN listesi (ör. 10,20-30)', HOP: 'Next-hop IP adresi veya arayüz' };
 
     // ── Varsayılan cihaz modeli
     function newIf(sw, name) {
         return { desc: '', shutdown: !sw && isPhys(name), mode: null, accessVlan: 1, voiceVlan: null, native: 1, allowed: null,
-            nonegotiate: false, ip: null, mask: null, portfast: false, bpduguard: false, speed: 'auto', duplex: 'auto', errdis: false };
+            nonegotiate: false, ip: null, mask: null, portfast: false, bpduguard: false, speed: 'auto', duplex: 'auto', errdis: false, errReason: null, accessIn: null, accessOut: null, nat: null };
     }
     function baseModel(lab) {
         const sw = lab.kind !== 'router';
@@ -78,7 +80,7 @@ const CgLabIos = (() => {
             ifs: {}, vlans: sw ? { 1: 'default' } : {}, stpMode: 'pvst', portfastDefault: false, bpduguardDefault: false,
             errRecovery: { bpduguard: false, interval: 300 }, ipRouting: !sw, defaultGw: null, routes: [],
             lines: { con: { pw: null, login: false, logsync: false, timeout: null }, vty: { '0 4': { pw: null, login: 'login', transport: null, timeout: null, acl: null }, '5 15': { pw: null, login: 'login', transport: null, timeout: null, acl: null } } },
-            ospf: {}, links: {}
+            ospf: {}, links: {}, acls: {}, nat: []
         };
         for (const n of lab.ifaces || (sw ? range('GigabitEthernet0/', 1, 24) : range('GigabitEthernet0/', 0, 2))) m.ifs[n] = newIf(sw, n);
         if (sw) m.ifs.Vlan1 = newIf(sw, 'Vlan1');
@@ -89,7 +91,10 @@ const CgLabIos = (() => {
     const clone = o => JSON.parse(JSON.stringify(o));
 
     // ═══ Oturum ═══════════════════════════════════════════════════════════════
-    function session(lab) {
+    function session(lab, opts) {
+        // Varyant: lab.variants[i] → start komutları ve sim verisi birleşir (fortios.js ile aynı sözleşme)
+        const VAR = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
+        if (VAR) lab = Object.assign({}, lab, { start: (lab.start || []).concat(VAR.start || []), sim: Object.assign({}, lab.sim || {}, VAR.sim || {}) });
         const S = {
             lab, m: baseModel(lab), mode: 'user', ctx: [], vctx: [], startup: null, pending: null,
             ev: [], hist: [], loggedOut: false, arp: {}
@@ -127,10 +132,23 @@ const CgLabIos = (() => {
         const SHOW_PRIV = [
             { p: 'show running-config', run: () => runText(true) },
             { p: 'show startup-config', run: () => S.startup ? 'Using ' + startText().length + ' out of 65536 bytes\n' + startText() : 'startup-config is not present' },
-            { p: 'show ip route', run: showIpRoute },
+            { p: 'show ip route', run: () => showIpRoute() },
+            { p: 'show ip route static', run: () => showIpRoute('static') },
+            { p: 'show ip route connected', run: () => showIpRoute('connected') },
+            { p: 'show ip route A.B.C.D$ip', run: (a) => showRouteFor(a.ip) },
+            { p: 'show interfaces IFNAME$if', run: (a) => showIfDetail(a.if) },
+            { p: 'show interfaces status err-disabled', sw: 1, run: showErrDis },
+            { p: 'show errdisable recovery', sw: 1, run: showErrRec },
             { p: 'show interfaces trunk', sw: 1, run: showIntTrunk },
             { p: 'show interfaces IFNAME$if switchport', sw: 1, run: (a) => showIfSwitchport(a.if) },
             { p: 'show ip ssh', run: showIpSsh },
+            { p: 'show access-lists', run: () => showAcls() },
+            { p: 'show access-lists WORD$n', run: (a) => showAcls(a.n) },
+            { p: 'show ip access-lists', run: () => showAcls() },
+            { p: 'show ip access-lists WORD$n', run: (a) => showAcls(a.n) },
+            { p: 'show ip nat translations', run: natTrans },
+            { p: 'show ip nat statistics', run: natStats },
+            { p: 'show ip interface IFNAME$if', run: (a) => showIpInterface(a.if) },
         ];
         const EXEC_USER = X([
             { p: 'enable', run: cmdEnable },
@@ -150,6 +168,7 @@ const CgLabIos = (() => {
             { p: 'reload', run: cmdReload },
             { p: 'ping A.B.C.D$ip', run: (a) => ping(a.ip) },
             { p: 'terminal length (0-512)', run: () => '' },
+            { p: 'clear ip nat translation *', run: () => '' },
         ].concat(SHOW, SHOW_PRIV));
 
         const COMMON = [
@@ -184,6 +203,13 @@ const CgLabIos = (() => {
             { p: 'line console (0-0)', run: () => { S.mode = 'line'; S.ctx = ['con']; }, neg: false },
             { p: 'line vty (0-15)$a (0-15)$b', run: (a) => vtyEnter(a.a, a.b), neg: false },
             { p: 'router ospf (1-65535)$pid', run: (a) => { M().ospf[a.pid] = M().ospf[a.pid] || { rid: null, nets: [], passive: [], passiveDefault: false, dio: false }; S.mode = 'router'; S.ctx = [String(a.pid)]; }, no: (a) => { delete M().ospf[a.pid]; } },
+            { p: 'access-list (1-99)$n <permit|deny|remark>$a LINE$r', run: (a) => aclNumAdd(a, 'standard'), no: null, neg: false },
+            { p: 'access-list (100-199)$n <permit|deny|remark>$a LINE$r', run: (a) => aclNumAdd(a, 'extended'), neg: false },
+            { p: 'access-list (1-199)$n', noOnly: 1, no: (a) => { delete M().acls[String(a.n)]; } },
+            { p: 'ip access-list <standard|extended>$t WORD$name', run: (a) => { const x = M().acls[a.name] || (M().acls[a.name] = { type: a.t, entries: [] }); if (x.type !== a.t) return '% A named ' + x.type + ' IP access list with this name already exists'; S.mode = a.t === 'standard' ? 'snacl' : 'enacl'; S.ctx = [a.name]; }, no: (a) => { delete M().acls[a.name]; } },
+            { p: 'ip nat inside source list WORD$acl interface IFNAME$if overload', run: (a) => { M().nat = M().nat.filter(x => !(x.type === 'list' && x.acl === a.acl)); M().nat.push({ type: 'list', acl: a.acl, iface: a.if, overload: true }); }, no: (a) => { M().nat = M().nat.filter(x => !(x.type === 'list' && x.acl === a.acl)); } },
+            { p: 'ip nat inside source static A.B.C.D$l A.B.C.D$g', run: (a) => natStaticAdd({ type: 'static', local: a.l, global: a.g }), no: (a) => { M().nat = M().nat.filter(x => !(x.type === 'static' && x.local === a.l && x.global === a.g && !x.proto)); } },
+            { p: 'ip nat inside source static <tcp|udp>$p A.B.C.D$l (1-65535)$lp A.B.C.D$g (1-65535)$gp', run: (a) => natStaticAdd({ type: 'static', proto: a.p, local: a.l, lport: a.lp, global: a.g, gport: a.gp }), no: (a) => { M().nat = M().nat.filter(x => !(x.type === 'static' && x.proto === a.p && x.local === a.l && x.global === a.g)); } },
             { p: 'spanning-tree mode !<pvst|rapid-pvst|mst>$m', sw: 1, run: (a) => { M().stpMode = a.m; }, no: () => { M().stpMode = 'pvst'; } },
             { p: 'spanning-tree portfast default', sw: 1, run: () => { M().portfastDefault = true; return '%Warning: this command enables portfast by default on all interfaces. You\n should now disable portfast explicitly on switched ports leading to hubs,\n switches and bridges as they may create temporary bridging loops.'; }, no: () => { M().portfastDefault = false; } },
             { p: 'spanning-tree portfast bpduguard default', sw: 1, run: () => { M().bpduguardDefault = true; }, no: () => { M().bpduguardDefault = false; } },
@@ -192,7 +218,7 @@ const CgLabIos = (() => {
         ].concat(COMMON));
         const IFC = [
             { p: 'description !LINE$d', run: (a) => secsIf().forEach(i => { i.desc = a.d.slice(0, 240); }), no: () => secsIf().forEach(i => { i.desc = ''; }) },
-            { p: 'shutdown', run: () => secsIf().forEach(i => { i.shutdown = true; }), no: () => secsIf().forEach(i => { i.shutdown = false; i.errdis = false; }) },
+            { p: 'shutdown', run: () => secsIf().forEach(i => { i.shutdown = true; }), no: () => secsIf().forEach(i => { i.shutdown = false; i.errdis = false; i.errReason = null; }) },
             { p: 'switchport mode !<access|trunk>$m', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { i.mode = a.m; }), no: () => secsIf().forEach(i => { i.mode = null; }) },
             { p: 'switchport access vlan !(1-4094)$v', sw: 1, phys: 1, run: accessVlan, no: () => secsIf().forEach(i => { i.accessVlan = 1; }) },
             { p: 'switchport voice vlan !(1-4094)$v', sw: 1, phys: 1, run: voiceVlan, no: () => secsIf().forEach(i => { i.voiceVlan = null; }) },
@@ -203,6 +229,8 @@ const CgLabIos = (() => {
             { p: 'switchport trunk allowed vlan !VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { i.allowed = vlanList(a.l); }), no: () => secsIf().forEach(i => { i.allowed = null; }) },
             { p: 'switchport nonegotiate', sw: 1, phys: 1, run: nonegotiate, no: () => secsIf().forEach(i => { i.nonegotiate = false; }) },
             { p: 'ip address !A.B.C.D$ip !MASK$mask', run: ipAddr, no: () => secsIf().forEach(i => { i.ip = null; i.mask = null; }) },
+            { p: 'ip access-group WORD$acl !<in|out>$d', run: (a) => secsIf().forEach(i => { if (a.d === 'in') i.accessIn = a.acl; else i.accessOut = a.acl; }), no: (a) => secsIf().forEach(i => { if (!a.d || a.d === 'in') { if (!a.acl || i.accessIn === a.acl) i.accessIn = null; } if (!a.d || a.d === 'out') { if (!a.acl || i.accessOut === a.acl) i.accessOut = null; } }) },
+            { p: 'ip nat !<inside|outside>$n', run: (a) => { if (M().sw && S.ctx.some(isPhys)) return { err: 'invalid', col: 0 }; secsIf().forEach(i => { i.nat = a.n; }); }, no: () => secsIf().forEach(i => { i.nat = null; }) },
             { p: 'speed !<10|100|1000|auto>$s', phys: 1, run: (a) => secsIf().forEach(i => { i.speed = a.s; }), no: () => secsIf().forEach(i => { i.speed = 'auto'; }) },
             { p: 'duplex !<auto|full|half>$d', phys: 1, run: (a) => secsIf().forEach(i => { i.duplex = a.d; }), no: () => secsIf().forEach(i => { i.duplex = 'auto'; }) },
             { p: 'spanning-tree portfast', sw: 1, phys: 1, run: () => { secsIf().forEach(i => { i.portfast = true; }); return portfastWarn(); }, no: () => secsIf().forEach(i => { i.portfast = false; }) },
@@ -230,9 +258,18 @@ const CgLabIos = (() => {
             { p: 'passive-interface IFNAME$i', run: (a) => { const o = osp(); if (!o.passive.includes(a.i)) o.passive.push(a.i); }, no: (a) => { const o = osp(); o.passive = o.passive.filter(x => x !== a.i); if (o.passiveDefault && !o.passive.includes('!' + a.i)) o.passive.push('!' + a.i); } },
             { p: 'default-information originate', run: () => { osp().dio = true; }, no: () => { osp().dio = false; } },
         ].concat(COMMON));
+        const NACL = t => X([
+            { p: '(1-2147483647)$seq <permit|deny|remark>$a LINE$r', run: (a) => aclEntryAdd(S.ctx[0], t, a.seq, [a.a].concat(a.r.trim().split(/\s+/)), String(a.seq).length + 1), no: null, neg: false },
+            { p: '<permit|deny|remark>$a LINE$r', run: (a) => aclEntryAdd(S.ctx[0], t, undefined, [a.a].concat(a.r.trim().split(/\s+/)), 0), neg: false },
+            { p: '(1-2147483647)$seq', noOnly: 1, no: (a) => { const x = M().acls[S.ctx[0]]; x.entries = x.entries.filter(e => e.seq !== a.seq); } },
+            { p: '<permit|deny>$a LINE$r', noOnly: 1, no: (a) => { const x = M().acls[S.ctx[0]], r = parseAce([a.a].concat(a.r.trim().split(/\s+/)), t); if (r.ace) { const tx = aceTxt(r.ace, t); x.entries = x.entries.filter(e => aceTxt(e, t) !== tx); } } },
+        ].concat(COMMON));
+        const SNACL = NACL('standard'), ENACL = NACL('extended');
+        function aclNumAdd(a, type) { return aclEntryAdd(String(a.n), type, undefined, [a.a].concat(a.r.trim().split(/\s+/)), ('access-list ' + a.n + ' ').length); }
+        function natStaticAdd(r) { if (M().nat.some(x => x.type === 'static' && x.global === r.global && (x.gport || 0) === (r.gport || 0))) return '% similar static entry (' + r.local + ' -> ' + r.global + ') already exists'; M().nat.push(r); }
         const osp = () => M().ospf[S.ctx[0]];
-        const MODES = { config: CONFIG, if: IFMODE, range: IFMODE, vlan: VLANMODE, line: LINEMODE, router: ROUTERMODE };
-        const PROMPT = { user: '>', priv: '#', config: '(config)#', if: '(config-if)#', range: '(config-if-range)#', vlan: '(config-vlan)#', line: '(config-line)#', router: '(config-router)#' };
+        const MODES = { config: CONFIG, if: IFMODE, range: IFMODE, vlan: VLANMODE, line: LINEMODE, router: ROUTERMODE, snacl: SNACL, enacl: ENACL };
+        const PROMPT = { user: '>', priv: '#', config: '(config)#', if: '(config-if)#', range: '(config-if-range)#', vlan: '(config-vlan)#', line: '(config-line)#', router: '(config-router)#', snacl: '(config-std-nacl)#', enacl: '(config-ext-nacl)#' };
 
         // Cihaz türüne / arayüze göre komut süzgeci
         function avail(list, noForm) {
@@ -379,14 +416,15 @@ const CgLabIos = (() => {
             }
             S.mode = 'range'; S.ctx = out;
         }
+        // line vty a b: kapsadığı mevcut blokların hepsine uygulanır (0 15 → "0 4" ve "5 15"), kapsamıyorsa yeni blok
         function vtyEnter(a, b) {
             if (a > b) return { err: 'invalid', col: 12 };
-            const k = a + ' ' + b;
-            if (!M().lines.vty[k]) M().lines.vty[k] = { pw: null, login: 'login', transport: null, timeout: null, acl: null };
-            S.mode = 'line'; S.ctx = [k];
+            const keys = Object.keys(M().lines.vty).filter(k => { const [x, y] = k.split(' ').map(Number); return x <= b && y >= a; });
+            if (!keys.length) { const k = a + ' ' + b; M().lines.vty[k] = { pw: null, login: 'login', transport: null, timeout: null, acl: null }; keys.push(k); }
+            S.mode = 'line'; S.ctx = keys;
         }
         const lineObj = k => k === 'con' ? M().lines.con : M().lines.vty[k];
-        const lineSet = fn => { fn(lineObj(S.ctx[0])); };
+        const lineSet = fn => { S.ctx.forEach(k => fn(lineObj(k))); };
         function accessVlan(a) {
             let out = '';
             if (!M().vlans[a.v]) { M().vlans[a.v] = 'VLAN' + String(a.v).padStart(4, '0'); out = '% Access VLAN does not exist. Creating vlan ' + a.v; }
@@ -475,6 +513,9 @@ const CgLabIos = (() => {
                 } else {
                     L.push(i.ip ? ' ip address ' + i.ip + ' ' + i.mask : ' no ip address');
                 }
+                if (i.accessIn) L.push(' ip access-group ' + i.accessIn + ' in');
+                if (i.accessOut) L.push(' ip access-group ' + i.accessOut + ' out');
+                if (i.nat) L.push(' ip nat ' + i.nat);
                 if (i.shutdown) L.push(' shutdown');
                 if (i.speed !== 'auto') L.push(' speed ' + i.speed);
                 if (i.duplex !== 'auto') L.push(' duplex ' + i.duplex);
@@ -492,6 +533,12 @@ const CgLabIos = (() => {
                 L.push('!');
             }
             L.push('ip forward-protocol nd', 'no ip http server', 'no ip http secure-server', '!');
+            m.nat.forEach(x => L.push(x.type === 'list' ? 'ip nat inside source list ' + x.acl + ' interface ' + x.iface + ' overload' : 'ip nat inside source static ' + (x.proto ? x.proto + ' ' + x.local + ' ' + x.lport + ' ' + x.global + ' ' + x.gport : x.local + ' ' + x.global)));
+            for (const [n, a] of Object.entries(m.acls)) {
+                if (/^\d+$/.test(n)) a.entries.forEach(e => L.push('access-list ' + n + ' ' + aceTxt(e, a.type)));
+                else { L.push('ip access-list ' + a.type + ' ' + n); a.entries.forEach(e => L.push(' ' + aceTxt(e, a.type))); }
+            }
+            if (Object.keys(m.acls).length || m.nat.length) L.push('!');
             if (m.defaultGw) L.push('ip default-gateway ' + m.defaultGw);
             m.routes.forEach(r => L.push('ip route ' + r.net + ' ' + r.mask + ' ' + r.nh + (r.ad !== 1 ? ' ' + r.ad : '')));
             if (m.sshVer) L.push('ip ssh version ' + m.sshVer);
@@ -587,36 +634,249 @@ const CgLabIos = (() => {
                 'Trunking Native Mode VLAN: ' + vn(i.native), 'Voice VLAN: ' + (i.voiceVlan ? vn(i.voiceVlan) : 'none'),
                 'Trunking VLANs Enabled: ' + (i.allowed ? (i.allowed.length ? vlanCompress(i.allowed) : 'NONE') : 'ALL'), 'Pruning VLANs Enabled: 2-1001'].join('\n');
         }
+        // ═══ ACL ══════════════════════════════════════════════════════════
+        const PORTN = { www: 80, http: 80, telnet: 23, smtp: 25, domain: 53, ftp: 21, 'ftp-data': 20, pop3: 110, bgp: 179, ntp: 123, snmp: 161, tftp: 69 };
+        const PORTNAME = { 80: 'www', 23: 'telnet', 25: 'smtp', 53: 'domain', 21: 'ftp', 110: 'pop3', 179: 'bgp' };
+        // ACE ayrıştırma: toks = ['permit', ...]; tip 'standard'|'extended' → {ace} | {err, at}
+        function parseAce(toks, type) {
+            let i = 0; const A = { action: toks[i++] };
+            if (A.action !== 'permit' && A.action !== 'deny') return { err: 'invalid', at: 0 };
+            const addr = () => {
+                const t = toks[i];
+                if (t === 'any') { i++; return { any: true }; }
+                if (t === 'host') { i++; if (!isIp(toks[i] || '')) return { err: i }; return { ip: toks[i++], wc: '0.0.0.0' }; }
+                if (isIp(t || '')) { i++; if (toks[i] && C.wildLen(toks[i]) >= 0) return { ip: t, wc: toks[i++] }; if (type === 'standard') return { ip: t, wc: '0.0.0.0' }; return { err: i }; }
+                return { err: i };
+            };
+            const portSpec = () => {
+                const op = toks[i];
+                if (!['eq', 'neq', 'gt', 'lt', 'range'].includes(op)) return null;
+                i++;
+                const num = t => /^\d+$/.test(t || '') && +t <= 65535 ? +t : PORTN[t];
+                const a = num(toks[i]); if (a === undefined) return { err: i }; i++;
+                if (op === 'range') { const b = num(toks[i]); if (b === undefined) return { err: i }; i++; return { op, a, b }; }
+                return { op, a };
+            };
+            if (type === 'standard') {
+                A.proto = 'ip'; A.src = addr(); if (A.src.err !== undefined) return { err: 'invalid', at: A.src.err }; A.dst = { any: true };
+            } else {
+                const pr = toks[i++]; if (!['ip', 'tcp', 'udp', 'icmp'].includes(pr)) return { err: pr === undefined ? 'incomplete' : 'invalid', at: i - 1 };
+                A.proto = pr;
+                A.src = addr(); if (A.src.err !== undefined) return { err: toks[A.src.err] === undefined ? 'incomplete' : 'invalid', at: A.src.err };
+                if (pr === 'tcp' || pr === 'udp') { const sp = portSpec(); if (sp && sp.err !== undefined) return { err: 'invalid', at: sp.err }; A.sport = sp; }
+                A.dst = addr(); if (A.dst.err !== undefined) return { err: toks[A.dst.err] === undefined ? 'incomplete' : 'invalid', at: A.dst.err };
+                if (pr === 'tcp' || pr === 'udp') { const dp = portSpec(); if (dp && dp.err !== undefined) return { err: 'invalid', at: dp.err }; A.dport = dp; }
+                if (pr === 'icmp' && ['echo', 'echo-reply', 'unreachable', 'time-exceeded'].includes(toks[i])) A.icmp = toks[i++];
+            }
+            if (toks[i] === 'log') { A.log = true; i++; }
+            if (i < toks.length) return { err: 'invalid', at: i };
+            return { ace: A };
+        }
+        const addrTxt = (a, std) => a.any ? 'any' : a.wc === '0.0.0.0' ? (std ? a.ip : 'host ' + a.ip) : a.ip + ' ' + a.wc;
+        const portTxt = p => !p ? '' : ' ' + p.op + ' ' + (PORTNAME[p.a] || p.a) + (p.op === 'range' ? ' ' + (PORTNAME[p.b] || p.b) : '');
+        function aceTxt(A, type, forShow) {
+            if (A.remark !== undefined) return 'remark ' + A.remark;
+            if (type === 'standard') return A.action + ' ' + (forShow && !A.src.any && A.src.wc !== '0.0.0.0' ? A.src.ip + ', wildcard bits ' + A.src.wc : addrTxt(A.src, true)) + (A.log ? ' log' : '');
+            return A.action + ' ' + A.proto + ' ' + addrTxt(A.src) + portTxt(A.sport) + ' ' + addrTxt(A.dst) + portTxt(A.dport) + (A.icmp ? ' ' + A.icmp : '') + (A.log ? ' log' : '');
+        }
+        const inA = (a, ip) => a.any || sameNet(a.ip, ip, C.wildLen(a.wc));
+        const inP = (p, n) => !p || (p.op === 'eq' ? n === p.a : p.op === 'neq' ? n !== p.a : p.op === 'gt' ? n > p.a : p.op === 'lt' ? n < p.a : n >= p.a && n <= p.b);
+        function aceMatch(A, f) {
+            if (A.remark !== undefined) return false;
+            if (A.proto !== 'ip' && A.proto !== f.proto) return false;
+            if (!inA(A.src, f.src) || !inA(A.dst, f.dst)) return false;
+            if ((A.proto === 'tcp' || A.proto === 'udp') && (!inP(A.sport, f.sport) || !inP(A.dport, f.dport))) return false;
+            if (A.proto === 'icmp' && A.icmp && A.icmp !== (f.icmp || 'echo')) return false;
+            return true;
+        }
+        function aclEval(name, f, count) {
+            const acl = M().acls[name];
+            if (!acl) return { permit: true, missing: true };   // IOS: tanımsız ACL uygulanırsa tüm trafik geçer
+            for (const e of acl.entries) if (aceMatch(e, f)) { if (count) e.hits = (e.hits || 0) + (f.n || 5); return { permit: e.action === 'permit', seq: e.seq }; }
+            return { permit: false, implicit: true };
+        }
+        function aclEntryAdd(name, type, seq, toks, col0) {
+            const acl = M().acls[name] || (M().acls[name] = { type, entries: [] });
+            if (acl.type !== type) return { err: 'invalid', col: col0 };
+            let ace;
+            if (toks[0] === 'remark') ace = { remark: toks.slice(1).join(' ') };
+            else { const r = parseAce(toks, type); if (r.err) return r.err === 'incomplete' ? '% Incomplete command.' : { err: 'invalid', col: col0 + toks.slice(0, r.at).join(' ').length + (r.at ? 1 : 0) }; ace = r.ace; }
+            const txt = aceTxt(ace, type);
+            if (acl.entries.some(e => aceTxt(e, type) === txt && e.remark === undefined && ace.remark === undefined)) return '';   // aynı satır tekrar eklenmez
+            if (seq === undefined) seq = (acl.entries.reduce((a, e) => Math.max(a, e.seq), 0) + 10);
+            else if (acl.entries.some(e => e.seq === seq)) return '% Duplicate sequence number';
+            ace.seq = seq;
+            acl.entries.push(ace); acl.entries.sort((a, b) => a.seq - b.seq);
+            return '';
+        }
+        function showAcls(only) {
+            simTraffic();
+            const L = [];
+            for (const [n, a] of Object.entries(M().acls)) {
+                if (only && n !== only) continue;
+                L.push((a.type === 'standard' ? 'Standard' : 'Extended') + ' IP access list ' + n);
+                a.entries.filter(e => e.remark === undefined).forEach(e => L.push('    ' + e.seq + ' ' + aceTxt(e, a.type, true) + (e.hits ? ' (' + e.hits + ' match' + (e.hits > 1 ? 'es' : '') + ')' : '')));
+            }
+            return L.join('\n');
+        }
+        // ═══ NAT + trafik benzetimi (lab.sim.flows) ═══════════════════════════
+        function natStaticFor(ip, port, proto, dir) {
+            return M().nat.find(r => r.type === 'static' && (dir === 'out' ? r.local === ip : r.global === ip) && (!r.proto || (r.proto === proto && (dir === 'out' ? r.lport : r.gport) === port)));
+        }
+        // Tek paket yolu: giriş ACL → (dış→iç statik NAT) → rota → iç→dış NAT → çıkış ACL
+        function forward(f0, count) {
+            const f = Object.assign({ sport: 50000, proto: 'tcp', n: 5 }, f0), res = { f };
+            const I = M().ifs[f.in];
+            if (!I || !ifUp(f.in)) return Object.assign(res, { stage: 'noarrive' });
+            if (I.accessIn) { const a = aclEval(I.accessIn, f, count); if (!a.permit) return Object.assign(res, { stage: 'acl-in', acl: I.accessIn, seq: a.seq, implicit: a.implicit }); }
+            let pkt = Object.assign({}, f);
+            if (I.nat === 'outside') { const st = natStaticFor(f.dst, f.dport, f.proto, 'in'); if (st) { res.dnat = { from: f.dst, to: st.local }; pkt.dst = st.local; if (st.lport) pkt.dport = st.lport; } }
+            const r = lookup(pkt.dst);
+            if (!r) return Object.assign(res, { stage: 'noroute' });
+            res.out = r.ifn; res.route = r;
+            const O = M().ifs[r.ifn];
+            if (I.nat === 'inside' && O && O.nat === 'outside') {
+                const st = natStaticFor(pkt.src, pkt.sport, pkt.proto, 'out');
+                if (st) { res.snat = { local: pkt.src, global: st.global, lport: pkt.sport, gport: st.gport || pkt.sport, static: true }; pkt.src = st.global; }
+                else {
+                    const dyn = M().nat.find(x => x.type === 'list' && aclEval(x.acl, Object.assign({}, pkt, { n: 0 }), false).permit && !aclEval(x.acl, pkt, false).missing);
+                    if (dyn && dyn.iface === r.ifn && M().ifs[dyn.iface].ip) { const g = 1024 + (ip2n(pkt.src) + pkt.sport) % 3000; res.snat = { local: pkt.src, global: M().ifs[dyn.iface].ip, lport: pkt.sport, gport: g }; pkt.src = res.snat.global; pkt.sport = g; }
+                }
+            }
+            if (O && O.accessOut) { const a = aclEval(O.accessOut, pkt, count); if (!a.permit) return Object.assign(res, { stage: 'acl-out', acl: O.accessOut, seq: a.seq, implicit: a.implicit }); }
+            const hosts = S.lab.hosts || [];
+            if (!hosts.includes(pkt.dst)) return Object.assign(res, { stage: 'nohost', pkt });
+            return Object.assign(res, { stage: 'ok', pkt });
+        }
+        function simTraffic() {
+            Object.values(M().acls).forEach(a => a.entries.forEach(e => { e.hits = 0; }));
+            return ((S.lab.sim && S.lab.sim.flows) || []).map(f => forward(f, true));
+        }
+        function natTrans() {
+            const res = simTraffic(), L = ['Pro Inside global         Inside local          Outside local         Outside global'];
+            const seen = {};
+            res.filter(r => r.snat && (r.stage === 'ok' || r.stage === 'nohost')).forEach(r => {
+                const k = r.snat.global + r.snat.gport; if (seen[k]) return; seen[k] = true;
+                const pr = r.f.proto === 'icmp' ? 'icmp' : r.f.proto, hp = (ip, p) => ip + ':' + p;
+                L.push(pad(pr, 4) + pad(hp(r.snat.global, r.snat.gport), 22) + pad(hp(r.snat.local, r.snat.lport), 22) + pad(hp(r.pkt.dst, r.f.dport), 22) + hp(r.pkt.dst, r.f.dport));
+            });
+            res.filter(r => r.dnat && r.stage === 'ok').forEach(r => { L.push(pad(r.f.proto, 4) + pad(r.dnat.from + ':' + r.f.dport, 22) + pad(r.dnat.to + ':' + r.pkt.dport, 22) + pad(r.f.src + ':' + r.f.sport, 22) + r.f.src + ':' + r.f.sport); });
+            M().nat.filter(x => x.type === 'static').forEach(x => L.push(pad(x.proto || '---', 4) + pad(x.global + (x.gport ? ':' + x.gport : ''), 22) + pad(x.local + (x.lport ? ':' + x.lport : ''), 22) + pad('---', 22) + '---'));
+            log({ nattrans: L.length - 1 });
+            return L.join('\n');
+        }
+        function natStats() {
+            const res = simTraffic(), dyn = res.filter(r => r.snat && !r.snat.static).length, st = M().nat.filter(x => x.type === 'static').length;
+            const ins = Object.keys(M().ifs).filter(n => M().ifs[n].nat === 'inside'), outs = Object.keys(M().ifs).filter(n => M().ifs[n].nat === 'outside');
+            return ['Total active translations: ' + (dyn + st) + ' (' + st + ' static, ' + dyn + ' dynamic; ' + (dyn + M().nat.filter(x => x.proto).length) + ' extended)', 'Outside interfaces:'].concat(outs.map(n => '  ' + n), ['Inside interfaces:'], ins.map(n => '  ' + n),
+                ['Hits: ' + (dyn * 12) + '  Misses: ' + res.filter(r => r.stage === 'ok' && !r.snat).length, 'Expired translations: 0', 'Dynamic mappings:', '-- Inside Source'],
+                M().nat.filter(x => x.type === 'list').map((x, k) => '[Id: ' + (k + 1) + '] access-list ' + x.acl + ' interface ' + x.iface + (x.overload ? ' refcount ' + dyn : ''))).join('\n');
+        }
+        function showIpInterface(n) {
+            const i = M().ifs[n]; if (!i) return '% Invalid interface';
+            const [st, pr] = ifLine(n);
+            return [n + ' is ' + st + ', line protocol is ' + pr, i.ip ? '  Internet address is ' + i.ip + '/' + maskLen(i.mask) : '  Internet protocol processing disabled', '  Broadcast address is 255.255.255.255', '  MTU is 1500 bytes',
+                '  Outgoing Common access list is not set', '  Outgoing access list is ' + (i.accessOut || 'not set'), '  Inbound Common access list is not set', '  Inbound  access list is ' + (i.accessIn || 'not set'), '  Proxy ARP is enabled', '  IP fast switching is enabled',
+                '  IP NAT ' + (i.nat || 'disabled')].join('\n');
+        }
+        const macFor = n => { const k = ifNums(n).reduce((a, x) => a * 64 + x, 0) + IF_ORDER.indexOf(ifType(n)) * 4096; return '0011.22' + ((k >> 8) & 255).toString(16).padStart(2, '0') + '.' + (k & 255).toString(16).padStart(2, '0') + '0' + (k % 10); };
+        function dupMismatch(n) { const p = (S.lab.sim && S.lab.sim.peer || {})[n]; const i = M().ifs[n]; if (!p || !M().links[n]) return false; const d = i.duplex === 'auto' ? (p.duplex === 'auto' ? 'full' : 'half') : i.duplex; return d !== (p.duplex === 'auto' ? 'full' : p.duplex); }
+        function showIfDetail(n) {
+            const i = M().ifs[n];
+            if (!i) return '% Invalid interface';
+            const [st, pr] = ifLine(n), up = pr === 'up';
+            const L = [n + ' is ' + st + ', line protocol is ' + pr + (isPhys(n) && M().sw ? ' (' + (i.errdis ? 'err-disabled' : up ? 'connected' : i.shutdown ? 'disabled' : 'notconnect') + ')' : ''),
+                '  Hardware is ' + (isPhys(n) ? 'Gigabit Ethernet' : ifType(n)) + ', address is ' + macFor(n) + ' (bia ' + macFor(n) + ')'];
+            if (i.desc) L.push('  Description: ' + i.desc);
+            if (i.ip) L.push('  Internet address is ' + i.ip + '/' + maskLen(i.mask));
+            L.push('  MTU 1500 bytes, BW ' + (i.speed === '10' ? 10000 : i.speed === '100' ? 100000 : 1000000) + ' Kbit/sec, DLY 10 usec,', '     reliability 255/255, txload 1/255, rxload 1/255', '  Encapsulation ARPA, loopback not set', '  Keepalive set (10 sec)');
+            if (isPhys(n)) {
+                const peer = (S.lab.sim && S.lab.sim.peer || {})[n] || {};
+                const dup = i.duplex === 'auto' ? (up ? (peer.duplex === 'half' ? 'Half-duplex' : 'Full-duplex') : 'Auto-duplex') : (i.duplex === 'half' ? 'Half-duplex' : 'Full-duplex');
+                const spd = i.speed === 'auto' ? (up ? '1000Mb/s' : 'Auto-speed') : i.speed + 'Mb/s';
+                L.push('  ' + dup + ', ' + spd + ', media type is 10/100/1000BaseTX');
+            }
+            const bad = dupMismatch(n);
+            L.push('  Last input 00:00:01, output 00:00:00, output hang never', '  5 minute input rate ' + (up ? 12000 : 0) + ' bits/sec, ' + (up ? 9 : 0) + ' packets/sec',
+                '     ' + (up ? 184233 : 0) + ' packets input, ' + (up ? 21744921 : 0) + ' bytes, 0 no buffer', '     Received ' + (up ? 1822 : 0) + ' broadcasts (0 multicasts)', '     0 runts, 0 giants, 0 throttles',
+                '     ' + (bad ? 2318 : 0) + ' input errors, ' + (bad ? 2291 : 0) + ' CRC, ' + (bad ? 27 : 0) + ' frame, 0 overrun, 0 ignored',
+                '     ' + (up ? 201877 : 0) + ' packets output, ' + (up ? 30155288 : 0) + ' bytes, 0 underruns', '     0 output errors, ' + (bad ? 1832 : 0) + ' collisions, ' + (i.errdis ? 1 : 0) + ' interface resets',
+                '     0 unknown protocol drops', '     0 babbles, ' + (bad ? 412 : 0) + ' late collision, 0 deferred');
+            return L.join('\n');
+        }
+        function showErrDis() {
+            const L = ['', 'Port      Name               Status       Reason               Err-disabled Vlans'];
+            Object.keys(M().ifs).filter(n => M().ifs[n].errdis).sort(ifCmp).forEach(n => L.push(pad(ifShort(n), 10) + pad(M().ifs[n].desc.slice(0, 18), 19) + pad('err-disabled', 13) + (M().ifs[n].errReason || '')));
+            return L.join('\n');
+        }
+        function showErrRec() {
+            const r = M().errRecovery;
+            return ['ErrDisable Reason            Timer Status', '-----------------            --------------', pad('bpduguard', 29) + (r.bpduguard ? 'Enabled' : 'Disabled'), pad('psecure-violation', 29) + 'Disabled', '', 'Timer interval: ' + r.interval + ' seconds', '',
+                'Interfaces that will be enabled at the next timeout:'].concat(r.bpduguard ? Object.keys(M().ifs).filter(n => M().ifs[n].errdis).map(n => pad(ifShort(n), 12) + pad(M().ifs[n].errReason || '', 22) + r.interval) : []).join('\n');
+        }
+        // BPDU Guard olayı: sim.bpdu listesindeki porttan BPDU geliyorsa ve koruma açıksa port err-disable olur
+        function bpduEvents() {
+            const src = (S.lab.sim && S.lab.sim.bpdu) || [], out = [];
+            if (!S.bpduSeen) S.bpduSeen = {};
+            for (const n of src) {
+                const i = M().ifs[n];
+                if (!i || i.shutdown || i.errdis || !M().links[n] || S.bpduSeen[n]) continue;
+                const guard = i.bpduguard || (M().bpduguardDefault && (i.portfast || M().portfastDefault));
+                if (!guard) continue;
+                i.errdis = true; i.errReason = 'bpduguard'; S.bpduSeen[n] = true;
+                out.push('*' + new Date().toTimeString().slice(0, 8) + '.123: %SPANTREE-2-BLOCK_BPDUGUARD: Received BPDU on port ' + n + ' with BPDU Guard enabled. Disabling port.',
+                    '*' + new Date().toTimeString().slice(0, 8) + '.125: %PM-4-ERR_DISABLE: bpduguard error detected on ' + ifShort(n) + ', putting ' + ifShort(n) + ' in err-disable state');
+                log({ event: 'errdisable', port: n });
+            }
+            return out.join('\n');
+        }
         function showIpSsh() {
             const m = M();
             if (!m.rsa) return 'SSH Disabled - version 1.99\n%Please create RSA keys to enable SSH (and of atleast 768 bits for SSH v2).\nAuthentication methods:publickey,keyboard-interactive,password\nAuthentication timeout: ' + m.sshTimeout + ' secs; Authentication retries: ' + m.sshRetries;
             return 'SSH Enabled - version ' + (m.sshVer === 2 ? '2.0' : m.sshVer === 1 ? '1.5' : '1.99') + '\nAuthentication methods:publickey,keyboard-interactive,password\nAuthentication timeout: ' + m.sshTimeout + ' secs; Authentication retries: ' + m.sshRetries + '\nMinimum expected Diffie Hellman key size : 2048 bits\nIOS Keys in SECSH format(ssh-rsa, base64 encoded): ' + m.hostname + '.' + (m.domain || '') + '\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ' + fakeHash(m.hostname + m.rsa, 40) + '...';
         }
         // RIB: connected + local + static (next-hop bağlı ağda ve arayüz up ise)
+        // RIB: connected + local + static. Aynı önekte en düşük AD kazanır (eşitse ECMP);
+        // next-hop bağlı bir ağda ve arayüz up değilse rota kurulmaz (yüzen rota böyle devreye girer).
         function rib() {
             const R = [];
             for (const n of Object.keys(M().ifs)) {
                 const i = M().ifs[n];
                 if (!i.ip || !ifUp(n)) continue;
                 const len = maskLen(i.mask);
-                R.push({ c: 'C', net: n2ip(netOf(i.ip, len)), len, via: 'is directly connected, ' + n, ifn: n });
-                if (len < 32) R.push({ c: 'L', net: i.ip, len: 32, via: 'is directly connected, ' + n, ifn: n });
+                R.push({ c: 'C', net: n2ip(netOf(i.ip, len)), len, via: 'is directly connected, ' + n, ifn: n, ad: 0 });
+                if (len < 32) R.push({ c: 'L', net: i.ip, len: 32, via: 'is directly connected, ' + n, ifn: n, ad: 0 });
             }
+            const cands = [];
             for (const r of M().routes) {
                 const len = maskLen(r.mask);
-                let ok = false, ifn = null;
-                if (isIp(r.nh)) { const c = R.find(x => x.c === 'C' && sameNet(x.net, r.nh, x.len)); ok = !!c; ifn = c && c.ifn; }
-                else { ok = ifUp(r.nh); ifn = r.nh; }
-                if (!ok) continue;
-                const same = R.find(x => x.net === r.net && x.len === len && x.c !== 'L');
-                if (same && same.ad !== undefined && same.ad < r.ad) continue;
-                if (same && (same.c === 'C')) continue;
-                if (same && same.ad > r.ad) R.splice(R.indexOf(same), 1);
-                R.push({ c: len === 0 ? 'S*' : 'S', net: r.net, len, ad: r.ad, nh: r.nh, via: isIp(r.nh) ? '[' + r.ad + '/0] via ' + r.nh : 'is directly connected, ' + r.nh, ifn });
+                let ifn = null;
+                if (isIp(r.nh)) { const c = R.find(x => x.c === 'C' && sameNet(x.net, r.nh, x.len)); if (!c) continue; ifn = c.ifn; }
+                else { if (!ifUp(r.nh)) continue; ifn = r.nh; }
+                cands.push({ net: r.net, len, ad: r.ad, nh: r.nh, ifn });
             }
-            return R.sort((a, b) => ip2n(a.net) - ip2n(b.net) || a.len - b.len);
+            const seen = {};
+            for (const r of cands) {
+                const k = r.net + '/' + r.len;
+                if (seen[k]) continue;
+                if (R.some(x => x.c === 'C' && x.net === r.net && x.len === r.len)) continue;
+                const same = cands.filter(x => x.net === r.net && x.len === r.len), best = Math.min(...same.map(x => x.ad));
+                same.filter(x => x.ad === best).forEach((x, idx) => R.push({ c: x.len === 0 ? 'S*' : 'S', net: x.net, len: x.len, ad: x.ad, nh: x.nh, ifn: x.ifn, cont: idx > 0,
+                    via: isIp(x.nh) ? '[' + x.ad + '/0] via ' + x.nh : 'is directly connected, ' + x.nh }));
+                seen[k] = true;
+            }
+            return R.sort((a, b) => ip2n(a.net) - ip2n(b.net) || a.len - b.len || (a.cont ? 1 : 0) - (b.cont ? 1 : 0));
         }
-        function showIpRoute() {
+        function lookup(ip) { return rib().filter(x => x.c !== 'L' && (x.len === 0 || sameNet(x.net, ip, x.len))).sort((a, b) => b.len - a.len)[0] || null; }
+        function showRouteFor(ip) {
+            const r = rib().filter(x => x.len > 0 && (x.c === 'L' ? x.net === ip : sameNet(x.net, ip, x.len))).sort((a, b) => b.len - a.len)[0];
+            if (!r) return '% Network not in table';
+            const all = rib().filter(x => x.net === r.net && x.len === r.len && x.c === r.c);
+            if (r.c === 'C' || r.c === 'L') return 'Routing entry for ' + r.net + '/' + r.len + '\n  Known via "connected", distance 0, metric 0 (connected, via interface)\n  Routing Descriptor Blocks:\n  * directly connected, via ' + r.ifn + '\n      Route metric is 0, traffic share count is 1';
+            return ['Routing entry for ' + r.net + '/' + r.len, '  Known via "static", distance ' + r.ad + ', metric 0', '  Routing Descriptor Blocks:']
+                .concat(...all.map((x, k) => [(k === 0 ? '  * ' : '    ') + (isIp(x.nh) ? x.nh : 'directly connected, via ' + x.nh), '      Route metric is 0, traffic share count is 1'])).join('\n');
+        }
+        function showIpRoute(filter) {
             const m = M();
             if (m.sw && !m.ipRouting) return 'Default gateway is ' + (m.defaultGw || 'not set') + '\n\nHost               Gateway           Last Use    Total Uses  Interface\nICMP redirect cache is empty';
             const R = rib(), d = R.find(r => r.len === 0);
@@ -628,7 +888,7 @@ const CgLabIos = (() => {
                 '       * - candidate default, U - per-user static route, o - ODR',
                 '       P - periodic downloaded static route, + - replicated route', '',
                 d ? 'Gateway of last resort is ' + d.nh + ' to network 0.0.0.0' : 'Gateway of last resort is not set', ''];
-            R.forEach(r => L.push(pad(r.c, 9) + r.net + '/' + r.len + ' ' + r.via));
+            R.filter(r => !filter || (filter === 'static' ? /^S/.test(r.c) : /^[CL]$/.test(r.c))).forEach(r => L.push(r.cont ? ' '.repeat(9 + (r.net + '/' + r.len).length + 1) + r.via.replace(/^\[/, '[') : pad(r.c, 9) + r.net + '/' + r.len + ' ' + r.via));
             return L.join('\n');
         }
         function ping(ip) {
@@ -636,19 +896,21 @@ const CgLabIos = (() => {
             const head = 'Type escape sequence to abort.\nSending 5, 100-byte ICMP Echos to ' + ip + ', timeout is 2 seconds:\n';
             const ok = (first) => head + (first ? '.!!!!\nSuccess rate is 80 percent (4/5), round-trip min/avg/max = 1/1/2 ms' : '!!!!!\nSuccess rate is 100 percent (5/5), round-trip min/avg/max = 1/1/2 ms');
             const fail = head + '.....\nSuccess rate is 0 percent (0/5)';
-            if (Object.entries(m.ifs).some(([n, i]) => i.ip === ip && ifUp(n))) return ok(false);
+            const failL = () => { log({ ping: { ip, ok: false } }); return fail; };
+            if (Object.entries(m.ifs).some(([n, i]) => i.ip === ip && ifUp(n))) { log({ ping: { ip, ok: true } }); return ok(false); }
             let target = ip;
             if (m.sw && !m.ipRouting) {
                 const svi = Object.entries(m.ifs).find(([n, i]) => n.startsWith('Vlan') && i.ip && ifUp(n) && sameNet(i.ip, ip, maskLen(i.mask)));
-                if (!svi) { if (!m.defaultGw) return fail; target = m.defaultGw; }
+                if (!svi) { if (!m.defaultGw) return failL(); target = m.defaultGw; }
                 const s2 = Object.entries(m.ifs).find(([n, i]) => n.startsWith('Vlan') && i.ip && ifUp(n) && sameNet(i.ip, target, maskLen(i.mask)));
-                if (!s2 || !hosts.includes(target) || !hosts.includes(ip)) return fail;
+                if (!s2 || !hosts.includes(target) || !hosts.includes(ip)) return failL();
             } else {
                 const r = rib().filter(x => x.c !== 'L' && (x.len === 0 || sameNet(x.net, ip, x.len))).sort((a, b) => b.len - a.len)[0];
-                if (!r || !hosts.includes(ip)) return fail;
-                if (r.nh && !hosts.includes(r.nh)) return fail;
+                if (!r || !hosts.includes(ip)) return failL();
+                if (r.nh && isIp(r.nh) && !hosts.includes(r.nh)) return failL();
             }
             const first = !S.arp[target]; S.arp[target] = true;
+            log({ ping: { ip, ok: true } });
             return ok(first);
         }
 
@@ -698,10 +960,10 @@ const CgLabIos = (() => {
                 return (M().domainLookup ? 'Translating "' + raw.trim() + '"...domain server (255.255.255.255)\n' : '') + '% Unknown command or computer name, or unable to find computer address';
             return ' '.repeat(pl + (r.col || 0)) + '^\n% Invalid input detected at \'^\' marker.';
         }
-        const UNSUP = ['aaa', 'snmp-server', 'ntp', 'logging host', 'logging trap', 'clock timezone', 'cdp', 'lldp', 'ip dhcp', 'access-list', 'ip access-list', 'ip nat',
+        const UNSUP = ['aaa', 'snmp-server', 'ntp', 'logging host', 'logging trap', 'clock timezone', 'cdp', 'lldp', 'ip dhcp',
             'router eigrp', 'router bgp', 'router rip', 'standby', 'channel-group', 'crypto isakmp', 'crypto ipsec', 'crypto map', 'ipv6', 'vtp', 'monitor session', 'archive',
-            'switchport port-security', 'ip helper-address', 'ip ospf', 'encapsulation', 'ip access-group', 'show cdp', 'show lldp', 'show ip ospf', 'show access-lists',
-            'show etherchannel', 'show spanning-tree', 'show port-security', 'show ip dhcp', 'show ip nat', 'show standby', 'show interfaces', 'show mac address-table', 'show arp', 'debug', 'traceroute', 'clear'];
+            'switchport port-security', 'ip helper-address', 'ip ospf', 'encapsulation', 'show cdp', 'show lldp', 'show ip ospf',
+            'show etherchannel', 'show spanning-tree', 'show port-security', 'show ip dhcp', 'show standby', 'show interfaces counters', 'show mac address-table', 'show arp', 'debug', 'traceroute', 'clear'];
         function unsupported(raw) {
             const t = C.tokenize(raw.replace(/^\s*(no|do)\s+/i, '')).map(x => x.t.toLowerCase());
             // yazılan kelime tam kelimeyse (ör. 'ip') daha uzun köke ('ipv6') eşlenmez
@@ -746,7 +1008,8 @@ const CgLabIos = (() => {
             log({ raw: line, canon: (isNo ? 'no ' : '') + r.canon, mode: S.mode, no: isNo, ctx: S.ctx.slice() });
             const out = isNo ? (r.cmd.no ? r.cmd.no(r.args) : undefined) : r.cmd.run(r.args);
             if (out && typeof out === 'object') { S.mode = prevMode; S.ctx = prevCtx; S.ev.pop(); return errText(Object.assign({}, out, { col: (out.col || 0) + off }), line, 0, S.mode); }
-            return out || '';
+            const evs = bpduEvents();
+            return [out || '', evs].filter(Boolean).join('\n');
         }
         function help(raw) {
             log({ help: raw });
@@ -814,7 +1077,7 @@ const CgLabIos = (() => {
             secret: () => !!(S.pending && S.pending.secret),
             input, help, complete,
             _toPriv: () => { S.mode = 'priv'; S.ctx = []; S.pending = null; S.loggedOut = false; },
-            get answers() { return S.answers || (S.answers = {}); }, set answers(v) { S.answers = v || {}; }, variant: () => null,
+            get answers() { return S.answers || (S.answers = {}); }, set answers(v) { S.answers = v || {}; }, variant: () => VAR,
 
             get model() { return S.m; },
             get startupModel() { return S.startup; },
@@ -822,7 +1085,8 @@ const CgLabIos = (() => {
             saved,
             mode: () => S.mode,
             run: (n) => ({ up: ifUp(n) }),
-            rib,
+            rib, lookup, forward: f => forward(f, false), acl: n => M().acls[n] || null,
+            aclTest: (n, f) => aclEval(n, Object.assign({ sport: 50000, proto: 'tcp', n: 0 }, f), false),
             showRun: runBody,
         };
     }

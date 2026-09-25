@@ -170,6 +170,250 @@
         learn: ['<code>interface range</code> ile toplu yapılandırma.', '<code>switchport mode access</code> DTP\'yi kapatır.', 'Voice VLAN tek portta ses + veri ayırır.', 'Kullanılmayan port: park VLAN\'ı + shutdown.', 'VLAN\'lar show vlan brief ile doğrulanır.'],
         links: { tool: '#/cisco-ios/vlan', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/l2' }, cert: 'CCNA 2.1'
     },
+    // ═══ Faz C3: Cisco IOS derinleştirme ═════════════════════════════════
+    {
+        id: 'ios-03', vendor: 'cisco-ios', level: 1, title: 'Switch yönetim IP\'si ve SSH', minutes: 20, kind: 'switch', pre: ['ios-02'],
+        up: ['GigabitEthernet0/1'], hosts: ['10.240.1.1'], start: ['hostname SW1'],
+        story: 'SW1\'i uzaktan yönetilebilir yapın: yönetim VLAN\'ı (VLAN 1) üzerinde <code>10.240.1.11/24</code>, ağ geçidi <code>10.240.1.1</code>. Telnet düz metin olduğu için yalnız <b>SSH v2</b> ve yerel kullanıcıyla giriş olacak.',
+        goals: ['SVI ile yönetim IP\'si', 'L2 switch\'te ip default-gateway', 'RSA anahtar ve SSHv2', 'VTY: login local + transport input ssh'],
+        tasks: [
+            { t: 'VLAN 1 arayüzüne <code>10.240.1.11/24</code> verip açın.', why: 'L2 switch\'in IP\'si fiziksel portta değil sanal VLAN arayüzünde (SVI) olur. SVI\'nin up olması için o VLAN\'da en az bir up port gerekir.',
+              hints: ['interface vlan 1', '<code>ip address 10.240.1.11 255.255.255.0</code> → <code>no shutdown</code>'], steps: ['interface vlan 1', 'ip address 10.240.1.11 255.255.255.0', 'no shutdown', 'end'],
+              check: s => s.model.ifs.Vlan1.ip === '10.240.1.11' && !s.model.ifs.Vlan1.shutdown },
+            { t: 'Varsayılan ağ geçidini ayarlayın ve ona ping atın.', why: 'IP yönlendirme kapalı bir L2 switch başka ağlara cevap verebilmek için <code>ip default-gateway</code> kullanır (<code>ip route</code> değil).',
+              hints: ['ip default-gateway, sonra ping.', '<code>ip default-gateway 10.240.1.1</code> → <code>do ping 10.240.1.1</code>'], steps: ['ip default-gateway 10.240.1.1', 'do ping 10.240.1.1'], from: 'config', needs: [0],
+              check: s => s.model.defaultGw === '10.240.1.1' && s.ev.list().some(e => e.ping && e.ping.ip === '10.240.1.1' && e.ping.ok) },
+            { t: 'Alan adı <code>lab.example</code> ile 2048 bit RSA anahtar üretin ve SSH sürüm 2\'yi zorunlu kılın.', why: 'SSH anahtarı hostname + domain adıyla adlandırılır; ikisi olmadan anahtar üretilmez. 2048 bit ve v2 günümüz asgarisidir.',
+              hints: ['ip domain name → crypto key → ip ssh version', '<code>crypto key generate rsa modulus 2048</code>'], steps: ['ip domain name lab.example', 'crypto key generate rsa modulus 2048', 'ip ssh version 2'],
+              check: s => s.model.rsa >= 2048 && s.model.sshVer === 2 && s.model.domain === 'lab.example' },
+            { t: 'Yerel yönetici: <code>admin</code>, yetki 15, secret ile.', why: '<code>login local</code> bu veritabanını kullanır. <code>secret</code> hash\'lenerek saklanır; <code>password</code> kullanmayın.',
+              hints: ['username … privilege … secret', '<code>username admin privilege 15 secret Lab-Admin-1</code>'], steps: ['username admin privilege 15 secret Lab-Admin-1'],
+              check: s => !!s.model.users.admin && s.model.users.admin.priv === 15 },
+            { t: 'Tüm VTY hatlarında (0–15) yerel kullanıcıyla giriş ve <b>yalnız SSH</b>.', why: '<code>line vty 0 15</code> tüm uzak oturum hatlarını birlikte yapılandırır. <code>transport input ssh</code> Telnet\'i kapatır.',
+              hints: ['line vty 0 15', '<code>login local</code> + <code>transport input ssh</code>'], steps: ['line vty 0 15', 'login local', 'transport input ssh', 'end'], from: 'config',
+              check: s => Object.values(s.model.lines.vty).every(l => l.login === 'local' && l.transport === 'ssh'),
+              fb: s => Object.values(s.model.lines.vty).some(l => l.transport === 'telnet ssh' || l.transport === 'all') ? 'Telnet hâlâ açık: yalnız ssh.' : Object.values(s.model.lines.vty).some(l => l.login !== 'local') ? 'Bazı VTY hatlarında login local yok (line vty 0 15 kullanın).' : null },
+            { t: 'SSH durumunu doğrulayıp kaydedin.', why: '<code>show ip ssh</code> "SSH Enabled - version 2.0" göstermeli. Kaydetmeden reload anahtarları da kaybettirir.',
+              hints: ['show ip ssh + write', '<code>show ip ssh</code> → <code>wr</code>'], steps: ['show ip ssh', 'write memory'], from: 'priv', needs: [0, 1, 2, 3, 4],
+              check: s => s.ev.ran(/^(do )?show ip ssh$/) && s.saved() && s.model.rsa >= 2048 },
+        ],
+        verify: ['show ip ssh', 'show ip interface brief', 'show running-config | section vty'],
+        learn: ['L2 switch: yönetim IP\'si SVI\'de, çıkış ip default-gateway ile.', 'RSA için hostname + domain şart.', 'ip ssh version 2 + login local + transport input ssh.', 'line vty 0 15 tüm hatları kapsar.'],
+        links: { tool: '#/cisco-ios/ssh', cli: '#/cli/cisco-ios' }, cert: 'CCNA 4.8, 5.3'
+    },
+    {
+        id: 'ios-14', vendor: 'cisco-ios', level: 2, title: 'Kenar port koruması: PortFast + BPDU Guard', minutes: 15, kind: 'switch', pre: ['ios-10'],
+        up: P(1, 8), start: ['hostname SW1'], sim: { bpdu: ['GigabitEthernet0/5'] },
+        story: 'Gi0/1–8 kullanıcı portları. Birisi Gi0/5\'e masaüstü bir switch takmış olabilir. Kullanıcı portlarını hızlı açılan (PortFast) ve BPDU gelirse kendini kapatan (BPDU Guard) kenar portlar yapın; kurtarma ayarını da ekleyin.',
+        goals: ['PortFast ile kenar port', 'BPDU Guard ile döngü/rogue switch koruması', 'err-disable\'ı okumak ve doğru kurtarmak'],
+        tasks: [
+            { t: 'Gi0/1–8\'de PortFast\'i açın.', why: 'PortFast portu STP dinleme/öğrenme aşamalarını atlayıp hemen forwarding\'e alır; PC\'ler DHCP\'yi beklemeden alır. Yalnız uç cihaz portlarında kullanılır.',
+              hints: ['interface range + spanning-tree portfast', '<code>interface range g0/1 - 8</code> → <code>spanning-tree portfast</code>'], steps: ['interface range g0/1 - 8', 'spanning-tree portfast', 'end'],
+              check: s => P(1, 8).every(n => s.model.ifs[n].portfast) },
+            { t: 'Aynı portlarda BPDU Guard\'ı açın ve terminalde çıkan uyarıyı okuyun.', why: 'Kenar porta switch takılırsa BPDU gelir; BPDU Guard portu err-disable yapar ve olası döngüyü önler.',
+              hints: ['spanning-tree bpduguard enable', '<code>spanning-tree bpduguard enable</code>'], steps: ['interface range g0/1 - 8', 'spanning-tree bpduguard enable', 'end'],
+              check: s => P(1, 8).every(n => s.model.ifs[n].bpduguard) },
+            { t: 'Hangi port kapandı ve neden?', ask: { choices: [['gi05', 'Gi0/5 — BPDU alındı, BPDU Guard err-disable yaptı'], ['gi01', 'Gi0/1 — kablo arızası'], ['none', 'Hiçbiri kapanmadı']], correct: 'gi05' },
+              why: '%SPANTREE-2-BLOCK_BPDUGUARD ve %PM-4-ERR_DISABLE mesajları portu ve nedeni söyler. <code>show interfaces status err-disabled</code> listeyi verir.',
+              hints: ['Terminaldeki % mesajları.', '<code>show interfaces status err-disabled</code>'], steps: ['show interfaces status err-disabled', { answer: 2, v: 'gi05' }], from: 'priv', needs: [1] },
+            { t: 'Otomatik kurtarma: bpduguard nedeniyle kapanan portlar 300 sn sonra açılsın.', why: '<code>errdisable recovery cause bpduguard</code> + <code>interval</code>: sorun kalktıysa port kendini açar; sürüyorsa yeniden kapanır.',
+              hints: ['errdisable recovery', '<code>errdisable recovery cause bpduguard</code> → <code>errdisable recovery interval 300</code>'], steps: ['errdisable recovery cause bpduguard', 'errdisable recovery interval 300'],
+              check: s => s.model.errRecovery.bpduguard && s.model.errRecovery.interval === 300,
+              fb: s => s.model.errRecovery.bpduguard && s.model.errRecovery.interval === 300 ? null : (s.model.errRecovery.bpduguard ? 'Aralık ayarı: errdisable recovery interval 300.' : null) },
+            { t: 'Kaçak switch söküldü. Gi0/5\'i elle açın — BPDU Guard açık kalmalı.', why: 'err-disable portu <code>shutdown</code> ardından <code>no shutdown</code> ile açılır. BPDU Guard\'ı kapatarak "çözmek" korumayı kaldırır ve döngü riskini geri getirir.',
+              hints: ['shutdown → no shutdown', '<code>interface g0/5</code> → <code>shutdown</code> → <code>no shutdown</code>'], steps: ['interface g0/5', 'shutdown', 'no shutdown', 'end'], needs: [0, 1],
+              check: s => !s.model.ifs['GigabitEthernet0/5'].errdis && !s.model.ifs['GigabitEthernet0/5'].shutdown && s.model.ifs['GigabitEthernet0/5'].bpduguard && s.ev.list().some(e => e.event === 'errdisable'),
+              fb: s => !s.model.ifs['GigabitEthernet0/5'].bpduguard ? 'Çalışır ama yanlış: BPDU Guard\'ı kapattınız, koruma kalktı.' : null },
+            { t: 'Kaydedin.', why: 'Kenar port ayarları running-config\'te; kaydedilmezse reload\'da kaybolur.', hints: ['write', '<code>wr</code>'], steps: ['write memory'], from: 'priv', needs: [0, 1, 3, 4],
+              check: s => s.saved() && P(1, 8).every(n => s.model.ifs[n].bpduguard && s.model.ifs[n].portfast) },
+        ],
+        verify: ['show interfaces status', 'show interfaces status err-disabled', 'show errdisable recovery'],
+        learn: ['PortFast yalnız uç cihaz portlarında.', 'BPDU Guard: BPDU gelirse err-disable.', 'Kurtarma: shut/no shut ya da errdisable recovery.', 'Korumayı kapatmak çözüm değildir.'],
+        links: { tool: '#/cisco-ios/stp', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/l2' }, cert: 'CCNA 2.5'
+    },
+    {
+        id: 'ios-16', vendor: 'cisco-ios', level: 3, title: 'Router arayüz adresleme', minutes: 15, kind: 'router', pre: ['ios-01'],
+        up: ['GigabitEthernet0/0', 'GigabitEthernet0/1'], start: ['hostname R1'],
+        story: 'R1\'in LAN (Gi0/0) ve WAN (Gi0/1) arayüzlerini adresleyin ve yönetim/yönlendirme kimliği için bir loopback ekleyin. Router arayüzleri switch\'in aksine <b>varsayılan kapalıdır</b>.',
+        goals: ['Arayüze IP ve açıklama', 'no shutdown', 'Loopback', '/30 alt ağ mantığı'],
+        tasks: [
+            { t: 'Gi0/0: <code>10.64.10.1/24</code>, açıklama <code>LAN</code>, açık.', why: 'Router portları "administratively down" başlar; <code>no shutdown</code> unutulması en sık başlangıç hatasıdır.',
+              hints: ['interface g0/0', '<code>ip address 10.64.10.1 255.255.255.0</code> → <code>description LAN</code> → <code>no shutdown</code>'], steps: ['interface g0/0', 'ip address 10.64.10.1 255.255.255.0', 'description LAN', 'no shutdown', 'end'],
+              check: s => { const i = s.model.ifs['GigabitEthernet0/0']; return i.ip === '10.64.10.1' && i.mask === '255.255.255.0' && !i.shutdown && /LAN/.test(i.desc); } },
+            { t: 'Gi0/1: <code>203.0.113.2/30</code>, açıklama <code>WAN</code>, açık.', why: '/30 (255.255.255.252) noktadan noktaya bağlantılar içindir: 4 adresin 2\'si kullanılabilir.',
+              hints: ['interface g0/1', '<code>ip address 203.0.113.2 255.255.255.252</code>'], steps: ['interface g0/1', 'ip address 203.0.113.2 255.255.255.252', 'description WAN', 'no shutdown', 'end'],
+              check: s => { const i = s.model.ifs['GigabitEthernet0/1']; return i.ip === '203.0.113.2' && i.mask === '255.255.255.252' && !i.shutdown; } },
+            { t: 'Loopback0: <code>10.64.255.1/32</code>.', why: 'Loopback her zaman up\'tır; yönetim, router-id ve testler için sabit adres sağlar.',
+              hints: ['interface loopback 0', '<code>ip address 10.64.255.1 255.255.255.255</code>'], steps: ['interface loopback 0', 'ip address 10.64.255.1 255.255.255.255', 'end'],
+              check: s => s.model.ifs.Loopback0 && s.model.ifs.Loopback0.ip === '10.64.255.1' && s.model.ifs.Loopback0.mask === '255.255.255.255' },
+            { t: '/30 alt ağda kaç kullanılabilir adres vardır?', ask: { choices: [['2', '2'], ['4', '4'], ['1', '1']], correct: '2' },
+              why: '/30 = 4 adres: ağ adresi (.0), iki uç (.1 ve .2), yayın (.3). Bu yüzden 203.0.113.0 ya da .3 arayüze verilemez ("Bad mask").', hints: ['2^(32-30)', 'Ağ ve yayın adresi çıkar.'] },
+            { t: 'Doğrulayın: arayüz özetini ve bağlı ağları görüntüleyin.', why: '<code>show ip interface brief</code> durum/protokolü, <code>show ip route connected</code> hangi ağların doğrudan bağlı olduğunu gösterir.',
+              hints: ['İki show komutu.', '<code>show ip interface brief</code> → <code>show ip route connected</code>'], steps: ['show ip interface brief', 'show ip route connected'], from: 'priv', needs: [0, 1],
+              check: s => s.ev.ran(/^(do )?show ip route connected$/) && s.ev.ran(/^(do )?show ip interface brief/) && s.rib().filter(r => r.c === 'C').length >= 2 },
+        ],
+        verify: ['show ip interface brief', 'show ip route connected', 'show interfaces g0/1'],
+        learn: ['Router arayüzleri varsayılan kapalı: no shutdown.', '/30: 2 kullanılabilir adres.', 'Loopback her zaman up.', 'Doğrulama: ip int brief + route connected.'],
+        links: { cli: '#/cli/cisco-ios' }, cert: 'CCNA 1.6'
+    },
+    {
+        id: 'ios-17', vendor: 'cisco-ios', level: 3, title: 'Statik, varsayılan ve yüzen statik rota', minutes: 25, kind: 'router', pre: ['ios-16'], ordered: true,
+        up: ['GigabitEthernet0/0', 'GigabitEthernet0/1', 'GigabitEthernet0/2'], hosts: ['203.0.113.1', '198.51.100.1', '10.64.10.254'],
+        start: ['hostname R1', 'interface g0/0', 'ip address 10.64.10.1 255.255.255.0', 'no shutdown', 'interface g0/1', 'ip address 203.0.113.2 255.255.255.252', 'no shutdown', 'interface g0/2', 'ip address 198.51.100.2 255.255.255.252', 'no shutdown'],
+        story: 'R1\'de birincil internet hattı Gi0/1 (ağ geçidi 203.0.113.1), yedek hat Gi0/2 (198.51.100.1). İç ağ 10.128.0.0/16, LAN\'daki 10.64.10.254 üzerinden. Rotaları kurun ve birincil hat düşünce yedeğin devreye girdiğini görün.',
+        goals: ['Statik ve varsayılan rota', 'Yönetsel mesafe ile yüzen rota', 'En uzun önek eşleşmesi', 'Hat düşünce yük devri'],
+        tasks: [
+            { t: '10.128.0.0/16 için 10.64.10.254\'e statik rota.', why: 'Statik rota, next-hop bağlı bir ağdaysa ve arayüz up ise tabloya girer.',
+              hints: ['ip route ağ maske next-hop', '<code>ip route 10.128.0.0 255.255.0.0 10.64.10.254</code>'], steps: ['ip route 10.128.0.0 255.255.0.0 10.64.10.254'],
+              check: s => s.rib().some(r => r.net === '10.128.0.0' && r.len === 16 && r.nh === '10.64.10.254') },
+            { t: 'Birincil varsayılan rota: 203.0.113.1.', why: '0.0.0.0/0 "gateway of last resort"tur: daha özel bir rota yoksa kullanılır.',
+              hints: ['ip route 0.0.0.0 0.0.0.0 …', '<code>ip route 0.0.0.0 0.0.0.0 203.0.113.1</code>'], steps: ['ip route 0.0.0.0 0.0.0.0 203.0.113.1'],
+              check: s => s.rib().some(r => r.len === 0 && r.nh === '203.0.113.1') },
+            { t: 'Yedek varsayılan rota: 198.51.100.1, <b>yönetsel mesafe 250</b>. Tabloya girmediğine dikkat edin.', why: 'Aynı önekte en düşük AD kazanır (statik = 1). AD 250 olan rota yalnız birincil kaybolunca devreye girer: yüzen (floating) statik.',
+              hints: ['Sona AD yazın.', '<code>ip route 0.0.0.0 0.0.0.0 198.51.100.1 250</code>'], steps: ['ip route 0.0.0.0 0.0.0.0 198.51.100.1 250'],
+              check: s => s.model.routes.some(r => r.net === '0.0.0.0' && r.nh === '198.51.100.1' && r.ad === 250) && s.rib().filter(r => r.len === 0).every(r => r.nh === '203.0.113.1'),
+              fb: s => s.rib().filter(r => r.len === 0).length > 1 ? 'İki varsayılan rota aynı anda tabloda (ECMP): yedek rotanın AD\'si 250 olmalı.' : null },
+            { t: '10.128.5.5\'e giden paket hangi next-hop\'u kullanır?', ask: { choices: [['10.64.10.254', '10.64.10.254 (10.128.0.0/16 rotası)'], ['203.0.113.1', '203.0.113.1 (varsayılan rota)'], ['198.51.100.1', '198.51.100.1']], correct: '10.64.10.254' },
+              why: 'Router en uzun önek eşleşmesini seçer: /16, /0\'dan daha özeldir. <code>show ip route 10.128.5.5</code> seçilen girdiyi gösterir.', hints: ['show ip route 10.128.5.5', 'Hangi önek daha uzun?'], steps: ['show ip route 10.128.5.5', { answer: 3, v: '10.64.10.254' }], from: 'priv' },
+            { t: 'Birincil hattın düştüğünü benzetin: Gi0/1\'i kapatın, tabloda yedek rotayı görün.', why: 'Arayüz kapanınca next-hop\'a ulaşılamaz, birincil rota çekilir ve AD 250\'lik rota kurulur.',
+              hints: ['interface g0/1 → shutdown → show ip route', '<code>interface g0/1</code> → <code>shutdown</code> → <code>do show ip route</code>'], steps: ['interface g0/1', 'shutdown', 'do show ip route', 'end'], from: 'config',
+              check: s => s.rib().some(r => r.len === 0 && r.nh === '198.51.100.1') && s.ev.after(/^shutdown$/, /show ip route/) },
+            { t: 'Gi0/1\'i geri açın; varsayılan rota yeniden 203.0.113.1 olmalı.', why: 'Birincil geri gelince daha düşük AD\'li rota tekrar kazanır.',
+              hints: ['no shutdown', '<code>interface g0/1</code> → <code>no shutdown</code>'], steps: ['interface g0/1', 'no shutdown', 'end'], from: 'config',
+              check: s => s.rib().filter(r => r.len === 0).every(r => r.nh === '203.0.113.1') && s.rib().some(r => r.len === 0) && s.ev.after(/^shutdown$/, /^no shutdown$/) },
+        ],
+        verify: ['show ip route', 'show ip route static', 'show ip route 10.128.5.5'],
+        learn: ['Statik rota next-hop bağlı ağda olmalı.', 'En uzun önek kazanır; eşitse en düşük AD.', 'Yüzen rota = yüksek AD.', 'Birincil düşünce yedek otomatik devreye girer.'],
+        links: { tool: '#/cisco-ios/static-route', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/routing' }, cert: 'CCNA 3.1–3.3'
+    },
+    {
+        id: 'ios-31', vendor: 'cisco-ios', level: 4, title: 'NAT/PAT ve statik NAT', minutes: 25, kind: 'router', pre: ['ios-17'],
+        up: ['GigabitEthernet0/0', 'GigabitEthernet0/1', 'GigabitEthernet0/2'], hosts: ['203.0.113.1', '198.51.100.80', '10.64.50.10'],
+        start: ['hostname R1', 'interface g0/0', 'description LAN', 'ip address 10.64.10.1 255.255.255.0', 'no shutdown', 'interface g0/1', 'description WAN', 'ip address 203.0.113.2 255.255.255.252', 'no shutdown', 'interface g0/2', 'description DMZ', 'ip address 10.64.50.1 255.255.255.0', 'no shutdown', 'exit', 'ip route 0.0.0.0 0.0.0.0 203.0.113.1'],
+        sim: { flows: [{ src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'GigabitEthernet0/0' }, { src: '10.64.10.51', dst: '198.51.100.80', dport: 80, in: 'GigabitEthernet0/0' }, { src: '198.51.100.99', dst: '203.0.113.10', dport: 443, in: 'GigabitEthernet0/1' }] },
+        story: 'LAN (10.64.10.0/24) kullanıcıları internete R1\'in WAN adresiyle (PAT) çıkacak. DMZ\'deki web sunucusu 10.64.50.10, internete <code>203.0.113.10:443</code> olarak yayınlanacak.',
+        goals: ['inside/outside rolleri', 'ACL + overload ile PAT', 'Statik port NAT', 'Çeviri tablosunu okumak'],
+        tasks: [
+            { t: 'NAT rolleri: Gi0/0 ve Gi0/2 <b>inside</b>, Gi0/1 <b>outside</b>.', why: 'IOS çeviriyi yalnız inside → outside geçişlerinde yapar; roller ters olursa hiçbir çeviri olmaz.',
+              hints: ['ip nat inside / outside', '<code>interface g0/0</code> → <code>ip nat inside</code> …'], steps: ['interface g0/0', 'ip nat inside', 'interface g0/2', 'ip nat inside', 'interface g0/1', 'ip nat outside', 'end'],
+              check: s => s.model.ifs['GigabitEthernet0/0'].nat === 'inside' && s.model.ifs['GigabitEthernet0/2'].nat === 'inside' && s.model.ifs['GigabitEthernet0/1'].nat === 'outside',
+              fb: s => s.model.ifs['GigabitEthernet0/1'].nat === 'inside' ? 'Roller ters: WAN (Gi0/1) outside olmalı.' : null },
+            { t: 'PAT: 10.64.0.0/16\'yı eşleyen ACL 1 ve WAN arayüzüyle overload.', why: 'ACL hangi iç adreslerin çevrileceğini seçer (wildcard maske!). <code>overload</code> çok kullanıcıyı tek genel IP\'ye port numarasıyla çevirir.',
+              hints: ['access-list 1 + ip nat inside source list', '<code>access-list 1 permit 10.64.0.0 0.0.255.255</code> → <code>ip nat inside source list 1 interface g0/1 overload</code>'],
+              steps: ['access-list 1 permit 10.64.0.0 0.0.255.255', 'ip nat inside source list 1 interface g0/1 overload'], needs: [0],
+              check: s => { const r = s.forward({ src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'GigabitEthernet0/0' }); return r.stage === 'ok' && r.snat && r.snat.global === '203.0.113.2'; },
+              fb: s => { const a = s.acl('1'); return a && a.entries.some(e => e.src && e.src.wc === '255.255.0.0') ? 'ACL\'de maske değil wildcard kullanılır: 0.0.255.255.' : null; } },
+            { t: 'Statik NAT: 10.64.50.10:443 → 203.0.113.10:443.', why: 'Statik (port) NAT dışarıdan başlayan bağlantıların içerideki sunucuya ulaşmasını sağlar; PAT tek yönlüdür.',
+              hints: ['ip nat inside source static tcp …', '<code>ip nat inside source static tcp 10.64.50.10 443 203.0.113.10 443</code>'], steps: ['ip nat inside source static tcp 10.64.50.10 443 203.0.113.10 443'], needs: [0],
+              check: s => { const r = s.forward({ src: '198.51.100.99', dst: '203.0.113.10', dport: 443, in: 'GigabitEthernet0/1' }); return r.stage === 'ok' && r.dnat && r.dnat.to === '10.64.50.10'; } },
+            { t: 'Çeviri tablosuna bakın: 10.64.10.50 internete hangi adresle çıkıyor?', ask: { choices: [['203.0.113.2', '203.0.113.2 (WAN arayüzü, port çevirmeli)'], ['203.0.113.10', '203.0.113.10'], ['10.64.10.50', 'Çevrilmeden 10.64.10.50']], correct: '203.0.113.2' },
+              why: '"Inside global" dış dünyanın gördüğü adrestir; PAT\'ta WAN IP\'si + farklı port. Statik girdiler trafik olmasa da tabloda "---" ile durur.', hints: ['show ip nat translations', 'Inside local 10.64.10.50 satırının Inside global sütunu.'],
+              steps: ['show ip nat translations', { answer: 3, v: '203.0.113.2' }], from: 'priv', needs: [0, 1] },
+            { t: 'Kaydedin.', why: 'NAT kuralları kaydedilmezse reload sonrası kullanıcılar internete çıkamaz.', hints: ['write', '<code>wr</code>'], steps: ['write memory'], from: 'priv', needs: [0, 1, 2],
+              check: s => s.saved() && s.model.nat.length >= 2 },
+        ],
+        verify: ['show ip nat translations', 'show ip nat statistics', 'show running-config | include nat'],
+        learn: ['NAT yalnız inside → outside arasında.', 'ACL wildcard ile iç adresleri seçer.', 'overload = PAT.', 'Statik NAT dışarıdan erişim içindir.'],
+        links: { tool: '#/cisco-ios/nat', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/traffic' }, cert: 'CCNA 4.1'
+    },
+    {
+        id: 'ios-33', vendor: 'cisco-ios', level: 4, title: 'Genişletilmiş ACL: sunucu ağını koruma', minutes: 25, kind: 'router', pre: ['ios-31'],
+        up: ['GigabitEthernet0/0', 'GigabitEthernet0/1', 'GigabitEthernet0/2'], hosts: ['203.0.113.1', '198.51.100.80', '10.64.50.10', '10.64.50.20'],
+        start: ['hostname R1', 'interface g0/0', 'ip address 10.64.10.1 255.255.255.0', 'no shutdown', 'interface g0/1', 'ip address 203.0.113.2 255.255.255.252', 'no shutdown', 'interface g0/2', 'ip address 10.64.50.1 255.255.255.0', 'no shutdown', 'exit', 'ip route 0.0.0.0 0.0.0.0 203.0.113.1'],
+        sim: { flows: [{ src: '10.64.10.50', dst: '10.64.50.10', dport: 443, in: 'GigabitEthernet0/0' }, { src: '10.64.10.50', dst: '10.64.50.10', dport: 22, in: 'GigabitEthernet0/0' }, { src: '10.64.10.50', dst: '10.64.50.10', proto: 'icmp', in: 'GigabitEthernet0/0' }, { src: '10.64.10.51', dst: '10.64.50.20', dport: 3389, in: 'GigabitEthernet0/0' }, { src: '10.64.10.99', dst: '10.64.50.20', dport: 3389, in: 'GigabitEthernet0/0' }, { src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'GigabitEthernet0/0' }] },
+        story: 'LAN (10.64.10.0/24) kullanıcıları sunucu ağına (10.64.50.0/24) yalnız web sunucusu 10.64.50.10\'un HTTPS\'ine ve ping\'e erişebilmeli; sunucu ağına diğer her şey loglanarak engellenmeli. İnternet erişimi etkilenmemeli.',
+        goals: ['Adlandırılmış genişletilmiş ACL', 'Satır sırası ve örtük deny', 'Kaynağa yakın uygulama (in)', 'Sıra numarasıyla araya satır ekleme', 'Hit sayaçları'],
+        tasks: [
+            { t: '<code>LAN-IN</code> ACL\'si: (1) 10.64.10.0/24 → host 10.64.50.10 tcp 443 izin, (2) 10.64.10.0/24 → 10.64.50.0/24 icmp echo izin, (3) 10.64.10.0/24 → 10.64.50.0/24 ip <b>deny + log</b>, (4) geri kalan her şey izin.',
+              why: 'ACL yukarıdan aşağı ilk eşleşmede durur; sonda görünmez bir "deny any" vardır. <code>permit ip any any</code> unutulursa internet de kesilir.',
+              hints: ['ip access-list extended LAN-IN', '<code>permit tcp 10.64.10.0 0.0.0.255 host 10.64.50.10 eq 443</code> …'],
+              steps: ['ip access-list extended LAN-IN', 'permit tcp 10.64.10.0 0.0.0.255 host 10.64.50.10 eq 443', 'permit icmp 10.64.10.0 0.0.0.255 10.64.50.0 0.0.0.255 echo', 'deny ip 10.64.10.0 0.0.0.255 10.64.50.0 0.0.0.255 log', 'permit ip any any', 'end'],
+              check: s => { const T = f => s.aclTest('LAN-IN', f).permit; return !!s.acl('LAN-IN') && T({ src: '10.64.10.50', dst: '10.64.50.10', dport: 443 }) && !T({ src: '10.64.10.50', dst: '10.64.50.10', dport: 22 }) && T({ src: '10.64.10.50', dst: '10.64.50.10', proto: 'icmp' }) && !T({ src: '10.64.10.51', dst: '10.64.50.20', dport: 3389 }) && T({ src: '10.64.10.50', dst: '198.51.100.80', dport: 443 }) && s.acl('LAN-IN').entries.some(e => e.action === 'deny' && e.log); },
+              fb: s => { const a = s.acl('LAN-IN'); if (!a) return null; const i = a.entries.findIndex(e => e.action === 'permit' && e.src && e.src.any && e.dst && e.dst.any && e.proto === 'ip'); if (i >= 0 && i < a.entries.length - 1) return 'permit ip any any en sonda olmalı: önce gelirse alttaki kurallar hiç çalışmaz.'; if (!s.aclTest('LAN-IN', { src: '10.64.10.50', dst: '198.51.100.80', dport: 443 }).permit) return 'İnternet trafiği de engelleniyor: sona permit ip any any.'; if (a.entries.some(e => e.src && e.src.wc === '255.255.255.0')) return 'Maske değil wildcard: 0.0.0.255.'; return null; } },
+            { t: 'ACL\'yi kaynağa yakın, Gi0/0\'a <b>giriş</b> yönünde uygulayın.', why: 'Genişletilmiş ACL kaynağa yakın uygulanır: istenmeyen trafik ağa hiç girmeden düşer.',
+              hints: ['ip access-group … in', '<code>interface g0/0</code> → <code>ip access-group LAN-IN in</code>'], steps: ['interface g0/0', 'ip access-group LAN-IN in', 'end'], needs: [0],
+              check: s => s.model.ifs['GigabitEthernet0/0'].accessIn === 'LAN-IN' && s.forward({ src: '10.64.10.50', dst: '10.64.50.10', dport: 22, in: 'GigabitEthernet0/0' }).stage === 'acl-in',
+              fb: s => s.model.ifs['GigabitEthernet0/0'].accessOut === 'LAN-IN' ? 'Yön ters: out değil in.' : null },
+            { t: 'Yönetici PC 10.64.10.99, 10.64.50.20\'ye RDP (3389) yapabilmeli: deny satırından <b>önce</b> girecek bir satırı sıra numarasıyla ekleyin.',
+              why: 'Adlandırılmış ACL\'de satırlara sıra numarası verilir (10, 20, 30…). Araya satır eklemek için boş bir numara kullanılır (ör. 25); ACL\'yi silip yeniden yazmak gerekmez.',
+              hints: ['show access-lists ile numaralara bakın.', '<code>ip access-list extended LAN-IN</code> → <code>25 permit tcp host 10.64.10.99 host 10.64.50.20 eq 3389</code>'],
+              steps: ['ip access-list extended LAN-IN', '25 permit tcp host 10.64.10.99 host 10.64.50.20 eq 3389', 'end'], needs: [0, 1],
+              check: s => s.forward({ src: '10.64.10.99', dst: '10.64.50.20', dport: 3389, in: 'GigabitEthernet0/0' }).stage === 'ok' && s.forward({ src: '10.64.10.51', dst: '10.64.50.20', dport: 3389, in: 'GigabitEthernet0/0' }).stage === 'acl-in',
+              fb: s => { const a = s.acl('LAN-IN'); if (!a) return null; const r = s.forward({ src: '10.64.10.99', dst: '10.64.50.20', dport: 3389, in: 'GigabitEthernet0/0' }); return r.stage === 'acl-in' ? 'Satır var ama deny satırından SONRA: daha küçük bir sıra numarası verin (ör. 25).' : null; } },
+            { t: 'Hit sayaçlarına bakın: SSH (22) denemesi hangi satırda düştü?', ask: { choices: [['deny', 'Açık deny satırında (log\'lu)'], ['implicit', 'Sondaki örtük deny\'da'], ['permit', 'Hiç düşmedi']], correct: 'deny' },
+              why: '<code>show access-lists</code> her satırın eşleşme sayısını verir; örtük deny sayılmaz. Açık bir <code>deny … log</code> satırı hem sayaç hem log üretir.', hints: ['show access-lists LAN-IN', 'Hangi satırda "matches" var?'],
+              steps: ['show access-lists LAN-IN', { answer: 3, v: 'deny' }], from: 'priv', needs: [0, 1] },
+        ],
+        verify: ['show access-lists', 'show ip interface g0/0', 'show running-config | section access-list'],
+        learn: ['İlk eşleşme kazanır; sonda örtük deny.', 'permit ip any any en sonda.', 'Genişletilmiş ACL kaynağa yakın, in yönünde.', 'Sıra numarasıyla araya satır.', 'Hit sayaçları doğrulama aracıdır.'],
+        links: { tool: '#/cisco-ios/acl', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/traffic' }, cert: 'CCNA 5.6'
+    },
+    {
+        id: 'ios-40', vendor: 'cisco-ios', level: 5, title: '"Port çalışıyor ama sorunlu" — arıza kaydı', minutes: 15, kind: 'switch', pre: ['ios-14'],
+        up: P(1, 8), hosts: [], start: ['hostname SW1', 'vlan 10', 'name USERS', 'exit', 'interface range g0/1 - 8', 'switchport mode access', 'switchport access vlan 10', 'spanning-tree portfast', 'spanning-tree bpduguard enable'],
+        sim: { peer: { 'GigabitEthernet0/3': { duplex: 'auto' } } },
+        variants: [
+            { key: 'duplex', start: ['interface g0/3', 'speed 100', 'duplex half'] },
+            { key: 'shutdown', start: ['interface g0/4', 'shutdown'] },
+            { key: 'errdis', sim: { bpdu: ['GigabitEthernet0/5'], peer: {} } },
+            { key: 'vlan', start: ['interface g0/6', 'switchport access vlan 30'] },
+        ],
+        story: '<b>Arıza kaydı:</b> "Kat 3\'teki bir kullanıcının ağı çok yavaş ya da hiç yok." Hangi port olduğunu bilmiyorsunuz; kullanıcılar Gi0/1–8\'de ve VLAN 10\'da olmalı. Özet tablodan başlayıp sorunlu portu bulun ve doğru biçimde düzeltin. <small>Her turda farklı bir arıza — "Yeni tur".</small>',
+        goals: ['show interfaces status\'u okumak', 'Dupleks uyuşmazlığını sayaçlardan tanımak', 'err-disable\'ı güvenli kurtarmak', 'Yanlış VLAN\'ı bulmak'],
+        tasks: [
+            { t: 'Port özet tablosuna bakın.', why: 'Status (connected/notconnect/disabled/err-disabled), VLAN, dupleks ve hız tek satırda: ilk bakılacak yer.',
+              hints: ['show interfaces …', '<code>show interfaces status</code>'], steps: ['show interfaces status'], from: 'priv', loo: false, /* 5. görev aynı tabloyla doğrular */ check: s => s.ev.ran(/^(do )?show interfaces status$/) },
+            { t: 'Sorun hangisi?', ask: { choices: [['duplex', 'Gi0/3: elle half/100 ayarlı — dupleks uyuşmazlığı'], ['shutdown', 'Gi0/4: yönetsel olarak kapalı (disabled)'], ['errdis', 'Gi0/5: err-disabled'], ['vlan', 'Gi0/6: yanlış VLAN\'da (30)']], correct: v => v.key },
+              why: 'Tabloda: "disabled" = shutdown, "err-disabled" = koruma kapattı, VLAN sütunu farklı = yanlış atama, "half"/"100" (a- öneki olmadan) = elle ayarlanmış hız/dupleks.', hints: ['Satırları VLAN 10 / a-full / a-1000 ile karşılaştırın.', 'Farklı olan satır.'] },
+            { t: 'Ayrıntıyla doğrulayın (sorunlu portun ayrıntı çıktısı).', why: 'Dupleks uyuşmazlığı "late collision" ve CRC sayaçlarıyla kendini ele verir; err-disable nedeni ayrı listede görünür; VLAN switchport çıktısında.',
+              hints: ['show interfaces <port> / … status err-disabled / … switchport', 'duplex → <code>show interfaces g0/3</code>'],
+              steps: v => ({ duplex: ['show interfaces g0/3'], shutdown: ['show interfaces g0/4'], errdis: ['show interfaces status err-disabled'], vlan: ['show interfaces g0/6 switchport'] })[v.key], from: 'priv',
+              check: s => { const re = ({ duplex: /^(do )?show interfaces GigabitEthernet0\/3$/, shutdown: /^(do )?show interfaces GigabitEthernet0\/4( switchport)?$/, errdis: /^(do )?show interfaces status err-disabled$/, vlan: /^(do )?show interfaces GigabitEthernet0\/6 switchport$/ })[s.variant().key]; return s.ev.ran(re); } },
+            { t: 'Düzeltin — koruma kapatılmadan.', why: 'Dupleks: iki uç da auto. Kapalı port: no shutdown. err-disable: shutdown → no shutdown (BPDU Guard açık kalır). VLAN: doğru access VLAN.',
+              hints: ['Soruna karşılık gelen tek değişiklik.', 'duplex → <code>speed auto</code> + <code>duplex auto</code> · errdis → <code>shutdown</code> / <code>no shutdown</code>'],
+              steps: v => ({ duplex: ['interface g0/3', 'speed auto', 'duplex auto', 'end'], shutdown: ['interface g0/4', 'no shutdown', 'end'], errdis: ['interface g0/5', 'shutdown', 'no shutdown', 'end'], vlan: ['interface g0/6', 'switchport access vlan 10', 'end'] })[v.key],
+              check: s => P(1, 8).every(n => { const i = s.model.ifs[n]; return !i.shutdown && !i.errdis && i.accessVlan === 10 && i.speed === 'auto' && i.duplex === 'auto' && i.bpduguard; }),
+              fb: s => P(1, 8).some(n => !s.model.ifs[n].bpduguard) ? 'Çalışır ama yanlış: BPDU Guard kapatıldı.' : null },
+            { t: 'Özet tabloyla doğrulayın: tüm kullanıcı portları connected, VLAN 10.', why: 'Değişiklik sonrası aynı tabloyu tekrar okumak kapanış kanıtıdır.',
+              hints: ['show interfaces status', '<code>show interfaces status</code>'], steps: ['show interfaces status'], from: 'priv', needs: [3], loo: false, /* 1. görevle aynı komut */
+              check: s => { const L = s.ev.list(), i = L.map(e => !!(e.canon && /^(shutdown|no shutdown|speed auto|duplex auto|switchport access vlan 10|no speed|no duplex)$/.test(e.canon))).lastIndexOf(true); return i >= 0 && L.slice(i + 1).some(e => e.canon && /^(do )?show interfaces status$/.test(e.canon)) && P(1, 8).every(n => !s.model.ifs[n].errdis && !s.model.ifs[n].shutdown); } },
+        ],
+        verify: ['show interfaces status', 'show interfaces status err-disabled', 'show interfaces g0/3'],
+        learn: ['disabled = shutdown · err-disabled = koruma · VLAN sütunu = atama.', 'Elle half/100 ↔ karşı uç auto: dupleks uyuşmazlığı (late collision, CRC).', 'err-disable kurtarma: shut/no shut; korumayı kapatmayın.'],
+        links: { cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/l2' }, cert: 'CCNA 1.3, 2.1'
+    },
+    {
+        id: 'ios-43', vendor: 'cisco-ios', level: 5, title: 'Rota arızası: trafik yanlış yere gidiyor', minutes: 20, kind: 'router', pre: ['ios-17'],
+        up: ['GigabitEthernet0/0', 'GigabitEthernet0/1', 'GigabitEthernet0/2'], hosts: ['203.0.113.1', '198.51.100.1', '10.64.10.254'],
+        start: ['hostname R1', 'interface g0/0', 'ip address 10.64.10.1 255.255.255.0', 'no shutdown', 'interface g0/1', 'ip address 203.0.113.2 255.255.255.252', 'no shutdown', 'interface g0/2', 'ip address 198.51.100.2 255.255.255.252', 'no shutdown', 'exit'],
+        variants: [
+            { key: 'nexthop', start: ['ip route 0.0.0.0 0.0.0.0 203.0.113.1', 'ip route 0.0.0.0 0.0.0.0 198.51.100.1 250', 'ip route 10.128.0.0 255.255.0.0 10.64.20.254'] },
+            { key: 'float', start: ['ip route 0.0.0.0 0.0.0.0 203.0.113.1', 'ip route 0.0.0.0 0.0.0.0 198.51.100.1', 'ip route 10.128.0.0 255.255.0.0 10.64.10.254'] },
+            { key: 'mask', start: ['ip route 0.0.0.0 0.0.0.0 203.0.113.1', 'ip route 0.0.0.0 0.0.0.0 198.51.100.1 250', 'ip route 10.0.0.0 255.0.0.0 10.64.10.254'] },
+            { key: 'nodefault', start: ['ip route 0.0.0.0 0.0.0.0 198.51.100.1 250', 'ip route 10.128.0.0 255.255.0.0 10.64.10.254'] },
+        ],
+        story: '<b>Arıza kaydı:</b> "Şube ağına (10.128.0.0/16) ya da internete erişimde sorun var." Doğru tasarım: 10.128.0.0/16 → 10.64.10.254; varsayılan rota birincil 203.0.113.1, yedek 198.51.100.1 (AD 250). Yönlendirme tablosunu okuyun ve yalnız bozuk rotayı düzeltin. <small>Her turda farklı bir arıza — "Yeni tur".</small>',
+        goals: ['show ip route ile config\'i karşılaştırmak', 'Kurulmayan rota / fazla geniş maske / ECMP / eksik rota', 'En az değişiklikle düzeltme'],
+        tasks: [
+            { t: 'Yönlendirme tablosuna ve statik rota yapılandırmasına bakın.', why: 'Config\'te olan her rota tabloda olmayabilir (next-hop ulaşılamaz). İkisini karşılaştırmak kök nedeni gösterir.',
+              hints: ['show ip route + show run | include ip route', '<code>show ip route</code> → <code>show running-config | include ip route</code>'], steps: ['show ip route', 'show running-config | include ip route'], from: 'priv',
+              check: s => s.ev.ran(/^(do )?show ip route$/) && s.ev.ran(/^(do )?show running-config \| *i\S* +ip route/) },
+            { t: 'Sorun hangisi?', ask: { choices: [['nexthop', '10.128.0.0/16 rotası config\'te var ama next-hop bağlı bir ağda değil → tabloda yok'], ['float', 'Yedek rotanın AD\'si 1: iki varsayılan rota birden (trafik yedeğe de gidiyor)'], ['mask', 'Şube rotası fazla geniş (10.0.0.0/8): başka 10.x ağları da LAN\'a gidiyor'], ['nodefault', 'Birincil varsayılan rota yok: internet yedek hattan gidiyor']], correct: v => v.key },
+              why: 'Tabloda iki "[1/0] via" satırı = ECMP; config\'te olup tabloda olmayan rota = ulaşılamayan next-hop; /8 = fazla geniş maske; "Gateway of last resort" yedeği gösteriyorsa birincil eksik.', hints: ['Config ile tabloyu satır satır karşılaştırın.', 'Hangi beklenen satır yok ya da fazla?'] },
+            { t: 'Yalnız bozuk rotayı düzeltin.', why: 'Yanlış rotayı <code>no ip route …</code> ile kaldırın, doğrusunu ekleyin. Tüm rotaları silip yeniden yazmak kesintiyi büyütür.',
+              hints: ['no ip route … → ip route …', 'nexthop → 10.64.10.254 · float → yedek AD 250 · mask → /16 · nodefault → 203.0.113.1'],
+              steps: v => ({ nexthop: ['no ip route 10.128.0.0 255.255.0.0 10.64.20.254', 'ip route 10.128.0.0 255.255.0.0 10.64.10.254'], float: ['no ip route 0.0.0.0 0.0.0.0 198.51.100.1', 'ip route 0.0.0.0 0.0.0.0 198.51.100.1 250'],
+                  mask: ['no ip route 10.0.0.0 255.0.0.0 10.64.10.254', 'ip route 10.128.0.0 255.255.0.0 10.64.10.254'], nodefault: ['ip route 0.0.0.0 0.0.0.0 203.0.113.1'] })[v.key],
+              check: s => { const R = s.rib(), d = R.filter(r => r.len === 0); return d.length === 1 && d[0].nh === '203.0.113.1' && R.some(r => r.net === '10.128.0.0' && r.len === 16 && r.nh === '10.64.10.254') && !R.some(r => r.net === '10.0.0.0' && r.len === 8) && s.model.routes.some(r => r.nh === '198.51.100.1' && r.ad === 250) && !s.model.routes.some(r => r.nh === '10.64.20.254'); },
+              fb: s => s.model.routes.some(r => r.nh === '10.64.20.254') ? 'Kurulamayan yanlış rota config\'te duruyor: no ip route ile kaldırın.' : null },
+            { t: 'Doğrulayın: 10.128.5.5 ve 8.8.8.8 hangi rotayı kullanıyor?', why: '<code>show ip route &lt;ip&gt;</code> tek bir hedef için seçilen girdiyi gösterir; varsayılan rota yalnız "Gateway of last resort" satırında görülür.',
+              hints: ['show ip route 10.128.5.5', '<code>show ip route 10.128.5.5</code>'], steps: ['show ip route 10.128.5.5'], from: 'priv', needs: [2],
+              check: s => { const L = s.ev.list(), i = L.map(e => !!(e.canon && /^(no )?ip route /.test(e.canon))).lastIndexOf(true); return i >= 0 && L.slice(i + 1).some(e => e.canon && /^(do )?show ip route 10\.128\.5\.5$/.test(e.canon)); } },
+        ],
+        verify: ['show ip route', 'show ip route static', 'show ip route 10.128.5.5', 'show running-config | include ip route'],
+        learn: ['Config\'teki rota tabloda yoksa next-hop\'a ulaşılamıyordur.', 'Aynı AD = ECMP; yedek rota yüksek AD ister.', 'Fazla geniş maske başka ağları da çeker.', 'no ip route ile yalnız bozuk rota.'],
+        links: { tool: '#/cisco-ios/static-route', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/routing' }, cert: 'CCNA 3.2, 3.3'
+    },
     // ═══ Serbest terminal ══════════════════════════════════════════════════
     { id: 'ios-sandbox-sw', vendor: 'cisco-ios', level: null, sandbox: true, title: 'Serbest terminal — Switch', kind: 'switch', up: P(1, 4),
       story: '24 portlu bir erişim switch\'i. Gi0/1–4 bağlı. Görev yok; dilediğiniz komutu deneyin. <kbd>?</kbd> ile desteklenen komutları görün.', tasks: [] },
@@ -177,6 +421,30 @@
       hosts: ['192.0.2.254', '198.51.100.1'],
       story: 'Üç arayüzlü bir router (Gi0/0–2; 0 ve 1 bağlı). Router arayüzleri varsayılan kapalıdır. Örnek: Gi0/0\'a 192.0.2.1/24 verip 192.0.2.254\'e ping atın.', tasks: [] },
     ];
+    // Çoktan seçmeli (ask) görevler ve adımlardan türetilen örnek çözüm (fortigate.js ile aynı kural)
+    LABS.forEach(l => l.tasks.forEach((t, i) => {
+        if (!t.ask) return;
+        const key = l.id + ':' + i, want = v => typeof t.ask.correct === 'function' ? t.ask.correct(v || {}) : t.ask.correct;
+        t.check = s => !!s.answers && s.answers[key] === want(s.variant && s.variant());
+        t.steps = t.steps || (v => [{ answer: i, v: want(v) }]);
+    }));
+    LABS.forEach(l => {
+        if (l.solution || l.sandbox) return;
+        // Mod takibi: yapılandırma adımı ayrıcalıklı modda başlayamaz (conf t), show/write yapılandırma modunda başlayamaz (end)
+        l.solution = v => {
+            const out = ['enable']; let mode = 'priv';
+            l.tasks.forEach(t => {
+                const st = typeof t.steps === 'function' ? t.steps(v || {}) : t.steps;
+                const first = st.find(x => typeof x === 'string' && x);
+                const needPriv = t.from === 'priv' || (!t.from && first && /^(show|shw|write|copy|reload|ping|en|enable)\b/.test(first));
+                const needCfg = !needPriv && first !== undefined;
+                if (needPriv && mode === 'config') { out.push('end'); mode = 'priv'; }
+                if (needCfg && mode === 'priv') { out.push('configure terminal'); mode = 'config'; }
+                st.forEach(x => { out.push(x); if (x === 'end') mode = 'priv'; else if (x === 'configure terminal') mode = 'config'; });
+            });
+            return out;
+        };
+    });
     const LABS_BY_ID = {};
     LABS.forEach(l => { LABS_BY_ID[l.id] = l; });
     const root = typeof window !== 'undefined' ? window : globalThis;
