@@ -1249,3 +1249,32 @@
 [data-theme="dark"] #config-generator-root .cg-lab-choice.ok { background: #0f2a1f; border-color: #065f46; }
 [data-theme="dark"] #config-generator-root .cg-lab-choice.bad { background: #2d1215; border-color: #7f1d1d; }
 @media (max-width: 900px) { #config-generator-root .cg-lab-choice { min-height: 44px; } }
+/* Lab: öğrenme yolları ve ders */
+#config-generator-root .cg-lab-paths h3 { font-size: .95rem; font-weight: 800; margin: 14px 0 10px; display: flex; gap: 8px; align-items: center; }
+#config-generator-root .cg-lab-paths h3 small { font-weight: 500; color: var(--text-secondary, #6b7280); }
+#config-generator-root .cg-lab-pcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-bottom: 14px; }
+#config-generator-root .cg-lab-pcard { display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: var(--cg-r, 10px); border: 1px solid var(--primary-color, #4F46E5); background: color-mix(in srgb, var(--primary-color, #4F46E5) 6%, var(--bg-primary, #fff)); color: var(--text-primary, #1f2937); text-decoration: none; }
+#config-generator-root .cg-lab-pcard:hover { background: color-mix(in srgb, var(--primary-color, #4F46E5) 12%, var(--bg-primary, #fff)); }
+#config-generator-root .cg-lab-pnext { display: inline-flex; margin: 6px 0 14px; text-decoration: none; }
+#config-generator-root .cg-lab-pdone { font-weight: 700; color: #b45309; }
+#config-generator-root .cg-lab-path { list-style: none; padding: 0; margin: 0; position: relative; }
+#config-generator-root .cg-lab-path::before { content: ''; position: absolute; left: 15px; top: 8px; bottom: 8px; width: 2px; background: var(--border-color, #e5e7eb); }
+#config-generator-root .cg-lab-pmod { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; padding: 8px 0 14px; position: relative; }
+#config-generator-root .cg-lab-pnum { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: .85rem; background: var(--bg-primary, #fff); border: 2px solid var(--primary-color, #4F46E5); color: var(--primary-color, #4F46E5); z-index: 1; }
+#config-generator-root .cg-lab-pmod.is-done .cg-lab-pnum { background: #10b981; border-color: #10b981; color: #fff; }
+#config-generator-root .cg-lab-pbody h3 { margin: 4px 0 2px; font-size: .95rem; font-weight: 800; }
+#config-generator-root .cg-lab-pbody p { margin: 0 0 8px; font-size: .84rem; color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-lab-plabs { display: flex; flex-wrap: wrap; gap: 6px; }
+#config-generator-root .cg-lab-plabs .cg-chip { text-decoration: none; }
+#config-generator-root .cg-lab-plabs .cg-chip.is-done { border-color: #6ee7b7; }
+#config-generator-root .cg-lab-lesson { margin: 10px 0; border: 1px solid var(--border-color, #e5e7eb); border-radius: 10px; padding: 8px 12px; background: var(--bg-primary, #fff); }
+#config-generator-root .cg-lab-lesson summary { cursor: pointer; font-weight: 700; font-size: .86rem; color: var(--primary-color, #4F46E5); }
+#config-generator-root .cg-lab-lesson h4 { margin: 10px 0 4px; font-size: .84rem; font-weight: 800; }
+#config-generator-root .cg-lab-lesson p, #config-generator-root .cg-lab-lesson li { font-size: .84rem; line-height: 1.55; color: var(--text-secondary, #374151); }
+#config-generator-root .cg-lab-lesson ul { padding-left: 18px; margin: 4px 0; }
+#config-generator-root .cg-lab-lesson pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; background: #0d1117; color: #d1d9e0; padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 6px 0; }
+[data-theme="dark"] #config-generator-root .cg-lab-pcard { background: #1b1d3a; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-lab-pnum { background: #0d1117; }
+[data-theme="dark"] #config-generator-root .cg-lab-lesson { background: #161b22; border-color: #30363d; }
+[data-theme="dark"] #config-generator-root .cg-lab-lesson p, [data-theme="dark"] #config-generator-root .cg-lab-lesson li, [data-theme="dark"] #config-generator-root .cg-lab-pbody p { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-lab-path::before { background: #30363d; }

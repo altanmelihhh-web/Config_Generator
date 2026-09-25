@@ -1795,6 +1795,8 @@ const ConfigGenerator = {
         const h = location.hash || '';
         const cli = h.match(/^#\/cli(?:\/([a-z0-9-]+))?$/);
         if (cli) { this._renderCli(cli[1]); return; }
+        const lp = h.match(/^#\/lab\/path\/([a-z0-9-]+)$/);
+        if (lp) { this._renderLab(null, lp[1]); return; }
         const lab = h.match(/^#\/lab(?:\/([a-z0-9-]+))?$/);
         if (lab) { this._renderLab(lab[1]); return; }
         const ts = h.match(/^#\/troubleshoot(?:\/([a-z0-9-]+))?(?:\/(\d+))?$/);
@@ -2060,11 +2062,11 @@ const ConfigGenerator = {
     },
 
     // ── CLI LABORATUVARI: görevli terminal simülatörü ────────────────────
-    _renderLab(id) {
+    _renderLab(id, pathId) {
         this._setNav('lab');
         this._vendor = this._type = null;
         if (typeof CgLab === 'undefined' || typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Laboratuvar yüklenemedi.</p></div>'; return; }
-        CgLab.render(this._root, id);
+        CgLab.render(this._root, id, pathId);
         window.scrollTo(0, 0);
     },
 

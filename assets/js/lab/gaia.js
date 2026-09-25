@@ -1,0 +1,825 @@
+'use strict';
+
+// ─── CLI Lab: Check Point Gaia motoru (eğitim simülatörü; Gaia R81.20 görünümü) ───
+// İki kabuk: clish (gw-a> ) ve expert (bash, [Expert@gw-a:0]# ).
+// clish komutları cihaz MODELİNİ değiştirir; değişiklik anında çalışan sisteme uygulanır,
+// "save config" ile kalıcı olur (reboot'ta kaydedilmemiş olan kaybolur). Görev kontrolleri
+// modele ve olay kaydına (ev) bakar. Politika SmartConsole'da yazılır: lab verisinde
+// sabit kural tabanı (sim.rules) + anti-spoofing grupları (sim.spoof) + NAT (sim.nat) +
+// akışlar (sim.flows) tanımlanır; expert teşhis komutları bunlardan çıktı üretir.
+//
+// Doğrulanmış biçim kaynakları (metin kopyalanmadı; biçim örnek alındı):
+//  - clish özellikleri (kısaltma, Tab, ?, history, save config, config lock):
+//    https://sc1.checkpoint.com/documents/R77/CP_R77_Gaia_AdminWebAdminGuide/75697.htm
+//  - "CLINFR0329 Invalid command:'…'" : sk108033, sk171705 (support.checkpoint.com) · "CLINFR0349 Incomplete command": CheckMates
+//  - expert giriş/uyarı, set expert-password istemleri:
+//    https://sc1.checkpoint.com/documents/R81.10/WebAdminGuides/EN/CP_R81.10_Gaia_AdminGuide/Topics-GAG/Expert-Mode.htm
+//  - show interfaces all / show route / show version all / show ntp servers / show dns / fw stat:
+//    ntc-templates tests/checkpoint_gaia/* (github.com/networktocode/ntc-templates)
+//  - fw ctl zdebug drop başlığı ve "fw_log_drop_ex … dropped by fw_handle_first_packet Reason: Rulebase drop - rule N":
+//    https://yurisk.info/2016/05/21/fw-ctl-zdebug-drop-check-point-firewall-ultimate-debug-command/
+//  - "dropped by handle_spoofed_susp, Reason: Address spoofing": sk106625 başlığı
+//  - cphaprob state / clusterXL_admin çıktıları:
+//    https://sc1.checkpoint.com/documents/R81.10/WebAdminGuides/EN/CP_R81.10_ClusterXL_AdminGuide/Topics-CXLG/Initiating-Manual-Cluster-Failover.htm
+//    https://sc1.checkpoint.com/documents/SMB_R81.10.X/CLI/EN/Content/Topics/cphaprob-Viewing-Cluster-State.htm
+//  - cphaprob -a -m if: https://sc1.checkpoint.com/documents/R81.20/WebAdminGuides/EN/CP_R81.20_ClusterXL_AdminGuide/Content/Topics-CXLG/Viewing-Cluster-Interfaces.htm
+//  - vpn tu menüsü: https://sc1.checkpoint.com/documents/R81/WebAdminGuides/EN/CP_R81_SitetoSiteVPN_AdminGuide/Topics-VPNSG/CLI/vpn-tu.htm
+//  - vpn tu tlist tablosu: https://sc1.checkpoint.com/documents/R82/WebAdminGuides/EN/CP_R82_SitetoSiteVPN_AdminGuide/Content/Topics-CLIG/VPNSG/vpn-tu-tlist.htm
+//  - cpstat os -f cpu alanları: github.com/yuriskinfo/cheat-sheets (cpstat reference)
+//  - fw monitor başlık satırları ve "[vs_0][fw_N] eth1:i[60]: …" biçimi: CheckMates "R80.20 cheat sheet - fw monitor"
+// Emin olunmayan çıktılar "# [Simülatör] …" satırıyla işaretlenir.
+const CgLabGaia = (() => {
+    const C = (typeof CgLabCore !== 'undefined') ? CgLabCore : require('./core.js');
+    const { pad, isIp, ip2n, n2ip, sameNet } = C;
+    const VERSION = { product: 'Check Point Gaia R81.20', build: '631', kernel: '3.10.0-957.21.3cpx86_64', edition: '64-bit', fwBuild: '631' };
+    const DATE = 'Thu Sep 24 09:12:40 2026', FWDATE = '24Sep2026 09:12:40';
+    const clone = o => JSON.parse(JSON.stringify(o));
+    const inNet = (ip, cidr) => { if (!cidr || cidr === 'any') return true; const [n, l] = cidr.split('/'); return sameNet(ip, n, +(l === undefined ? 32 : l)); };
+    const isPriv = ip => inNet(ip, '10.0.0.0/8') || inNet(ip, '172.16.0.0/12') || inNet(ip, '192.168.0.0/16');
+    const mac = (n) => { const k = (n.match(/\d+$/) || ['0'])[0]; return '00:50:56:8a:1c:' + (16 + +k).toString(16).padStart(2, '0'); };
+
+    // ── Türkçe yardım açıklamaları (clish ? / Tab)
+    const KW = {
+        show: 'Yapılandırma ve durum bilgisi göster', set: 'Bir ayarı değiştir', add: 'Yeni öğe ekle', delete: 'Öğe sil', save: 'Yapılandırmayı kalıcı kaydet',
+        config: 'Çalışan yapılandırmayı açılışa yaz', expert: 'Expert (bash) kabuğuna geç', exit: 'Kabuktan çık', quit: 'Kabuktan çık', reboot: 'Cihazı yeniden başlat',
+        history: 'Komut geçmişi', ping: 'Erişilebilirlik testi', version: 'Sürüm bilgisi', all: 'Tümü', hostname: 'Cihaz adı', 'config-state': 'Kaydedilmemiş değişiklik var mı?',
+        configuration: 'Yapılandırmayı set komutları olarak göster', interfaces: 'Arayüz listesi / tüm arayüzler', interface: 'Tek arayüz', route: 'Yönlendirme tablosu',
+        static: 'Yalnız statik rotalar', dns: 'DNS ayarları', ntp: 'NTP ayarları', servers: 'NTP sunucuları', users: 'Gaia kullanıcıları', cluster: 'ClusterXL', state: 'Durum / aç-kapa',
+        commands: 'Bu lab sürümündeki komutlar', 'ipv4-address': 'IPv4 adresi', 'mask-length': 'Önek uzunluğu (ör. 24)', 'subnet-mask': 'Alt ağ maskesi', on: 'Açık / etkin', off: 'Kapalı / sil',
+        comments: 'Açıklama', mtu: 'MTU', 'static-route': 'Statik rota', default: 'Varsayılan rota (0.0.0.0/0)', nexthop: 'Sonraki atlama', gateway: 'Ağ geçidi', address: 'Adres ile',
+        primary: 'Birincil', secondary: 'İkincil', tertiary: 'Üçüncül', suffix: 'Alan adı son eki', active: 'Servisi aç/kapat', server: 'Sunucu', user: 'Kullanıcı', uid: 'Kullanıcı kimliği',
+        homedir: 'Ev dizini', 'expert-password': 'Expert mod parolası', member: 'Küme üyesi', admin: 'Yönetimsel durum', down: 'Yönetimsel olarak devre dışı (failover)', up: 'Normal çalışmaya dön'
+    };
+    const VARH = { if: 'Arayüz adı (ör. eth1)', ip: 'IPv4 adresi', gw: 'Ağ geçidi IPv4 adresi', pfx: 'Hedef ağ/önek (ör. 10.128.0.0/16)', h: 'Ad', c: 'Metin', u: 'Kullanıcı adı', mask: 'Alt ağ maskesi' };
+
+    function session(lab, opts) {
+        const VAR = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
+        if (VAR) lab = Object.assign({}, lab, { start: (lab.start || []).concat(VAR.start || []), sim: Object.assign({}, lab.sim || {}, VAR.sim || {}) });
+        const SIM = lab.sim || {};
+        const IFS = lab.ifaces || ['eth0', 'eth1', 'eth2', 'eth3'];
+        const S = {
+            m: baseModel(), saved: null, mode: 'clish', stack: [], pending: null, loggedOut: false, ev: [], hist: [], answers: {},
+            rt: { clAdmin: false, clPerm: false, failovers: 0, lastEvt: null, vpnDebug: false, ikeDebug: false, vpnTried: false }
+        };
+        function baseModel() {
+            const ifs = {};
+            IFS.forEach(n => { ifs[n] = { ip: null, len: null, state: n === 'eth0' ? 'on' : 'off', comments: '', mtu: 1500 }; });
+            return { hostname: lab.hostname || 'gw-a', ifs, routes: {}, dns: {}, ntp: { active: false, servers: {} }, users: { admin: { uid: 0, home: '/home/admin' } }, expertPw: lab.expertPw || 'Expert-Lab1' };
+        }
+        const M = () => S.m;
+        const log = o => { S.ev.push(Object.assign({ mode: S.mode }, o)); };
+        const host = () => M().hostname;
+        const linkUp = n => n === 'lo' || (lab.up || []).includes(n);
+        const ifUp = n => !!M().ifs[n] && M().ifs[n].state === 'on' && linkUp(n);
+
+        // ── RIB: bağlı ağlar + etkin statik rotalar
+        function rib() {
+            const out = [], m = M();
+            for (const [n, i] of Object.entries(m.ifs)) if (i.ip && ifUp(n)) out.push({ type: 'C', net: n2ip(C.netOf(i.ip, i.len)), len: i.len, dev: n });
+            out.push({ type: 'C', net: '127.0.0.0', len: 8, dev: 'lo' });
+            for (const [p, r] of Object.entries(m.routes)) {
+                const c = out.find(x => x.type === 'C' && x.dev !== 'lo' && inNet(r.gw, x.net + '/' + x.len));
+                if (!c) continue;
+                const [net, len] = p === 'default' ? ['0.0.0.0', 0] : p.split('/');
+                out.push({ type: 'S', net, len: +len, dev: c.dev, gw: r.gw, def: p === 'default' });
+            }
+            return out.sort((a, b) => ip2n(a.net) - ip2n(b.net) || a.len - b.len);
+        }
+        function lookup(ip) { let best = null; for (const r of rib()) if (inNet(ip, r.net + '/' + r.len) && (!best || r.len > best.len)) best = r; return best; }
+        const ifIp = n => (M().ifs[n] || {}).ip;
+
+        // ═══ clish komut tanımları ═════════════════════════════════════════
+        const ctx = { ifNorm: s => (/^(eth\d+|lo)$/.test(s) ? s : null), ifValid: n => !!M().ifs[n] };
+        const E = (o) => ({ err: 'value', msg: o });
+        const CL = C.build([
+            { p: 'show version all', run: showVersion },
+            { p: 'show hostname', run: () => host() },
+            { p: 'show config-state', run: () => (dirty() ? 'unsaved' : 'saved') },
+            { p: 'show configuration', run: () => showConf() },
+            { p: 'show interfaces', run: () => IFS.join('\n') },
+            { p: 'show interfaces all', run: () => IFS.map(showIf).join('\n\n') },
+            { p: 'show interface IFNAME$if', run: a => showIf(a.if) },
+            { p: 'show route', run: () => showRoute(false) },
+            { p: 'show route static', run: () => showRoute(true) },
+            { p: 'show dns', run: showDns },
+            { p: 'show ntp servers', run: showNtp },
+            { p: 'show users', run: showUsers },
+            { p: 'show cluster state', run: () => { if (!SIM.cluster) return E('# [Simülatör] Bu gateway bir ClusterXL üyesi değil.'); log({ clstate: clMembers()[0].st }); return clusterState(); } },
+            { p: 'show commands', run: () => '# [Simülatör] Bu lab sürümündeki clish komutları (gerçek Gaia\'da liste çok daha uzundur):\n' + CL.map(c => c.p.replace(/\$\w+/g, '').replace(/IFNAME/g, '<arayüz>').replace(/A\.B\.C\.D/g, '<ip>').replace(/WORD/g, '<değer>').replace(/LINE/g, '<metin>')).join('\n') },
+            { p: 'set hostname WORD$h', run: a => { if (!/^[A-Za-z][A-Za-z0-9-]{0,62}$/.test(a.h)) return E('# [Simülatör] Geçersiz ad: harfle başlamalı; yalnız harf, rakam ve "-".'); M().hostname = a.h; } },
+            { p: 'set interface IFNAME$if ipv4-address A.B.C.D$ip mask-length (1-32)$len', run: a => setIp(a.if, a.ip, a.len) },
+            { p: 'set interface IFNAME$if ipv4-address A.B.C.D$ip subnet-mask MASK$mask', run: a => setIp(a.if, a.ip, C.maskLen(a.mask)) },
+            { p: 'set interface IFNAME$if state <on|off>$st', run: a => { if (a.if === 'lo') return E('# [Simülatör] lo arayüzü kapatılamaz.'); M().ifs[a.if].state = a.st; } },
+            { p: 'set interface IFNAME$if comments LINE$c', run: a => { M().ifs[a.if].comments = a.c.replace(/^"(.*)"$/, '$1'); } },
+            { p: 'set interface IFNAME$if mtu (68-16000)$mtu', run: a => { M().ifs[a.if].mtu = a.mtu; } },
+            { p: 'delete interface IFNAME$if ipv4-address', run: a => { M().ifs[a.if].ip = null; M().ifs[a.if].len = null; } },
+            { p: 'set static-route default nexthop gateway address A.B.C.D$gw <on|off>$st', run: a => setRoute('default', a.gw, a.st) },
+            { p: 'set static-route default off', run: () => { delete M().routes.default; } },
+            { p: 'set static-route WORD$pfx nexthop gateway address A.B.C.D$gw <on|off>$st', run: a => { const p = pfx(a.pfx); if (!p) return { err: 'invalid', col: 17 }; return setRoute(p, a.gw, a.st); } },
+            { p: 'set static-route WORD$pfx off', run: a => { const p = pfx(a.pfx); if (!p) return { err: 'invalid', col: 17 }; delete M().routes[p]; } },
+            { p: 'set dns <primary|secondary|tertiary>$k A.B.C.D$ip', run: a => { M().dns[a.k] = a.ip; } },
+            { p: 'set dns suffix WORD$s', run: a => { M().dns.suffix = a.s; } },
+            { p: 'delete dns <primary|secondary|tertiary>$k', run: a => { delete M().dns[a.k]; } },
+            { p: 'set ntp active <on|off>$st', run: a => { M().ntp.active = a.st === 'on'; } },
+            { p: 'set ntp server <primary|secondary>$k A.B.C.D$ip version (1-4)$v', run: a => { M().ntp.servers[a.k] = { ip: a.ip, ver: a.v }; } },
+            { p: 'add user WORD$u uid (0-65535)$uid homedir WORD$h', run: a => { if (M().users[a.u]) return E('# [Simülatör] "' + a.u + '" kullanıcısı zaten var.'); M().users[a.u] = { uid: a.uid, home: a.h }; } },
+            { p: 'delete user WORD$u', run: a => { if (a.u === 'admin') return E('# [Simülatör] admin kullanıcısı silinemez.'); if (!M().users[a.u]) return E('# [Simülatör] "' + a.u + '" adlı kullanıcı yok.'); delete M().users[a.u]; } },
+            { p: 'set expert-password', run: () => setExpertPw() },
+            { p: 'set cluster member admin <down|up>$st', run: a => (SIM.cluster ? clAdmin(a.st, false) : E('# [Simülatör] Bu gateway bir ClusterXL üyesi değil.')) },
+            { p: 'save config', run: () => { S.saved = clone(M()); } },
+            { p: 'expert', run: () => enterExpert() },
+            { p: 'exit', run: () => leave() },
+            { p: 'quit', run: () => leave() },
+            { p: 'reboot', run: () => askReboot() },
+            { p: 'history', run: () => { const b = Math.max(0, S.hist.length - 20); return S.hist.slice(b).map((x, i) => pad(String(b + i + 1), 5) + x).join('\n'); } },
+            { p: 'ping A.B.C.D$ip', run: a => ping(a.ip) },
+        ]);
+        // Gerçek Gaia'da var, bu lab sürümünde yok → dürüst mesaj
+        const CL_UNSUP = ['show asset', 'show sysenv', 'show uptime', 'show clock', 'show ntp active', 'show ntp current', 'show dns primary', 'show dns secondary', 'show arp', 'show bonding',
+            'show ospf', 'show route bgp', 'show route ospf', 'show route destination', 'show route summary', 'show allowed-client', 'show password-controls', 'show ssh', 'show snmp', 'show syslog', 'show backup',
+            'show backups', 'show snapshots', 'show extended', 'show routed', 'show cluster members', 'show cluster failover', 'show user', 'show timezone',
+            'set timezone', 'set user', 'add bonding', 'add interface', 'add arp', 'add backup', 'add snapshot', 'add rba', 'set bonding', 'set ospf', 'set snmp', 'set syslog', 'set ssh',
+            'set allowed-client', 'set password-controls', 'lock database', 'unlock database', 'load configuration', 'save configuration', 'installer', 'set dhcp', 'set router-id',
+            'set inactivity-timeout', 'set clienv', 'set format', 'set date', 'set time', 'set arp', 'set web', 'add allowed-client', 'set snapshot', 'add dhcp', 'set lom', 'show lom', 'show virtual-system'];
+        const EXPERT_ROOTS = ['fw', 'cpstat', 'cphaprob', 'clusterXL_admin', 'vpn', 'tcpdump', 'cpview', 'cpinfo', 'fwaccel', 'cplic', 'cpwd_admin', 'cpstop', 'cpstart', 'cprestart', 'cpconfig', 'ifconfig', 'ip', 'netstat', 'top', 'df', 'cat', 'grep', 'less', 'tail'];
+
+        function pfx(s) {
+            const m = String(s).match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+            if (!m || !isIp(m[1]) || +m[2] > 32) return null;
+            if (n2ip(C.netOf(m[1], +m[2])) !== m[1]) return null;
+            return m[1] + '/' + m[2];
+        }
+        function setIp(n, ip, len) {
+            if (n === 'lo') return E('# [Simülatör] lo arayüzünün adresi değiştirilemez.');
+            if (len < 1 || len > 32) return { err: 'invalid' };
+            if (len < 31 && (ip2n(ip) === C.netOf(ip, len) || ip2n(ip) === C.netOf(ip, len) + 2 ** (32 - len) - 1)) return E('# [Simülatör] ' + ip + '/' + len + ' bir ağ ya da yayın adresi; arayüze atanamaz.');
+            for (const [k, i] of Object.entries(M().ifs)) if (k !== n && i.ip && (sameNet(ip, i.ip, Math.min(len, i.len)))) return E('# [Simülatör] ' + ip + '/' + len + ', ' + k + ' arayüzündeki ağ ile çakışıyor.');
+            M().ifs[n].ip = ip; M().ifs[n].len = len;
+        }
+        function setRoute(p, gw, st) {
+            if (st === 'off') { const r = M().routes[p]; if (r && r.gw === gw) delete M().routes[p]; return; }
+            M().routes[p] = { gw };
+        }
+        const cfgKey = m => JSON.stringify({ h: m.hostname, i: m.ifs, r: m.routes, d: m.dns, n: m.ntp, u: m.users, e: m.expertPw });
+        const dirty = () => cfgKey(M()) !== cfgKey(S.saved);
+
+        // ── show çıktıları (modelden)
+        function showVersion() {
+            return ['Product version ' + VERSION.product, 'OS build ' + VERSION.build, 'OS kernel version ' + VERSION.kernel, 'OS edition ' + VERSION.edition,
+                '(eğitim simülatörü — build/kernel numaraları temsilidir)'].join('\n');
+        }
+        function showIf(n) {
+            const i = M().ifs[n], up = ifUp(n);
+            return ['Interface ' + n, '    state ' + i.state, '    mac-addr ' + mac(n), '    type ethernet', '    link-state ' + (up ? 'link up' : 'link down'), '    mtu ' + i.mtu,
+                '    auto-negotiation on', '    speed ' + (up ? '1000M' : 'N/A'), '    ipv6-autoconfig Not configured', '    duplex ' + (up ? 'full' : 'N/A'), '    monitor-mode Not configured',
+                '    link-speed ' + (up ? '1000M/full' : 'Not configured'), '    comments' + (i.comments ? ' ' + i.comments : ''), '    ipv4-address ' + (i.ip ? i.ip + '/' + i.len : 'Not Configured'),
+                '    ipv6-address Not Configured', '    ipv6-local-link-address Not Configured', '', 'Statistics:',
+                '    TX bytes:' + (up ? 1834211 : 0) + ' packets:' + (up ? 12877 : 0) + ' errors:0 dropped:0 overruns:0 carrier:0',
+                '    RX bytes:' + (up ? 2210944 : 0) + ' packets:' + (up ? 15102 : 0) + ' errors:0 dropped:0 overruns:0 frame:0'].join('\n');
+        }
+        function showRoute(staticOnly) {
+            const L = ['Codes: C - Connected, S - Static, R - RIP, B - BGP (D - Default),', '       O - OSPF IntraArea (IA - InterArea, E - External, N - NSSA)',
+                '       A - Aggregate, K - Kernel Remnant, H - Hidden, P - Suppressed,', '       U - Unreachable, i - Inactive', ''];
+            for (const r of rib()) {
+                if (staticOnly && r.type !== 'S') continue;
+                const code = r.type === 'S' ? 'S' : 'C';
+                L.push(pad(code, 10) + pad(r.net + '/' + r.len, 20) + (r.type === 'S' ? 'via ' + r.gw + ', ' + r.dev + ', cost 0, age ' + (3600 + ip2n(r.net) % 997) : 'is directly connected, ' + r.dev));
+            }
+            return L.join('\n');
+        }
+        function showDns() {
+            const d = M().dns, L = ['DNS setup', pad('Name', 22) + 'Value', '', pad('Domain', 22) + (d.suffix || '')];
+            ['primary', 'secondary', 'tertiary'].forEach(k => L.push(pad('DNS server', 22) + (d[k] || '')));
+            return L.join('\n');
+        }
+        function showNtp() {
+            const s = M().ntp.servers, L = [pad('IP Address', 25) + pad('Type', 18) + 'Version'];
+            ['primary', 'secondary'].forEach(k => { if (s[k]) L.push(pad(s[k].ip, 25) + pad(k[0].toUpperCase() + k.slice(1), 18) + s[k].ver); });
+            return L.join('\n');
+        }
+        function showUsers() {
+            const L = [pad('Login', 12) + pad('Uid', 8) + pad('Gid', 8) + pad('Home Dir.', 18) + pad('Shell', 14) + pad('Real Name', 12) + 'Privileges'];
+            for (const [u, x] of Object.entries(M().users)) L.push(pad(u, 12) + pad(x.uid, 8) + pad(u === 'admin' ? 0 : 100, 8) + pad(x.home, 18) + pad('/etc/cli.sh', 14) + pad(u === 'admin' ? 'Admin' : u, 12) + (u === 'admin' ? 'Access to Expert features' : 'None'));
+            return L.join('\n');
+        }
+        function showConf(m) {
+            m = m || M();
+            const L = ['#', '# Configuration of ' + m.hostname, '# Exported by admin on ' + DATE, '#', '# [Simülatör] Varsayılan satırlar kısaltıldı.', 'set hostname ' + m.hostname];
+            for (const [n, i] of Object.entries(m.ifs)) {
+                L.push('set interface ' + n + ' state ' + i.state);
+                if (i.comments) L.push('set interface ' + n + ' comments "' + i.comments + '"');
+                if (i.mtu !== 1500) L.push('set interface ' + n + ' mtu ' + i.mtu);
+                if (i.ip) L.push('set interface ' + n + ' ipv4-address ' + i.ip + ' mask-length ' + i.len);
+            }
+            for (const [p, r] of Object.entries(m.routes)) L.push('set static-route ' + p + ' nexthop gateway address ' + r.gw + ' on');
+            ['primary', 'secondary', 'tertiary'].forEach(k => { if (m.dns[k]) L.push('set dns ' + k + ' ' + m.dns[k]); });
+            if (m.dns.suffix) L.push('set dns suffix ' + m.dns.suffix);
+            ['primary', 'secondary'].forEach(k => { const s = m.ntp.servers[k]; if (s) L.push('set ntp server ' + k + ' ' + s.ip + ' version ' + s.ver); });
+            L.push('set ntp active ' + (m.ntp.active ? 'on' : 'off'));
+            for (const [u, x] of Object.entries(m.users)) if (u !== 'admin') L.push('add user ' + u + ' uid ' + x.uid + ' homedir ' + x.home);
+            return L.join('\n');
+        }
+
+        // ── Linux ping (clish ve expert)
+        function reachable(ip) {
+            if (Object.values(M().ifs).some(i => i.ip === ip)) return 'self';
+            const r = lookup(ip);
+            if (!r) return 'noroute';
+            if (r.type === 'C' && r.dev !== 'lo') return (lab.hosts || []).includes(ip) ? 'ok' : 'down';
+            if (r.type === 'S') return (lab.hosts || []).includes(r.gw) && ((lab.hosts || []).includes(ip) || (SIM.remote || []).some(c => inNet(ip, c))) ? 'ok' : 'down';
+            return 'down';
+        }
+        function ping(ip) {
+            const st = reachable(ip), L = ['PING ' + ip + ' (' + ip + ') 56(84) bytes of data.'];
+            log({ ping: ip, ok: st === 'ok' || st === 'self' });
+            if (st === 'noroute') return 'connect: Network is unreachable';
+            if (st === 'ok' || st === 'self') { for (let i = 1; i <= 4; i++) L.push('64 bytes from ' + ip + ': icmp_seq=' + i + ' ttl=64 time=0.' + (300 + i * 37) + ' ms'); }
+            L.push('^C', '--- ' + ip + ' ping statistics ---');
+            L.push(st === 'down' ? '4 packets transmitted, 0 received, 100% packet loss, time 3062ms' : '4 packets transmitted, 4 received, 0% packet loss, time 3004ms\nrtt min/avg/max/mdev = 0.337/0.392/0.448/0.041 ms');
+            return L.join('\n');
+        }
+
+        // ── expert giriş/çıkış, parola istemleri
+        function enterExpert() {
+            S.pending = { prompt: 'Enter expert password:', secret: true, fn: (pw) => {
+                if (pw !== M().expertPw) { log({ raw: '***', err: 'badpw' }); return '# [Simülatör] Parola yanlış; clish\'te kaldınız.'; }
+                S.stack.push('clish'); S.mode = 'expert'; log({ raw: 'expert', canon: 'expert-ok', mode: 'expert' });
+                return '\n\nWarning! All configurations should be done through clish\nYou are in expert mode now.\n';
+            } };
+            return '';
+        }
+        function leave() {
+            if (S.stack.length) { S.mode = S.stack.pop(); return ''; }
+            S.loggedOut = true; return '\n[Simülatör] Oturum kapatıldı. Yeniden bağlanmak için Enter.';
+        }
+        function setExpertPw() {
+            const ask2 = () => {
+                S.pending = { prompt: 'Enter new expert password:', secret: true, fn: (p1) => {
+                    if (p1.length < 6) { const r = 'Password is only ' + p1.length + ' characters long; it must be at least 6 characters in length.'; ask2(); return r; }
+                    S.pending = { prompt: 'Enter new expert password (again):', secret: true, fn: (p2) => {
+                        if (p1 !== p2) { ask2(); return '# [Simülatör] Parolalar eşleşmiyor; yeniden girin.'; }
+                        M().expertPw = p1; log({ raw: '***', canon: 'expert-password-set' }); return '';
+                    } };
+                    return '';
+                } };
+            };
+            S.pending = { prompt: 'Enter current expert password:', secret: true, fn: (cur) => {
+                if (cur !== M().expertPw) { log({ raw: '***', err: 'badpw' }); return '# [Simülatör] Mevcut parola yanlış.'; }
+                ask2(); return '';
+            } };
+            return '';
+        }
+        function askReboot() {
+            S.pending = { prompt: '# [Simülatör] Sistem yeniden başlatılsın mı? (y/N): ', fn: (a) => {
+                if (!/^y(es)?$/i.test(a)) return '# [Simülatör] Vazgeçildi.';
+                const lost = [], a0 = M(), b0 = S.saved;
+                if (a0.hostname !== b0.hostname) lost.push('hostname ' + a0.hostname);
+                for (const n of Object.keys(a0.ifs)) if (JSON.stringify(a0.ifs[n]) !== JSON.stringify(b0.ifs[n])) lost.push('interface ' + n);
+                for (const p of new Set(Object.keys(a0.routes).concat(Object.keys(b0.routes)))) if (JSON.stringify(a0.routes[p]) !== JSON.stringify(b0.routes[p])) lost.push('static-route ' + p);
+                if (JSON.stringify(a0.dns) !== JSON.stringify(b0.dns)) lost.push('dns');
+                if (JSON.stringify(a0.ntp) !== JSON.stringify(b0.ntp)) lost.push('ntp');
+                if (JSON.stringify(a0.users) !== JSON.stringify(b0.users)) lost.push('users');
+                S.m = clone(S.saved); S.mode = 'clish'; S.stack = [];
+                if (!S.rt.clPerm) S.rt.clAdmin = false;
+                S.rt.vpnDebug = S.rt.ikeDebug = false;
+                log({ raw: 'y', canon: 'reboot', reboot: true, lost });
+                return ['# [Simülatör] Sistem yeniden başladı (açılış yapılandırması yüklendi).', lost.length ? '# [Simülatör] Kaydedilmediği için kaybolan değişiklikler: ' + lost.join(', ') : '# [Simülatör] Kaybolan değişiklik yok: her şey kaydedilmişti.'].join('\n');
+            } };
+            return '';
+        }
+
+        // ═══ Trafik simülasyonu (politika SmartConsole'dan kurulmuş kabul edilir) ═══
+        const SVC = { http: 'tcp/80', https: 'tcp/443', ssh: 'tcp/22', dns: 'udp/53', telnet: 'tcp/23', smtp: 'tcp/25' };
+        function svcMatch(list, f) { return (list || ['any']).some(s => { if (s === 'any') return true; const v = SVC[s] || s, [pr, pt] = v.split('/'); return pr === (f.proto || 'tcp') && +pt === f.dport; }); }
+        const ruleMatch = (r, f) => (r.src || ['any']).some(c => inNet(f.src, c)) && (r.dst || ['any']).some(c => inNet(f.dst, c)) && svcMatch(r.svc, f);
+        const norm = f => Object.assign({ sport: 51514, proto: 'tcp', reply: 'ok', arrives: true, in: 'eth2' }, f);
+        function decide(f) {
+            f = norm(f);
+            if (f.arrives === false) return { stage: 'noarrive' };
+            const sp = (SIM.spoof || {})[f.in];
+            if (sp && !sp.some(c => inNet(f.src, c))) return { stage: 'spoof' };
+            const r = (SIM.rules || []).find(x => ruleMatch(x, f));
+            if (!r || r.act !== 'accept') return { stage: 'rule', rule: r ? r.n : null, name: r ? r.name : null };
+            const rt = lookup(f.dst);
+            if (!rt || rt.dev === 'lo') return { stage: 'noroute', rule: r.n };
+            const nat = (SIM.nat || []).find(n => inNet(f.src, n.src) && n.out === rt.dev);
+            const osrc = nat ? (nat.hide || ifIp(rt.dev)) : f.src, osport = nat ? 10000 + (f.sport * 7) % 50000 : f.sport;
+            let reply = f.reply;
+            if (!nat && rt.dev === (SIM.wan || 'eth1') && isPriv(f.src) && !isPriv(f.dst)) reply = 'none';
+            const back = lookup(f.src);
+            return { stage: 'fwd', rule: r.n, out: rt.dev, osrc, osport, reply, back: back && back.dev !== 'lo' ? back.dev : null, nat: !!nat };
+        }
+        const flows = () => (SIM.flows || []).concat(SIM.noise || []).map(norm);
+        // Paket noktaları: i (inbound önce) → I (inbound sonra) → o (outbound önce) → O (outbound sonra)
+        function points(f) {
+            const d = decide(f), P = [];
+            if (d.stage === 'noarrive') return P;
+            const tries = (d.stage === 'fwd' && d.reply !== 'none') ? 1 : 3;
+            for (let t = 0; t < tries; t++) {
+                const req = { src: f.src, dst: f.dst, sp: f.sport, dp: f.dport, proto: f.proto, fl: '.S....', t };
+                P.push(Object.assign({ dev: f.in, pt: 'i' }, req));
+                if (d.stage === 'spoof' || d.stage === 'rule') continue;
+                P.push(Object.assign({ dev: f.in, pt: 'I' }, req));
+                if (d.stage === 'noroute') continue;
+                P.push(Object.assign({ dev: d.out, pt: 'o' }, req), Object.assign({ dev: d.out, pt: 'O' }, req, { src: d.osrc, sp: d.osport }));
+                if (d.reply === 'none') continue;
+                const rep = { src: f.dst, dst: d.osrc, sp: f.dport, dp: d.osport, proto: f.proto, fl: d.reply === 'rst' ? '..R.A.' : '.S..A.', t, rep: true };
+                P.push(Object.assign({ dev: d.out, pt: 'i' }, rep), Object.assign({ dev: d.out, pt: 'I' }, rep, { dst: f.src, dp: f.sport }));
+                if (d.back) P.push(Object.assign({ dev: d.back, pt: 'o' }, rep, { dst: f.src, dp: f.sport }), Object.assign({ dev: d.back, pt: 'O' }, rep, { dst: f.src, dp: f.sport }));
+            }
+            return P;
+        }
+        function zdebugLines() {
+            const L = [];
+            flows().forEach((f, k) => {
+                const d = decide(f);
+                if (d.stage !== 'spoof' && d.stage !== 'rule') return;
+                const proto = f.proto === 'udp' ? 17 : 6;
+                for (let t = 0; t < 3; t++) {
+                    const pre = ';[cpu_' + ((k + t) % 4) + '];[fw4_' + (k % 2) + '];fw_log_drop_ex: Packet proto=' + proto + ' ' + f.src + ':' + (f.sport + k) + ' -> ' + f.dst + ':' + f.dport + ' dropped by ';
+                    L.push(pre + (d.stage === 'spoof' ? 'handle_spoofed_susp, Reason: Address spoofing;' : 'fw_handle_first_packet Reason: Rulebase drop - rule ' + d.rule + ';'));
+                }
+            });
+            // zaman sırası gibi görünsün: akışları iç içe geçir
+            const out = [], per = Math.ceil(L.length / 3);
+            for (let t = 0; t < 3; t++) for (let i = t; i < L.length; i += 3) out.push(L[i]);
+            return per ? out : [];
+        }
+
+        // ═══ expert (bash) komutları ═══════════════════════════════════════
+        function shSplit(s) {
+            const out = []; let cur = '', q = null, has = false;
+            for (let i = 0; i < s.length; i++) {
+                const ch = s[i];
+                if (q) { if (ch === q) q = null; else cur += ch; continue; }
+                if (ch === '"' || ch === '\'') { q = ch; has = true; continue; }
+                if (/\s/.test(ch)) { if (cur || has) out.push(cur); cur = ''; has = false; continue; }
+                cur += ch;
+            }
+            if (q) return null;
+            if (cur || has) out.push(cur);
+            return out;
+        }
+        function splitPipe(s) {
+            const parts = []; let cur = '', q = null;
+            for (const ch of s) { if (q) { if (ch === q) q = null; cur += ch; continue; } if (ch === '"' || ch === '\'') { q = ch; cur += ch; continue; } if (ch === '|') { parts.push(cur); cur = ''; continue; } cur += ch; }
+            parts.push(cur); return parts.map(x => x.trim());
+        }
+        function grepFilter(argv, text) {
+            let inv = false, ic = false, i = 1, pat = null;
+            for (; i < argv.length; i++) { const a = argv[i]; if (/^-[ivE]+$/.test(a)) { if (a.includes('i')) ic = true; if (a.includes('v')) inv = true; } else { pat = a; break; } }
+            if (pat === null) return { err: 'Usage: grep [OPTION]... PATTERNS [FILE]...' };
+            let re; try { re = new RegExp(pat, ic ? 'i' : ''); } catch (e) { re = new RegExp(pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), ic ? 'i' : ''); }
+            return { out: text.split('\n').filter(l => re.test(l) !== inv).join('\n'), pat };
+        }
+        const notFound = c => '-bash: ' + c + ': command not found';
+        const UNSUP_EXP = '# [Simülatör] Bu komut gerçek Gaia\'da var ama bu lab sürümünde desteklenmiyor.';
+
+        function expertLine(line) {
+            const parts = splitPipe(line);
+            const argv = shSplit(parts[0]);
+            if (argv === null) { log({ raw: line, err: 'incomplete' }); return '> \n# [Simülatör] Kapanmamış tırnak: komut tamamlanmadı.'; }
+            if (!argv.length) { log({ raw: line, err: 'invalid' }); return '-bash: syntax error near unexpected token `|\''; }
+            const pipes = parts.slice(1).map(p => shSplit(p) || []);
+            for (const p of pipes) if (!p.length || !['grep', 'egrep'].includes(p[0])) { log({ raw: line, err: 'unsupported' }); return '# [Simülatör] Bu lab\'da boru (|) ile yalnız grep desteklenir.'; }
+            const canon = [argv.join(' ')].concat(pipes.map(p => p.join(' '))).join(' | ');
+            const r = expertCmd(argv, line, canon, pipes);
+            if (r && r.err) { log({ raw: line, err: r.err }); return r.msg; }
+            let out = typeof r === 'string' ? r : (r ? r.out : '');
+            const extra = (r && typeof r === 'object' && r.log) || {};
+            for (const p of pipes) { const g = grepFilter(p, out); if (g.err) { log({ raw: line, err: 'invalid' }); return g.err; } out = g.out; if (extra.zdebug) extra.zdebug.grep = (extra.zdebug.grep ? extra.zdebug.grep + '|' : '') + g.pat; }
+            if (extra.zdebug && pipes.length && !out.trim()) out = '# [Simülatör] (grep ile eşleşen satır gelmedi)';
+            log(Object.assign({ raw: line, canon }, extra));
+            if (r && r.tail) out = [out, r.tail].filter(Boolean).join('\n');
+            return out;
+        }
+        const U = m => ({ err: 'unsupported', msg: m || UNSUP_EXP });
+        function expertCmd(a, line, canon, pipes) {
+            const c = a[0];
+            if (['show', 'set', 'add', 'delete', 'save'].includes(c)) return { err: 'wrongmode', msg: notFound(c) + '\n# [Simülatör] Bu bir clish komutu. clish\'e dönmek için "exit" ya da tek komut için: clish -c "' + a.join(' ') + '"' };
+            if (c === 'expert') return { err: 'wrongmode', msg: '# [Simülatör] Zaten expert moddasınız (istem [Expert@' + host() + ':0]#). clish\'e dönmek için "exit".' };
+            if (c === 'exit' || c === 'logout') { const o = leave(); return { out: o }; }
+            if (c === 'clish') {
+                if (a[1] === '-c' && a[2]) { const sub = clishLine(a[2], true); return { out: sub }; }
+                if (a.length > 1) return U();
+                S.stack.push('expert'); S.mode = 'clish'; return '';
+            }
+            if (c === 'hostname' && a.length === 1) return host();
+            if (c === 'reboot') return askReboot();
+            if (c === 'ping') { const ip = a.slice(1).find(x => isIp(x)); return ip ? ping(ip) : { err: 'incomplete', msg: 'ping: usage error: Destination address required' }; }
+            if (c === 'fw') return fwCmd(a);
+            if (c === 'cpstat') return cpstat(a);
+            if (c === 'cphaprob') return cphaprob(a);
+            if (c === 'clusterXL_admin') {
+                if (!SIM.cluster) return { err: 'value', msg: '# [Simülatör] Bu gateway bir ClusterXL üyesi değil.' };
+                if (!['down', 'up'].includes(a[1]) || (a[2] && a[2] !== '-p') || a.length > 3) return { err: 'invalid', msg: '# [Simülatör] Kullanım: clusterXL_admin <down|up> [-p]' };
+                return { out: clAdmin(a[1], a[2] === '-p'), log: { cladmin: a[1] } };
+            }
+            if (c === 'vpn') return vpnCmd(a);
+            if (c === 'tcpdump') return tcpdump(a);
+            if (c === 'cpview') return cpview(a);
+            if (c === 'cpinfo') return (a[1] === '-y' && a[2] === 'all' && a.length === 3) ? cpinfo() : U();
+            if (c === 'ip') return ipCmd(a);
+            if (['cat', 'less', 'more', 'tail', 'grep'].includes(c)) return fileCmd(a);
+            if (EXPERT_ROOTS.includes(c) || ['cpstop', 'cprestart', 'fwaccel', 'cplic', 'cpwd_admin', 'ls', 'cd', 'pwd', 'uptime', 'date', 'free', 'ps', 'netstat', 'ifconfig', 'top', 'df', 'mgmt_cli', 'cp_conf', 'vi', 'find', 'ethtool', 'arp', 'traceroute', 'ssh', 'scp', 'curl_cli', 'dbedit', 'cpconfig', 'cpstart'].includes(c)) return U();
+            return { err: 'invalid', msg: notFound(c) };
+        }
+        function fwCmd(a) {
+            const s = a.slice(1).join(' ');
+            if (s === 'stat' || s === 'stat -l') return fwStat();
+            if (s === 'ver') return 'This is Check Point\'s software version R81.20 - Build ' + VERSION.fwBuild + '\n# [Simülatör] build numarası temsilidir.';
+            if (/^ctl zdebug (\+ )?drop$/.test(s)) {
+                const hdr = ['Defaulting all kernel debugging options', 'Initialized kernel debugging buffer to size 1023K', 'Updated kernel\'s debug variable for module fw', 'Kernel debugging buffer size: 1023KB',
+                    'Module: kiss', 'Enabled Kernel debugging options: error warning', 'Module: kissflow', 'Enabled Kernel debugging options: error warning', 'Module: fw', 'Enabled Kernel debugging options: drop'];
+                const lines = zdebugLines();
+                return { out: hdr.concat(lines).join('\n'), log: { zdebug: { plus: /\+/.test(s), n: lines.length } }, tail: '^C\n# [Simülatör] Ctrl+C ile durduruldu. Canlı cihazda bu komut siz durdurana kadar akar; kısa süre çalıştırın.' };
+            }
+            if (s === 'ctl debug 0') return { out: 'Defaulting all kernel debugging options', log: { dbg0: true } };
+            if (s === 'ctl iflist') return IFS.map((n, i) => pad(String(i + 1), 2) + ': ' + n).join('\n');
+            if (s === 'tab -t connections -s') { const n = 120 + flows().length * 7; return pad('HOST', 22) + pad('NAME', 35) + pad('ID', 6) + pad('#VALS', 6) + pad('#PEAK', 6) + '#SLINKS\n' + pad('localhost', 22) + pad('connections', 35) + pad('8158', 6) + pad(String(n), 6) + pad(String(n * 3), 6) + (n * 2); }
+            if (s === 'unloadlocal') return { out: '# [Simülatör] UYARI: "fw unloadlocal" gateway\'deki güvenlik politikasını tamamen kaldırır: tüm trafik denetimsiz kalır (ya da erişim kopar).\n# Sorun gidermede "önce politikayı kaldırıp bakayım" yanlış bir alışkanlıktır. Simülatörde engellendi.', log: { warn: 'unloadlocal' } };
+            if (a[1] === 'monitor') return fwMonitor(a);
+            if (/^ctl (pstat|chain|multik|affinity|conntab)/.test(s) || /^(fetch|log|lslogs|logswitch|tab)\b/.test(s)) return U();
+            if (!a[1]) return { err: 'incomplete', msg: '# [Simülatör] fw komutu alt komut ister (ör. fw stat, fw ctl zdebug drop, fw monitor -e "…").' };
+            return { err: 'invalid', msg: '# [Simülatör] fw: "' + s + '" tanınmadı. Bu lab\'da: fw stat, fw ver, fw ctl zdebug [+] drop, fw ctl debug 0, fw ctl iflist, fw monitor, fw tab -t connections -s' };
+        }
+        function fwStat() {
+            const p = SIM.policy || { name: 'Standard' };
+            const ifl = IFS.filter(n => n !== 'eth0' || p.mgmt).filter(n => M().ifs[n].ip).map(n => '[>' + n + '] [<' + n + ']').join(' ');
+            return 'HOST      POLICY     DATE\nlocalhost ' + p.name + ' ' + (p.date || FWDATE) + ' :  ' + ifl;
+        }
+        function cpstat(a) {
+            const s = a.slice(1).join(' ');
+            if (s === 'fw' || s === '-f policy fw') {
+                const p = SIM.policy || { name: 'Standard' };
+                const L = ['Policy name: ' + p.name, 'Install time: ' + (p.time || DATE), '', 'Interface table', '-----------------------------------------------------------------',
+                    '|Name|Dir|Total     *|Accept**|Deny|Log|', '-----------------------------------------------------------------'];
+                let tot = 0, acc = 0, den = 0;
+                IFS.filter(n => M().ifs[n].ip).forEach((n, i) => ['in ', 'out'].forEach((d, j) => { const t = 18000 + i * 5211 + j * 777, dn = (i + j) * 13; tot += t; acc += t - dn; den += dn; L.push('|' + n + '|' + d + '|' + pad(String(t), 11) + '|' + pad(String(t - dn), 8) + '|' + pad(String(dn), 4) + '|' + pad(String(Math.floor(dn / 2)), 3) + '|'); }));
+                L.push('-----------------------------------------------------------------', '|    |   |' + pad(String(tot), 11) + '|' + pad(String(acc), 8) + '|' + pad(String(den), 4) + '|' + pad('-', 3) + '|', '-----------------------------------------------------------------', '',
+                    '* Expands to: Accept, Drop, Reject, Log', '** Accept includes Mailed, and Bypassed', '# [Simülatör] Sayaçlar temsilidir; tablo sadeleştirildi.');
+                return L.join('\n');
+            }
+            if (s === 'os -f cpu') {
+                const c = SIM.cpu || { user: 2, sys: 1, idle: 97, cpus: 4 };
+                return { out: ['CPU User Time (%):             ' + c.user, 'CPU System Time (%):           ' + c.sys, 'CPU Idle Time (%):             ' + c.idle, 'CPU Usage (%):                 ' + (100 - c.idle),
+                    'CPU Queue Length:              -', 'CPU Interrupts/Sec:            ' + (1200 + c.cpus * 111), 'CPUs Number:                   ' + c.cpus].join('\n'), log: { cpu: true } };
+            }
+            if (/^os( -f \w+)?$/.test(s) || /^(ha|blades|mg|vpn)\b/.test(s) || /^-f \w+ \w+/.test(s)) return U('# [Simülatör] Bu lab\'da cpstat için yalnız "cpstat fw" ve "cpstat os -f cpu" desteklenir.');
+            return { err: 'invalid', msg: '# [Simülatör] cpstat: bilinmeyen uygulama bayrağı. Örnek: cpstat fw, cpstat os -f cpu' };
+        }
+
+        // ── ClusterXL
+        function clMembers() {
+            const cl = SIM.cluster, localDown = S.rt.clAdmin, peerDown = !!cl.peerDown;
+            const localActive = !localDown && (cl.localActive !== false || peerDown) && !S.rt.lostActive;
+            const me = localDown ? 'DOWN' : (localActive ? 'ACTIVE' : 'STANDBY');
+            const peer = peerDown ? 'DOWN' : (me === 'ACTIVE' ? 'STANDBY' : 'ACTIVE');
+            return [{ id: 1, ip: cl.ips[0], name: cl.names[0], st: me, local: true }, { id: 2, ip: cl.ips[1], name: cl.names[1], st: peer }];
+        }
+        function clusterState() {
+            const ms = clMembers(), cl = SIM.cluster;
+            const L = ['', 'Cluster Mode:   High Availability (Active Up) with IGMP Membership', '', pad('ID', 11) + pad('Unique Address', 16) + pad('Assigned Load', 16) + pad('State', 15) + 'Name', ''];
+            ms.forEach(m => L.push(pad(m.id + (m.local ? ' (local)' : ''), 11) + pad(m.ip, 16) + pad(m.st === 'ACTIVE' ? '100%' : '0%', 16) + pad(m.st, 15) + m.name));
+            L.push('', 'Active PNOTEs: ' + (S.rt.clAdmin ? 'ADMIN' : 'None'), '');
+            const ev = S.rt.lastEvt || cl.lastEvt || { code: 'CLUS-114904', change: 'ACTIVE(!) -> ACTIVE', reason: 'Reason for ACTIVE! alert has been resolved', time: 'Thu Sep 24 03:12:46 2026' };
+            L.push('Last member state change event:', '   Event Code:                 ' + ev.code, '   State change:               ' + ev.change, '   Reason for state change:    ' + ev.reason, '   Event time:                 ' + ev.time);
+            if (S.rt.lastEvt) L.push('# [Simülatör] Olay kodu ve metni temsilidir.');
+            L.push('');
+            L.push('Cluster failover count:', '   Failover counter:           ' + ((cl.failovers || 0) + S.rt.failovers), '   Time of counter reset:      Thu Sep 24 03:10:02 2026 (reboot)', '');
+            return L.join('\n');
+        }
+        function clAdmin(st, perm) {
+            const before = clMembers()[0].st;
+            const note = 'This command does not survive reboot. To make the change permanent, please run \'set cluster member admin down/up permanent\' in clish or add \'-p\' at the end of the command in expert mode';
+            if (st === 'down') {
+                S.rt.clAdmin = true; S.rt.clPerm = perm;
+                if (before === 'ACTIVE') { S.rt.failovers++; S.rt.lostActive = true; }
+                S.rt.lastEvt = { code: 'CLUS-111400', change: before + ' -> DOWN', reason: 'ADMIN pnote reported problem (clusterXL_admin down)', time: 'Thu Sep 24 10:21:07 2026' };
+                return (perm ? '' : note + '\n') + 'Setting member to administratively down state ...\nMember current state is DOWN';
+            }
+            if (!S.rt.clAdmin) return (perm ? '' : note + '\n') + 'Setting member to normal operation ...\nMember current state is ' + before;
+            S.rt.clAdmin = false; S.rt.clPerm = false;
+            const now = clMembers()[0].st;
+            S.rt.lastEvt = { code: 'CLUS-114802', change: 'DOWN -> ' + now, reason: 'ADMIN pnote problem has been resolved', time: 'Thu Sep 24 10:24:51 2026' };
+            return (perm ? '' : note + '\n') + 'Setting member to normal operation ...\nMember current state is ' + now;
+        }
+        function cphaprob(a) {
+            if (!SIM.cluster) return { err: 'value', msg: '# [Simülatör] ClusterXL bu gateway\'de çalışmıyor (küme üyesi değil).' };
+            const s = a.slice(1).join(' ');
+            if (s === 'stat' || s === 'state') return { out: clusterState(), log: { clstate: clMembers()[0].st } };
+            if (s === '-a if' || s === '-a -m if') {
+                const cl = SIM.cluster, mon = cl.ifs || ['eth1', 'eth2'];
+                const L = ['', 'CCP mode: Manual (Unicast)', 'Required interfaces: ' + (mon.length + 1), 'Required secured interfaces: 1', '', pad('Interface Name:', 21) + 'Status:', ''];
+                mon.forEach(n => L.push(pad(n, 21) + (linkUp(n) ? 'UP' : 'DOWN')));
+                L.push(pad(cl.sync + ' (S)', 21) + (linkUp(cl.sync) ? 'UP' : 'DOWN'), '', 'Virtual cluster interfaces: ' + mon.length, '');
+                mon.forEach(n => L.push(pad(n, 16) + (cl.vips || {})[n]));
+                return L.join('\n');
+            }
+            if (/^(list|-l list|-i list|syncstat|show_failover|roles|names|tablestat|-ia list)$/.test(s)) return U();
+            return { err: 'invalid', msg: '# [Simülatör] cphaprob: bu lab\'da "cphaprob stat", "cphaprob state" ve "cphaprob -a if" desteklenir.' };
+        }
+
+        // ── VPN (tu / debug / IKE günlüğü)
+        function vpnCmd(a) {
+            const s = a.slice(1).join(' '), V = SIM.vpn;
+            if (!V && /^(tu|tunnelutil)/.test(s)) return { err: 'value', msg: '# [Simülatör] Bu lab\'da tanımlı VPN eşi yok.' };
+            if (s === 'tu' || s === 'tunnelutil') { vpnMenu(); return { out: vpnMenuText(), log: { vpntu: 'menu' } }; }
+            if (s === 'tu tlist') return { out: tlist(), log: { vpntu: 'tlist' } };
+            if (s === 'debug trunc') { S.rt.vpnDebug = S.rt.ikeDebug = true; S.rt.vpnTried = true; return { out: '# [Simülatör] ike ve vpnd günlükleri sıfırlandı, debug açıldı; şubeye trafik geldi ve IKE yeniden denendi.', log: { vpndebug: 'trunc' } }; }
+            if (s === 'debug ikeon') { S.rt.ikeDebug = true; S.rt.vpnTried = true; return { out: '# [Simülatör] IKE debug açıldı; şubeye trafik geldi ve IKE yeniden denendi.', log: { vpndebug: 'ikeon' } }; }
+            if (s === 'debug on') { S.rt.vpnDebug = true; return { out: '# [Simülatör] vpnd debug açıldı.', log: { vpndebug: 'on' } }; }
+            if (s === 'debug ikeoff') { S.rt.ikeDebug = false; return { out: '', log: { vpndebug: 'ikeoff' } }; }
+            if (s === 'debug off') { S.rt.vpnDebug = false; return { out: '', log: { vpndebug: 'off' } }; }
+            if (/^(tu (list|del)|shell|debug|ver|drv|overlap_encdom)/.test(s)) return U();
+            return { err: 'invalid', msg: '# [Simülatör] vpn: bu lab\'da vpn tu, vpn tu tlist, vpn debug trunc|ikeon|ikeoff|on|off desteklenir.' };
+        }
+        const vpnState = () => { const r = (SIM.vpn || {}).fail; return { p1: !r || r === 'ts', p2: !r, reason: r || null }; };
+        function vpnMenuText() {
+            return ['', '**********     Select Option     **********', '', '(1)               List all IKE SAs', '(2)             * List all IPsec SAs', '(3)               List all IKE SAs for a given peer (GW)',
+                '(4)             * List all IPsec SAs for a given peer (GW)', '(5)               Delete all IPsec SAs for a given peer (GW)', '(6)               Delete all IPsec SAs for a given User (Client)',
+                '(7)               Delete all IPsec+IKE SAs for a given peer (GW)', '(8)               Delete all IPsec+IKE SAs for a given User (Client)', '(9)               Delete all IPsec SAs for ALL peers',
+                '(0)               Delete all IPsec+IKE SAs for ALL peers', '', '* To list data for a specific CoreXL instance, append "-i <instance number>" to your selection.', '', '(Q)               Quit', ''].join('\n');
+        }
+        function vpnMenu() {
+            S.pending = { prompt: '', fn: (x) => {
+                const k = x.trim().toLowerCase();
+                if (k === 'q' || k === '') { log({ raw: x, canon: 'vpn tu quit' }); return ''; }
+                const st = vpnState(), V = SIM.vpn;
+                let out;
+                if (k === '1') out = st.p1 ? '# [Simülatör] IKE SA listesi (sadeleştirildi):\n  Peer ' + V.peer + ' — IKEv2 SA kurulu' : '# [Simülatör] IKE SA yok: ' + V.peer + ' ile faz 1 kurulamamış.';
+                else if (k === '2') out = st.p2 ? '# [Simülatör] IPsec SA listesi (sadeleştirildi):\n  Peer ' + V.peer + ' — ' + V.local + ' <-> ' + V.remote + ', SPI giriş/çıkış mevcut' : '# [Simülatör] IPsec SA yok (faz 2 kurulmamış).';
+                else if (/^[3-90]$/.test(k)) out = '# [Simülatör] Bu seçenek lab\'da desteklenmiyor (SA silme işlemleri canlı tünelleri keser).';
+                else out = '# [Simülatör] Geçersiz seçim.';
+                log({ raw: x, canon: 'vpn tu ' + k, vpntu: k });
+                vpnMenu();
+                return out + '\n' + vpnMenuText();
+            } };
+        }
+        function tlist() {
+            const V = SIM.vpn, st = vpnState();
+            if (!st.p2) return '# [Simülatör] ' + V.peer + ' için IPsec SA yok; tablo boş.' + (st.p1 ? ' (IKE SA var — faz 1 kurulmuş, faz 2 kurulamamış.)' : ' (IKE SA da yok.)');
+            const b = '+-----------------------------------------+-----------------------+---------------------+';
+            const row = (x, y, z) => '| ' + pad(x, 40) + '| ' + pad(y, 22) + '| ' + pad(z, 20) + '|';
+            return [b, row('Peer: ' + V.peer + ' (a1c4e0f97d3b2146)', 'MSA: ffffc9001f624410', 'i: 0 ref: -- 45/60'), row('Methods: ESP Tunnel AES-256 SHA256', '', ''), row('', '', ''), row('My TS: ' + V.local, '', ''), row('', '', ''),
+                row('Peer TS: ' + V.remote, '', ''), row('', '', ''), row('MSPI: 800005 (i: 1, p: 0)', 'Out SPI: 6980210e', ''), row('Tunnel created: Sep 24 09:40:22', '', ''), row('Tunnel expiration: Sep 24 10:40:22', '', ''), b].join('\n');
+        }
+        function ikeLog() {
+            const V = SIM.vpn, st = vpnState();
+            if (!S.rt.vpnTried) return '# [Simülatör] Günlük boş ya da eski: önce "vpn debug trunc" ile debug\'ı başlatın, trafik gelsin.';
+            const L = ['# [Simülatör] ikev2.xmll bir XML dosyasıdır; normalde IKEView ile açılır. Son denemenin özeti:', '  Initiator: ' + (V.me || '203.0.113.2') + '  →  Responder: ' + V.peer];
+            if (st.reason === 'proposal') L.push('  IKE_SA_INIT  gönderildi: AES-256 / SHA256 / DH 14', '  IKE_SA_INIT  alındı   : Notify NO_PROPOSAL_CHOSEN', '  Sonuç: faz 1 (IKE SA) kurulamadı');
+            else if (st.reason === 'psk') L.push('  IKE_SA_INIT  tamam (öneri eşleşti)', '  IKE_AUTH     alındı   : Notify AUTHENTICATION_FAILED', '  Sonuç: kimlik doğrulama (ön paylaşımlı anahtar) başarısız');
+            else if (st.reason === 'ts') L.push('  IKE_SA_INIT  tamam', '  IKE_AUTH     tamam (IKE SA kuruldu)', '  CREATE_CHILD_SA önerilen TS: ' + (V.proposed || V.local) + ' <-> ' + V.remote, '  alındı: Notify TS_UNACCEPTABLE', '  Sonuç: faz 2 (IPsec SA) kurulamadı');
+            else L.push('  IKE_SA_INIT tamam · IKE_AUTH tamam · CHILD_SA tamam', '  Sonuç: tünel kurulu');
+            return L.join('\n');
+        }
+        function fileCmd(a) {
+            const f = a[a.length - 1] || '';
+            const isIke = /(\$FWDIR|\/opt\/CPsuite-R81\.20\/fw1)\/log\/(ikev2\.xmll|ike\.elg)$/.test(f);
+            if (a[0] === 'grep') {
+                if (a.length < 3) return { err: 'incomplete', msg: 'Usage: grep [OPTION]... PATTERNS [FILE]...' };
+                if (!isIke) return U();
+                const g = grepFilter(a.slice(0, -1), ikeLog()); if (g.err) return { err: 'invalid', msg: g.err };
+                return { out: g.out, log: { ikelog: true } };
+            }
+            if (a.length !== 2) return U();
+            if (!isIke) return U();
+            return { out: ikeLog(), log: { ikelog: true } };
+        }
+
+        // ── tcpdump ve fw monitor
+        function tcpFilter(toks) {
+            // desteklenen: host X | src X | dst X | port N | net A.B.C.D/N , "and" ile birleşik
+            const conds = []; let i = 0;
+            while (i < toks.length) {
+                const t = toks[i];
+                if (t === 'and' || t === '&&') { i++; continue; }
+                if (['host', 'src', 'dst'].includes(t)) { const v = toks[i + 1]; if (!v || !isIp(v)) return null; conds.push({ k: t, v }); i += 2; continue; }
+                if (t === 'port') { const v = toks[i + 1]; if (!/^\d+$/.test(v || '')) return null; conds.push({ k: 'port', v: +v }); i += 2; continue; }
+                if (t === 'net') { const v = toks[i + 1]; if (!v || !/^[\d.]+\/\d+$/.test(v)) return null; conds.push({ k: 'net', v }); i += 2; continue; }
+                if (t === 'tcp' || t === 'udp' || t === 'icmp') { conds.push({ k: 'proto', v: t }); i++; continue; }
+                return null;
+            }
+            return conds;
+        }
+        const pMatch = (p, conds) => conds.every(c => c.k === 'host' ? (p.src === c.v || p.dst === c.v) : c.k === 'src' ? p.src === c.v : c.k === 'dst' ? p.dst === c.v
+            : c.k === 'port' ? (p.sp === c.v || p.dp === c.v) : c.k === 'net' ? (inNet(p.src, c.v) || inNet(p.dst, c.v)) : c.k === 'proto' ? p.proto === c.v : true);
+        const tsOf = (p, k) => '10:21:' + String([3, 4, 6][p.t] || 6).padStart(2, '0') + '.' + String(123456 + k * 4111 + (p.rep ? 2100 : 0)).slice(0, 6);
+        function tcpdump(a) {
+            let dev = null, cnt = 0, i = 1, nflag = false;
+            for (; i < a.length; i++) {
+                const t = a[i];
+                if (t === '-i') { dev = a[++i]; continue; }
+                if (t === '-c') { cnt = +a[++i]; continue; }
+                if (/^-[nevS]+i$/.test(t)) { if (t.includes('n')) nflag = true; dev = a[++i]; continue; }
+                if (/^-[nevS]+$/.test(t)) { if (t.includes('n')) nflag = true; continue; }
+                if (/^-w$|^-s$|^-s0$/.test(t)) return U('# [Simülatör] Dosyaya yazma (-w) / snaplen seçenekleri bu lab\'da desteklenmiyor; ekranda okuyun.');
+                break;
+            }
+            dev = dev || 'eth0';
+            if (dev !== 'any' && !M().ifs[dev]) return { err: 'value', msg: 'tcpdump: ' + dev + ': No such device exists\n(SIOCGIFHWADDR: No such device)' };
+            const conds = tcpFilter(a.slice(i));
+            if (!conds) return { err: 'invalid', msg: 'tcpdump: syntax error in filter expression: syntax error' };
+            const pk = [];
+            flows().forEach((f) => points(f).forEach(p => { if ((p.pt === 'i' || p.pt === 'O') && (dev === 'any' || p.dev === dev) && pMatch(p, conds)) pk.push(p); }));
+            const sel = cnt ? pk.slice(0, cnt) : pk;
+            const L = ['tcpdump: verbose output suppressed, use -v or -vv for full protocol decode', 'listening on ' + dev + ', link-type ' + (dev === 'any' ? 'LINUX_SLL (Linux cooked v1)' : 'EN10MB (Ethernet)') + ', capture size 262144 bytes'];
+            sel.forEach((p, k) => {
+                const fl = p.fl === '.S....' ? 'S' : p.fl === '.S..A.' ? 'S.' : 'R.';
+                const nm = x => (nflag ? x : x);
+                L.push(tsOf(p, k) + (dev === 'any' ? ' ' + (p.pt === 'i' ? 'In ' : 'Out') + ' ' : ' ') + 'IP ' + nm(p.src) + '.' + p.sp + ' > ' + nm(p.dst) + '.' + p.dp + ': Flags [' + fl + '], seq ' + (p.rep ? 529408704 : 1812340000) + (fl !== 'S' ? ', ack 1812340001' : '') + ', win ' + (fl === 'R.' ? 0 : 64240) + ', length 0');
+            });
+            if (!cnt || sel.length < cnt) L.push('^C');
+            L.push(sel.length + ' packets captured', sel.length + ' packets received by filter', '0 packets dropped by kernel');
+            if (!sel.length) L.push('# [Simülatör] Eşleşen paket yok; Ctrl+C ile durduruldu.');
+            if (!a.slice(i).length) L.splice(2, 0, '# [Simülatör] UYARI: filtresiz yakalama tüm trafiği gösterir; üretimde "host <ip>" gibi bir filtre verin.');
+            return { out: L.join('\n'), log: { tcpdump: { dev, expr: a.slice(i).join(' '), n: sel.length } } };
+        }
+        function fwMonitor(a) {
+            let expr = null; const F = [];
+            for (let i = 2; i < a.length; i++) {
+                if (a[i] === '-e') { expr = a[++i]; continue; }
+                if (a[i] === '-F') { F.push(a[++i]); continue; }
+                if (a[i] === '-o' || a[i] === '-m' || a[i] === '-p' || a[i] === '-x') return U('# [Simülatör] Bu fw monitor seçeneği lab\'da desteklenmiyor; -e "accept …;" ya da -F kullanın.');
+                return { err: 'invalid', msg: 'Usage: fw monitor [-u|s] [-i] [-d] [-D] [-e expr | -f <filter-file|->] [-l len] [-m mask] [-x offset[,len]] [-o <file>] [-F src,sport,dst,dport,proto] [-p [-+]pos]' };
+            }
+            if (expr === undefined || (expr === null && !F.length)) return { err: 'incomplete', msg: '# [Simülatör] Filtre yok: fw monitor -e "accept host(<ip>);" ya da -F "<src>,<sport>,<dst>,<dport>,<proto>" verin.' };
+            let match, hosts = [];
+            if (expr !== null) {
+                const e = expr.trim();
+                if (!/^accept\b[\s\S]*;$/.test(e)) return { err: 'invalid', msg: 'monitor: getting filter (from command line)\nmonitor: compiling\nmonitorfilter:\n# [Simülatör] Derleme hatası: ifade "accept … ;" biçiminde olmalı (sonda noktalı virgül).' };
+                const body = e.replace(/^accept\s*/, '').replace(/;$/, '').trim();
+                const hs = [...body.matchAll(/host\(\s*([\d.]+)\s*\)/g)].map(x => x[1]).concat([...body.matchAll(/\b(?:src|dst)\s*=\s*([\d.]+)/g)].map(x => x[1]));
+                const ps = [...body.matchAll(/port\(\s*(\d+)\s*\)/g)].map(x => +x[1]).concat([...body.matchAll(/\b(?:sport|dport)\s*=\s*(\d+)/g)].map(x => +x[1]));
+                if (!hs.length && !ps.length && body !== '') return U('# [Simülatör] Bu lab\'da fw monitor ifadesinde host(), src=, dst=, port() desteklenir.');
+                if (hs.some(h => !isIp(h))) return { err: 'invalid', msg: '# [Simülatör] Derleme hatası: geçersiz IP adresi.' };
+                hosts = hs;
+                match = p => (!hs.length || hs.some(h => p.src === h || p.dst === h)) && (!ps.length || ps.some(x => p.sp === x || p.dp === x));
+            } else {
+                const fs = [];
+                for (const s of F) { const x = s.split(','); if (x.length !== 5 || ![0, 2].every(k => x[k] === '0' || isIp(x[k])) || ![1, 3, 4].every(k => /^\d+$/.test(x[k]))) return { err: 'invalid', msg: '# [Simülatör] -F biçimi: "<src>,<sport>,<dst>,<dport>,<proto>" (0 = herhangi), ör. -F "10.64.10.60,0,198.51.100.25,443,0"' }; fs.push(x); }
+                hosts = fs.map(x => x[0]).concat(fs.map(x => x[2])).filter(x => x !== '0');
+                match = p => fs.some(x => (x[0] === '0' || x[0] === p.src) && (x[1] === '0' || +x[1] === p.sp) && (x[2] === '0' || x[2] === p.dst) && (x[3] === '0' || +x[3] === p.dp) && (x[4] === '0' || +x[4] === (p.proto === 'udp' ? 17 : 6)));
+            }
+            const pk = []; flows().forEach(f => points(f).forEach(p => { if (match(p)) pk.push(p); }));
+            const L = expr !== null ? ['monitor: getting filter (from command line)', 'monitor: compiling', 'monitorfilter:', 'Compiled OK.', 'monitor: loading', 'monitor: monitoring (control-C to stop)']
+                : ['# [Simülatör] -F (hızlı filtre) başlık satırları sadeleştirildi.', 'monitor: monitoring (control-C to stop)'];
+            pk.forEach((p, k) => {
+                L.push('[vs_0][fw_' + (k % 2) + '] ' + p.dev + ':' + p.pt + '[60]: ' + p.src + ' -> ' + p.dst + ' (' + (p.proto === 'udp' ? 'UDP' : 'TCP') + ') len=60 id=' + (23451 + k));
+                L.push('TCP: ' + p.sp + ' -> ' + p.dp + ' ' + p.fl + ' seq=' + (p.rep ? '1f8e22c0' : '6c3a1f20') + ' ack=' + (p.rep ? '6c3a1f21' : '00000000'));
+            });
+            L.push('^C', 'monitor: unloading');
+            if (!pk.length) L.push('# [Simülatör] Eşleşen paket yok.');
+            return { out: L.join('\n'), log: { fwmon: { expr, F, hosts, n: pk.length } } };
+        }
+        function ipCmd(a) {
+            const s = a.slice(1).join(' ');
+            if (/^route get [\d.]+$/.test(s) && isIp(a[3])) {
+                const r = lookup(a[3]);
+                if (!r) return { err: 'value', msg: 'RTNETLINK answers: Network is unreachable' };
+                if (r.dev === 'lo') return 'local ' + a[3] + ' dev lo src ' + a[3] + ' \n    cache <local> ';
+                return { out: a[3] + (r.type === 'S' ? ' via ' + r.gw : '') + ' dev ' + r.dev + ' src ' + ifIp(r.dev) + ' \n    cache ', log: { routeget: a[3], dev: r.dev } };
+            }
+            if (s === 'route' || s === 'route show' || s === 'r') {
+                return rib().filter(r => r.dev !== 'lo').sort((x, y) => (x.len === 0 ? -1 : y.len === 0 ? 1 : 0)).map(r => r.type === 'S' ? (r.len === 0 ? 'default' : r.net + '/' + r.len) + ' via ' + r.gw + ' dev ' + r.dev + ' proto routed '
+                    : r.net + '/' + r.len + ' dev ' + r.dev + ' proto kernel scope link src ' + ifIp(r.dev) + ' ').join('\n');
+            }
+            if (/^(addr|a|link|neigh|-s)/.test(s)) return U();
+            return { err: 'invalid', msg: 'Object "' + (a[1] || '') + '" is unknown, try "ip help".' };
+        }
+        function cpview(a) {
+            if (a.length > 1) return U();
+            const c = SIM.cpu || { user: 2, sys: 1, idle: 97, cpus: 4 };
+            const n = 120 + flows().length * 7;
+            const bar = '|' + '-'.repeat(74) + '|', row = t => '| ' + pad(t, 73) + '|';
+            const L = ['# [Simülatör] cpview etkileşimli, her birkaç saniyede yenilenen bir ekrandır (q ile çıkılır). Burada Overview sekmesinin sadeleştirilmiş tek görüntüsü:',
+                bar, row(pad('CPVIEW.Overview', 52) + '24Sep2026 10:21:07'), bar, row('Overview  SysInfo  Network  CPU  I/O  Software-blades  Hardware-Health'), bar,
+                row('Num of CPUs: ' + c.cpus + '    CPU kullanımı: %' + (100 - c.idle)), row('Bellek: toplam 7.6G, kullanılan %' + (SIM.mem || 38)),
+                row('Bağlantı sayısı: ' + n + ' (tepe ' + n * 3 + ')'), row('Throughput: 42 Mbps · Paket hızı: 6.1 Kpps'), bar];
+            return { out: L.join('\n'), log: { cpview: true } };
+        }
+        function cpinfo() {
+            return ['This is Check Point CPinfo Build 914000231 for GAIA', '[IDA]', '\tNo hotfixes..', '', '[CPFC]', '\tHOTFIX_R81_20_JUMBO_HF_MAIN\tTake:  ' + ((SIM.jhf) || 76), '',
+                '[FW1]', '\tHOTFIX_R81_20_JUMBO_HF_MAIN\tTake:  ' + ((SIM.jhf) || 76), '', '# [Simülatör] Bölümler kısaltıldı; take numarası temsilidir.'].join('\n');
+        }
+
+        // ═══ clish yürütme, hata biçimleri, ? ve Tab ═══════════════════════
+        function unsupported(line) {
+            const t = C.tokenize(line).map(x => x.t.toLowerCase());
+            return CL_UNSUP.some(u => { const w = u.split(' '); return w.length <= t.length && w.every((x, k) => x === t[k] || (k > 0 && t[k].length >= 3 && x.startsWith(t[k]))); });
+        }
+        // Belirsiz kısaltmayı sonraki sözcüklerle çöz: yalnız bir aday tam komut oluşturuyorsa onu seç
+        function matchCl(line) {
+            let r = C.match(CL, line, ctx, false);
+            for (let guard = 0; !r.ok && r.err === 'amb' && guard < 4; guard++) {
+                const toks = C.tokenize(line), at = r.at;
+                const cands = (C.help(CL, line.slice(0, toks[at].o + toks[at].t.length), ctx, () => '').words || []);
+                const oks = cands.map(w => line.slice(0, toks[at].o) + w + line.slice(toks[at].o + toks[at].t.length)).map(l => ({ l, r: C.match(CL, l, ctx, false) })).filter(x => x.r.ok || x.r.err === 'amb');
+                if (oks.length !== 1) break;
+                line = oks[0].l; r = oks[0].r;
+            }
+            return r;
+        }
+        function clishLine(line, viaC) {
+            const r = matchCl(line);
+            const first = (C.tokenize(line)[0] || { t: '' }).t;
+            if (!r.ok) {
+                if (r.err === 'empty') return '';
+                if (EXPERT_ROOTS.includes(first) && !viaC) { log({ raw: line, err: 'wrongmode' }); return '# [Simülatör] "' + first + '" bu lab\'da bir expert (bash) komutudur. Önce "expert" yazıp parolayı girin; iş bitince "exit" ile clish\'e dönün.\n# (Gerçek Gaia\'da bazı Check Point komutları clish\'te "extended commands" olarak da çalışır: show extended commands.)'; }
+                log({ raw: line, err: r.err });
+                if (r.err === 'amb') return '# [Simülatör] Belirsiz kısaltma: "' + line.trim() + '" — birden çok komuta uyuyor; ? ile adayları görün.';
+                if (unsupported(line)) { S.ev[S.ev.length - 1].err = 'unsupported'; return '# [Simülatör] Bu komut gerçek Gaia\'da var ama bu lab sürümünde henüz desteklenmiyor. ? ile desteklenenleri görün.'; }
+                if (r.err === 'incomplete') return 'CLINFR0349 Incomplete command';
+                return 'CLINFR0329 Invalid command:\'' + line.trim() + '\'';
+            }
+            if (viaC && ['expert', 'exit', 'quit', 'reboot', 'set expert-password'].includes(r.canon)) { log({ raw: line, err: 'unsupported' }); return '# [Simülatör] Bu komut clish -c ile çalıştırılmaz.'; }
+            log({ raw: line, canon: r.canon, mode: 'clish', via: viaC ? 'clish -c' : undefined });
+            const out = r.cmd.run(r.args);
+            if (out && typeof out === 'object') {
+                const ev = S.ev.pop(); log({ raw: ev.raw, err: out.err });
+                return out.msg || 'CLINFR0329 Invalid command:\'' + line.trim() + '\'';
+            }
+            return out || '';
+        }
+        function input(raw) {
+            raw = String(raw).replace(/\r/g, '');
+            if (S.pending) { const p = S.pending; S.pending = null; if (p.secret) log({ raw: '***', prompt: true }); return p.fn(raw.trim()); }
+            if (S.loggedOut) { S.loggedOut = false; S.mode = 'clish'; S.stack = []; return '# [Simülatör] Yeniden bağlandınız (clish).'; }
+            const line = raw.replace(/\s+$/, '');
+            if (!line.trim()) return '';
+            S.hist.push(line.trim());
+            if (S.mode === 'expert') return expertLine(line.trim());
+            return clishLine(line);
+        }
+        function prompt() {
+            if (S.pending) return S.pending.prompt;
+            if (S.loggedOut) return '';
+            return S.mode === 'expert' ? '[Expert@' + host() + ':0]# ' : host() + '> ';
+        }
+        function help(raw) {
+            log({ help: raw });
+            if (S.pending || S.loggedOut) return '';
+            if (S.mode === 'expert') return '# [Simülatör] Expert (bash) kabuğunda ? yardımı yoktur; komutların -h seçeneğine ya da CLI Reference Guide\'a bakın.';
+            const kh = (w, a, e) => w ? (KW[w] || '') : (e ? (VARH[e.name] || (e.k === 'int' ? 'Sayı (' + e.a + '-' + e.b + ')' : '')) : '');
+            const h = C.help(CL, raw, ctx, kh);
+            if (h.amb) return '# [Simülatör] Belirsiz kısaltma: "' + raw.trim() + '"';
+            if (h.none) return 'CLINFR0329 Invalid command:\'' + raw.trim() + '\'';
+            if (h.words) return h.words.map(w => pad(w, 20) + '- ' + (KW[w] || '')).join('\n');
+            return h.rows.map(([w, d]) => pad(w, 20) + (d ? '- ' + d : '')).join('\n');
+        }
+        const EXP_CMDS = ['fw', 'cpstat', 'cphaprob', 'clusterXL_admin', 'vpn', 'tcpdump', 'cpview', 'cpinfo', 'ip', 'ping', 'clish', 'exit', 'hostname', 'cat', 'grep', 'reboot'];
+        function complete(raw) {
+            if (S.pending || S.loggedOut) return null;
+            if (S.mode === 'expert') {
+                const t = raw.match(/^(\S+)$/); if (!t) return null;
+                const hits = EXP_CMDS.filter(c => c.startsWith(t[1]));
+                return hits.length === 1 ? hits[0] + ' ' : null;
+            }
+            const r = C.complete(CL, raw, ctx, null);
+            if (r !== null) return r;
+            // arayüz adı (eth…) tamamlama
+            const m = raw.match(/^(.*\s)(\S+)$/);
+            if (m && /interface\s+$/.test(m[1])) { const hits = Object.keys(M().ifs).filter(n => n.startsWith(m[2])); if (hits.length === 1) return m[1] + hits[0] + ' '; }
+            return null;
+        }
+
+        // ── Başlangıç: lab.start (clish) uygulanır ve kaydedilir; lab.startUnsaved sonra uygulanır
+        function apply(cmds) { for (const c of cmds) { const o = clishLine(c); if (/CLINFR|Simülatör/.test(o)) throw new Error('lab başlangıç komutu hatalı: ' + c + ' → ' + o); } }
+        S.saved = clone(M());
+        apply(lab.start || []);
+        S.saved = clone(M());
+        apply(lab.startUnsaved || []);
+        S.ev = []; S.hist = [];
+
+        const EV = {
+            ran: re => S.ev.some(e => e.canon && re.test(e.canon)),
+            ranIn: (re, mode) => S.ev.some(e => e.canon && re.test(e.canon) && e.mode === mode),
+            after: (a, b) => { const i = S.ev.findIndex(e => e.canon && a.test(e.canon)); return i >= 0 && S.ev.slice(i + 1).some(e => e.canon && b.test(e.canon)); },
+            afterErr: re => { const i = S.ev.findIndex(e => e.err); return i >= 0 && S.ev.slice(i + 1).some(e => e.canon && re.test(e.canon)); },
+            err: k => S.ev.some(e => e.err === k),
+            helped: re => S.ev.some(e => e.help !== undefined && (!re || re.test(e.help))),
+            abbrev: canon => S.ev.some(e => e.canon === canon && e.raw.trim().toLowerCase() !== canon),
+            warned: w => S.ev.some(e => e.warn === w),
+            zdebug: fn => S.ev.some(e => e.zdebug && (!fn || fn(e.zdebug))),
+            fwmon: fn => S.ev.some(e => e.fwmon && (!fn || fn(e.fwmon))),
+            tcpdump: fn => S.ev.some(e => e.tcpdump && (!fn || fn(e.tcpdump))),
+            list: () => S.ev
+        };
+        return {
+            vendor: 'checkpoint',
+            prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
+            _toPriv: () => { S.mode = 'clish'; S.stack = []; S.pending = null; S.loggedOut = false; },
+            get answers() { return S.answers; }, set answers(v) { S.answers = v || {}; },
+            variant: () => VAR,
+            get model() { return S.m; }, get savedModel() { return S.saved; },
+            ev: EV, mode: () => S.mode, dirty, rib, lookup, ifUp,
+            decide: f => decide(f), cluster: () => (SIM.cluster ? { local: clMembers()[0].st, peer: clMembers()[1].st, admin: S.rt.clAdmin } : null),
+            vpnDebug: () => ({ vpn: S.rt.vpnDebug, ike: S.rt.ikeDebug }),
+            showRun: () => showConf(),
+        };
+    }
+    return { session };
+})();
+(typeof window !== 'undefined' ? window : globalThis).CG_LAB_ENGINES = Object.assign((typeof window !== 'undefined' ? window : globalThis).CG_LAB_ENGINES || {}, { 'checkpoint': CgLabGaia });
+if (typeof module !== 'undefined') module.exports = CgLabGaia;

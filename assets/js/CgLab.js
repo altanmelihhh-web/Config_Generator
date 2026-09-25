@@ -12,6 +12,7 @@ const CgLab = {
         dell: { name: 'Dell OS10', look: 'SmartFabric OS10 10.5', levels: ['CLI temelleri', 'Temel yapılandırma', 'L2: VLAN, trunk ve SVI', 'L3: statik rota', 'Güvenlik ve servisler', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabOs10 !== 'undefined' ? CgLabOs10 : null), files: ['assets/js/lab/core.js', 'assets/js/lab/os10.js', 'assets/data/labs/dell.js'] },
         juniper: { name: 'Juniper Junos', look: 'Junos 23.4 (EX/SRX/MX)', levels: ['CLI temelleri', 'Temel sistem', 'Arayüz ve anahtarlama', 'Yönlendirme', 'SRX güvenlik', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabSetCli !== 'undefined' ? CgLabSetCli.junos : null), files: ['assets/js/lab/core.js', 'assets/js/lab/setcli.js', 'assets/data/labs/juniper.js'] },
         paloalto: { name: 'Palo Alto PAN-OS', look: 'PAN-OS 11.1 (PA-VM)', levels: ['CLI temelleri', 'Arayüz, zone ve yönlendirme', 'Nesneler ve güvenlik kuralları', 'NAT', 'Kural doğrulama', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabSetCli !== 'undefined' ? CgLabSetCli.panos : null), files: ['assets/js/lab/core.js', 'assets/js/lab/setcli.js', 'assets/data/labs/paloalto.js'] },
+        checkpoint: { name: 'Check Point', look: 'Gaia R81.20', levels: ['Gaia clish temelleri', 'Temel yapılandırma', 'Politika ve nesneler', 'Yönlendirme ve NAT', 'ClusterXL ve VPN', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabGaia !== 'undefined' ? CgLabGaia : null), files: ['assets/js/lab/core.js', 'assets/js/lab/gaia.js', 'assets/data/labs/checkpoint.js'] },
     },
     lvName(vendor, lv) { const v = this.VENDORS[vendor]; return ((v && v.levels) || this.LEVELS)[lv] || ''; },
     KIND: { switch: 'Switch', router: 'Router', firewall: 'Firewall' },
@@ -32,13 +33,24 @@ const CgLab = {
 
     async _loadAll() {
         for (const v of Object.values(this.VENDORS)) for (const f of v.files) await CgCli._load(f);
+        await CgCli._load('assets/data/labs/paths.js');
     },
+    // Yol: yalnız yazılmış lab'lar; boş modüller gizli
+    _path(id) {
+        const p = (window.CG_LAB_PATHS || []).find(x => x.id === id);
+        if (!p) return null;
+        const have = new Set((window.CG_LABS || []).map(l => l.id));
+        const modules = p.modules.map(m => Object.assign({}, m, { labs: (m.labs || []).filter(x => have.has(x)) })).filter(m => m.labs.length);
+        return Object.assign({}, p, { modules, all: [].concat(...modules.map(m => m.labs)) });
+    },
+    _paths() { return (window.CG_LAB_PATHS || []).map(p => this._path(p.id)).filter(p => p && p.modules.length && this.VENDORS[p.vendor]); },
 
-    async render(root, id) {
+    async render(root, id, pathId) {
         this._root = root;
         root.innerHTML = '<div class="cg-empty"><i class="fas fa-spinner fa-spin"></i><p>Laboratuvar yükleniyor…</p></div>';
         try { await this._loadAll(); }
         catch (e) { root.innerHTML = '<div class="cg-empty"><i class="fas fa-exclamation-triangle"></i><p>Laboratuvar yüklenemedi.</p></div>'; return; }
+        if (pathId) { const p = this._path(pathId); if (!p) { location.hash = '#/lab'; return; } this._paintPath(p); return; }
         const lab = id && (window.CG_LABS || []).find(l => l.id === id);
         if (id && !lab) { location.hash = '#/lab'; return; }
         if (lab) this._paintLab(lab); else this._paintCatalog();
@@ -79,6 +91,7 @@ const CgLab = {
                 <span class="cg-lab-stats-act"><button class="cg-ts-btn" data-exp><i class="fas fa-download"></i> İlerlemeyi indir</button>
                 <label class="cg-ts-btn"><i class="fas fa-upload"></i> Yükle<input type="file" accept="application/json" data-imp hidden></label></span>
             </div>
+            ${this._pathCards()}
             <div class="cg-chips cg-lab-vf">${vchips}</div>
             <div class="cg-lab-simnote"><i class="fas fa-info-circle"></i> Bu bir <b>eğitim simülatörüdür</b>; ${Object.values(this.VENDORS).map(v => v.name + ' (' + v.look + ')').join(', ')} davranışının bir alt kümesini taklit eder. Desteklenmeyen bir komut yazarsanız bunu açıkça söyler.</div>
             ${levels.map(lv => `<section class="cg-lab-level">
@@ -92,6 +105,37 @@ const CgLab = {
         this._root.querySelectorAll('[data-vf]').forEach(b => b.addEventListener('click', () => { this._vf = b.dataset.vf; this._paintCatalog(); }));
         this._root.querySelector('[data-exp]').addEventListener('click', () => this._export());
         this._root.querySelector('[data-imp]').addEventListener('change', e => this._import(e.target.files[0]));
+    },
+    _pathCards() {
+        const ps = this._paths().filter(p => this._vf === 'all' || p.vendor === this._vf);
+        if (!ps.length) return '';
+        return `<section class="cg-lab-paths"><h3><i class="fas fa-route"></i> Öğrenme yolları <small>— adım adım, sıralı</small></h3><div class="cg-lab-pcards">${ps.map(p => {
+            const done = p.all.filter(x => this._st(x).tDone).length, pct = Math.round(100 * done / p.all.length);
+            return `<a class="cg-lab-pcard" href="#/lab/path/${p.id}">
+                <span class="cg-lab-card-top">${this._mark(p.vendor)}<span class="cg-lab-id">${p.modules.length} modül · ${p.all.length} lab</span></span>
+                <span class="cg-lab-card-t">${cgEsc(p.title)}</span><span class="cg-lab-card-m">${cgEsc(p.desc)}</span>
+                <span class="cg-lab-prog"><span class="cg-ts-prog" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Yol ilerlemesi"><span style="width:${pct}%"></span></span><span>%${pct}</span></span>
+            </a>`; }).join('')}</div></section>`;
+    },
+    _paintPath(p) {
+        const next = p.all.find(x => !this._st(x).tDone);
+        const done = p.all.filter(x => this._st(x).tDone).length, pct = Math.round(100 * done / p.all.length);
+        const labsById = {}; (window.CG_LABS || []).forEach(l => { labsById[l.id] = l; });
+        this._root.innerHTML = `
+        <div class="cg-home cg-lab">
+            <nav class="cg-ts-crumbs"><a href="#/lab"><i class="fas fa-flask"></i> Laboratuvar</a><i class="fas fa-chevron-right"></i><span>Öğrenme yolu</span></nav>
+            <div class="cg-cli-hd"><h2>${this._mark(p.vendor)} ${cgEsc(p.title)}</h2><p>${cgEsc(p.desc)}</p></div>
+            <div class="cg-lab-prog"><div class="cg-ts-prog" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Yol ilerlemesi"><span style="width:${pct}%"></span></div><span>${done}/${p.all.length} lab · %${pct}</span></div>
+            ${next ? `<a class="cg-ts-btn ok cg-lab-pnext" href="#/lab/${next}"><i class="fas fa-play"></i> ${done ? 'Devam et' : 'Başla'}: ${cgEsc(labsById[next].title)}</a>` : '<p class="cg-lab-pdone"><i class="fas fa-trophy"></i> Bu yolu tamamladınız!</p>'}
+            <ol class="cg-lab-path">${p.modules.map((m, mi) => {
+                const mDone = m.labs.every(x => this._st(x).tDone);
+                return `<li class="cg-lab-pmod${mDone ? ' is-done' : ''}">
+                    <span class="cg-lab-pnum">${mDone ? '<i class="fas fa-check"></i>' : mi + 1}</span>
+                    <div class="cg-lab-pbody"><h3>${cgEsc(m.title)}</h3><p>${cgEsc(m.desc)}</p>
+                    <div class="cg-lab-plabs">${m.labs.map(id => { const l = labsById[id], st = this._st(id);
+                        return `<a class="cg-chip${st.tDone ? ' is-done' : ''}" href="#/lab/${id}"><span class="cg-chip-l">${st.tDone ? '★'.repeat(st.stars || 1) + ' ' : ''}${cgEsc(l.title)}</span><span class="cg-chip-n">${l.minutes} dk</span></a>`; }).join('')}</div></div>
+                </li>`; }).join('')}</ol>
+        </div>`;
     },
     _mark(v) { return typeof cgBrandMark === 'function' ? cgBrandMark(v, 14) : ''; },
     _export() {
@@ -323,6 +367,7 @@ const CgLab = {
         side.innerHTML = `
             <h2 class="cg-lab-title">${cgEsc(lab.title)}</h2>
             <div class="cg-lab-story">${lab.story}</div>
+            ${lab.lesson ? `<details class="cg-lab-lesson"${st.log.length ? '' : ' open'}><summary><i class="fas fa-book-open"></i> Ders</summary><div>${lab.lesson}</div></details>` : ''}
             ${lab.goals ? `<details class="cg-lab-goals"><summary><i class="fas fa-bullseye"></i> Kazanımlar</summary><ul>${lab.goals.map(g => `<li>${cgEsc(g)}</li>`).join('')}</ul></details>` : ''}
             ${tot ? `<div class="cg-lab-prog"><div class="cg-ts-prog" role="progressbar" aria-valuenow="${n}" aria-valuemin="0" aria-valuemax="${tot}" aria-label="Görev ilerlemesi"><span style="width:${pct}%"></span></div><span>${n}/${tot} görev · %${pct}</span></div>
             ${done ? this._finishHtml() : ''}
@@ -354,7 +399,9 @@ const CgLab = {
         const secs = st.t0 && st.tDone ? Math.max(1, Math.round((st.tDone - st.t0) / 1000)) : null;
         const hints = Object.values(st.hints || {}).reduce((a, b) => a + b, 0);
         const real = (window.CG_LABS || []).filter(l => !l.sandbox && l.vendor === lab.vendor).sort((a, b) => a.level - b.level || a.id.localeCompare(b.id));
-        const next = real[real.findIndex(l => l.id === lab.id) + 1];
+        const path = this._paths().find(p => p.all.includes(lab.id));
+        const nextId = path ? path.all[path.all.indexOf(lab.id) + 1] : null;
+        const next = nextId ? (window.CG_LABS || []).find(l => l.id === nextId) : real[real.findIndex(l => l.id === lab.id) + 1];
         return `<div class="cg-lab-finish">
             <div class="cg-lab-stars" role="img" aria-label="3 üzerinden ${st.stars} yıldız">${'★'.repeat(st.stars)}<span>${'☆'.repeat(3 - st.stars)}</span></div>
             <h3>Lab tamamlandı!</h3>
