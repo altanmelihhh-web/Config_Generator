@@ -30,6 +30,9 @@ const CgLabFgt = (() => {
 
     // ── Şema (FortiOS 7.4 alt kümesi)
     const ED = ['enable', 'disable'];
+    const P1PROP = ['aes128-sha1', 'aes128-sha256', 'aes256-sha1', 'aes256-sha256', 'aes256-sha384', 'aes256-sha512', 'aes128gcm-prfsha256', 'aes256gcm-prfsha384', 'chacha20poly1305-prfsha256'];
+    const P2PROP = ['aes128-sha1', 'aes128-sha256', 'aes256-sha1', 'aes256-sha256', 'aes256-sha384', 'aes256-sha512', 'aes128gcm', 'aes256gcm', 'chacha20poly1305'];
+    const DHG = ['1', '2', '5', '14', '15', '16', '19', '20', '21', '31', '32'];
     const ACCESS = ['ping', 'https', 'ssh', 'http', 'snmp', 'fgfm', 'telnet', 'radius-acct', 'probe-response', 'fabric', 'ftm', 'speed-test'];
     const SCHEMA = {
         'system global': { single: true, attrs: {
@@ -94,6 +97,26 @@ const CgLabFgt = (() => {
             poolname: { t: 'refs', ds: 'ippool', when: o => o.nat === 'enable' && o.ippool === 'enable', d: 'IP havuzu' },
             status: { t: 'enum', v: ED, def: 'enable', d: 'Kural durumu' },
             comments: { t: 'str', max: 1023, d: 'Açıklama' } } },
+        'vpn ipsec phase1-interface': { key: 'name', req: ['interface', 'remote-gw', 'psksecret'], attrs: {
+            interface: { t: 'ref', ds: 'physIntf', d: 'Tünelin çıktığı (WAN) arayüz' },
+            'ike-version': { t: 'enum', v: ['1', '2'], d: 'IKE sürümü' },
+            'remote-gw': { t: 'ip', d: 'Karşı uç genel IP' },
+            proposal: { t: 'menum', v: P1PROP, d: 'Faz 1 şifreleme-özet önerileri' },
+            dhgrp: { t: 'menum', v: DHG, d: 'Diffie-Hellman grupları' },
+            psksecret: { t: 'secret', d: 'Ön paylaşımlı anahtar' },
+            dpd: { t: 'enum', v: ['disable', 'on-idle', 'on-demand'], d: 'Ölü uç tespiti' },
+            nattraversal: { t: 'enum', v: ['enable', 'disable', 'forced'], d: 'NAT-T' },
+            comments: { t: 'str', max: 255, d: 'Açıklama' } } },
+        'vpn ipsec phase2-interface': { key: 'name', req: ['phase1name'], attrs: {
+            phase1name: { t: 'ref', ds: 'p1', d: 'Bağlı olduğu faz 1' },
+            proposal: { t: 'menum', v: P2PROP, d: 'Faz 2 önerileri' },
+            pfs: { t: 'enum', v: ED, def: 'enable', d: 'Perfect forward secrecy' },
+            dhgrp: { t: 'menum', v: DHG, when: o => (o.pfs || 'enable') === 'enable', d: 'PFS DH grupları' },
+            'auto-negotiate': { t: 'enum', v: ED, def: 'disable', d: 'Trafik beklemeden SA kur' },
+            'src-subnet': { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Yerel seçici (bizim ağ)' },
+            'dst-subnet': { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Uzak seçici (karşı ağ)' },
+            keylifeseconds: { t: 'int', min: 120, max: 172800, def: 43200, d: 'SA ömrü (sn)' },
+            comments: { t: 'str', max: 255, d: 'Açıklama' } } },
         'router static': { key: 'seq-num', num: true, attrs: {
             status: { t: 'enum', v: ED, def: 'enable', d: 'Durum' },
             dst: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Hedef ağ' },
@@ -106,7 +129,7 @@ const CgLabFgt = (() => {
     };
     const PATHS = Object.keys(SCHEMA);
     const SERVICES = ['ALL', 'ALL_TCP', 'ALL_UDP', 'ALL_ICMP', 'PING', 'HTTP', 'HTTPS', 'SSH', 'DNS', 'NTP', 'SMTP', 'RDP', 'TELNET', 'SNMP', 'FTP'];
-    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all'];
+    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all', 'vpn ipsec tunnel summary'];
 
     function session(lab, opts) {
         const S = { lab, ctx: null, ev: [], hist: [], pending: null, loggedOut: false, answers: {} };
@@ -131,8 +154,10 @@ const CgLabFgt = (() => {
 
         // ── datasource
         const DS = {
-            intf: () => M().t['system interface'].o,
-            intfAny: () => ['any'].concat(M().t['system interface'].o),
+            intf: () => M().t['system interface'].o.concat(M().t['vpn ipsec phase1-interface'].o),
+            intfAny: () => ['any'].concat(M().t['system interface'].o, M().t['vpn ipsec phase1-interface'].o),
+            physIntf: () => M().t['system interface'].o,
+            p1: () => M().t['vpn ipsec phase1-interface'].o,
             addr: () => M().t['firewall address'].o.concat(M().t['firewall addrgrp'].o),
             addrVip: () => M().t['firewall address'].o.concat(M().t['firewall addrgrp'].o, M().t['firewall vip'].o),
             addrgrpMember: () => M().t['firewall address'].o.filter(n => n !== 'none').concat(M().t['firewall addrgrp'].o),
@@ -230,8 +255,34 @@ const CgLabFgt = (() => {
         }
 
         // ── yönlendirme tablosu
-        const ifUp = n => { const i = M().t['system interface'].v[n]; return !!i && (i.status || 'up') === 'up' && !!M().links[n]; };
-        function rib() {
+        const isTun = n => !!M().t['vpn ipsec phase1-interface'].v[n];
+        const ifUp = n => { if (isTun(n)) return tun(n).p1up; const i = M().t['system interface'].v[n]; return !!i && (i.status || 'up') === 'up' && !!M().links[n]; };
+        // ── IPsec tünel durumu: yapılandırma + lab'daki sabit karşı uç (lab.peer / varyant.peer)
+        const PEER = Object.assign({}, lab.peer || {}, (S.variant && S.variant.peer) || {});
+        const norm = v => { if (!v) return '0.0.0.0 0.0.0.0'; const m = String(v).match(/^([\d.]+)\/(\d+)$/); return m ? n2ip(netOf(m[1], +m[2])) + ' ' + lenMask(+m[2]) : v; };
+        function tun(name) {
+            const p1 = M().t['vpn ipsec phase1-interface'].v[name];
+            const T = { name, p1, p1up: false, p2up: false, reason: null, p2: null };
+            if (!p1) return Object.assign(T, { reason: 'nop1' });
+            const phys = p1.interface;
+            const route = rib(true).filter(x => x.len === 0 || sameNet(x.net, p1['remote-gw'] || '0.0.0.0', x.len)).sort((a, b) => b.len - a.len)[0];
+            if (!phys || !ifUp(phys) || !route || route.dev !== phys) return Object.assign(T, { reason: 'nopath' });
+            if (!PEER.gw || PEER.gw !== p1['remote-gw']) return Object.assign(T, { reason: 'nopeer' });
+            if (p1['ike-version'] && p1['ike-version'] !== PEER.ike) return Object.assign(T, { reason: 'ikever' });
+            if (p1.proposal && !p1.proposal.includes(PEER.proposal)) return Object.assign(T, { reason: 'proposal' });
+            if (p1.dhgrp && !p1.dhgrp.includes(PEER.dh)) return Object.assign(T, { reason: 'proposal' });
+            if (p1.psksecret !== PEER.psk) return Object.assign(T, { reason: 'psk' });
+            T.p1up = true;
+            const p2n = M().t['vpn ipsec phase2-interface'].o.find(k => M().t['vpn ipsec phase2-interface'].v[k].phase1name === name);
+            if (!p2n) return Object.assign(T, { reason: 'nop2' });
+            const p2 = M().t['vpn ipsec phase2-interface'].v[p2n]; T.p2 = p2n;
+            if (p2.proposal && !p2.proposal.includes(PEER.p2proposal)) return Object.assign(T, { reason: 'p2proposal' });
+            if (norm(p2['src-subnet']) !== norm(PEER.remote) || norm(p2['dst-subnet']) !== norm(PEER.local)) return Object.assign(T, { reason: 'selector' });
+            if (((p2.pfs || 'enable') === 'enable') !== (PEER.pfs !== false)) return Object.assign(T, { reason: 'p2proposal' });
+            T.p2up = true;
+            return T;
+        }
+        function rib(noTun) {
             const R = [];
             for (const n of M().t['system interface'].o) {
                 const i = M().t['system interface'].v[n];
@@ -243,11 +294,14 @@ const CgLabFgt = (() => {
             const cands = [];
             for (const k of M().t['router static'].o) {
                 const r = M().t['router static'].v[k];
-                if ((r.status || 'enable') !== 'enable' || !r.device) continue;
+                if ((r.status || 'enable') !== 'enable') continue;
+                if (r.blackhole === 'enable') { const [bip, bm] = (r.dst || '0.0.0.0 0.0.0.0').split(' '), bl = maskLen(bm); cands.push({ c: 'S', net: n2ip(netOf(bip, bl)), len: bl, gw: '0.0.0.0', dev: 'Null', ad: +(r.distance || 10), pri: +(r.priority || 1), bh: true }); continue; }
+                if (!r.device) continue;
+                if (noTun && isTun(r.device)) continue;
                 const [dip, dm] = (r.dst || '0.0.0.0 0.0.0.0').split(' '), len = maskLen(dm);
                 const gw = r.gateway || '0.0.0.0';
                 if (!ifUp(r.device)) continue;
-                if (gw !== '0.0.0.0' && !R.some(c => c.c === 'C' && c.dev === r.device && sameNet(c.net, gw, c.len))) continue;
+                if (gw !== '0.0.0.0' && !isTun(r.device) && !R.some(c => c.c === 'C' && c.dev === r.device && sameNet(c.net, gw, c.len))) continue;
                 cands.push({ c: len === 0 ? 'S*' : 'S', net: n2ip(netOf(dip, len)), len, gw, dev: r.device, ad: +(r.distance || 10), pri: +(r.priority || 1) });
             }
             for (const r of cands) {
@@ -262,6 +316,8 @@ const CgLabFgt = (() => {
                 '       i - IS-IS, L1 - IS-IS level-1, L2 - IS-IS level-2, ia - IS-IS inter area', '       V - BGP VPNv4', '       * - candidate default', '', 'Routing table for VRF=0'];
             for (const r of rib()) {
                 if (r.c === 'C') L.push(pad('C', 8) + r.net + '/' + r.len + ' is directly connected, ' + r.dev);
+                else if (r.bh) L.push(pad(r.c, 8) + r.net + '/' + r.len + ' [' + r.ad + '/0] is a summary, Null, [' + r.pri + '/0]');
+                else if (isTun(r.dev)) L.push(pad(r.c, 8) + r.net + '/' + r.len + ' [' + r.ad + '/0] via ' + r.dev + ' tunnel ' + (M().t['vpn ipsec phase1-interface'].v[r.dev]['remote-gw'] || '') + ', [' + r.pri + '/0]');
                 else L.push(pad(r.c, 8) + r.net + '/' + r.len + ' [' + r.ad + '/0] via ' + r.gw + ', ' + r.dev + ', [' + r.pri + '/0]');
             }
             return L.join('\n');
@@ -323,7 +379,7 @@ const CgLabFgt = (() => {
             const g = M().t['firewall addrgrp'].v[name];
             return !!g && (g.member || []).some(m => addrMatch(m, ip, seen));
         }
-        const ifIp = n => { const i = M().t['system interface'].v[n]; return i && i.ip ? i.ip.split(' ')[0] : null; };
+        const ifIp = n => { if (isTun(n)) return ifIp(M().t['vpn ipsec phase1-interface'].v[n].interface); const i = M().t['system interface'].v[n]; return i && i.ip ? i.ip.split(' ')[0] : null; };
         // Tek karar motoru: VIP (DNAT) → rota → kural → NAT
         function decide(f) {
             const r = { f, dst: f.dst, dport: f.dport };
@@ -337,6 +393,7 @@ const CgLabFgt = (() => {
             }
             const rt = rib().filter(x => x.len === 0 || sameNet(x.net, r.dst, x.len)).sort((a, b) => b.len - a.len)[0];
             if (!rt) return Object.assign(r, { stage: 'noroute' });
+            if (rt.bh) return Object.assign(r, { stage: 'blackhole', out: 'Null' });
             r.out = rt.dev; r.gw = rt.c === 'C' ? r.dst : rt.gw;
             const pf = Object.assign({}, f, { dport: r.dport });
             for (const k of M().t['firewall policy'].o) {
@@ -358,6 +415,12 @@ const CgLabFgt = (() => {
             }
             if (r.policy === undefined) { r.policy = '0'; r.action = 'deny'; }
             r.stage = r.action === 'accept' ? 'allowed' : 'denied';
+            if (r.stage === 'allowed' && isTun(r.out)) {
+                const T = tun(r.out); r.tun = T;
+                const p2 = T.p2 && M().t['vpn ipsec phase2-interface'].v[T.p2];
+                const selOk = p2 && (() => { const [sn, sm] = norm(p2['src-subnet']).split(' '), [dn, dm] = norm(p2['dst-subnet']).split(' '); return sameNet(sn, r.snat || f.src, maskLen(sm)) && sameNet(dn, r.dst, maskLen(dm)); })();
+                if (!T.p2up || !selOk) r.stage = 'nosa';
+            }
             return r;
         }
         const flows = () => (SIM.flows || []).map((f, i) => Object.assign({ sport: 50000 + i * 111, proto: 'tcp', reply: 'ok', arrives: true }, f));
@@ -383,6 +446,7 @@ const CgLabFgt = (() => {
             L.push(pre + fn('print_pkt_detail', 5895) + 'msg="vd-root:0 received a packet(proto=' + pn + ', ' + hostPort(f.src, f.sport, f) + '->' + hostPort(f.dst, f.dport, f) + ') tun_id=0.0.0.0 from ' + f.in + '.' + (f.proto === 'tcp' ? ' flag [S], seq 1' + String(tid).padStart(9, '0') + ', ack 0, win 64240"' : f.proto === 'icmp' ? ' type=8, code=0, id=1, seq=' + tid + '."' : '"'));
             L.push(pre + fn('init_ip_session_common', 6076) + 'msg="allocate a new session-000' + (4096 + tid).toString(16) + ', tun_id=0.0.0.0"');
             if (d.vip) L.push(pre + fn('get_new_addr', 1219) + 'msg="find DNAT: IP-' + d.dst + ', port-' + d.dport + '"');
+            if (d.stage === 'blackhole') { L.push(pre + fn('vf_ip_route_input_common', 2605) + 'msg="find a route: flag=04000000 gw-0.0.0.0 via Null (blackhole), drop"'); return { d, text: L.join('\n') }; }
             if (d.stage === 'noroute') { L.push(pre + fn('vf_ip_route_input_common', 2605) + 'msg="no route to ' + d.dst + ', drop"'); return { d, text: L.join('\n') }; }
             L.push(pre + fn('vf_ip_route_input_common', 2605) + 'msg="find a route: flag=04000000 gw-' + d.gw + ' via ' + d.out + '"');
             if (d.stage === 'denied') { L.push(pre + fn('fw_forward_handler', 881) + 'msg="Denied by forward policy check (policy ' + d.policy + ')"'); return { d, text: L.join('\n') }; }
@@ -390,6 +454,13 @@ const CgLabFgt = (() => {
             else L.push(pre + fn('fw_forward_handler', 997) + 'msg="Allowed by Policy-' + d.policy + ':' + (d.snat ? ' SNAT' : '') + '"');
             if (d.vip) L.push(pre + fn('__ip_session_run_tuple', 3474) + 'msg="DNAT ' + f.dst + ':' + f.dport + '->' + d.dst + ':' + d.dport + '"');
             if (d.snat) L.push(pre + fn('__ip_session_run_tuple', 3460) + 'msg="SNAT ' + f.src + '->' + d.snat + ':' + d.sport2 + '"');
+            if (d.stage === 'nosa') { L.push(pre + fn('ipsecdev_hard_start_xmit', 669) + 'msg="enter IPSec interface-' + d.out + '"'); L.push(pre + fn('ipsec_common_output4', 780) + 'msg="no matching IPsec selector, drop"'); return { d, text: L.join('\n') }; }
+            if (d.tun) {
+                const p1 = M().t['vpn ipsec phase1-interface'].v[d.out];
+                L.push(pre + fn('ipsecdev_hard_start_xmit', 669) + 'msg="enter IPSec interface-' + d.out + '"');
+                L.push(pre + fn('_do_ipsecdev_hard_start_xmit', 229) + 'msg="encrypted, and send to ' + p1['remote-gw'] + ' with source ' + ifIp(p1.interface) + '"');
+                L.push(pre + fn('ipsec_output_finish', 232) + 'msg="send to ' + (rib(true).filter(x => x.len === 0 || sameNet(x.net, p1['remote-gw'], x.len)).sort((a, b) => b.len - a.len)[0] || {}).gw + ' via intf-' + p1.interface + '"');
+            }
             return { d, text: L.join('\n') };
         }
         function runTrace() {
@@ -398,7 +469,7 @@ const CgLabFgt = (() => {
             const list = flows().filter(f => noFilter || flowMatches(f)).slice(0, S.dbg.trace);
             S.dbg.trace -= list.length;
             const out = list.map(traceOne);
-            out.forEach(o => { if (o.text) log({ trace: o.d.stage, policy: o.d.policy, flow: o.d.f.src + '>' + o.d.f.dst }); });
+            out.forEach(o => { if (o.text) log({ trace: o.d.stage, policy: o.d.policy, out: o.d.out, flow: o.d.f.src + '>' + o.d.f.dst }); });
             if (noFilter) log({ warn: 'debug-nofilter' });
             const txt = out.map(o => o.text).filter(Boolean).join('\n');
             return (noFilter ? '# [Simülatör] UYARI: filtresiz debug flow tüm trafiği izler; üretimde CPU\'yu yorar. Önce "diagnose debug flow filter addr <ip>".\n' : '') + (txt || '');
@@ -418,7 +489,7 @@ const CgLabFgt = (() => {
                 if (w === 'host' && isIp(t[i + 1] || '')) { const ip = t[++i]; fn = p => dir === 'src' ? p.s === ip : dir === 'dst' ? p.d === ip : p.s === ip || p.d === ip; }
                 else if (w === 'port' && /^\d+$/.test(t[i + 1] || '')) { const n = +t[++i]; fn = p => dir === 'src' ? p.sp === n : dir === 'dst' ? p.dp === n : p.sp === n || p.dp === n; }
                 else if (w === 'net' && /^[\d.]+\/\d+$/.test(t[i + 1] || '')) { const [n, l] = t[++i].split('/'); fn = p => dir === 'src' ? sameNet(n, p.s, +l) : dir === 'dst' ? sameNet(n, p.d, +l) : sameNet(n, p.s, +l) || sameNet(n, p.d, +l); }
-                else if (['tcp', 'udp', 'icmp'].includes(w)) fn = p => p.proto === w;
+                else if (['tcp', 'udp', 'icmp', 'esp'].includes(w)) fn = p => p.proto === w;
                 else if (isIp(t[i])) { const ip = t[i]; fn = p => p.s === ip || p.d === ip; }
                 else { bad = true; break; }
                 const g = neg ? (p => !fn(p)) : fn;
@@ -435,8 +506,12 @@ const CgLabFgt = (() => {
             P.push({ t: ts(), i: f.in, dir: 'in', s: f.src, sp: f.sport, d: f.dst, dp: f.dport, proto: f.proto, txt: hp(f.src, f.sport) + ' -> ' + hp(f.dst, f.dport) + tcpFlag('syn') });
             if (d.stage !== 'allowed') return P;
             const os = d.snat || f.src, osp = d.snat ? d.sport2 : f.sport;
+            if (d.stage === 'nosa') return P;
             P.push({ t: ts(), i: d.out, dir: 'out', s: os, sp: osp, d: d.dst, dp: d.dport, proto: f.proto, txt: hp(os, osp) + ' -> ' + hp(d.dst, d.dport) + tcpFlag('syn') });
-            if (f.reply === 'none') return P;
+            const esp = (dir) => { const p1 = M().t['vpn ipsec phase1-interface'].v[d.out], a = ifIp(p1.interface), b = p1['remote-gw']; P.push({ t: ts(), i: p1.interface, dir, s: dir === 'out' ? a : b, sp: 0, d: dir === 'out' ? b : a, dp: 0, proto: 'esp', txt: (dir === 'out' ? a + ' -> ' + b : b + ' -> ' + a) + ': ip-proto-50 ' + (f.proto === 'tcp' ? 92 : 108) }); };
+            if (d.tun) esp('out');
+            if (f.reply === 'none' || (d.tun && d.snat)) return P;
+            if (d.tun) esp('in');
             const rk = f.reply === 'rst' ? 'rst ack' : f.proto === 'tcp' ? 'syn ack' : 'reply';
             P.push({ t: ts(), i: d.out, dir: 'in', s: d.dst, sp: d.dport, d: os, dp: osp, proto: f.proto, txt: hp(d.dst, d.dport) + ' -> ' + hp(os, osp) + tcpFlag(rk) });
             P.push({ t: ts(), i: f.in, dir: 'out', s: f.dst, sp: f.dport, d: f.src, dp: f.sport, proto: f.proto, txt: hp(f.dst, f.dport) + ' -> ' + hp(f.src, f.sport) + tcpFlag(rk) });
@@ -446,7 +521,7 @@ const CgLabFgt = (() => {
             // diagnose sniffer packet <intf> '<filtre>' [verbose] [count] [a|l]
             const intf = args[0] ? args[0].t : null;
             if (!intf) return { err: 'command parse error before \'packet\'' };
-            if (intf !== 'any' && !M().t['system interface'].v[intf]) return { err: 'command parse error before \'' + intf + '\'' };
+            if (intf !== 'any' && !M().t['system interface'].v[intf] && !isTun(intf)) return { err: 'command parse error before \'' + intf + '\'' };
             const expr = args[1] ? args[1].t : '', verb = args[2] ? +args[2].t : 1, cnt = args[3] ? +args[3].t : 0;
             if (args[2] && !(verb >= 1 && verb <= 6)) return { err: 'command parse error before \'' + args[2].t + '\'' };
             const flt = sniffFilter(expr === 'none' ? '' : expr);
@@ -559,7 +634,68 @@ const CgLabFgt = (() => {
             debug: { reset: 'dreset', enable: 'denable', disable: 'ddisable', info: 'dinfo', crashlog: { read: 'crash' }, 'config-error-log': { read: 'cfgerr' },
                 flow: { filter: 'ffilter', show: { 'function-name': 'ffn' }, trace: { start: 'tstart', stop: 'tstop' } }, console: { timestamp: 'dts' } },
             sniffer: { packet: 'sniff' },
+            vpn: { ike: { gateway: { list: 'ikegw' }, 'log-filter': 'ikelf' }, tunnel: { list: 'tunlist' } },
         };
+        DIAG.debug.application = { ike: 'appike', sslvpn: 'appssl' };
+        S.dbg.apps = {}; S.ikeFilter = null;
+        // ── IPsec çıktıları
+        const p1s = () => M().t['vpn ipsec phase1-interface'].o;
+        function ikeOut() { const o = ikeDebug(); log({ ikedebug: p1s().map(n => tun(n).reason || 'up') }); if (!S.ikeFilter) log({ warn: 'ike-nofilter' }); return o; }
+        function tunSummary() {
+            return p1s().map(n => { const T = tun(n), p1 = T.p1; return "'" + n + "' " + (p1['remote-gw'] || '0.0.0.0') + ':0  selectors(total,up): ' + (hasP2(n) ? 1 : 0) + '/' + (T.p2up ? 1 : 0) + '  rx(pkt,err): ' + (T.p2up ? '120/0' : '0/0') + '  tx(pkt,err): ' + (T.p2up ? '118/0' : '0/' + (T.p1up ? 0 : 3)); }).join('\n');
+        }
+        function ikeGw(name) {
+            const list = name ? [name] : p1s();
+            return list.map(n => {
+                const T = tun(n), p1 = T.p1; if (!p1) return '';
+                const L = ['vd: root/0', 'name: ' + n, 'version: ' + (p1['ike-version'] || PEER.ike || '1'), 'interface: ' + p1.interface + ' 3', 'addr: ' + ifIp(p1.interface) + ':500 -> ' + p1['remote-gw'] + ':500',
+                    'tun_id: ' + p1['remote-gw'] + '/::' + p1['remote-gw'], 'created: 312s ago', 'peer-id: ' + p1['remote-gw'], 'peer-id-auth: no', 'PPK: no',
+                    'IKE SA: created 1/' + (T.p1up ? 1 : 5) + '  established ' + (T.p1up ? '1/1  time 20/20/20 ms' : '0/0  time 0/0/0 ms'),
+                    'IPsec SA: created ' + (T.p2up ? '1/1  established 1/1  time 10/10/10 ms' : (T.p1up ? '1/3  established 0/0  time 0/0/0 ms' : '0/0  established 0/0  time 0/0/0 ms'))];
+                if (T.p1up) L.push('', '  id/spi: 12 7e8a9c1f2b3d4e5f/6a7b8c9d0e1f2a3b', '  direction: initiator', '  status: established 312-312s ago = 20ms', '  proposal: ' + PEER.proposal, '  child: no', '  lifetime/rekey: 86400/85787', '  DPD sent/recv: 00000000/00000000');
+                return L.join('\n');
+            }).filter(Boolean).join('\n\n');
+        }
+        const espName = () => /^chacha/.test(PEER.p2proposal || '') ? 'chacha20poly1305' : 'aes';
+        const hasP2 = n => M().t['vpn ipsec phase2-interface'].o.some(k => M().t['vpn ipsec phase2-interface'].v[k].phase1name === n);
+        function tunList(name) {
+            const L = ['list all ipsec tunnel in vd 0'];
+            (name ? [name] : p1s()).forEach((n, i) => {
+                const T = tun(n), p1 = T.p1; if (!p1) return;
+                const p2 = T.p2 && M().t['vpn ipsec phase2-interface'].v[T.p2];
+                const rng = v => { const [a, m] = norm(v).split(' '), l = maskLen(m), base = netOf(a, l); return n2ip(base) + '-' + n2ip(base + 2 ** (32 - l) - 1); };
+                L.push('------------------------------------------------------', 'name=' + n + ' ver=' + (p1['ike-version'] || PEER.ike || '1') + ' serial=' + (i + 1) + ' ' + ifIp(p1.interface) + ':0->' + p1['remote-gw'] + ':0 tun_id=' + p1['remote-gw'] + ' dst_mtu=1500 dpd-link=on weight=1',
+                    'bound_if=3 lgwy=static/1 tun=intf mode=auto/1 encap=none/552 options[0228]=npu frag-rfc  run_state=0 role=primary accept_traffic=1 overlay_id=0', '',
+                    'proxyid_num=' + (p2 ? 1 : 0) + ' child_num=0 refcnt=4 ilast=2 olast=2 ad=/0', 'stat: rxp=' + (T.p2up ? 120 : 0) + ' txp=' + (T.p2up ? 118 : 0) + ' rxb=' + (T.p2up ? 15360 : 0) + ' txb=' + (T.p2up ? 9912 : 0),
+                    'dpd: mode=' + (p1.dpd || 'on-demand') + ' on=' + (T.p1up ? 1 : 0) + ' idle=20000ms retry=3 count=0 seqno=0', 'natt: mode=none draft=0 interval=0 remote_port=0');
+                if (p2) {
+                    L.push('proxyid=' + T.p2 + ' proto=0 sa=' + (T.p2up ? 1 : 0) + ' ref=2 serial=1' + ((p2['auto-negotiate'] || 'disable') === 'enable' ? ' auto-negotiate' : ''), '  src: 0:' + rng(p2['src-subnet']) + ':0', '  dst: 0:' + rng(p2['dst-subnet']) + ':0');
+                    if (T.p2up) L.push('  SA:  ref=3 options=18227 type=00 soft=0 mtu=1438 expire=42887/0B replaywin=2048', '       seqno=77 esn=0 replaywin_lastseq=00000078 qat=0 rekey=0 hash_search_len=1', '  life: type=01 bytes=0/0 timeout=42901/43200',
+                        '  dec: spi=8a1b2c3d esp=' + espName() + ' key=32 ' + fakeHash('dec' + n, 32), '  enc: spi=4d5e6f70 esp=' + espName() + ' key=32 ' + fakeHash('enc' + n, 32), '  dec:pkts/bytes=120/15360, enc:pkts/bytes=118/9912');
+                }
+            });
+            return L.join('\n');
+        }
+        // IKE debug: her faz 1 için bir müzakere denemesinin özeti (neden satırları gerçek anahtar ifadelerle)
+        function ikeDebug() {
+            return p1s().filter(n => !S.ikeFilter || M().t['vpn ipsec phase1-interface'].v[n]['remote-gw'] === S.ikeFilter).map(n => {
+                const T = tun(n), p1 = T.p1, me = ifIp(p1.interface), gw = p1['remote-gw'], v2 = (p1['ike-version'] || PEER.ike) === '2';
+                const pre = 'ike 0:' + n + ':12: ', L = ['ike 0:' + n + ': ' + (v2 ? 'IKEv2' : 'IKEv1') + ' negotiation started (' + me + '->' + gw + ':500)'];
+                const r = T.reason;
+                if (r === 'nopath' || r === 'nopeer' || r === 'ikever') { L.push(pre + 'out ' + (v2 ? 'SA_INIT' : 'main mode') + ' request', pre + 'no response from peer, retransmit (1/3)', pre + 'no response from peer, retransmit (2/3)', 'ike 0:' + n + ': negotiation timeout, deleting'); return L.join('\n'); }
+                L.push(pre + 'out ' + (v2 ? 'SA_INIT' : 'main mode') + ' request, proposals: ' + (p1.proposal || ['(varsayılan)']).join(' ') + ' dh ' + (p1.dhgrp || ['(varsayılan)']).join(' '));
+                if (r === 'proposal') { L.push(pre + 'peer proposal: ' + PEER.proposal + ' dh ' + PEER.dh, pre + 'no SA proposal chosen', 'ike 0:' + n + ': negotiation failure'); return L.join('\n'); }
+                L.push(pre + 'SA proposal chosen, matched proposal ' + PEER.proposal + ' dh ' + PEER.dh);
+                if (r === 'psk') { L.push(pre + 'auth verify failed', pre + 'probable pre-shared secret mismatch', 'ike 0:' + n + ': negotiation failure'); return L.join('\n'); }
+                L.push(pre + 'auth verify done', pre + 'established IKE SA ' + fakeHash(n, 16).toLowerCase() + '/' + fakeHash(gw, 16).toLowerCase());
+                const p2n = T.p2 || '(yok)';
+                if (r === 'nop2') { L.push(pre + 'no phase2 configured for this phase1'); return L.join('\n'); }
+                if (r === 'p2proposal') { L.push('ike 0:' + n + ':' + p2n + ': peer proposal ' + PEER.p2proposal + (PEER.pfs === false ? ' pfs disable' : ' pfs dh ' + PEER.dh), 'ike 0:' + n + ':' + p2n + ': no SA proposal chosen'); return L.join('\n'); }
+                if (r === 'selector') { L.push('ike 0:' + n + ':' + p2n + ': peer selectors: src ' + norm(PEER.local) + ' dst ' + norm(PEER.remote), 'ike 0:' + n + ':' + p2n + ': ' + (v2 ? 'TS_UNACCEPTABLE' : 'no matching phase2 found')); return L.join('\n'); }
+                L.push('ike 0:' + n + ':' + p2n + ': added IPsec SA: SPIs=8a1b2c3d/4d5e6f70', 'ike 0:' + n + ':' + p2n + ': sending SNMP tunnel UP trap');
+                return L.join('\n');
+            }).join('\n');
+        }
         function diagCmd(t, line) {
             let node = DIAG, i = 1, words = ['diagnose'];
             while (node && typeof node === 'object') {
@@ -591,8 +727,8 @@ const CgLabFgt = (() => {
                 case 'conserve': return ok(conserve());
                 case 'crash': return ok(crashlog());
                 case 'cfgerr': return ok(cfgErrLog());
-                case 'dreset': S.dbg = { on: false, filter: {}, fn: false, trace: 0, tid: S.dbg.tid }; return ok('');
-                case 'denable': S.dbg.on = true; log({ raw: line, canon }); return runTrace();
+                case 'dreset': S.dbg = { on: false, filter: {}, fn: false, trace: 0, tid: S.dbg.tid, apps: {} }; return ok('');
+                case 'denable': { S.dbg.on = true; log({ raw: line, canon }); const o = [runTrace(), S.dbg.apps.ike ? ikeOut() : '', S.dbg.apps.sslvpn && typeof sslDebug === 'function' ? sslDebug() : ''].filter(Boolean); return o.join('\n'); }
                 case 'ddisable': S.dbg.on = false; return ok('');
                 case 'dts': return ok('');
                 case 'dinfo': return ok('debug output:           ' + (S.dbg.on ? 'enable' : 'disable') + '\nconsole timestamp:      disable\nconsole no user log message:    disable\n' + (S.dbg.trace > 0 ? 'debug flow trace: ' + S.dbg.trace + ' packet(s) remaining' : ''));
@@ -607,6 +743,21 @@ const CgLabFgt = (() => {
                 case 'ffn': { const v = a[0] && pick(a[0].t, ['enable', 'disable']); if (!v || !v.ok) { log({ raw: line, err: 'invalid' }); return perr(a[0] || null); } S.dbg.fn = v.ok === 'enable'; return ok(''); }
                 case 'tstart': { const n = a[0] && /^\d+$/.test(a[0].t) ? +a[0].t : 0; if (!n) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (a[0] ? a[0].t : '') + '\''; } S.dbg.trace = n; log({ raw: line, canon }); return runTrace(); }
                 case 'tstop': S.dbg.trace = 0; return ok('');
+                case 'ikegw': { const nm = a[0] && 'name'.startsWith(a[0].t) && a[1] ? a[1].t : null; if (nm && !M().t['vpn ipsec phase1-interface'].v[nm]) { log({ raw: line, err: 'invalid' }); return perr(a[1]); } return ok(ikeGw(nm)); }
+                case 'tunlist': { const nm = a[0] && 'name'.startsWith(a[0].t) && a[1] ? a[1].t : null; if (nm && !M().t['vpn ipsec phase1-interface'].v[nm]) { log({ raw: line, err: 'invalid' }); return perr(a[1]); } return ok(tunList(nm)); }
+                case 'ikelf': {
+                    if (a[0] && a[0].t === 'clear') { S.ikeFilter = null; return ok(''); }
+                    if (a[0] && /^dst-addr4$/.test(a[0].t) && a[1] && isIp(a[1].t)) { S.ikeFilter = a[1].t; return ok(''); }
+                    if (!a.length) return ok('vd: any\nname: any\ninterface: any\nIPv4 dst: ' + (S.ikeFilter || 'any'));
+                    log({ raw: line, err: 'invalid' }); return perr(a[0]);
+                }
+                case 'appike': case 'appssl': {
+                    const lv = a[0] ? a[0].t : null;
+                    if (lv === null || !/^-?\d+$/.test(lv)) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (lv || '') + '\''; }
+                    S.dbg.apps[node === 'appike' ? 'ike' : 'sslvpn'] = +lv !== 0;
+                    log({ raw: line, canon });
+                    return S.dbg.on && node === 'appike' && +lv !== 0 ? ikeOut() : '';
+                }
                 case 'sniff': { const r = sniffer(a, line); if (r && r.err) { log({ raw: line, err: 'invalid' }); return r.err; } return r; }
             }
             return '';
@@ -699,6 +850,7 @@ const CgLabFgt = (() => {
                     const gw = g.split(' ');
                     if (rest.length === gw.length && gw.every((w, k) => w.startsWith(rest[k]))) {
                         log({ raw: line, canon: 'get ' + g });
+                        if (g === 'vpn ipsec tunnel summary') return tunSummary();
                         return g === 'system status' ? sysStatus() : g === 'system performance status' ? perfStatus() : g === 'system session status' ? 'The total number of sessions for the current VDOM: ' + sessTotal() : g === 'system session list' ? sessTable() : showRib();
                     }
                 }
@@ -770,7 +922,7 @@ const CgLabFgt = (() => {
         }
         function usedBy(p, k) {
             const out = [], map = { 'firewall address': ['addr', 'addrVip', 'addrgrpMember'], 'firewall addrgrp': ['addr', 'addrVip', 'addrgrpMember'], 'firewall vip': ['addrVip'],
-                'firewall service custom': ['svc', 'svcgrpMember'], 'firewall service group': ['svc', 'svcgrpMember'], 'firewall ippool': ['ippool'] }[p] || [];
+                'firewall service custom': ['svc', 'svcgrpMember'], 'firewall service group': ['svc', 'svcgrpMember'], 'firewall ippool': ['ippool'], 'vpn ipsec phase1-interface': ['p1', 'intf', 'intfAny'] }[p] || [];
             for (const q of PATHS) {
                 const sc = SCHEMA[q]; if (sc.single) continue;
                 for (const key of M().t[q].o) {
@@ -872,7 +1024,7 @@ const CgLabFgt = (() => {
                 for (let k = 1; k < done.length; k++) { if (!node || typeof node !== 'object') return []; const r = pick(done[k].t, Object.keys(node)); if (!r.ok) return null; node = node[r.ok]; }
                 const DH = { sys: 'Sistem (süreç, oturum)', top: 'En çok CPU/bellek kullanan süreçler', session: 'Oturum tablosu', stat: 'Oturum istatistikleri', list: 'Oturumları listele (filtreyle)', clear: 'Filtredeki oturumları sil', filter: 'Filtre ayarla',
                     hardware: 'Donanım', sysinfo: 'Sistem bilgisi', memory: 'Bellek kullanımı', conserve: 'Bellek koruma (conserve) modu', debug: 'Debug', reset: 'Tüm debug ayarlarını sıfırla', enable: 'Debug çıktısını aç', disable: 'Debug çıktısını kapat', info: 'Debug durumu',
-                    crashlog: 'Çökme kaydı', 'config-error-log': 'Yapılandırma hata kaydı', read: 'Oku', flow: 'Paket akışı izleme', show: 'Gösterim ayarı', 'function-name': 'Fonksiyon adlarını göster', trace: 'İzleme', start: 'N paket izle', stop: 'İzlemeyi durdur', console: 'Konsol', timestamp: 'Zaman damgası', sniffer: 'Paket yakalama', packet: '<arayüz|any> \'<filtre>\' <1-6> <adet>' };
+                    crashlog: 'Çökme kaydı', 'config-error-log': 'Yapılandırma hata kaydı', read: 'Oku', flow: 'Paket akışı izleme', show: 'Gösterim ayarı', 'function-name': 'Fonksiyon adlarını göster', trace: 'İzleme', start: 'N paket izle', stop: 'İzlemeyi durdur', console: 'Konsol', timestamp: 'Zaman damgası', sniffer: 'Paket yakalama', vpn: 'VPN', ike: 'IKE (faz 1)', gateway: 'IKE ağ geçitleri', 'log-filter': 'IKE debug filtresi', tunnel: 'IPsec tünelleri', application: 'Uygulama debug\'ı (ike, sslvpn)', packet: '<arayüz|any> \'<filtre>\' <1-6> <adet>' };
                 return node && typeof node === 'object' ? Object.keys(node).map(w => [w, DH[w] || '']) : [['<Enter>', '']];
             }
             if (!c && v.ok === 'execute') return done.length === 1 ? [['ping', 'ICMP erişilebilirlik testi']] : done.length === 2 ? [['<ip>', 'Hedef IP']] : [];
@@ -938,6 +1090,7 @@ const CgLabFgt = (() => {
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
             _toRoot: () => { S.ctx = null; S.pending = null; S.loggedOut = false; },
             get answers() { return S.answers; }, set answers(v) { S.answers = v || {}; },
+            tun: n => { const T = tun(n); return { p1up: T.p1up, p2up: T.p2up, reason: T.reason }; },
             variant: () => S.variant, decide: f => decide(Object.assign({ sport: 50000, proto: 'tcp', reply: 'ok', arrives: true }, f)),
             get model() { return S.m; }, ev: E, mode: () => (S.ctx ? (S.ctx.key !== undefined ? 'edit' : 'config') : 'root'),
             obj, keys: p => M().t[p].o.filter(k => !M().t[p].v[k]._builtin), order: p => M().t[p].o.slice(),

@@ -12,6 +12,12 @@
         ['config router static', 'edit 1', 'set gateway 203.0.113.1', 'set device port1', 'end', 'config firewall address', 'edit LAN-NET', 'set subnet 10.64.10.0 255.255.255.0', 'end']);
     const POL = svc => ['config firewall policy', 'edit 1', 'set name LAN-TO-WAN', 'set srcintf port2', 'set dstintf port1', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service ' + svc.join(' '), 'set nat enable', 'end'];
     const NOISE = { src: '10.64.10.51', dst: '198.51.100.80', dport: 80, in: 'port2' };
+    // Şube FGT-B: sabit karşı uç (IPsec lab'ları)
+    const PEER_B = { gw: '198.51.100.2', ike: '2', proposal: 'aes256-sha256', dh: '14', psk: 'Lab-Psk-2026', p2proposal: 'aes256-sha256', local: '10.128.10.0/24', remote: '10.64.10.0/24' };
+    const VPN_OK = ['config vpn ipsec phase1-interface', 'edit TO-B', 'set interface port1', 'set ike-version 2', 'set remote-gw 198.51.100.2', 'set proposal aes256-sha256', 'set dhgrp 14', 'set psksecret Lab-Psk-2026', 'end',
+        'config vpn ipsec phase2-interface', 'edit TO-B-P2', 'set phase1name TO-B', 'set proposal aes256-sha256', 'set dhgrp 14', 'set src-subnet 10.64.10.0/24', 'set dst-subnet 10.128.10.0/24', 'end',
+        'config router static', 'edit 2', 'set dst 10.128.10.0/24', 'set device TO-B', 'end',
+        'config firewall policy', 'edit 1', 'set name LAN-TO-B', 'set srcintf port2', 'set dstintf TO-B', 'set srcaddr LAN-NET', 'set dstaddr B-NET', 'set action accept', 'set schedule always', 'set service ALL', 'end'];
 
     const LABS = [
     {
@@ -395,6 +401,104 @@
         learn: ['crashlog: çöken süreç ("killed daemon").', 'config-error-log: yükseltme/geri yüklemede kaybolan satırlar.', '"entry not found in datasource" = başvurulan nesne yok.', 'Önce nesne, sonra kural; sonra debug flow ile kanıt.'],
         links: { cli: '#/cli/fortigate' }, cert: 'NSE 4 · M15'
     },
+    // ═══ Faz C2a: IPsec ══════════════════════════════════════════════════
+    {
+        id: 'fgt-11', vendor: 'fortigate', level: 4, title: 'Site-to-site IPsec (route-based) kurulumu', minutes: 35, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-06', 'fgt-04'],
+        up: ['port1', 'port2'], hosts: ['203.0.113.1'], peer: PEER_B,
+        start: BASE().concat(['config firewall address', 'edit B-NET', 'set subnet 10.128.10.0 255.255.255.0', 'end']),
+        sim: { flows: [{ src: '10.64.10.50', dst: '10.128.10.20', dport: 443, in: 'port2' }, { src: '10.128.10.20', dst: '10.64.10.50', dport: 22, in: 'TO-B' }] },
+        story: 'Merkez (FGT-A, WAN 203.0.113.2, LAN 10.64.10.0/24) ile şube (FGT-B, WAN <code>198.51.100.2</code>, LAN <code>10.128.10.0/24</code>) arasında tünel kurun. Şubenin ayarları sabit ve size iletildi:<br><small>IKEv2 · faz 1: <code>aes256-sha256</code>, DH <code>14</code>, PSK <code>Lab-Psk-2026</code> · faz 2: <code>aes256-sha256</code>, PFS DH 14 · seçiciler: 10.64.10.0/24 ↔ 10.128.10.0/24. <code>LAN-NET</code> ve <code>B-NET</code> nesneleri hazır.</small>',
+        goals: ['Faz 1 ve faz 2\'yi karşı uçla eşleştirmek', 'Tünel arayüzüne rota ve sızıntıya karşı blackhole', 'İki yönlü, NAT\'sız kurallar', 'Tüneli ve trafiği doğrulamak'],
+        tasks: [
+            { t: 'Faz 1 <code>TO-B</code>: port1 üzerinden, IKEv2, karşı uç 198.51.100.2, <code>aes256-sha256</code>, DH 14, PSK.',
+              why: 'Faz 1 (IKE SA) iki cihazın kimlik doğrulayıp güvenli kanal kurmasıdır; öneri, DH ve PSK iki uçta birebir aynı olmalı. Route-based modda faz 1 adı aynı zamanda bir arayüz olur (TO-B).',
+              hints: ['config vpn ipsec phase1-interface → edit TO-B', '<code>set interface port1</code>, <code>set ike-version 2</code>, <code>set remote-gw</code>, <code>set proposal</code>, <code>set dhgrp 14</code>, <code>set psksecret</code>'],
+              steps: ['config vpn ipsec phase1-interface', 'edit TO-B', 'set interface port1', 'set ike-version 2', 'set remote-gw 198.51.100.2', 'set proposal aes256-sha256', 'set dhgrp 14', 'set psksecret Lab-Psk-2026', 'end'],
+              check: s => s.tun('TO-B').p1up && s.obj('vpn ipsec phase1-interface', 'TO-B')['ike-version'] === '2',
+              fb: s => { const T = s.tun('TO-B'); return ({ nop1: 'TO-B faz 1 kaydı yok (interface, remote-gw, psksecret zorunlu).', nopath: 'Karşı uca port1 üzerinden rota yok ya da port1 kapalı.', nopeer: 'remote-gw şubenin adresi değil.', ikever: 'IKE sürümü karşı uçla aynı değil.', proposal: 'Faz 1 önerisi/DH karşı uçla eşleşmiyor.', psk: 'PSK karşı uçla aynı değil.' })[T.reason] || (T.p1up && s.obj('vpn ipsec phase1-interface', 'TO-B')['ike-version'] !== '2' ? 'Tünel kalktı ama ike-version 2 açıkça ayarlanmalı.' : null); } },
+            { t: 'Faz 2 <code>TO-B-P2</code>: TO-B\'ye bağlı, <code>aes256-sha256</code>, PFS DH 14, seçiciler 10.64.10.0/24 → 10.128.10.0/24.',
+              why: 'Faz 2 (IPsec SA) hangi trafiğin şifreleneceğini belirler. Seçiciler (proxy-id) karşı ucun ayna görüntüsü olmalı: bizim kaynak = onların hedefi.',
+              hints: ['config vpn ipsec phase2-interface → edit TO-B-P2', '<code>set phase1name TO-B</code>, <code>set src-subnet</code>, <code>set dst-subnet</code>'],
+              steps: ['config vpn ipsec phase2-interface', 'edit TO-B-P2', 'set phase1name TO-B', 'set proposal aes256-sha256', 'set dhgrp 14', 'set src-subnet 10.64.10.0/24', 'set dst-subnet 10.128.10.0/24', 'end'],
+              needs: [0], check: s => s.tun('TO-B').p2up,
+              fb: s => ({ nop2: 'Faz 2 kaydı yok ya da faz 1\'e bağlı değil.', p2proposal: 'Faz 2 önerisi / PFS karşı uçla eşleşmiyor.', selector: 'Seçiciler karşı ucun aynası değil (src 10.64.10.0/24, dst 10.128.10.0/24).' })[s.tun('TO-B').reason] || null },
+            { t: 'Şube ağı için tünele rota ekleyin; tünel düşerse trafiğin internete şifresiz çıkmaması için aynı hedefe <b>blackhole</b> rota (mesafe 254) ekleyin.',
+              why: 'Route-based VPN\'de trafiği tünele rota yönlendirir. Tünel düşünce rota tablodan çıkar ve trafik varsayılan rotayla WAN\'a gider: blackhole bu sızıntıyı önler.',
+              hints: ['router static: device TO-B; ikinci kayıt blackhole enable + distance 254', '<code>set dst 10.128.10.0/24</code> → <code>set device TO-B</code> · <code>set blackhole enable</code>'],
+              steps: ['config router static', 'edit 2', 'set dst 10.128.10.0/24', 'set device TO-B', 'next', 'edit 3', 'set dst 10.128.10.0/24', 'set blackhole enable', 'set distance 254', 'end'],
+              needs: [0, 1], check: s => s.rib().some(r => r.net === '10.128.10.0' && r.len === 24 && r.dev === 'TO-B') && s.keys('router static').some(k => { const o = s.obj('router static', k); return o.blackhole === 'enable' && o.dst === '10.128.10.0 255.255.255.0' && o.distance === '254'; }),
+              fb: s => s.rib().some(r => r.dev === 'TO-B') ? 'Tünel rotası tamam; blackhole (mesafe 254) eksik.' : null },
+            { t: 'İki yönlü kural: <code>LAN-TO-B</code> (port2 → TO-B, LAN-NET → B-NET) ve <code>B-TO-LAN</code> (TO-B → port2, B-NET → LAN-NET); servis ALL, <b>NAT kapalı</b>.',
+              why: 'Tünel kurulu olsa da kural yoksa trafik geçmez (policy 0). Site-to-site trafikte NAT açılırsa kaynak adres faz 2 seçicisine uymaz ve paket "no matching IPsec selector" ile düşer.',
+              hints: ['İki kural, dstintf/srcintf olarak TO-B.', '<code>set dstintf TO-B</code> … <code>set nat disable</code>'],
+              steps: ['config firewall policy', 'edit 0', 'set name LAN-TO-B', 'set srcintf port2', 'set dstintf TO-B', 'set srcaddr LAN-NET', 'set dstaddr B-NET', 'set action accept', 'set schedule always', 'set service ALL', 'next', 'edit 0', 'set name B-TO-LAN', 'set srcintf TO-B', 'set dstintf port2', 'set srcaddr B-NET', 'set dstaddr LAN-NET', 'set action accept', 'set schedule always', 'set service ALL', 'end'],
+              needs: [0, 1, 2], check: s => { const o = s.decide({ src: '10.64.10.50', dst: '10.128.10.20', dport: 443, in: 'port2' }), i = s.decide({ src: '10.128.10.20', dst: '10.64.10.50', dport: 22, in: 'TO-B' }); return o.stage === 'allowed' && o.out === 'TO-B' && !o.snat && i.stage === 'allowed' && i.out === 'port2'; },
+              fb: s => { const o = s.decide({ src: '10.64.10.50', dst: '10.128.10.20', dport: 443, in: 'port2' }); if (o.stage === 'nosa') return 'Kural var ama paket seçiciye uymuyor: NAT açık mı?'; if (o.stage === 'denied') return 'Giden kural eşleşmiyor (policy 0).'; const i = s.decide({ src: '10.128.10.20', dst: '10.64.10.50', dport: 22, in: 'TO-B' }); return i.stage !== 'allowed' ? 'Şubeden gelen yön (TO-B → port2) için kural eksik.' : null; } },
+            { t: 'Tünel özetini görüntüleyin: seçiciler 1/1 olmalı.',
+              why: '<code>get vpn ipsec tunnel summary</code> en hızlı durum özetidir: selectors(total,up) 1/1 = faz 2 kurulu; rx/tx sayaçları trafiğin aktığını gösterir.',
+              hints: ['get vpn ipsec …', '<code>get vpn ipsec tunnel summary</code>'], steps: ['get vpn ipsec tunnel summary'], needs: [0, 1],
+              check: s => s.ev.ran(/^get vpn ipsec tunnel summary$/) && s.tun('TO-B').p2up },
+            { t: 'Trafiği kanıtlayın: 10.64.10.50\'nin paketinin tünele girip şifrelendiğini debug flow ile gösterin.',
+              why: '"enter IPSec interface-TO-B" ve "encrypted, and send to 198.51.100.2" satırları paketin kurala uyup şifrelendiğini kanıtlar.',
+              hints: ['reset → filter addr → trace start → enable', '<code>diagnose debug flow filter addr 10.64.10.50</code>'],
+              steps: ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable'],
+              needs: [0, 1, 2, 3], check: s => s.ev.list().some(e => e.trace === 'allowed' && e.out === 'TO-B' && /^10\.64\.10\.50>/.test(e.flow)) },
+        ],
+        solution: ['config vpn ipsec phase1-interface', 'edit TO-B', 'set interface port1', 'set ike-version 2', 'set remote-gw 198.51.100.2', 'set proposal aes256-sha256', 'set dhgrp 14', 'set psksecret Lab-Psk-2026', 'end',
+            'config vpn ipsec phase2-interface', 'edit TO-B-P2', 'set phase1name TO-B', 'set proposal aes256-sha256', 'set dhgrp 14', 'set src-subnet 10.64.10.0/24', 'set dst-subnet 10.128.10.0/24', 'end',
+            'config router static', 'edit 2', 'set dst 10.128.10.0/24', 'set device TO-B', 'next', 'edit 3', 'set dst 10.128.10.0/24', 'set blackhole enable', 'set distance 254', 'end',
+            'config firewall policy', 'edit 0', 'set name LAN-TO-B', 'set srcintf port2', 'set dstintf TO-B', 'set srcaddr LAN-NET', 'set dstaddr B-NET', 'set action accept', 'set schedule always', 'set service ALL', 'next',
+            'edit 0', 'set name B-TO-LAN', 'set srcintf TO-B', 'set dstintf port2', 'set srcaddr B-NET', 'set dstaddr LAN-NET', 'set action accept', 'set schedule always', 'set service ALL', 'end',
+            'get vpn ipsec tunnel summary', 'diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable'],
+        verify: ['get vpn ipsec tunnel summary', 'diagnose vpn tunnel list name TO-B', 'get router info routing-table all'],
+        learn: ['Faz 1: IKE sürümü, öneri, DH, PSK iki uçta aynı.', 'Faz 2 seçicileri karşı ucun aynası.', 'Route-based: rota tünel arayüzüne; tünel düşerse blackhole sızıntıyı önler.', 'İki yönlü kural, NAT kapalı.', 'Doğrulama: tunnel summary 1/1 + debug flow "encrypted".'],
+        links: { tool: '#/fortigate/ipsec', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/0' }, cert: 'NSE 4 · M11'
+    },
+    {
+        id: 'fgt-23', vendor: 'fortigate', level: 5, title: 'IPsec adım adım teşhis: faz 1 → faz 2 → trafik', minutes: 30, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-11', 'fgt-15'],
+        up: ['port1', 'port2'], hosts: ['203.0.113.1'], peer: PEER_B,
+        start: BASE().concat(['config firewall address', 'edit B-NET', 'set subnet 10.128.10.0 255.255.255.0', 'end'], VPN_OK),
+        sim: { flows: [{ src: '10.64.10.50', dst: '10.128.10.20', dport: 443, in: 'port2' }] },
+        variants: [
+            { key: 'proposal', peer: { proposal: 'aes128-sha256' } },
+            { key: 'psk', start: ['config vpn ipsec phase1-interface', 'edit TO-B', 'set psksecret Lab-Psk-2025', 'end'] },
+            { key: 'selector', start: ['config vpn ipsec phase2-interface', 'edit TO-B-P2', 'set dst-subnet 10.128.0.0/24', 'end'] },
+            { key: 'noroute', start: ['config router static', 'delete 2', 'end'] },
+            { key: 'nopolicy', start: ['config firewall policy', 'delete 1', 'end'] },
+            { key: 'nat', start: ['config firewall policy', 'edit 1', 'set nat enable', 'end'] },
+        ],
+        story: '<b>Arıza kaydı:</b> "Merkez–şube VPN\'i üzerinden 10.64.10.50, 10.128.10.20:443\'e ulaşamıyor." Karşı ucun (198.51.100.2) doğru ayarları: IKEv2, faz 1/2 <code>aes256-sha256</code> (şube değiştirmiş olabilir), DH 14, PSK <code>Lab-Psk-2026</code>, seçiciler 10.64.10.0/24 ↔ 10.128.10.0/24. Zinciri sırayla yürüyün: <b>faz 1 up mı → faz 2 up mı → trafik geçiyor mu</b>. <small>Her turda farklı bir arıza — "Yeni tur".</small>',
+        goals: ['Tünel özetinden katmanı belirlemek', 'Doğru aracı seçmek (IKE debug / tunnel list / debug flow)', 'Kök nedeni bulup en az değişiklikle düzeltmek', 'Debug\'ı kapatmak'],
+        tasks: [
+            { t: 'Tünelin genel durumuna bakın.', why: 'selectors(total,up): 1/1 = her şey kurulu; 1/0 = faz 2 yok ya da faz 1 de yok. Faz 1\'i <code>diagnose vpn ike gateway list</code> ile ayırt edersiniz.',
+              hints: ['get vpn ipsec …', '<code>get vpn ipsec tunnel summary</code>'], steps: ['get vpn ipsec tunnel summary'], check: s => s.ev.ran(/^get vpn ipsec tunnel summary$/) },
+            { t: 'Tünel hangi durumda?', ask: { choices: [['p1down', 'Faz 1 kurulamıyor (IKE SA established 0)'], ['p2down', 'Faz 1 up, faz 2 kurulamıyor'], ['up', 'Tünel tamamen up (1/1) ama trafik geçmiyor']], correct: v => ({ proposal: 'p1down', psk: 'p1down', selector: 'p2down', noroute: 'up', nopolicy: 'up', nat: 'up' })[v.key] },
+              why: 'Özet 1/0 ise <code>diagnose vpn ike gateway list</code> faz 1\'i gösterir: "IKE SA … established 1/1" ise sorun faz 2\'de, "0/0" ise faz 1\'de.',
+              hints: ['selectors 1/1 mi 1/0 mı?', '1/0 ise: diagnose vpn ike gateway list → IKE SA established?'] },
+            { t: 'Bu katmana uygun ayrıntı aracıyla nedeni görün.',
+              why: 'Faz 1/2 sorunu → <code>diagnose vpn ike log-filter dst-addr4 &lt;peer&gt;</code> + <code>diagnose debug application ike -1</code> + <code>diagnose debug enable</code> ("no SA proposal chosen", "pre-shared secret mismatch", "TS_UNACCEPTABLE"). Tünel up ama trafik yok → <code>debug flow</code> (rota/kural/seçici).',
+              hints: ['Tünel kurulamıyorsa IKE debug; kuruluysa debug flow.', 'IKE: log-filter + application ike -1 + enable · trafik: flow filter + trace + enable'],
+              steps: v => ['p1down', 'p2down'].includes(({ proposal: 'p1down', psk: 'p1down', selector: 'p2down' })[v.key]) ? ['diagnose debug reset', 'diagnose vpn ike log-filter dst-addr4 198.51.100.2', 'diagnose debug application ike -1', 'diagnose debug enable'] : ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable'],
+              check: s => { const k = s.variant().key; return ['proposal', 'psk', 'selector'].includes(k) ? s.ev.list().some(e => e.ikedebug) : s.ev.list().some(e => e.trace && /^10\.64\.10\.50>/.test(e.flow)); } },
+            { t: 'Kök neden hangisi?', ask: { choices: [['proposal', 'Faz 1 önerisi karşı uçla uyuşmuyor ("no SA proposal chosen")'], ['psk', 'Ön paylaşımlı anahtar farklı ("pre-shared secret mismatch")'], ['selector', 'Faz 2 seçicileri uyuşmuyor ("TS_UNACCEPTABLE")'], ['noroute', 'Şube ağına tünel rotası yok (paket WAN\'a gidiyor)'], ['nopolicy', 'Tünele giden kural yok (policy 0)'], ['nat', 'Kuralda NAT açık, kaynak seçiciye uymuyor']], correct: v => v.key },
+              why: 'Debug satırındaki anahtar ifade kök nedeni söyler; debug flow\'da ise "via port1" (rota), "policy 0" (kural) ya da "no matching IPsec selector" (NAT/seçici) satırı.', hints: ['Debug çıktısındaki son anlamlı satır.', 'Trafik izinde rota hangi arayüzü gösteriyor?'] },
+            { t: 'En az değişiklikle düzeltin: tünel up olmalı ve 10.64.10.50 → 10.128.10.20 trafiği tünelden şifrelenerek geçmeli.',
+              why: 'Yalnız bozuk parçayı düzeltin. Tüneli silip yeniden kurmak diğer doğru ayarları da riske atar ve kök nedeni öğretmez.',
+              hints: ['Kök nedene karşılık gelen tek ayar.', 'proposal → set proposal · psk → set psksecret · selector → set dst-subnet · rota → router static · kural → policy · NAT → set nat disable'],
+              steps: v => ({ proposal: ['config vpn ipsec phase1-interface', 'edit TO-B', 'set proposal aes128-sha256 aes256-sha256', 'end'], psk: ['config vpn ipsec phase1-interface', 'edit TO-B', 'set psksecret Lab-Psk-2026', 'end'],
+                  selector: ['config vpn ipsec phase2-interface', 'edit TO-B-P2', 'set dst-subnet 10.128.10.0/24', 'end'], noroute: ['config router static', 'edit 2', 'set dst 10.128.10.0/24', 'set device TO-B', 'end'],
+                  nopolicy: ['config firewall policy', 'edit 1', 'set name LAN-TO-B', 'set srcintf port2', 'set dstintf TO-B', 'set srcaddr LAN-NET', 'set dstaddr B-NET', 'set action accept', 'set schedule always', 'set service ALL', 'end'],
+                  nat: ['config firewall policy', 'edit 1', 'set nat disable', 'end'] })[v.key],
+              check: s => { const d = s.decide({ src: '10.64.10.50', dst: '10.128.10.20', dport: 443, in: 'port2' }); return s.tun('TO-B').p2up && d.stage === 'allowed' && d.out === 'TO-B'; },
+              fb: s => { const T = s.tun('TO-B'); if (!T.p1up) return 'Faz 1 hâlâ kurulmuyor.'; if (!T.p2up) return 'Faz 1 up, faz 2 hâlâ kurulmuyor.'; const d = s.decide({ src: '10.64.10.50', dst: '10.128.10.20', dport: 443, in: 'port2' }); return d.stage === 'nosa' ? 'Paket seçiciye uymuyor (NAT?).' : d.out !== 'TO-B' ? 'Trafik tünele yönlenmiyor (rota).' : d.stage === 'denied' ? 'Kural eşleşmiyor (policy 0).' : null; } },
+            { t: 'Debug çıktısını kapatın.', why: 'IKE ve flow debug açık kalırsa konsolu doldurur; iş bitince <code>diagnose debug disable</code> / <code>reset</code>.',
+              hints: ['enable\'ın tersi.', '<code>diagnose debug disable</code>'], steps: ['diagnose debug disable'], needs: [2],
+              check: s => { const L = s.ev.list(), i = L.map(e => !!(e.canon && e.canon === 'diagnose debug enable')).lastIndexOf(true); return i >= 0 && L.slice(i + 1).some(e => e.canon && /^diagnose debug (disable|reset)$/.test(e.canon)); } },
+        ],
+        verify: ['get vpn ipsec tunnel summary', 'diagnose vpn ike gateway list name TO-B', 'diagnose vpn tunnel list name TO-B'],
+        learn: ['Sıra: tunnel summary → ike gateway list → IKE debug (faz 1/2) ya da debug flow (trafik).', '"no SA proposal chosen" = öneri; "pre-shared secret mismatch" = PSK; TS_UNACCEPTABLE = seçici.', 'Tünel up ama trafik yok: rota, kural, NAT.', 'IKE debug\'da log-filter ile yalnız ilgili karşı ucu izleyin.'],
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/0', tool: '#/fortigate/ipsec' }, cert: 'NSE 4 · M11'
+    },
     { id: 'fgt-sandbox', vendor: 'fortigate', level: null, sandbox: true, title: 'Serbest terminal — FortiGate', kind: 'firewall', hostname: 'FGT', up: ['port1', 'port2'], hosts: ['203.0.113.1'],
       start: IF('port1', '203.0.113.2 255.255.255.0', ['set role wan']),
       story: 'port1–4 arayüzlü bir FortiGate (port1: 203.0.113.2/24, bağlı). Görev yok; config / edit / set / next / end akışını deneyin. <kbd>?</kbd> her noktada seçenekleri gösterir.', tasks: [] },
@@ -406,6 +510,11 @@
         t.check = s => !!s.answers && s.answers[key] === want(s.variant && s.variant());
         t.steps = t.steps || (v => [{ answer: i, v: want(v) }]);
     }));
+    // Örnek çözümü yazılmamış lab: görevlerin adımları sırayla (varyanta göre) birleştirilir
+    LABS.forEach(l => {
+        if (l.solution || l.sandbox) return;
+        l.solution = v => [].concat(...l.tasks.map(t => typeof t.steps === 'function' ? t.steps(v || {}) : t.steps));
+    });
     const LABS_BY_ID = {};
     LABS.forEach(l => { LABS_BY_ID[l.id] = l; });
     const root = typeof window !== 'undefined' ? window : globalThis;
