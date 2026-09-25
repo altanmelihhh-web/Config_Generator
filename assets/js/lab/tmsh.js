@@ -79,6 +79,13 @@ const CgLabTmsh = (function () {
         const SIM = lab.sim || {};
         const IFS = lab.ifaces || ['1.1', '1.2', '1.3', '1.4'];
         const S = { m: base(), saved: null, mode: 'bash', ev: [], hist: [], pending: null, answers: {}, loggedOut: false, audit: [], ltmlog: (SIM.ltmlog || []).slice(), rt: { reboots: 0, arp: {} } };
+        // Yazılım hacimleri ve dosyalar (operasyon lab'ları): lab.sim.images (/shared/images), lab.sim.ucs, lab.sim.volumes
+        S.vols = { 'HD1.1': { version: SIM.version || VER.version, build: VER.build, status: 'complete' } };
+        (SIM.volumes || []).forEach(v => { S.vols[v.name] = { version: v.version, build: v.build || '0.0.1', status: v.status || 'complete' }; });
+        S.boot = 'HD1.1'; S.images = (SIM.images || []).slice(); S.ucs = (SIM.ucs || []).map(n => ({ name: n, cfg: null })); S.tmp = (SIM.tmp || []).slice(); S.inop = false;
+        const curVer = () => S.vols[S.boot].version;
+        // lisans kontrol tarihi: sürüm için gereken en eski "Service check date" (lab.sim.licenseCheck: { '17.1.1': '2023/06/20' })
+        const svcOk = ver => { const need = (SIM.licenseCheck || {})[ver]; if (!need) return true; return String(SIM.serviceCheck || '2026/08/20').replace(/\//g, '') >= need.replace(/\//g, ''); };
         function base() {
             const ifs = {}; IFS.forEach(n => { ifs[n] = { enabled: true, desc: '' }; });
             const prov = {}; PROV.forEach(p => { prov[p] = p === 'ltm' ? 'nominal' : 'none'; });
@@ -542,14 +549,17 @@ const CgLabTmsh = (function () {
             if (verb === 'help') return helpText('');
             if (verb === 'save' || verb === 'load') return saveLoad(verb, TK.slice(1));
             if (verb === 'run') return runCmd(TK.slice(1), line, viaBash);
-            if (verb === 'install') return E('# [Simülatör] Yazılım kurulumu bu lab sürümünde henüz desteklenmiyor.', 'unsupported');
-            if (verb === 'reboot') return doReboot();
+            if (verb === 'install') return installCmd(TK.slice(1));
+            if (verb === 'reboot') { if (TK[1] && TK[1].t === 'volume') { const v = TK[2] && TK[2].t; if (!v || !S.vols[v]) return E('Syntax Error: "' + (v || '') + '" volume not found\n# [Simülatör] Hacimler: ' + Object.keys(S.vols).join(', '), 'value'); if (!/complete/.test(S.vols[v].status)) return E('# [Simülatör] ' + v + ' kurulumu tamamlanmamış (' + S.vols[v].status + '); bu hacimden açılamaz.', 'value'); return doReboot(v); } if (TK.length > 1) return SYN(TK[1].t); return doReboot(); }
+            const sysInfo = TK[1] && /^\/?sys$/.test(TK[1].t) && TK[2] && ['version', 'software', 'license', 'ucs', 'provision'].includes(TK[2].t);
+            if (S.inop && !sysInfo && !(verb === 'load' && TK[2] && TK[2].t === 'ucs')) return E('The configuration has not yet loaded. If this message persists, it may indicate a configuration problem.\n# [Simülatör] Yapılandırma yüklenemedi; ayrıntı /var/log/ltm\'de.', 'value');
             if (TK.length < 2) return E('Syntax Error: "' + verb + '" requires a component', 'incomplete');
             const r = resolveType(TK.slice(1));
             if (!r.type) {
                 const md = (r.mod || '').replace(/^\//, '');
                 if (!MODULES.includes(md)) return E('Syntax Error: "' + (TK[1].t) + '" unknown property', 'invalid');
                 if (verb === 'show') { const o = showCmd(md, r.comp, TK.slice(3)); if (o !== null) return o; }
+                if ((verb === 'list' || verb === 'show') && md === 'sys' && r.comp === 'ucs') { log({ listUcs: true }); return { out: S.ucs.map(u => 'sys ucs /var/local/ucs/' + u.name + ' {\n    base-build 0.0.5\n    base-version ' + (u.ver || curVer()) + '\n    file-created-date 2026-09-24T10:2' + (S.ucs.indexOf(u) % 10) + ':07Z\n    hostname ' + M().hostname + '\n}').join('\n') + (S.ucs.length ? '\n# [Simülatör] Alanlar kısaltıldı.' : '# [Simülatör] /var/local/ucs altında UCS yok.'), ok: true }; }
                 if (!r.comp) return E('Syntax Error: "' + md + '" requires a component', 'incomplete');
                 if (['ltm', 'cm', 'gtm', 'security', 'apm', 'asm', 'util'].includes(md) || ['software', 'ucs', 'license', 'log', 'syslog', 'snmp', 'db', 'failover', 'service'].includes(r.comp)) return E('# [Simülatör] "' + md + ' ' + r.comp + '" bu lab sürümünde henüz desteklenmiyor.', 'unsupported');
                 return E('Syntax Error: "' + r.comp + '" unknown property', 'invalid');
@@ -688,13 +698,14 @@ const CgLabTmsh = (function () {
                 log({ show: 'net arp' }); return { out: L.join('\n'), ok: true };
             }
             if (mod === 'sys' && comp === 'software' && a[0] === 'status') {
-                const L = ['', '-----------------------------------------------------------------', 'Sys::Software Status', 'Volume  Product   Version  Build  Active  Status', '-----------------------------------------------------------------', 'HD1.1   BIG-IP    ' + VER.version + '  ' + VER.build + '    yes     complete'];
-                (SIM.volumes || []).forEach(v => L.push(pad(v.name, 8) + pad('BIG-IP', 10) + pad(v.version, 9) + pad(v.build || '0.0.1', 7) + pad('no', 8) + (v.status || 'complete')));
+                const L = ['', '-----------------------------------------------------------------', 'Sys::Software Status', 'Volume  Product   Version   Build  Active  Status', '-----------------------------------------------------------------'];
+                Object.keys(S.vols).sort().forEach(n => { const v = S.vols[n]; L.push(pad(n, 8) + pad('BIG-IP', 10) + pad(v.version, 10) + pad(v.build, 7) + pad(n === S.boot ? 'yes' : 'no', 8) + v.status); if (/^installing/.test(v.status)) { v.tick = (v.tick || 0) + 1; if (v.tick >= 2) v.status = 'complete'; else v.status = 'installing 78.000 pct'; } });
+                L.push('# [Simülatör] Kurulum ilerlemesi hızlandırıldı; gerçekte dakikalar sürer.');
                 log({ show: 'sys software status' }); return { out: L.join('\n'), ok: true };
             }
             if (mod === 'sys' && comp === 'version') {
                 log({ show: 'sys version' });
-                return { out: ['', 'Sys::Version', 'Main Package', '  Product     ' + VER.product, '  Version     ' + VER.version, '  Build       ' + VER.build, '  Edition     ' + VER.edition, '  Date        ' + VER.date, ''].join('\n'), ok: true };
+                return { out: ['', 'Sys::Version', 'Main Package', '  Product     ' + VER.product, '  Version     ' + curVer(), '  Build       ' + VER.build, '  Edition     ' + VER.edition, '  Date        ' + VER.date, ''].join('\n'), ok: true };
             }
             if (mod === 'sys' && comp === 'license') { log({ show: 'sys license' }); return { out: licenseText(a.includes('detail')), ok: true }; }
             if (mod === 'sys' && comp === 'provision') {
@@ -870,7 +881,8 @@ const CgLabTmsh = (function () {
         const vlanUp = vn => { const v = M().vlans[vn]; return !!v && Object.keys(v.ifs).some(linkUp); };
         function saveLoad(verb, rest) {
             const a = rest.map(x => x.t);
-            if (a[0] !== 'sys' || a[1] !== 'config') { if (a[0] === 'sys' && a[1] === 'ucs') return E('# [Simülatör] UCS arşivi bu lab sürümünde henüz desteklenmiyor.', 'unsupported'); return E('Syntax Error: "' + (a[0] || verb) + '" unknown property', 'invalid'); }
+            if (a[0] === 'sys' && a[1] === 'ucs') return ucsCmd(verb, a.slice(2));
+            if (a[0] !== 'sys' || a[1] !== 'config') { return E('Syntax Error: "' + (a[0] || verb) + '" unknown property', 'invalid'); }
             const extra = a.slice(2).filter(x => !['partitions', 'all', 'verify'].includes(x));
             if (extra.length) return SYN(extra[0]);
             if (verb === 'save') { S.saved = clone(M()); log({ save: true }); return { out: 'Saving running configuration...\n  /config/bigip.conf\n  /config/bigip_base.conf\n  /config/bigip_user.conf\nSaving Ethernet mapping...done', ok: true }; }
@@ -884,9 +896,37 @@ const CgLabTmsh = (function () {
             [['httpd', 'sys httpd'], ['sshd', 'sys sshd'], ['dns', 'sys dns'], ['ntp', 'sys ntp'], ['prov', 'sys provision'], ['pwpol', 'auth password-policy']].forEach(([k, t]) => { if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) L.push(t); });
             return L;
         }
-        function doReboot() {
-            const was = short(), lost = diffList(M(), S.saved); S.m = clone(S.saved); S.mode = 'bash'; S.rt.arp = {}; S.rt.reboots++;
-            log({ reboot: true, lost });
+        function ucsCmd(verb, a) {
+            const raw = a[0]; if (!raw) return E('Syntax Error: ucs requires a file name', 'incomplete');
+            const nm = raw.replace(/^\/var\/local\/ucs\//, '').replace(/\.ucs$/, '') + '.ucs';
+            const opts = a.slice(1); const bad = opts.find(x => !['no-license', 'no-platform-check', 'reset-trust', 'passphrase', 'include-chassis-level-config', 'no-private-key'].includes(x)); if (bad && verb === 'load') return SYN(bad);
+            if (verb === 'save') { S.ucs = S.ucs.filter(u => u.name !== nm).concat([{ name: nm, cfg: clone(S.saved), ver: curVer() }]); log({ ucsSave: nm }); return { out: 'Saving active configuration...\n/var/local/ucs/' + nm + ' is saved.\n# [Simülatör] UCS, kayıtlı (save sys config edilmiş) yapılandırmayı, lisansı ve sertifikaları içerir.', ok: true }; }
+            const u = S.ucs.find(x => x.name === nm); if (!u) return E('# [Simülatör] /var/local/ucs/' + nm + ' bulunamadı (ls /var/local/ucs).', 'value');
+            if (!u.cfg) return E('# [Simülatör] Bu UCS lab\'da yalnız dosya olarak var; içeriği yüklenemez.', 'value');
+            S.m = clone(u.cfg); S.saved = clone(u.cfg); log({ ucsLoad: nm });
+            return { out: 'Loading UCS file /var/local/ucs/' + nm + '...\n# [Simülatör] Yapılandırma UCS\'teki hâline döndü' + (opts.includes('no-license') ? ' (lisans dosyası korunarak).' : '.'), ok: true };
+        }
+        function installCmd(rest) {
+            const a = rest.map(x => x.t);
+            if (a[0] !== 'sys' || a[1] !== 'software' || !['image', 'hotfix'].includes(a[2])) return E('Syntax Error: install sys software image <iso> volume <HDx.y> [create-volume]', 'invalid');
+            const iso = a[3]; if (!iso) return E('Syntax Error: image requires a file name', 'incomplete');
+            if (!S.images.includes(iso)) return E('# [Simülatör] ' + iso + ' /shared/images altında yok (ls /shared/images). ISO önce bu dizine kopyalanmalı.', 'value');
+            const vi = a.indexOf('volume'), vol = vi > 0 ? a[vi + 1] : null; if (!vol || !/^HD1\.\d$/.test(vol)) return E('Syntax Error: volume <HD1.x> required', 'incomplete');
+            if (vol === S.boot) return E('# [Simülatör] Aktif hacme (' + vol + ') kurulum yapılamaz; başka bir hacim seçin.', 'value');
+            if (!S.vols[vol] && !a.includes('create-volume')) return E('# [Simülatör] ' + vol + ' hacmi yok; create-volume ekleyin.', 'value');
+            if (a[2] === 'hotfix' && !(SIM.hotfixBase && S.vols[vol] && S.vols[vol].version === SIM.hotfixBase)) return E('# [Simülatör] Hotfix yalnız temel imajı kurulu bir hacme uygulanır. Güncel sürümler tam ISO olarak gelir: install sys software image …', 'value');
+            const m = iso.match(/(\d+\.\d+\.\d+(?:\.\d+)?)/); const ver = m ? m[1] : 'unknown';
+            if (SIM.diskFull) { S.vols[vol] = { version: ver, build: '0.0.5', status: 'failed (Disk full (volume group))' }; log({ install: vol, failed: true }); return { out: '', ok: true }; }
+            S.vols[vol] = { version: ver, build: '0.0.5', status: 'installing 37.000 pct', tick: 0 }; log({ install: vol, iso });
+            return { out: '', ok: true };
+        }
+        function doReboot(vol) {
+            const was = short(), lost = diffList(M(), S.saved); S.m = clone(S.saved); S.mode = 'bash'; S.fromTmsh = false; S.rt.arp = {}; S.rt.reboots++;
+            if (vol && vol !== S.boot) { S.boot = vol; S.vols[vol].status = 'complete'; }
+            S.inop = !svcOk(curVer());
+            if (S.inop) S.ltmlog.push(stamp(900 + S.rt.reboots) + ' ' + short() + ' emerg load_config_files[4122]: "/usr/bin/tmsh -n -g -a load sys config partitions all " - failed. -- 01070608:0: License is not operational (expired or digital signature does not match contents).');
+            log({ reboot: true, lost, vol: S.boot, inop: S.inop });
+            if (vol) return { out: ['Broadcast message from root@' + was + ' (pts/0):', 'The system is going down for reboot NOW!', '# [Simülatör] Sistem ' + S.boot + ' hacminden (' + curVer() + ') açıldı; önceki hacmin kayıtlı yapılandırması taşındı.', S.inop ? '# [Simülatör] Yapılandırma YÜKLENMEDİ: istem durumu INOPERATIVE. /var/log/ltm\'e bakın.' : '', lost.length ? '# [Simülatör] Kaydedilmediği için taşınmayanlar: ' + lost.join(', ') : ''].filter(Boolean).join('\n'), ok: true };
             return { out: ['Broadcast message from root@' + was + ' (pts/0):', 'The system is going down for reboot NOW!', '# [Simülatör] Sistem yeniden başladı; açılışta kaydedilmiş yapılandırma (/config/*.conf) yüklendi.', lost.length ? '# [Simülatör] Kaydedilmediği için kaybolanlar: ' + lost.join(', ') : '# [Simülatör] Kaybolan değişiklik yok: her şey kaydedilmişti.'].join('\n'), ok: true };
         }
         function runCmd(rest, line, viaBash) {
@@ -917,7 +957,7 @@ const CgLabTmsh = (function () {
             '/config/bigip_base.conf': '# [Simülatör] Dosya içeriği gösterilmiyor; tmsh list net ile bakın.',
             '/config/bigip.conf': '# [Simülatör] Dosya içeriği gösterilmiyor; tmsh list ltm ile bakın.',
         });
-        const DIRS = { '/shared/images': SIM.images || [], '/var/local/ucs': SIM.ucs || [], '/config': ['bigip.conf', 'bigip_base.conf', 'bigip_user.conf', 'bigip.license', 'BigDB.dat'], '/var/log': ['audit', 'ltm', 'secure', 'messages', 'asm'], '/var/tmp': SIM.tmp || [] };
+        const DIRS = () => ({ '/shared/images': S.images, '/var/local/ucs': S.ucs.map(u => u.name), '/config': ['bigip.conf', 'bigip_base.conf', 'bigip_user.conf', 'bigip.license', 'BigDB.dat'], '/var/log': ['audit', 'ltm', 'secure', 'messages', 'asm'], '/var/tmp': S.tmp });
         function licenseFile() {
             return ['#', 'Auth vers :          5b', '#', '#', '#       BIG-IP System License Key File', '#       DO NOT EDIT THIS FILE!!', '#', 'Usage :                 F5 Internal Product Development', 'Vendor :                F5, Inc.', 'active module :         LTM, VE-1G|ABCDEFG-HIJKLMN|Rate Shaping|Anti-Virus Checks',
                 'Licensed date :         20240115', 'License end date :      20270115', 'License start date :    20240114', 'Service check date :    ' + (SIM.serviceCheck || '2026/08/20').replace(/\//g, ''), 'Registration Key :      AAAAA-BBBBB-CCCCC-DDDDD-EEEEEEE', '# [Simülatör] Dosya kısaltıldı; anahtarlar temsilidir.'].join('\n');
@@ -1023,9 +1063,25 @@ const CgLabTmsh = (function () {
                 return { out: txt || '', log: { file: f, follow: a.includes('-f') } };
             }
             if (c === 'grep') { const g = grepF(a, ''); if (!g || !g.file) return E('Usage: grep [OPTION]... PATTERNS [FILE]...', 'incomplete'); const F = FILES(); if (!(g.file in F)) return E('grep: ' + g.file + ': No such file or directory', 'value'); return { out: grepF(a.slice(0, -1), F[g.file]).text, log: { file: g.file, grep: true } }; }
-            if (c === 'ls') { const d = (a.filter(x => !/^-/.test(x))[1] || '/config').replace(/\/$/, ''); if (!(d in DIRS)) return E('ls: cannot access \'' + d + '\': No such file or directory', 'value'); const L = DIRS[d]; return a.includes('-l') || a.includes('-lh') ? L.map(n => '-rw-r--r--. 1 root root ' + (/\.iso$/.test(n) ? '2.4G' : '12K') + ' Sep 24 09:12 ' + n).join('\n') : L.join('  '); }
+            if (c === 'ls') { const d = (a.filter(x => !/^-/.test(x))[1] || '/config').replace(/\/$/, ''); if (!(d in DIRS())) return E('ls: cannot access \'' + d + '\': No such file or directory', 'value'); const L = DIRS()[d]; return a.includes('-l') || a.includes('-lh') ? L.map(n => '-rw-r--r--. 1 root root ' + (/\.iso$/.test(n) ? '2.4G' : '12K') + ' Sep 24 09:12 ' + n).join('\n') : L.join('  '); }
             if (c === 'date') return 'Thu Sep 24 10:21:07 PDT 2026';
-            if (['qkview', 'tcpdump', 'df', 'bigstart', 'netstat', 'ssldump', 'cpcfg', 'switchboot', 'config', 'top', 'ssh', 'scp'].includes(c)) return E('# [Simülatör] "' + c + '" gerçek BIG-IP\'de var ama bu lab sürümünde henüz desteklenmiyor.', 'unsupported');
+            if (c === 'qkview') {
+                if (a.slice(1).some(x => !['-s0', '-c', '-f'].includes(x) && !/^\S+\.qkview$/.test(x))) return E('# [Simülatör] Bu lab\'da qkview için -s0 ve -c seçenekleri desteklenir.', 'unsupported');
+                const f = '/var/tmp/' + short() + '.qkview'; if (!S.tmp.includes(short() + '.qkview')) S.tmp.push(short() + '.qkview');
+                return { out: 'Gathering System Diagnostics: Please wait ...\nDiagnostic information has been saved in:\n' + f + '\nPlease send this file to F5 support.\n# [Simülatör] Çıktı yaklaşık; gerçekte birkaç dakika sürer. Dosya iHealth\'e (ihealth.f5.com) yüklenerek incelenir.', log: { qkview: f } };
+            }
+            if (c === 'df') {
+                const u = SIM.sharedUse || 38;
+                return { out: ['Filesystem                                Size  Used Avail Use% Mounted on', '/dev/mapper/vg--db--vda-set.1.root      440M  297M  121M  72% /', '/dev/mapper/vg--db--vda-set.1._var      3.0G  1.1G  1.8G  38% /var', '/dev/mapper/vg--db--vda-dat.share        30G  ' + Math.round(30 * u / 100) + 'G   ' + Math.round(30 * (100 - u) / 100) + 'G  ' + u + '% /shared', '/dev/mapper/vg--db--vda-dat.log.1        3.0G  612M  2.2G  22% /var/log', '# [Simülatör] Aygıt adları temsilidir.'].join('\n'), log: { df: true } };
+            }
+            if (c === 'md5sum') {
+                const f = a.includes('-c') ? a[a.indexOf('-c') + 1] : a[1]; if (!f) return E('md5sum: missing operand', 'incomplete');
+                const iso = f.replace(/^\/shared\/images\//, '').replace(/\.md5$/, '');
+                if (!S.images.includes(iso) || (a.includes('-c') && !S.images.includes(iso + '.md5'))) return E('md5sum: ' + f + ': No such file or directory', 'value');
+                const okm = !(SIM.badIso || []).includes(iso);
+                return { out: a.includes('-c') ? iso + ': ' + (okm ? 'OK' : 'FAILED') + (okm ? '' : '\nmd5sum: WARNING: 1 computed checksum did NOT match') : '3f9c2d6a8e0b4a1c9d7e5f2b6a8c0e14  /shared/images/' + iso, log: { md5: iso, ok: okm } };
+            }
+            if (['tcpdump', 'bigstart', 'netstat', 'ssldump', 'cpcfg', 'switchboot', 'config', 'top', 'ssh', 'scp'].includes(c)) return E('# [Simülatör] "' + c + '" gerçek BIG-IP\'de var ama bu lab sürümünde henüz desteklenmiyor.', 'unsupported');
             if (['list', 'show', 'create', 'modify', 'delete', 'save', 'load'].includes(c)) return E('-bash: ' + c + ': command not found\n# [Simülatör] Bu bir tmsh komutu. Önce "tmsh" yazın ya da tek komut için: tmsh ' + line, 'wrongmode');
             return E('-bash: ' + c + ': command not found', 'invalid');
         }
@@ -1091,7 +1147,8 @@ const CgLabTmsh = (function () {
         function prompt() {
             if (S.pending) return S.pending.prompt;
             if (S.loggedOut) return '';
-            return S.mode === 'tmsh' ? 'root@(' + short() + ')(cfg-sync Standalone)(Active)(/Common)(tmos)# ' : '[root@' + short() + ':Active:Standalone] config # ';
+            const st = S.inop ? 'INOPERATIVE' : 'Active';
+            return S.mode === 'tmsh' ? 'root@(' + short() + ')(cfg-sync Standalone)(' + st + ')(/Common)(tmos)# ' : '[root@' + short() + ':' + st + ':Standalone] config # ';
         }
         // ? yardımı: tmsh'te bulunulan noktadaki seçenekler
         function help(raw) {
@@ -1132,6 +1189,8 @@ const CgLabTmsh = (function () {
         S.saved = clone(M());
         apply(lab.startUnsaved || []);
         ltmTick(true);
+        // başlangıç açılış hacmi (ör. yükseltme sonrası arıza lab'ı)
+        if (SIM.bootVol && S.vols[SIM.bootVol]) { S.boot = SIM.bootVol; S.inop = !svcOk(curVer()); if (S.inop) S.ltmlog.push(stamp(900) + ' ' + short() + ' emerg load_config_files[4122]: "/usr/bin/tmsh -n -g -a load sys config partitions all " - failed. -- 01070608:0: License is not operational (expired or digital signature does not match contents).'); }
         S.ev = []; S.hist = []; S.audit = (SIM.auditlog || []).slice(); S.rt.acc = { ssh: allowHas(M().sshd.allow, ADMIN), gui: allowHas(M().httpd.allow, ADMIN) };
         if (lab.startMode === 'tmsh') S.mode = 'tmsh';
 
@@ -1154,6 +1213,7 @@ const CgLabTmsh = (function () {
             ev: EV, mode: () => S.mode, dirty,
             // yan etkisiz VIP testi (kontrollerde kullanılır): sayaçları ve kalıcılık tablosunu değiştirmez
             vipTest: (ip, port, path) => { const keep = JSON.stringify(S.rt); const r = vipRequest({ ip, port, path: path || '/', method: 'GET', src: SIM.client || '198.51.100.20', cookie: {} }); S.rt = JSON.parse(keep); return { kind: r.kind, code: r.resp ? r.resp.code : null, member: r.member || null }; },
+            vols: () => clone(S.vols), bootVol: () => S.boot, inop: () => S.inop, ucsFiles: () => S.ucs.map(u => u.name),
             memberStatus: (p, k) => memberStatus(p, k), poolStatus: p => poolStatus(p), vsStatus: v => vsStatus(v),
             reach: ip => reach(ip), sshAllowed: ip => allowHas(M().sshd.allow, ip || ADMIN), guiAllowed: ip => allowHas(M().httpd.allow, ip || ADMIN),
             selfAllows: (name, svc) => { const s = M().selfs[name]; if (!s) return false; if (s.allow === 'all') return true; if (s.allow === 'none') return false; const L = s.allow === 'default' ? ALLOW_DEFAULT : s.allow; const [pr, pt] = svc.split(':'); return L.some(x => { const [p2, t2] = x.split(':'); return p2 === pr && (t2 === 'any' || t2 === pt || SVC_PORT[t2] === +pt || +t2 === SVC_PORT[pt]); }); },

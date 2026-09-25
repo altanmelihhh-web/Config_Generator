@@ -27,6 +27,8 @@
     const PG = 'modify ltm pool web_pool load-balancing-mode round-robin min-active-members 1 members modify { 10.64.30.50:80 { priority-group 10 } 10.64.30.51:80 { priority-group 10 } 10.64.30.52:80 { priority-group 5 } }';
     // üç üyeli hazır uygulama (f5-06/07/09/10 başlangıcı)
     const LTM3 = [MON, 'create ltm pool web_pool members add { 10.64.30.50:80 10.64.30.51:80 10.64.30.52:80 } monitor mon_web', VS_WEB];
+    // yükseltme lab'ları: 16.1.4'ten 17.1.1.3'e; 17.1.x lisans kontrol tarihi 2023/06/20 (K7727 tablosu, lab için temsilî)
+    const UPG = { version: '16.1.4', images: ['BIGIP-17.1.1.3-0.0.5.iso', 'BIGIP-17.1.1.3-0.0.5.iso.md5'], licenseCheck: { '17.1.1.3': '2023/06/20' } };
     const curls = s => s.ev.list().filter(e => e.curl).map(e => e.curl);
     // re ile eşleşen son komuttan (ve varsa until'den önce) sonra atılan curl istekleri
     const curlsAfter = (s, re, until) => { const L2 = s.ev.list(); const i = lastIdx(L2, e => e.raw && re.test(e.raw)); if (i < 0) return []; let j = L2.length; if (until) { const k = L2.findIndex((e, n) => n > i && e.raw && until.test(e.raw)); if (k > 0) j = k; } return L2.slice(i + 1, j).filter(e => e.curl).map(e => e.curl); };
@@ -431,6 +433,73 @@
         verify: ['show ltm virtual vs_web', 'show ltm pool web_pool members', 'curl -v http://203.0.113.100/'],
         learn: ['refused → VS yok/devre dışı; reset → üye yok/port kapalı; zaman aşımı → dönüş yolu/L2.', 'Yeşil pool uygulamanın çalıştığını kanıtlamaz; HTTP monitörü kullanın.', 'Önce kanıt, sonra tek değişiklik.'],
         links: { tool: '#/f5-ltm/monitor', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/103' }, cert: 'F5CAB5.03 · F5CAB5.04 · F5CAB5.05'
+    },
+    // ═══ 4 · Yedek ve yükseltme ═══
+    {
+        id: 'f5-11', vendor: 'f5-ltm', level: 4, title: 'Yedek ve yükseltme: service check date, UCS, ISO, volume ve geri dönüş', minutes: 30, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-01'],
+        up: UP, sim: Object.assign({}, SIM2, UPG, { serviceCheck: '2026/08/20' }), start: NET.concat(LTM3), startMode: 'tmsh',
+        story: 'Tek (standalone) bir BIG-IP <b>16.1.4</b> sürümünde; bu gece <b>17.1.1.3</b>\'e yükseltilecek. ISO dosyası ve MD5 dosyası <code>/shared/images</code>\'a kopyalandı. F5\'in lisans tablosuna göre 17.1.x için lisanstaki <b>Service check date</b> en az <b>2023/06/20</b> olmalı. Değişiklik planı: kontrol → yedek → kurulum → yeni hacimden açılış → doğrulama.',
+        lesson: L('BIG-IP yazılımı <b>hacimlerde</b> (volume: HD1.1, HD1.2…) durur; çalışan hacme kurulum yapılmaz. Yeni sürüm boş bir hacme <code>install sys software image</code> ile kurulur, <code>reboot volume</code> ile o hacimden açılır; eski hacim geri dönüş için kalır. <b>UCS</b> arşivi kayıtlı yapılandırmayı, lisansı ve sertifikaları içerir (<code>/var/local/ucs</code>). Lisanstaki <b>Service check date</b>, hedef sürümün lisans kontrol tarihinden eskiyse yeni sürüm açılır ama yapılandırma yüklenmez (INOPERATIVE); bu yüzden gerekirse yükseltmeden önce lisans yeniden etkinleştirilir (reactivate).',
+            'Yükseltme en riskli bakım işidir. Doğru sıra ve eski hacmin korunması, bir şey ters giderse dakikalar içinde geri dönmeyi sağlar.',
+            'grep "Service check date" /config/bigip.license\ntmsh save sys config\ntmsh save sys ucs pre-upgrade-17\nmd5sum -c /shared/images/BIGIP-17.1.1.3-0.0.5.iso.md5\ntmsh install sys software image BIGIP-17.1.1.3-0.0.5.iso volume HD1.2 create-volume\ntmsh show sys software status\ntmsh reboot volume HD1.2',
+            ['Service check date\'e bakmadan yükseltmek.', 'UCS\'i yalnız cihazda bırakmak (disk arızasında gider).', 'ISO\'nun MD5\'ini doğrulamamak.', 'Kurulum "complete" olmadan açılmaya çalışmak.', '<code>reboot volume HD1.2</code> yerine yalnız <code>reboot</code> yazmak: eski hacimden yeniden açılır.', 'HA çiftinde önce aktif cihazı yükseltmek (doğrusu: önce standby).']),
+        goals: ['Service check date kontrolü', 'save sys config + UCS', 'ISO ve MD5', 'Boş hacme kurulum', 'Yeni hacimden açılış ve doğrulama', 'Geri dönüş'],
+        tasks: [
+            { t: 'Ön kontrol: lisanstaki <b>Service check date</b>\'i bash\'ten okuyun.', why: 'Hedef sürümün lisans kontrol tarihi (17.1.x için 2023/06/20) Service check date\'ten sonraysa yükseltmeden önce lisans yeniden etkinleştirilir.',
+              hints: ['run util bash; grep "Service check date" /config/bigip.license; exit', '<code>run util bash</code> → <code>grep "Service check date" /config/bigip.license</code> → <code>exit</code>'],
+              steps: ['run util bash', 'grep "Service check date" /config/bigip.license', 'exit'], check: s => s.ev.list().some(e => e.file === '/config/bigip.license') },
+            { t: 'Yapılandırmayı kaydedin ve <code>pre-upgrade-17</code> adlı UCS yedeği alın.', why: 'UCS, kayıtlı yapılandırmayı içerir; bu yüzden önce <code>save sys config</code>. UCS dosyası sonra cihaz dışına (SCP) kopyalanmalıdır.',
+              hints: ['save sys config; save sys ucs …', '<code>save sys config</code> → <code>save sys ucs pre-upgrade-17</code>'], steps: ['save sys config', 'save sys ucs pre-upgrade-17'],
+              check: s => s.ucsFiles().includes('pre-upgrade-17.ucs') && s.ev.after(/save sys config/, /save sys ucs/) },
+            { t: 'ISO\'yu ve disk alanını doğrulayın: <code>/shared/images</code>\'ı listeleyin, MD5\'i kontrol edin, <code>df -h</code> ile /shared\'e bakın.', why: 'Bozuk ISO kurulumu yarıda bırakır; /shared ya da volume group dolarsa kurulum "failed (Disk full)" ile biter.',
+              hints: ['ls /shared/images; md5sum -c …; df -h', '<code>run util bash</code> → <code>ls /shared/images</code> → <code>md5sum -c /shared/images/BIGIP-17.1.1.3-0.0.5.iso.md5</code> → <code>df -h</code> → <code>exit</code>'],
+              steps: ['run util bash', 'ls /shared/images', 'md5sum -c /shared/images/BIGIP-17.1.1.3-0.0.5.iso.md5', 'df -h', 'exit'],
+              check: s => s.ev.list().some(e => e.md5 && e.ok) && s.ev.list().some(e => e.df) },
+            { t: 'ISO\'yu boş <b>HD1.2</b> hacmine kurun ve durumu kurulum <b>complete</b> olana kadar izleyin.', why: '<code>create-volume</code> hacim yoksa oluşturur. <code>show sys software status</code>\'ta Active <b>yes</b> olan çalışan hacimdir; yeni hacim önce "installing", bitince "complete" olur.',
+              hints: ['install sys software image … volume HD1.2 create-volume; show sys software status (birkaç kez)', '<code>install sys software image BIGIP-17.1.1.3-0.0.5.iso volume HD1.2 create-volume</code> → <code>show sys software status</code> → <code>show sys software status</code>'],
+              steps: ['install sys software image BIGIP-17.1.1.3-0.0.5.iso volume HD1.2 create-volume', 'show sys software status', 'show sys software status'],
+              check: s => { const v = s.vols()['HD1.2']; return !!v && v.status === 'complete' && v.version === '17.1.1.3'; } },
+            { t: 'HD1.2\'den açın ve sürümü doğrulayın.', why: '<code>reboot volume HD1.2</code> yeni hacimden açar ve kayıtlı yapılandırmayı taşır. Açılışta bash\'e düşersiniz; sürümü tek komutluk tmsh ile görün.',
+              hints: ['reboot volume HD1.2; tmsh show sys version', '<code>reboot volume HD1.2</code> → <code>tmsh show sys version</code>'], steps: ['reboot volume HD1.2', 'tmsh show sys version'], needs: [3],
+              check: s => s.bootVol() === 'HD1.2' && !s.inop() && s.ev.list().some(e => e.mode === 'bash' && e.tmshOne && /show sys version/.test(e.tmshOne)) },
+            { t: 'Soru: uygulama testleri başarısız olsaydı eski sürüme nasıl dönerdiniz?', ask: { choices: [['vol', 'tmsh reboot volume HD1.1: eski hacim ve yapılandırması duruyor'], ['ucs', 'Yeni sürümde UCS\'i yüklemek'], ['reinstall', '16.1.4 ISO\'sunu yeniden kurmak'], ['none', 'Geri dönüş yok']], correct: 'vol' },
+              why: 'Eski hacim dokunulmadan kaldığı için geri dönüş tek komuttur. UCS, hacim bozulduğunda ya da cihaz değiştiğinde kullanılır.', hints: ['Eski sürüm nerede duruyor?', 'show sys software status'] },
+        ],
+        verify: ['show sys software status', 'show sys version', 'list sys ucs'],
+        learn: ['Önce Service check date.', 'save sys config → save sys ucs → dışarı kopyala.', 'Boş hacme kur, complete olunca reboot volume.', 'Geri dönüş: eski hacimden aç.', 'HA\'da önce standby.'],
+        links: { tool: '#/f5-ltm/upgrade', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/105' }, cert: 'F5CAB1.03 · F5CAB1.04 · F5CAB4.05'
+    },
+    // ═══ 5 · Arıza: yükseltme sonrası INOPERATIVE ═══
+    {
+        id: 'f5-12', vendor: 'f5-ltm', level: 5, expectErrors: 1, title: '"Yükseltmeden sonra cihaz trafik geçirmiyor" — arıza kaydı (INOPERATIVE)', minutes: 20, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-11'],
+        up: UP, sim: Object.assign({}, SIM2, UPG, { serviceCheck: '2022/03/10', bootVol: 'HD1.2', volumes: [{ name: 'HD1.2', version: '17.1.1.3', build: '0.0.5' }] }), start: NET.concat(LTM3),
+        story: '<b>Arıza kaydı:</b> "Gece 16.1.4\'ten 17.1.1.3\'e yükseltme yapıldı. Cihaz açıldı ama hiçbir uygulama çalışmıyor, istem garip bir durum gösteriyor." Kanıt toplayın, nedeni bulun ve hizmeti en hızlı biçimde geri getirin.',
+        lesson: L('Yükseltme sonrası cihazın açılıp yapılandırmayı yükleyememesinin en sık nedenlerinden biri lisanstır: lisanstaki <b>Service check date</b>, yeni sürümün lisans kontrol tarihinden eskiyse yapılandırma yüklenmez; istemde <b>INOPERATIVE</b> görünür ve tmsh komutları "The configuration has not yet loaded" der. <code>/var/log/ltm</code>\'deki <code>01070608</code> satırı lisansın çalışmadığını söyler. En hızlı kurtarma eski hacme dönmektir; kalıcı çözüm lisansı yeniden etkinleştirip (reactivate) yükseltmeyi tekrarlamaktır.',
+            'Bu arıza tüm trafiği keser ve genellikle gece bakımında fark edilir. Belirtiyi tanımak ve geri dönüş yolunu bilmek kesintiyi dakikalarla sınırlar.',
+            'tmsh list ltm virtual\ntail -n 20 /var/log/ltm\ngrep "Service check date" /config/bigip.license\ntmsh show sys software status\ntmsh reboot volume HD1.1',
+            ['Lisans kontrolü yapmadan yükseltmek.', 'INOPERATIVE\'de yapılandırmayı yeniden girmeye çalışmak.', 'Eski hacmi silmek (geri dönüş kalmaz).', 'Kök nedeni gidermeden aynı yükseltmeyi tekrarlamak.']),
+        goals: ['INOPERATIVE belirtisini tanımak', '/var/log/ltm\'de lisans hatası', 'Service check date ile karşılaştırma', 'Eski hacme dönmek'],
+        tasks: [
+            { t: 'Belirti: istemdeki durumu görün ve bir tmsh komutu deneyin (ör. <code>tmsh list ltm virtual</code>).', why: 'İstemde Active yerine <b>INOPERATIVE</b> görünür; tmsh "The configuration has not yet loaded" der: yapılandırma yüklenmemiştir.',
+              hints: ['tmsh list ltm virtual', '<code>tmsh list ltm virtual</code>'], steps: ['tmsh list ltm virtual'], loo: false, expectErr: true, /* belirti: komut hata verir */
+              check: s => s.ev.list().some(e => e.raw && /list ltm virtual/.test(e.raw)) },
+            { t: 'Kanıt: LTM logunun son satırlarına bakın.', why: '<code>01070608</code> satırı yapılandırma yüklemesinin lisans nedeniyle başarısız olduğunu söyler.',
+              hints: ['tail -n 20 /var/log/ltm', '<code>tail -n 20 /var/log/ltm</code>'], steps: ['tail -n 20 /var/log/ltm'], check: s => s.ev.list().some(e => e.file === '/var/log/ltm') },
+            { t: 'Lisanstaki Service check date\'i ve yazılım hacimlerini görün.', why: '17.1.x için gereken en eski tarih 2023/06/20\'dir. Hacim listesi hangi sürümün nerede durduğunu, geri dönüşün mümkün olup olmadığını gösterir.',
+              hints: ['grep "Service check date" /config/bigip.license; tmsh show sys software status', '<code>grep "Service check date" /config/bigip.license</code> → <code>tmsh show sys software status</code>'],
+              steps: ['grep "Service check date" /config/bigip.license', 'tmsh show sys software status'],
+              check: s => s.ev.list().some(e => e.file === '/config/bigip.license') && s.ev.list().some(e => e.show === 'sys software status') },
+            { t: 'Kök neden hangisi?', ask: { choices: [['svc', 'Service check date (2022/03/10), 17.1 lisans kontrol tarihinden (2023/06/20) eski: yapılandırma yüklenmedi'], ['disk', '/shared doldu, kurulum yarım kaldı'], ['iso', 'ISO bozuk'], ['vlan', 'VLAN etiketleri değişti']], correct: 'svc' },
+              why: 'Kurulum tamamlanmış (HD1.2 complete) ve cihaz yeni sürümle açılmış; log lisansın çalışmadığını söylüyor. Tarih karşılaştırması nedeni doğrular.', hints: ['Log satırı ne diyor?', 'Tarihleri karşılaştırın.'], needs: [2] },
+            { t: 'Hizmeti hemen geri getirin: eski sürümün hacminden açın.', why: 'HD1.1 dokunulmadan duruyor; cihaz 16.1.4 ile açılır ve yapılandırma yüklenir.',
+              hints: ['tmsh reboot volume HD1.1', '<code>tmsh reboot volume HD1.1</code>'], steps: ['tmsh reboot volume HD1.1'],
+              check: s => s.bootVol() === 'HD1.1' && !s.inop() },
+            { t: 'Soru: yükseltmeyi yeniden denemeden önce kalıcı çözüm nedir?', ask: { choices: [['reactivate', 'Lisansı yeniden etkinleştirmek (reactivate) ve Service check date\'in güncellendiğini doğrulamak'], ['again', 'Aynı yükseltmeyi hemen tekrarlamak'], ['ucs', 'UCS\'i yeni sürümde yüklemek'], ['delete', 'HD1.2\'yi silip unutmak']], correct: 'reactivate' },
+              why: 'Reactivate, lisans sunucusundan güncel Service check date alır (aktif servis sözleşmesi gerekir). Sonra yükseltme aynı adımlarla tekrarlanır.', hints: ['Tarih nereden güncellenir?', 'Lisans'] },
+        ],
+        verify: ['grep "Service check date" /config/bigip.license', 'tmsh show sys software status', 'tail -n 20 /var/log/ltm'],
+        learn: ['INOPERATIVE + "configuration has not yet loaded" → yapılandırma yüklenmedi.', '01070608: lisans çalışmıyor.', 'Hızlı kurtarma: eski hacimden aç.', 'Kalıcı çözüm: reactivate, sonra yeniden yükselt.'],
+        links: { tool: '#/f5-ltm/upgrade', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/105' }, cert: 'F5CAB1.03 · F5CAB1.04 · F5CAB5.01'
     },
     // ═══ Serbest çalışma ═══
     {

@@ -1602,6 +1602,7 @@ const CG_REGISTRY = {
             { id: 'iapp',        cat: 'adc', label: 'iApp Deployment',        gen: () => typeof F5LTM !== 'undefined' && F5LTM.iapp },
             { id: 'sysbase', cat: 'base', label: 'Sistem Temeli (NTP/DNS/Syslog)', gen: () => typeof F5LTM !== 'undefined' && F5LTM.sysbase },
             { id: 'mgmtaccess', cat: 'mgmt', label: 'Yönetim Erişimi (SSH/GUI)', gen: () => typeof F5LTM !== 'undefined' && F5LTM.mgmtaccess },
+            { id: 'upgrade', cat: 'mgmt', label: 'Yedek ve Yükseltme Planı', gen: () => typeof F5LTM !== 'undefined' && F5LTM.upgrade },
             { id: 'snmp', cat: 'mgmt', label: 'SNMP', gen: () => typeof F5LTM !== 'undefined' && F5LTM.snmp },
             { id: 'authuser', cat: 'aaa', label: 'Yerel Kullanıcı & Rol', gen: () => typeof F5LTM !== 'undefined' && F5LTM.authuser },
             { id: 'remoteauth', cat: 'aaa', label: 'Uzak Kimlik Doğrulama', gen: () => typeof F5LTM !== 'undefined' && F5LTM.remoteauth },

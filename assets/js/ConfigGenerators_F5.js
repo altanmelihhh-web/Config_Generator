@@ -2088,3 +2088,73 @@ F5LTM.hsl = {
         });
     }
 };
+
+// ── F5 BIG-IP: Yedek ve Yükseltme Planı (MOP) ─────────────────────────────────
+// Kaynaklar: K92404240 (standalone tmsh yükseltme), K60339442 (HA tmsh yükseltme), K7727 (Service check date),
+// K13132 (UCS), K34745165 (/shared/images), K5658 (switchboot). Lab: f5-11, f5-12.
+F5LTM.upgrade = {
+    label: 'Yedek ve Yükseltme Planı',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-cloud-upload-alt',
+                title: 'Yedek ve Yükseltme Planı (MOP)',
+                desc: 'Ön kontrol, UCS yedeği, ISO doğrulama, boş hacme kurulum, yeni hacimden açılış ve geri dönüş komutları. HA çiftinde standby-önce sırasıyla.<br>Örnek: <code>tmsh install sys software image BIGIP-17.1.1.3-0.0.5.iso volume HD1.2 create-volume</code>',
+                badge: { text: 'Operasyon', cls: 'info' }
+            },
+            sections: [
+                {
+                    title: 'Sürüm ve Dosyalar',
+                    icon: 'fas fa-compact-disc',
+                    fields: [
+                        { name: 'iso', label: 'ISO Dosyası', type: 'text', required: true, placeholder: 'BIGIP-17.1.1.3-0.0.5.iso', hint: '/shared/images altına kopyalanmış olmalı', why: "ISO ve .md5 dosyası <code>/shared/images</code> dizinine SCP ile kopyalanır. MD5 doğrulanmayan bozuk bir ISO kurulumu yarıda bırakır." },
+                        { name: 'vol', label: 'Hedef Hacim', type: 'select', options: [
+                            { value: 'HD1.2', label: 'HD1.2', selected: true },
+                            { value: 'HD1.3', label: 'HD1.3' },
+                            { value: 'HD1.1', label: 'HD1.1' }
+                        ], why: "Çalışan (aktif) hacme kurulum yapılamaz. <code>tmsh show sys software status</code> çıktısında Active <b>yes</b> olan hacmi seçmeyin; eski hacim geri dönüş için korunur." },
+                        { name: 'cur_vol', label: 'Şu Anki (Aktif) Hacim', type: 'select', options: [
+                            { value: 'HD1.1', label: 'HD1.1', selected: true },
+                            { value: 'HD1.2', label: 'HD1.2' },
+                            { value: 'HD1.3', label: 'HD1.3' }
+                        ], why: "Geri dönüş komutu bu hacme yazılır: sorun olursa <code>tmsh reboot volume &lt;eski&gt;</code>." },
+                        { name: 'ucs', label: 'UCS Adı', type: 'text', required: true, placeholder: 'pre-upgrade-17', why: "UCS kayıtlı yapılandırmayı, lisansı ve sertifikaları içerir; önce <code>save sys config</code>. Dosya cihaz dışına kopyalanmazsa disk arızasında yedek de gider." },
+                        { name: 'svc_need', label: 'Hedef Sürümün Lisans Kontrol Tarihi', type: 'text', placeholder: '2023/06/20', hint: 'K7727 tablosundan; YYYY/AA/GG', why: "Lisanstaki Service check date bu tarihten eskiyse yeni sürüm açılır ama yapılandırma yüklenmez (INOPERATIVE). Önce lisansı reactivate edin (f5-12)." }
+                    ]
+                },
+                {
+                    title: 'Yüksek Erişilebilirlik',
+                    icon: 'fas fa-clone',
+                    fields: [
+                        { name: 'ha', label: 'HA çifti (sync-failover)', type: 'checkbox', why: "HA çiftinde sıra: önce standby cihaz yükseltilir, sonra trafik ona devredilir, en son eski aktif yükseltilir. Karışık sürümdeyken config-sync yapılmaz (K60339442)." },
+                        { name: 'dg', label: 'Device Group', type: 'text', placeholder: 'dg-failover', requiredIf: { field: 'ha', checked: true }, why: "Yükseltme boyunca auto-sync kapatılır; iki cihaz aynı sürüme geçince yeniden açılır." }
+                    ]
+                }
+            ],
+            submit: 'Planı Oluştur'
+        }, (data) => cgF5UpgradeGen(data));
+    }
+};
+function cgF5UpgradeGen(data) {
+    const iso = cgEsc(String(data.iso || '').trim()), vol = cgEsc(data.vol || 'HD1.2'), cur = cgEsc(data.cur_vol || 'HD1.1');
+    const ucs = cgEsc(String(data.ucs || '').trim().replace(/\.ucs$/, '')), dg = cgEsc(String(data.dg || '').trim()), need = String(data.svc_need || '').trim();
+    const w = [];
+    if (vol === cur) w.push('⛔ Hedef hacim şu anki aktif hacimle aynı: çalışan hacme kurulum yapılamaz.');
+    if (iso && !/\.iso$/i.test(iso)) w.push('⚠ Dosya adı .iso ile bitmiyor.');
+    if (/hotfix/i.test(iso)) w.push('ℹ Güncel sürümlerde hotfix\'ler tam ISO olarak gelir ve "install sys software image" ile kurulur; "hotfix" komutu yalnız mühendislik yamaları içindir.');
+    if (need && !/^\d{4}\/\d{2}\/\d{2}$/.test(need)) w.push('⚠ Lisans kontrol tarihi YYYY/AA/GG biçiminde olmalı.');
+    w.push('⚠ Service check date kontrolü atlanmasın: tarih hedef sürümün lisans kontrol tarihinden eskiyse yeni sürüm INOPERATIVE açılır, yapılandırma yüklenmez. Önce lisansı reactivate edin (f5-12).');
+    if (data.ha) w.push('⚠ HA: önce STANDBY cihazı yükseltin; aktif cihaza dokunmadan önce standby yeni sürümde sağlıklı açılmalı. Karışık sürümde config-sync yapmayın.');
+    w.push('ℹ UCS\'i cihaz dışına kopyalayın. Yükseltmeden sonra eski hacmi silmeyin: geri dönüş tek komuttur.');
+    let c = '# ========================================\n# F5 BIG-IP — Yedek ve Yükseltme Planı\n# ========================================\n\n';
+    c += '# 1) Ön kontrol (bash)\ngrep "Service check date" /config/bigip.license' + (need ? '      # en az ' + cgEsc(need) + ' olmalı' : '') + '\ntmsh show sys software status\ndf -h /shared\n';
+    if (data.ha) c += 'tmsh show cm sync-status                   # In Sync olmalı\ntmsh show cm failover-status\n';
+    c += '\n# 2) Yedek\ntmsh save sys config\ntmsh save sys ucs ' + ucs + '\n# scp /var/local/ucs/' + ucs + '.ucs <yedek-sunucu>:/yedek/\n\n';
+    c += '# 3) ISO doğrulama\nls -l /shared/images/\nmd5sum -c /shared/images/' + iso + '.md5\n\n';
+    if (data.ha) c += '# 4) HA hazırlığı (her iki cihazda aynı)\ntmsh modify cm device-group ' + dg + ' auto-sync disabled\n# Bu adımlar ÖNCE STANDBY cihazda yapılır.\n\n';
+    c += '# ' + (data.ha ? '5' : '4') + ') Kurulum ve izleme\ntmsh install sys software image ' + iso + ' volume ' + vol + ' create-volume\ntmsh show sys software status              # ' + vol + ': installing … → complete\n\n';
+    c += '# ' + (data.ha ? '6' : '5') + ') Yeni hacimden açılış ve doğrulama\ntmsh reboot volume ' + vol + '\ntmsh show sys version\ntmsh show sys software status\ntail -n 50 /var/log/ltm                    # 01070608 (lisans) ya da monitor down satırları var mı?\ntmsh show ltm virtual                      # uygulamalar available mı?\n';
+    if (data.ha) c += '\n# 7) Trafiği yeni sürümdeki cihaza devret (eski AKTİF cihazda)\ntmsh run sys failover standby traffic-group traffic-group-1\n# Testler başarılıysa eski aktifi de aynı adımlarla yükseltin; iki cihaz aynı sürümde olunca:\ntmsh modify cm device-group ' + dg + ' auto-sync enabled\ntmsh run cm config-sync to-group ' + dg + '\n';
+    c += '\n# Geri dönüş\ntmsh reboot volume ' + cur + '\n';
+    return { config: c.replace(/ {2,}#/g, ' #'), warnings: w };
+}

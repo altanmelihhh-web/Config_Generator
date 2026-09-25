@@ -70,5 +70,17 @@
                 { code: 'tmsh show ltm persistence persist-records', desc: 'Source address persistence kayıtları burada görünür. Tüm kullanıcılar tek bir NAT adresinden geliyorsa hepsi aynı üyededir: yük dengelenmez; cookie persistence\'a geçin.' },
             ]
         },
+        {
+            title: 'Yükseltme Başarısız ya da Sonrasında Cihaz Çalışmıyor: Lisans, Disk, ISO ve Hacim', severity: 'err', topic: 'ops', lab: 'f5-12',
+            symptom: 'Yazılım yükseltmesi ya kurulum aşamasında başarısız oldu ya da cihaz yeni sürümle açıldı ama istemde INOPERATIVE görünüyor ve uygulamalar çalışmıyor.',
+            steps: [
+                { code: 'tmsh show sys software status', desc: 'Hacimlerin durumu. "failed (Disk full (volume group))" kurulumun yer yüzünden yarıda kaldığını gösterir; eski ve kullanılmayan hacimler ya da /shared/images altındaki eski ISO\'lar silinerek yer açılır. "complete" ise kurulum sağlam, sorun açılışta.' },
+                { code: 'tail -n 50 /var/log/ltm', desc: '"01070608:0: License is not operational" satırı yapılandırmanın lisans nedeniyle yüklenmediğini söyler. İstemde INOPERATIVE ve tmsh\'te "The configuration has not yet loaded" görülür.',
+                  fix: [{ cause: 'Hizmeti hemen geri getirmek: eski sürümün hacminden açın', cmd: 'tmsh reboot volume HD1.1' }] },
+                { code: 'grep "Service check date" /config/bigip.license', desc: 'Tarih, hedef sürümün lisans kontrol tarihinden (K7727 tablosu) eskiyse lisans yeniden etkinleştirilir (reactivate) ve yükseltme tekrarlanır. Bu kontrol her yükseltmenin ilk adımıdır.' },
+                { code: 'md5sum -c /shared/images/BIGIP-17.1.1.3-0.0.5.iso.md5\ndf -h /shared', desc: 'Kurulum başlamıyor ya da yarıda kalıyorsa: ISO bozuk mu (FAILED), /shared dolu mu? Bozuk ISO yeniden indirilip kopyalanır.' },
+                { code: 'tmsh list sys ucs', desc: 'Geri dönüşte ya da cihaz değişiminde kullanılacak UCS yedeği var mı? Yoksa bundan sonraki yükseltmeden önce save sys config + save sys ucs yapılıp dosya cihaz dışına kopyalanmalı.' },
+            ]
+        },
     ];
 })();
