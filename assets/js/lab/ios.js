@@ -814,6 +814,7 @@ const CgLabIos = (() => {
             secret: () => !!(S.pending && S.pending.secret),
             input, help, complete,
             _toPriv: () => { S.mode = 'priv'; S.ctx = []; S.pending = null; S.loggedOut = false; },
+            get answers() { return S.answers || (S.answers = {}); }, set answers(v) { S.answers = v || {}; }, variant: () => null,
 
             get model() { return S.m; },
             get startupModel() { return S.startup; },

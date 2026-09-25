@@ -106,10 +106,11 @@ const CgLabFgt = (() => {
     };
     const PATHS = Object.keys(SCHEMA);
     const SERVICES = ['ALL', 'ALL_TCP', 'ALL_UDP', 'ALL_ICMP', 'PING', 'HTTP', 'HTTPS', 'SSH', 'DNS', 'NTP', 'SMTP', 'RDP', 'TELNET', 'SNMP', 'FTP'];
-    const GETS = ['system status', 'router info routing-table all'];
+    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all'];
 
-    function session(lab) {
-        const S = { lab, ctx: null, ev: [], hist: [], pending: null, loggedOut: false };
+    function session(lab, opts) {
+        const S = { lab, ctx: null, ev: [], hist: [], pending: null, loggedOut: false, answers: {} };
+        S.variant = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
         // ── model
         function baseModel() {
             const m = { host: lab.hostname || 'FortiGate-VM64', t: {}, links: {} };
@@ -285,6 +286,332 @@ const CgLabFgt = (() => {
             return head + L + '\n--- ' + ip + ' ping statistics ---\n5 packets transmitted, 5 packets received, 0% packet loss\nround-trip min/avg/max = 0.4/0.5/0.6 ms';
         }
 
+
+        // ═══ Teşhis simülasyonu (Faz C) ═════════════════════════════════════
+        // lab.sim (ve seçilen varyantın sim'i): perf, procs, conserve, crash, cfgErr, flows, bulk
+        // flows: [{ src, sport, dst, dport, proto: 'tcp'|'udp'|'icmp', in: 'port2', reply: 'ok'|'none'|'rst', arrives: true }]
+        const SIM = Object.assign({}, lab.sim || {}, (S.variant && S.variant.sim) || {});
+        S.dbg = { on: false, filter: {}, fn: false, trace: 0, tid: 0 };
+        S.sessFilter = {};
+        const SVC = { ALL: [['any']], ALL_TCP: [['tcp']], ALL_UDP: [['udp']], ALL_ICMP: [['icmp']], PING: [['icmp']], HTTP: [['tcp', 80]], HTTPS: [['tcp', 443]], SSH: [['tcp', 22]],
+            DNS: [['tcp', 53], ['udp', 53]], NTP: [['udp', 123]], SMTP: [['tcp', 25]], RDP: [['tcp', 3389]], TELNET: [['tcp', 23]], SNMP: [['udp', 161], ['udp', 162]], FTP: [['tcp', 21]] };
+        const inRange = (spec, p) => String(spec).split(':')[0].split('-').length === 2 ? (p >= +spec.split(':')[0].split('-')[0] && p <= +spec.split(':')[0].split('-')[1]) : +String(spec).split(':')[0] === p;
+        function svcMatch(name, f, seen) {
+            seen = seen || {};
+            if (seen[name]) return false; seen[name] = true;
+            if (SVC[name]) return SVC[name].some(([pr, port]) => pr === 'any' || (pr === f.proto && (port === undefined || port === f.dport)));
+            const c = M().t['firewall service custom'].v[name];
+            if (c) {
+                if ((c.protocol || 'TCP/UDP/SCTP') === 'ICMP') return f.proto === 'icmp';
+                return (f.proto === 'tcp' && (c['tcp-portrange'] || []).some(sp => inRange(sp, f.dport))) || (f.proto === 'udp' && (c['udp-portrange'] || []).some(sp => inRange(sp, f.dport)));
+            }
+            const g = M().t['firewall service group'].v[name];
+            return !!g && (g.member || []).some(m => svcMatch(m, f, seen));
+        }
+        function addrMatch(name, ip, seen) {
+            seen = seen || {};
+            if (seen[name]) return false; seen[name] = true;
+            if (name === 'all') return true;
+            if (name === 'none') return false;
+            const a = M().t['firewall address'].v[name];
+            if (a) {
+                const ty = a.type || 'ipmask';
+                if (ty === 'ipmask') { const [n, m] = (a.subnet || '0.0.0.0 0.0.0.0').split(' '); return sameNet(n, ip, maskLen(m)); }
+                if (ty === 'iprange') return ip2n(ip) >= ip2n(a['start-ip'] || '0.0.0.0') && ip2n(ip) <= ip2n(a['end-ip'] || '0.0.0.0');
+                return false; // fqdn: simülatörde çözülmez
+            }
+            const g = M().t['firewall addrgrp'].v[name];
+            return !!g && (g.member || []).some(m => addrMatch(m, ip, seen));
+        }
+        const ifIp = n => { const i = M().t['system interface'].v[n]; return i && i.ip ? i.ip.split(' ')[0] : null; };
+        // Tek karar motoru: VIP (DNAT) → rota → kural → NAT
+        function decide(f) {
+            const r = { f, dst: f.dst, dport: f.dport };
+            if (f.arrives === false) return Object.assign(r, { stage: 'noarrive' });
+            if (!ifUp(f.in)) return Object.assign(r, { stage: 'noarrive' });
+            for (const k of M().t['firewall vip'].o) {
+                const v = M().t['firewall vip'].v[k], ex = v.extintf || 'any';
+                if ((ex === 'any' || ex === f.in) && v.extip === f.dst && (v.portforward !== 'enable' || (+v.extport === f.dport && (v.protocol || 'tcp') === f.proto))) {
+                    r.vip = k; r.dst = String(v.mappedip).split('-')[0]; r.dport = v.portforward === 'enable' ? +v.mappedport : f.dport; break;
+                }
+            }
+            const rt = rib().filter(x => x.len === 0 || sameNet(x.net, r.dst, x.len)).sort((a, b) => b.len - a.len)[0];
+            if (!rt) return Object.assign(r, { stage: 'noroute' });
+            r.out = rt.dev; r.gw = rt.c === 'C' ? r.dst : rt.gw;
+            const pf = Object.assign({}, f, { dport: r.dport });
+            for (const k of M().t['firewall policy'].o) {
+                const p = M().t['firewall policy'].v[k];
+                if ((p.status || 'enable') !== 'enable') continue;
+                const hasIf = (list, n) => (list || []).includes('any') || (list || []).includes(n);
+                if (!hasIf(p.srcintf, f.in) || !hasIf(p.dstintf, r.out)) continue;
+                if (!(p.srcaddr || []).some(a => addrMatch(a, f.src))) continue;
+                const dOk = r.vip ? (p.dstaddr || []).includes(r.vip) : (p.dstaddr || []).some(a => addrMatch(a, r.dst));
+                if (!dOk) continue;
+                if (!(p.service || []).some(sv => svcMatch(sv, pf))) continue;
+                r.policy = k; r.action = p.action || 'deny';
+                if (r.action === 'accept' && p.nat === 'enable') {
+                    const pool = p.ippool === 'enable' && (p.poolname || [])[0] && M().t['firewall ippool'].v[(p.poolname || [])[0]];
+                    r.snat = pool ? pool.startip : ifIp(r.out);
+                    r.sport2 = 60000 + (ip2n(f.src) + f.sport) % 5000;
+                }
+                break;
+            }
+            if (r.policy === undefined) { r.policy = '0'; r.action = 'deny'; }
+            r.stage = r.action === 'accept' ? 'allowed' : 'denied';
+            return r;
+        }
+        const flows = () => (SIM.flows || []).map((f, i) => Object.assign({ sport: 50000 + i * 111, proto: 'tcp', reply: 'ok', arrives: true }, f));
+        const hostPort = (ip, p, f) => f.proto === 'icmp' ? ip : ip + ':' + p;
+
+        // ── debug flow
+        function flowMatches(f) {
+            const q = S.dbg.filter;
+            if (q.addr && f.src !== q.addr && f.dst !== q.addr) return false;
+            if (q.saddr && f.src !== q.saddr) return false;
+            if (q.daddr && f.dst !== q.daddr) return false;
+            if (q.port && f.dport !== +q.port && f.sport !== +q.port) return false;
+            if (q.dport && f.dport !== +q.dport) return false;
+            if (q.proto && ({ 1: 'icmp', 6: 'tcp', 17: 'udp' })[q.proto] !== f.proto) return false;
+            return true;
+        }
+        function traceOne(f) {
+            const d = decide(f), tid = ++S.dbg.tid, L = [];
+            if (d.stage === 'noarrive') return { d, text: '' };
+            const pre = 'id=65308 trace_id=' + tid + ' ';
+            const fn = (name, line) => S.dbg.fn ? 'func=' + name + ' line=' + line + ' ' : '';
+            const pn = { tcp: 6, udp: 17, icmp: 1 }[f.proto];
+            L.push(pre + fn('print_pkt_detail', 5895) + 'msg="vd-root:0 received a packet(proto=' + pn + ', ' + hostPort(f.src, f.sport, f) + '->' + hostPort(f.dst, f.dport, f) + ') tun_id=0.0.0.0 from ' + f.in + '.' + (f.proto === 'tcp' ? ' flag [S], seq 1' + String(tid).padStart(9, '0') + ', ack 0, win 64240"' : f.proto === 'icmp' ? ' type=8, code=0, id=1, seq=' + tid + '."' : '"'));
+            L.push(pre + fn('init_ip_session_common', 6076) + 'msg="allocate a new session-000' + (4096 + tid).toString(16) + ', tun_id=0.0.0.0"');
+            if (d.vip) L.push(pre + fn('get_new_addr', 1219) + 'msg="find DNAT: IP-' + d.dst + ', port-' + d.dport + '"');
+            if (d.stage === 'noroute') { L.push(pre + fn('vf_ip_route_input_common', 2605) + 'msg="no route to ' + d.dst + ', drop"'); return { d, text: L.join('\n') }; }
+            L.push(pre + fn('vf_ip_route_input_common', 2605) + 'msg="find a route: flag=04000000 gw-' + d.gw + ' via ' + d.out + '"');
+            if (d.stage === 'denied') { L.push(pre + fn('fw_forward_handler', 881) + 'msg="Denied by forward policy check (policy ' + d.policy + ')"'); return { d, text: L.join('\n') }; }
+            if (d.vip) L.push(pre + fn('fw_forward_handler', 997) + 'msg="Allowed by Policy-' + d.policy + ':"');
+            else L.push(pre + fn('fw_forward_handler', 997) + 'msg="Allowed by Policy-' + d.policy + ':' + (d.snat ? ' SNAT' : '') + '"');
+            if (d.vip) L.push(pre + fn('__ip_session_run_tuple', 3474) + 'msg="DNAT ' + f.dst + ':' + f.dport + '->' + d.dst + ':' + d.dport + '"');
+            if (d.snat) L.push(pre + fn('__ip_session_run_tuple', 3460) + 'msg="SNAT ' + f.src + '->' + d.snat + ':' + d.sport2 + '"');
+            return { d, text: L.join('\n') };
+        }
+        function runTrace() {
+            if (!S.dbg.on || S.dbg.trace <= 0) return '';
+            const noFilter = !Object.keys(S.dbg.filter).length;
+            const list = flows().filter(f => noFilter || flowMatches(f)).slice(0, S.dbg.trace);
+            S.dbg.trace -= list.length;
+            const out = list.map(traceOne);
+            out.forEach(o => { if (o.text) log({ trace: o.d.stage, policy: o.d.policy, flow: o.d.f.src + '>' + o.d.f.dst }); });
+            if (noFilter) log({ warn: 'debug-nofilter' });
+            const txt = out.map(o => o.text).filter(Boolean).join('\n');
+            return (noFilter ? '# [Simülatör] UYARI: filtresiz debug flow tüm trafiği izler; üretimde CPU\'yu yorar. Önce "diagnose debug flow filter addr <ip>".\n' : '') + (txt || '');
+        }
+
+        // ── sniffer
+        function sniffFilter(expr) {
+            const t = expr.trim().split(/\s+/).filter(Boolean);
+            if (!t.length) return () => true;
+            const terms = []; let op = 'and', i = 0, bad = false;
+            while (i < t.length) {
+                let w = t[i].toLowerCase(), dir = null, neg = false;
+                if (w === 'and' || w === 'or') { op = w; i++; continue; }
+                if (w === 'not') { neg = true; w = (t[++i] || '').toLowerCase(); }
+                if (w === 'src' || w === 'dst') { dir = w; w = (t[++i] || '').toLowerCase(); }
+                let fn = null;
+                if (w === 'host' && isIp(t[i + 1] || '')) { const ip = t[++i]; fn = p => dir === 'src' ? p.s === ip : dir === 'dst' ? p.d === ip : p.s === ip || p.d === ip; }
+                else if (w === 'port' && /^\d+$/.test(t[i + 1] || '')) { const n = +t[++i]; fn = p => dir === 'src' ? p.sp === n : dir === 'dst' ? p.dp === n : p.sp === n || p.dp === n; }
+                else if (w === 'net' && /^[\d.]+\/\d+$/.test(t[i + 1] || '')) { const [n, l] = t[++i].split('/'); fn = p => dir === 'src' ? sameNet(n, p.s, +l) : dir === 'dst' ? sameNet(n, p.d, +l) : sameNet(n, p.s, +l) || sameNet(n, p.d, +l); }
+                else if (['tcp', 'udp', 'icmp'].includes(w)) fn = p => p.proto === w;
+                else if (isIp(t[i])) { const ip = t[i]; fn = p => p.s === ip || p.d === ip; }
+                else { bad = true; break; }
+                const g = neg ? (p => !fn(p)) : fn;
+                terms.push({ op, g }); op = 'and'; i++;
+            }
+            if (bad) return null;
+            return p => terms.reduce((acc, x, k) => k === 0 ? x.g(p) : x.op === 'and' ? acc && x.g(p) : acc || x.g(p), true);
+        }
+        function packetsOf(f) {
+            const d = decide(f), P = [], ts = () => (0.8 + P.length * 0.0213).toFixed(6);
+            if (d.stage === 'noarrive') return P;
+            const tcpFlag = (k) => f.proto === 'tcp' ? ': ' + k : f.proto === 'icmp' ? ': icmp: ' + (k === 'syn' ? 'echo request' : 'echo reply') : ': udp';
+            const hp = (ip, port) => f.proto === 'icmp' ? ip : ip + '.' + port;
+            P.push({ t: ts(), i: f.in, dir: 'in', s: f.src, sp: f.sport, d: f.dst, dp: f.dport, proto: f.proto, txt: hp(f.src, f.sport) + ' -> ' + hp(f.dst, f.dport) + tcpFlag('syn') });
+            if (d.stage !== 'allowed') return P;
+            const os = d.snat || f.src, osp = d.snat ? d.sport2 : f.sport;
+            P.push({ t: ts(), i: d.out, dir: 'out', s: os, sp: osp, d: d.dst, dp: d.dport, proto: f.proto, txt: hp(os, osp) + ' -> ' + hp(d.dst, d.dport) + tcpFlag('syn') });
+            if (f.reply === 'none') return P;
+            const rk = f.reply === 'rst' ? 'rst ack' : f.proto === 'tcp' ? 'syn ack' : 'reply';
+            P.push({ t: ts(), i: d.out, dir: 'in', s: d.dst, sp: d.dport, d: os, dp: osp, proto: f.proto, txt: hp(d.dst, d.dport) + ' -> ' + hp(os, osp) + tcpFlag(rk) });
+            P.push({ t: ts(), i: f.in, dir: 'out', s: f.dst, sp: f.dport, d: f.src, dp: f.sport, proto: f.proto, txt: hp(f.dst, f.dport) + ' -> ' + hp(f.src, f.sport) + tcpFlag(rk) });
+            return P;
+        }
+        function sniffer(args, line) {
+            // diagnose sniffer packet <intf> '<filtre>' [verbose] [count] [a|l]
+            const intf = args[0] ? args[0].t : null;
+            if (!intf) return { err: 'command parse error before \'packet\'' };
+            if (intf !== 'any' && !M().t['system interface'].v[intf]) return { err: 'command parse error before \'' + intf + '\'' };
+            const expr = args[1] ? args[1].t : '', verb = args[2] ? +args[2].t : 1, cnt = args[3] ? +args[3].t : 0;
+            if (args[2] && !(verb >= 1 && verb <= 6)) return { err: 'command parse error before \'' + args[2].t + '\'' };
+            const flt = sniffFilter(expr === 'none' ? '' : expr);
+            if (!flt) return { err: 'Invalid filter: ' + expr };
+            let pk = [].concat(...flows().map(packetsOf)).filter(p => (intf === 'any' || p.i === intf) && flt(p));
+            if (cnt > 0) pk = pk.slice(0, cnt);
+            log({ sniff: { intf, expr, verb, cnt, n: pk.length } });
+            const L = ['interfaces=[' + intf + ']', 'filters=[' + (expr || 'none') + ']'];
+            pk.forEach(p => L.push(p.t + ' ' + (verb >= 4 ? p.i + ' ' + p.dir + ' ' : '') + p.txt));
+            if (verb === 3 || verb === 6) L.push('# [Simülatör] Paket içeriği (hex) dökümü gösterilmez.');
+            if (!cnt || pk.length < cnt) L.push(pk.length ? '# [Simülatör] Yakalama durdu (Ctrl+C).' : '# [Simülatör] Eşleşen paket yok; Ctrl+C ile durduruldu.');
+            L.push('', pk.length + ' packets received by filter', '0 packets dropped by kernel');
+            return L.join('\n');
+        }
+
+        // ── performans / süreç / oturum / bellek / kayıtlar
+        const perf = () => Object.assign({ cpu: [2, 1, 0, 97, 0, 0, 0], memTotal: 2055872, memPct: 42, freeable: 6, sessions: 312, rate: 5, uptime: '12 days,  3 hours,  5 minutes', netIn: 1253, netOut: 1150 }, SIM.perf || {});
+        function perfStatus() {
+            const p = perf(), c = p.cpu, used = Math.round(p.memTotal * p.memPct / 100), fr = Math.round(p.memTotal * p.freeable / 100), free = p.memTotal - used - fr;
+            return ['CPU states: ' + c[0] + '% user ' + c[1] + '% system ' + c[2] + '% nice ' + c[3] + '% idle ' + c[4] + '% iowait ' + c[5] + '% irq ' + c[6] + '% softirq',
+                'CPU0 states: ' + c[0] + '% user ' + c[1] + '% system ' + c[2] + '% nice ' + c[3] + '% idle ' + c[4] + '% iowait ' + c[5] + '% irq ' + c[6] + '% softirq',
+                'Memory: ' + p.memTotal + 'k total, ' + used + 'k used (' + p.memPct.toFixed(1) + '%), ' + free + 'k free (' + (100 - p.memPct - p.freeable).toFixed(1) + '%), ' + fr + 'k freeable (' + p.freeable.toFixed(1) + '%)',
+                'Average network usage: ' + p.netIn + ' / ' + p.netOut + ' kbps in 1 minute, ' + Math.round(p.netIn * .93) + ' / ' + Math.round(p.netOut * .91) + ' kbps in 10 minutes, ' + Math.round(p.netIn * .87) + ' / ' + Math.round(p.netOut * .85) + ' kbps in 30 minutes',
+                'Average sessions: ' + p.sessions + ' sessions in 1 minute, ' + Math.round(p.sessions * .95) + ' sessions in 10 minutes, ' + Math.round(p.sessions * .9) + ' sessions in 30 minutes',
+                'Average session setup rate: ' + p.rate + ' sessions per second in last 1 minute, ' + Math.max(1, Math.round(p.rate * .8)) + ' sessions per second in last 10 minutes, ' + Math.max(1, Math.round(p.rate * .7)) + ' sessions per second in last 30 minutes',
+                'Virus caught: 0 total in 1 minute', 'IPS attacks blocked: 0 total in 1 minute', 'Uptime: ' + p.uptime].join('\n');
+        }
+        const procs = () => (SIM.procs || [['newcli', 8923, 'R', 0.5, 0.8], ['httpsd', 214, 'S', 0.2, 1.9], ['cmdbsvr', 118, 'S', 0.1, 2.1], ['miglogd', 201, 'S', 0.1, 1.2], ['ipsengine', 190, 'S <', 0.0, 3.4], ['wad', 205, 'S', 0.0, 2.6], ['forticron', 209, 'S', 0.0, 0.9], ['cw_acd', 238, 'S', 0.0, 1.1], ['updated', 226, 'S', 0.0, 0.8], ['fgfmd', 231, 'S', 0.0, 0.7]]);
+        function sysTop(n) {
+            const p = perf(), c = p.cpu, tot = Math.round(p.memTotal / 1024), fr = Math.round(tot * (100 - p.memPct) / 100);
+            const list = procs().slice().sort((a, b) => b[3] - a[3] || b[4] - a[4]).slice(0, n || 20);
+            return ['Run Time:  ' + p.uptime.replace(/,\s+(\d+ minutes)/, ' and $1').replace(/\s+/g, ' '),
+                c[0] + 'U, ' + c[2] + 'N, ' + c[1] + 'S, ' + c[3] + 'I, ' + c[4] + 'WA, ' + c[5] + 'HI, ' + c[6] + 'SI, 0ST; ' + tot + 'T, ' + fr + 'F']
+                .concat(list.map(x => padL(x[0], 18) + padL(x[1], 9) + padL(x[2], 7) + padL(x[3].toFixed(1), 8) + padL(x[4].toFixed(1), 8)))
+                .concat(['# [Simülatör] Gerçek cihazda ekran her 5 sn yenilenir; "q" ile çıkılır. Burada tek görüntü gösterilir.']).join('\n');
+        }
+        const padL = (s, n) => { s = String(s); return s.length >= n ? s : ' '.repeat(n - s.length) + s; };
+        function bulk() { return SIM.bulk || []; } // [{src, dst, dport, proto, n}] arka plan oturumları
+        function sessTotal() { return perf().sessions; }
+        function sessStat() {
+            const p = perf();
+            return ['misc info:       session_count=' + p.sessions + ' setup_rate=' + p.rate + ' exp_count=0 clash=0',
+                '        memory_tension_drop=' + (SIM.conserve ? 1843 : 0) + ' ephemeral=0/65536 removeable=0',
+                'delete=0, flush=0, dev_down=0/0 ses_walkers=0', 'TCP sessions:', '         ' + Math.round(p.sessions * .7) + ' in ESTABLISHED state',
+                '         ' + Math.round(p.sessions * .2) + ' in SYN_SENT state', '         ' + Math.round(p.sessions * .1) + ' in TIME_WAIT state',
+                'firewall error stat:', 'error1=00000000', 'error2=00000000', 'error3=00000000', 'error4=00000000', 'tt=00000000', 'cont=00000000', 'ids_recv=00000000', 'url_recv=00000000', 'av_recv=00000000', 'fqdn_count=00000000', 'global: ses_limit=0 ses6_limit=0 rt_limit=0 rt6_limit=0'].join('\n');
+        }
+        // Oturum örneklemi: izlenen akışlar + arka plan yığınları (n'e göre ağırlıklı)
+        function sessionRows() {
+            const rows = [];
+            for (const f of flows()) { const d = decide(f); if (d.stage === 'allowed') rows.push({ proto: f.proto, src: f.src, sport: f.sport, dst: d.dst, dport: d.dport, snat: d.snat, sport2: d.sport2, odst: f.dst, odport: f.dport, vip: d.vip, policy: d.policy, out: d.out, gw: d.gw, in: f.in }); }
+            const b = bulk(), tot = b.reduce((a, x) => a + x.n, 0);
+            b.forEach((x, k) => {
+                const share = Math.max(1, Math.round(30 * x.n / Math.max(tot, 1)));
+                for (let i = 0; i < share; i++) rows.push({ proto: x.proto || 'tcp', src: x.src, sport: 40000 + k * 997 + i * 13, dst: x.dst, dport: x.dport, snat: x.snat, sport2: x.snat ? 61000 + i : undefined, policy: x.policy || '1', out: x.out || 'port1', in: x.in || 'port2', gw: x.gw || '203.0.113.1', weight: x.n / share });
+            });
+            return rows;
+        }
+        function sessMatch(r) {
+            const q = S.sessFilter;
+            if (q.src && r.src !== q.src) return false;
+            if (q.dst && r.dst !== q.dst && r.odst !== q.dst) return false;
+            if (q.dport && r.dport !== +q.dport) return false;
+            if (q.sport && r.sport !== +q.sport) return false;
+            if (q.proto && ({ 1: 'icmp', 6: 'tcp', 17: 'udp' })[q.proto] !== r.proto) return false;
+            if (q.policy && String(r.policy) !== String(q.policy)) return false;
+            return true;
+        }
+        function sessCount(rows) { return Math.round(rows.reduce((a, r) => a + (r.weight || 1), 0)); }
+        function sessList() {
+            const rows = sessionRows().filter(sessMatch), n = Object.keys(S.sessFilter).length ? sessCount(rows) : sessTotal();
+            const pn = { tcp: 6, udp: 17, icmp: 1 };
+            const show = rows.slice(0, 3).map((r, i) => ['session info: proto=' + pn[r.proto] + ' proto_state=' + (r.proto === 'tcp' ? '11' : '00') + ' duration=' + (12 + i) + ' expire=' + (3587 - i) + ' timeout=3600 flags=00000000 socktype=0 sockport=0 av_idx=0 use=3',
+                'origin-shaper=', 'reply-shaper=', 'per_ip_shaper=', 'class_id=0 ha_id=0 policy_dir=0 tunnel=/ vlan_cos=0/255', 'state=log may_dirty',
+                'statistic(bytes/packets/allow_err): org=' + (1843 + i) + '/12/1 reply=' + (5230 + i) + '/10/1 tuples=2',
+                'orgin->sink: org pre->post, reply pre->post dev=' + r.in + '->' + r.out + '/' + r.out + '->' + r.in + ' gwy=' + r.gw + '/' + r.src,
+                r.snat ? 'hook=post dir=org act=snat ' + r.src + ':' + r.sport + '->' + r.dst + ':' + r.dport + '(' + r.snat + ':' + r.sport2 + ')' : r.vip ? 'hook=pre dir=org act=dnat ' + r.src + ':' + r.sport + '->' + r.odst + ':' + r.odport + '(' + r.dst + ':' + r.dport + ')' : 'hook=pre dir=org act=noop ' + r.src + ':' + r.sport + '->' + r.dst + ':' + r.dport + '(0.0.0.0:0)',
+                'misc=0 policy_id=' + r.policy + ' auth_info=0 chk_client_info=0 vd=0', 'serial=000' + (4096 + i).toString(16) + ' tos=ff/ff app_list=0 app=0 url_cat=0'].join('\n'));
+            return show.join('\n\n') + (n > show.length ? '\n\n# [Simülatör] ' + n + ' oturumdan ilk ' + show.length + '\'ü gösterildi.' : '') + '\ntotal session ' + n;
+        }
+        function sessTable() {
+            const rows = sessionRows().filter(sessMatch).slice(0, 25);
+            const L = ['PROTO   EXPIRE SOURCE           SOURCE-NAT       DESTINATION      DESTINATION-NAT'];
+            rows.forEach((r, i) => L.push(pad(r.proto, 8) + pad(3598 - i * 7, 7) + pad(r.src + ':' + r.sport, 17) + pad(r.snat ? r.snat + ':' + r.sport2 : '-', 17) + pad((r.odst || r.dst) + ':' + (r.odport || r.dport), 17) + (r.vip ? r.dst + ':' + r.dport : '-')));
+            if (sessTotal() > rows.length) L.push('# [Simülatör] ' + sessTotal() + ' oturumdan örneklenmiş ' + rows.length + ' satır.');
+            return L.join('\n');
+        }
+        function memInfo() {
+            const p = perf(), used = Math.round(p.memTotal * p.memPct / 100), free = p.memTotal - used;
+            return ['MemTotal:        ' + p.memTotal + ' kB', 'MemFree:         ' + free + ' kB', 'Buffers:            2380 kB', 'Cached:           ' + Math.round(p.memTotal * p.freeable / 100) + ' kB',
+                'SwapCached:            0 kB', 'Active:           ' + Math.round(used * .6) + ' kB', 'Inactive:         ' + Math.round(used * .2) + ' kB', 'Shmem:            203140 kB', 'Slab:             ' + Math.round(used * .08) + ' kB'].join('\n');
+        }
+        function conserve() {
+            const p = perf(), tot = Math.round(p.memTotal / 1024), used = Math.round(tot * p.memPct / 100);
+            const row = (k, mb) => pad(k + ':', 39) + pad(mb + ' MB', 10) + Math.round(100 * mb / tot) + '% of total RAM';
+            return [pad('memory conserve mode:', 39) + (SIM.conserve ? 'on' : 'off'), pad('total RAM:', 39) + tot + ' MB', row('memory used', used),
+                row('memory used threshold extreme', Math.round(tot * .95)), row('memory used threshold red', Math.round(tot * .88)), row('memory used threshold green', Math.round(tot * .82))].join('\n');
+        }
+        function crashlog() {
+            const c = SIM.crash || [];
+            if (!c.length) return '\nCrash log interval is 3600 seconds\nMax crash log line number: 16384';
+            return c.map((l, i) => (i + 1) + ': ' + l).join('\n') + '\n\nCrash log interval is 3600 seconds\nMax crash log line number: 16384';
+        }
+        function cfgErrLog() { const c = SIM.cfgErr || []; return c.length ? c.join('\n') : ''; }
+
+        // ── diagnose ağacı
+        const DIAG = {
+            sys: { top: 'top', session: { stat: 'sstat', list: 'slist', clear: 'sclear', filter: 'sfilter' } },
+            hardware: { sysinfo: { memory: 'mem', conserve: 'conserve' } },
+            debug: { reset: 'dreset', enable: 'denable', disable: 'ddisable', info: 'dinfo', crashlog: { read: 'crash' }, 'config-error-log': { read: 'cfgerr' },
+                flow: { filter: 'ffilter', show: { 'function-name': 'ffn' }, trace: { start: 'tstart', stop: 'tstop' } }, console: { timestamp: 'dts' } },
+            sniffer: { packet: 'sniff' },
+        };
+        function diagCmd(t, line) {
+            let node = DIAG, i = 1, words = ['diagnose'];
+            while (node && typeof node === 'object') {
+                if (!t[i]) { log({ raw: line, err: 'incomplete' }); return 'command parse error before \'\''; }
+                const r = pick(t[i].t, Object.keys(node));
+                if (!r.ok) { log({ raw: line, err: 'invalid' }); return perr(t[i]); }
+                words.push(r.ok); node = node[r.ok]; i++;
+            }
+            const a = t.slice(i), canon = words.join(' ') + (a.length ? ' ' + a.map(x => x.t).join(' ') : '');
+            const ok = (o) => { log({ raw: line, canon }); return o; };
+            switch (node) {
+                case 'top': return ok(sysTop(a[1] ? +a[1].t : 20));
+                case 'sstat': return ok(sessStat());
+                case 'slist': return ok(sessList());
+                case 'sfilter': {
+                    if (!a.length) return ok(Object.keys(S.sessFilter).length ? Object.entries(S.sessFilter).map(([k, v]) => k + ': ' + v).join('\n') : 'session filter:\n        vf: any');
+                    const k = pick(a[0].t, ['src', 'dst', 'sport', 'dport', 'proto', 'policy', 'clear']);
+                    if (!k.ok) { log({ raw: line, err: 'invalid' }); return perr(a[0]); }
+                    if (k.ok === 'clear') { S.sessFilter = {}; return ok(''); }
+                    if (!a[1] || ((k.ok === 'src' || k.ok === 'dst') && !isIp(a[1].t)) || (k.ok !== 'src' && k.ok !== 'dst' && !/^\d+$/.test(a[1].t))) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (a[1] ? a[1].t : '') + '\''; }
+                    S.sessFilter[k.ok] = a[1].t; return ok('');
+                }
+                case 'sclear': {
+                    if (!Object.keys(S.sessFilter).length) { log({ raw: line, canon, warn: 'sclear-all' }); return '# [Simülatör] UYARI: filtre yokken bu komut TÜM oturumları siler (tüm kullanıcılar kopar). Simülatörde engellendi; önce "diagnose sys session filter …".'; }
+                    log({ raw: line, canon, cleared: Object.assign({}, S.sessFilter) });
+                    return '';
+                }
+                case 'mem': return ok(memInfo());
+                case 'conserve': return ok(conserve());
+                case 'crash': return ok(crashlog());
+                case 'cfgerr': return ok(cfgErrLog());
+                case 'dreset': S.dbg = { on: false, filter: {}, fn: false, trace: 0, tid: S.dbg.tid }; return ok('');
+                case 'denable': S.dbg.on = true; log({ raw: line, canon }); return runTrace();
+                case 'ddisable': S.dbg.on = false; return ok('');
+                case 'dts': return ok('');
+                case 'dinfo': return ok('debug output:           ' + (S.dbg.on ? 'enable' : 'disable') + '\nconsole timestamp:      disable\nconsole no user log message:    disable\n' + (S.dbg.trace > 0 ? 'debug flow trace: ' + S.dbg.trace + ' packet(s) remaining' : ''));
+                case 'ffilter': {
+                    if (!a.length) return ok(Object.keys(S.dbg.filter).length ? Object.entries(S.dbg.filter).map(([k, v]) => k + ': ' + v).join('\n') : 'vf: any\nproto: any\nHost addr: any\nport: any');
+                    const k = pick(a[0].t, ['addr', 'saddr', 'daddr', 'port', 'dport', 'sport', 'proto', 'clear']);
+                    if (!k.ok) { log({ raw: line, err: 'invalid' }); return perr(a[0]); }
+                    if (k.ok === 'clear') { S.dbg.filter = {}; return ok(''); }
+                    if (!a[1] || (/addr/.test(k.ok) && !isIp(a[1].t)) || (!/addr/.test(k.ok) && !/^\d+$/.test(a[1].t))) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (a[1] ? a[1].t : '') + '\''; }
+                    S.dbg.filter[k.ok] = a[1].t; return ok('');
+                }
+                case 'ffn': { const v = a[0] && pick(a[0].t, ['enable', 'disable']); if (!v || !v.ok) { log({ raw: line, err: 'invalid' }); return perr(a[0] || null); } S.dbg.fn = v.ok === 'enable'; return ok(''); }
+                case 'tstart': { const n = a[0] && /^\d+$/.test(a[0].t) ? +a[0].t : 0; if (!n) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (a[0] ? a[0].t : '') + '\''; } S.dbg.trace = n; log({ raw: line, canon }); return runTrace(); }
+                case 'tstop': S.dbg.trace = 0; return ok('');
+                case 'sniff': { const r = sniffer(a, line); if (r && r.err) { log({ raw: line, err: 'invalid' }); return r.err; } return r; }
+            }
+            return '';
+        }
+
         // ── bağlam
         const ctxName = () => {
             const c = S.ctx;
@@ -372,7 +699,7 @@ const CgLabFgt = (() => {
                     const gw = g.split(' ');
                     if (rest.length === gw.length && gw.every((w, k) => w.startsWith(rest[k]))) {
                         log({ raw: line, canon: 'get ' + g });
-                        return g === 'system status' ? sysStatus() : showRib();
+                        return g === 'system status' ? sysStatus() : g === 'system performance status' ? perfStatus() : g === 'system session status' ? 'The total number of sessions for the current VDOM: ' + sessTotal() : g === 'system session list' ? sessTable() : showRib();
                     }
                 }
                 const partial = GETS.filter(g => { const gw = g.split(' '); return rest.length < gw.length && rest.every((w, k) => gw[k].startsWith(w)); });
@@ -391,7 +718,7 @@ const CgLabFgt = (() => {
                 log({ raw: line, err: 'unsupported' });
                 return '# [Simülatör] Bu lab sürümünde yalnız "execute ping <ip>" destekleniyor.';
             }
-            if (v.ok === 'diagnose') { log({ raw: line, err: 'unsupported' }); return '# [Simülatör] diagnose komutları sonraki lab sürümünde (debug flow, sniffer) gelecek.'; }
+            if (v.ok === 'diagnose') return diagCmd(t, line);
             if (v.ok === 'exit') { log({ raw: line, canon: 'exit' }); S.loggedOut = true; return '\n[Simülatör] Oturum kapatıldı. Yeniden bağlanmak için Enter.\n'; }
         }
         function tableCmd(t, line) {
@@ -540,6 +867,14 @@ const CgLabFgt = (() => {
                 if (cands.some(x => x.length === k) && k) res.push(['<Enter>', '']);
                 return res;
             }
+            if (!c && v.ok === 'diagnose') {
+                let node = DIAG;
+                for (let k = 1; k < done.length; k++) { if (!node || typeof node !== 'object') return []; const r = pick(done[k].t, Object.keys(node)); if (!r.ok) return null; node = node[r.ok]; }
+                const DH = { sys: 'Sistem (süreç, oturum)', top: 'En çok CPU/bellek kullanan süreçler', session: 'Oturum tablosu', stat: 'Oturum istatistikleri', list: 'Oturumları listele (filtreyle)', clear: 'Filtredeki oturumları sil', filter: 'Filtre ayarla',
+                    hardware: 'Donanım', sysinfo: 'Sistem bilgisi', memory: 'Bellek kullanımı', conserve: 'Bellek koruma (conserve) modu', debug: 'Debug', reset: 'Tüm debug ayarlarını sıfırla', enable: 'Debug çıktısını aç', disable: 'Debug çıktısını kapat', info: 'Debug durumu',
+                    crashlog: 'Çökme kaydı', 'config-error-log': 'Yapılandırma hata kaydı', read: 'Oku', flow: 'Paket akışı izleme', show: 'Gösterim ayarı', 'function-name': 'Fonksiyon adlarını göster', trace: 'İzleme', start: 'N paket izle', stop: 'İzlemeyi durdur', console: 'Konsol', timestamp: 'Zaman damgası', sniffer: 'Paket yakalama', packet: '<arayüz|any> \'<filtre>\' <1-6> <adet>' };
+                return node && typeof node === 'object' ? Object.keys(node).map(w => [w, DH[w] || '']) : [['<Enter>', '']];
+            }
             if (!c && v.ok === 'execute') return done.length === 1 ? [['ping', 'ICMP erişilebilirlik testi']] : done.length === 2 ? [['<ip>', 'Hedef IP']] : [];
             if (c && (c.key !== undefined || c.single) && ['set', 'unset', 'append', 'unselect'].includes(v.ok)) {
                 const sc = SCHEMA[c.path];
@@ -579,7 +914,8 @@ const CgLabFgt = (() => {
         }
 
         // başlangıç yapılandırması
-        if (lab.start) { lab.start.forEach(l => input(l)); S.ctx = null; S.ev = []; S.hist = []; }
+        const startCmds = (lab.start || []).concat((S.variant && S.variant.start) || []);
+        if (startCmds.length) { startCmds.forEach(l => { input(l); }); S.ctx = null; S.ev = []; S.hist = []; }
 
         const E = {
             ran: re => S.ev.some(e => e.canon && re.test(e.canon)),
@@ -589,7 +925,11 @@ const CgLabFgt = (() => {
             // re verilirse yalnız o satır için istenen yardım sayılır (ör. /^config\s/)
             helped: re => S.ev.some(e => e.help !== undefined && (!re || re.test(e.help))),
             abbrev: canon => S.ev.some(e => e.canon === canon && e.raw.trim().toLowerCase() !== canon),
-            list: () => S.ev
+            list: () => S.ev,
+            traced: (stage) => S.ev.some(e => e.trace && (!stage || e.trace === stage)),
+            tracedAfter: (re, stage) => { const i = S.ev.map(e => !!(e.canon && re.test(e.canon))).lastIndexOf(true); return i >= 0 && S.ev.slice(i + 1).some(e => e.trace === stage); },
+            sniffed: (fn) => S.ev.some(e => e.sniff && (!fn || fn(e.sniff))),
+            warned: (w) => S.ev.some(e => e.warn === w)
         };
         // görev kontrolleri için okuma yardımcıları (kaydedilmiş = next/end sonrası durum)
         const obj = (p, k) => { const sc = SCHEMA[p], o = sc.single ? M().t[p] : M().t[p].v[k]; if (!o) return null; const r = {}; for (const [an, a] of Object.entries(sc.attrs)) r[an] = o[an] !== undefined ? o[an] : a.def; return r; };
@@ -597,6 +937,8 @@ const CgLabFgt = (() => {
             vendor: 'fortigate',
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
             _toRoot: () => { S.ctx = null; S.pending = null; S.loggedOut = false; },
+            get answers() { return S.answers; }, set answers(v) { S.answers = v || {}; },
+            variant: () => S.variant, decide: f => decide(Object.assign({ sport: 50000, proto: 'tcp', reply: 'ok', arrives: true }, f)),
             get model() { return S.m; }, ev: E, mode: () => (S.ctx ? (S.ctx.key !== undefined ? 'edit' : 'config') : 'root'),
             obj, keys: p => M().t[p].o.filter(k => !M().t[p].v[k]._builtin), order: p => M().t[p].o.slice(),
             rib, ifUp, saved: () => !S.ctx,

@@ -54,7 +54,8 @@ const CgLab = {
         const card = l => {
             const st = this._st(l.id), done = !!st.tDone, started = st.log.length > 0;
             const pre = (l.pre || []).filter(p => !this._st(p).tDone);
-            const badge = done ? `<span class="cg-lab-badge ok" aria-label="3 üzerinden ${st.stars} yıldız">${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}</span>` : started ? '<span class="cg-lab-badge run">Devam ediyor</span>' : '<span class="cg-lab-badge">Yeni</span>';
+            st.stars = Math.max(st.stars || 0, st.best || 0);
+            const badge = done || st.best ? `<span class="cg-lab-badge ok" aria-label="3 üzerinden ${st.stars} yıldız">${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}</span>` : started ? '<span class="cg-lab-badge run">Devam ediyor</span>' : '<span class="cg-lab-badge">Yeni</span>';
             return `<a class="cg-lab-card${done ? ' is-done' : ''}" href="#/lab/${l.id}">
                 <span class="cg-lab-card-top">${this._mark(l.vendor)}<span class="cg-lab-id">${l.id.toUpperCase()}</span>${badge}</span>
                 <span class="cg-lab-card-t">${cgEsc(l.title)}</span>
@@ -110,7 +111,11 @@ const CgLab = {
     _paintLab(lab) {
         const V = this.VENDORS[lab.vendor], st = this._st(lab.id);
         this._lab = lab; this._stt = st;
-        this._sess = V.engine().session(lab);
+        if (lab.variants && (st.variant === undefined || st.variant === null)) st.variant = Math.floor(Math.random() * lab.variants.length);
+        this._V = lab.variants ? lab.variants[st.variant % lab.variants.length] : {};
+        this._sess = V.engine().session(lab, { variant: st.variant || 0 });
+        st.answers = st.answers || {}; st.wrong = st.wrong || {};
+        this._sess.answers = st.answers;
         this._hist = []; this._hi = 0;
         // kayıtlı oturumu sessizce yeniden oynat
         const replay = [];
@@ -133,6 +138,7 @@ const CgLab = {
                         <span class="cg-term-dev">${this._mark(lab.vendor)} ${cgEsc(V.name)} · ${this.KIND[lab.kind] || ''}</span>
                         <span class="cg-term-acts">
                             ${lab.tasks.length ? '<button class="cg-ts-btn" data-act="check"><i class="fas fa-clipboard-check"></i> Kontrol et</button>' : ''}
+                            ${lab.variants ? '<button class="cg-ts-btn" data-act="newround" title="Aynı lab, farklı arıza"><i class="fas fa-random"></i> Yeni tur</button>' : ''}
                             <button class="cg-ts-btn" data-act="reset" title="Cihazı ve bu lab'daki ilerlemeyi sıfırla"><i class="fas fa-undo"></i> Sıfırla</button>
                         </span>
                     </div>
@@ -154,6 +160,8 @@ const CgLab = {
         this._prompt();
         this._bindTerm();
         this._root.querySelector('[data-act="reset"]').addEventListener('click', () => this._confirmReset());
+        const nr = this._root.querySelector('[data-act="newround"]');
+        if (nr) nr.addEventListener('click', () => this._newRound());
         const ck = this._root.querySelector('[data-act="check"]');
         if (ck) ck.addEventListener('click', () => this._check(true));
         this._evalTasks(false);
@@ -255,6 +263,7 @@ const CgLab = {
     _stars() {
         const st = this._stt, lv = Object.values(st.hints || {});
         let s = 3;
+        if (Object.values(st.wrong || {}).reduce((a, b) => a + b, 0) >= 2) s--;
         if (lv.some(x => x >= 2)) s--;
         if (st.sol || lv.some(x => x >= 3)) s--;
         return Math.max(1, s);
@@ -275,12 +284,16 @@ const CgLab = {
         if (!side) return;
         const n = st.done.filter(Boolean).length, tot = lab.tasks.length, pct = tot ? Math.round(100 * n / tot) : 0;
         const cur = lab.ordered ? st.done.findIndex((d, i) => !d) : -1;
-        const stepsHtml = t => (t.steps || []).map(x => typeof x === 'object' ? '<code>' + cgEsc(x.help) + '</code> yazıp <kbd>?</kbd>' : x === '' ? '(Enter)' : '<code>' + cgEsc(x) + '</code>').join('<br>');
+        const V = this._V || {};
+        const stepsOf = t => typeof t.steps === 'function' ? t.steps(V) : (t.steps || []);
+        const ansLabel = (t, v) => { const c = t.ask && t.ask.choices.find(x => x[0] === v); return c ? c[1] : v; };
+        const stepsHtml = t => stepsOf(t).map(x => x && typeof x === 'object' && x.answer !== undefined ? 'Cevap: <b>' + cgEsc(ansLabel(t, x.v)) + '</b>' : typeof x === 'object' ? '<code>' + cgEsc(x.help) + '</code> yazıp <kbd>?</kbd>' : x === '' ? '(Enter)' : '<code>' + cgEsc(x) + '</code>').join('<br>');
         // Tam çözümün hangi modda yazılacağı (IOS: yapılandırma modu komutları conf t ister)
         const EXEC = /^(en|ena|enable|conf|configure|sh|show|shw|copy|wr|write|reload|exit|do|ping)\b/i;
         const modeNote = t => {
             if (lab.vendor !== 'cisco-ios') return '';
-            const f = t.from || (typeof t.steps[0] === 'string' && t.steps[0] && !EXEC.test(t.steps[0]) ? 'config' : '');
+            const s0 = stepsOf(t)[0];
+            const f = t.from || (typeof s0 === 'string' && s0 && !EXEC.test(s0) ? 'config' : '');
             return f === 'config' ? '<small>Yapılandırma modunda (<code>configure terminal</code>):</small><br>' : f === 'priv' ? '<small>Ayrıcalıklı modda (<code>#</code>):</small><br>' : '';
         };
         const hintsOf = t => t.hints.length >= 3 ? t.hints : t.hints.concat([modeNote(t) + stepsHtml(t)]);
@@ -292,7 +305,10 @@ const CgLab = {
                 <span class="cg-lab-task-i">${done ? '<i class="fas fa-check"></i>' : locked ? '<i class="fas fa-lock"></i>' : i + 1}</span>
                 <div class="cg-lab-task-b">
                     <div class="cg-lab-task-t">${t.t}</div>
-                    ${!locked ? `<details class="cg-lab-why"><summary>Neden?</summary><div>${t.why}</div></details>` : ''}
+                    ${t.ask && !locked ? `<div class="cg-lab-ask" role="group" aria-label="Cevap seçenekleri">${t.ask.choices.map(([v, l]) => {
+                        const key = lab.id + ':' + i, picked = (st.answers || {})[key] === v;
+                        return `<button class="cg-lab-choice${picked ? (done ? ' ok' : ' bad') : ''}" data-ask="${i}" data-v="${cgEsc(v)}"${done ? ' disabled' : ''}>${cgEsc(l)}</button>`; }).join('')}</div>` : ''}
+                    ${!locked && (!t.ask || done) ? `<details class="cg-lab-why"${t.ask && done ? ' open' : ''}><summary>Neden?</summary><div>${t.why}</div></details>` : ''}
                     ${!done && !locked ? `<div class="cg-lab-hints">${hintsOf(t).slice(0, hl).map((h, k) => `<div class="cg-lab-hint lv${k + 1}"><b>${['İpucu', 'Komut iskeleti', 'Çözüm'][k]}:</b> ${h}</div>`).join('')}
                         ${hl < 3 ? `<button class="cg-lab-hbtn" data-hint="${i}"><i class="far fa-lightbulb"></i> ${['İpucu', 'Komut iskeleti', 'Tam çözüm'][hl]}${hl >= 1 ? ' <small>(★ düşürür)</small>' : ''}</button>` : ''}</div>` : ''}
                     ${this._fb && this._fb[i] && !done ? `<div class="cg-lab-fb"><i class="fas fa-exclamation-circle"></i> ${this._fb[i]}</div>` : ''}
@@ -307,15 +323,25 @@ const CgLab = {
             ${tot ? `<div class="cg-lab-prog"><div class="cg-ts-prog" role="progressbar" aria-valuenow="${n}" aria-valuemin="0" aria-valuemax="${tot}" aria-label="Görev ilerlemesi"><span style="width:${pct}%"></span></div><span>${n}/${tot} görev · %${pct}</span></div>
             ${done ? this._finishHtml() : ''}
             <ol class="cg-lab-tasks">${tasks}</ol>
-            <div class="cg-lab-solbox">${st.sol ? `<div class="cg-lab-sol"><b>Örnek çözüm</b> <small>(tek doğru yol değildir)</small><pre>${cgEsc(lab.solution.filter(x => typeof x === 'string').join('\n'))}</pre></div>`
+            <div class="cg-lab-solbox">${st.sol ? `<div class="cg-lab-sol"><b>Örnek çözüm</b> <small>(tek doğru yol değildir)</small><pre>${cgEsc((typeof lab.solution === 'function' ? lab.solution(V) : lab.solution).map(x => typeof x === 'string' ? x : x.answer !== undefined ? '# Soru ' + (x.answer + 1) + ': ' + ansLabel(lab.tasks[x.answer], x.v) : x.help + '?').join('\n'))}</pre></div>`
                 : '<button class="cg-lab-hbtn" data-sol><i class="fas fa-eye"></i> Örnek çözümü göster <small>(★ düşürür)</small></button>'}</div>` : ''}
             ${lab.verify ? `<div class="cg-lab-verify"><b><i class="fas fa-search"></i> Doğrulama komutları:</b> ${lab.verify.map(v => `<code>${cgEsc(v)}</code>`).join(' ')}</div>` : ''}
             ${this._linksHtml(lab)}`;
+        side.querySelectorAll('[data-ask]').forEach(b => b.addEventListener('click', () => {
+            const i = +b.dataset.ask, key = lab.id + ':' + i;
+            st.answers[key] = b.dataset.v; this._sess.answers = st.answers;
+            this._evalTasks(true);
+            if (!st.done[i]) { st.wrong[key] = (st.wrong[key] || 0) + 1; this._fb = Object.assign({}, this._fb, { [i]: 'Yanlış — terminal çıktısına yeniden bakın ve tekrar deneyin.' }); this._toast('Yanlış cevap', true); }
+            else if (this._fb) delete this._fb[i];
+            this._save(); this._paintSide();
+        }));
         side.querySelectorAll('[data-hint]').forEach(b => b.addEventListener('click', () => {
             const i = +b.dataset.hint; st.hints = st.hints || {}; st.hints[i] = Math.min(3, (st.hints[i] || 0) + 1); this._save(); this._paintSide();
         }));
         const sb = side.querySelector('[data-sol]');
         if (sb) sb.addEventListener('click', () => { st.sol = true; this._save(); this._paintSide(); });
+        const rd = side.querySelector('[data-round]');
+        if (rd) rd.addEventListener('click', () => this._newRound());
         const nx = side.querySelector('[data-next]');
         if (nx) nx.addEventListener('click', () => { location.hash = '#/lab/' + nx.dataset.next; });
     },
@@ -331,6 +357,7 @@ const CgLab = {
             <p>${secs ? 'Süre: <b>' + (secs >= 60 ? Math.floor(secs / 60) + ' dk ' : '') + (secs % 60) + ' sn</b> · ' : ''}İpucu: <b>${hints}</b>${st.sol ? ' · çözüm görüntülendi' : ''}</p>
             ${st.stars < 3 ? '<p class="cg-lab-finish-tip">3 yıldız için: Sıfırla ile tekrar deneyin, komut iskeleti ve çözüm ipuçlarını kullanmadan bitirin.</p>' : ''}
             <b>Öğrendikleriniz</b><ul>${lab.learn.map(x => `<li>${x}</li>`).join('')}</ul>
+            ${lab.variants ? '<button class="cg-ts-btn" data-round><i class="fas fa-random"></i> Yeni tur: farklı arıza</button> ' : ''}
             ${next ? `<button class="cg-ts-btn ok" data-next="${next.id}"><i class="fas fa-arrow-right"></i> Sonraki: ${cgEsc(next.title)}</button>` : ''}
         </div>`;
     },
@@ -340,6 +367,15 @@ const CgLab = {
         if (L.cli) out.push(`<a class="cg-chip" href="${L.cli}"><i class="fas fa-terminal"></i><span class="cg-chip-l">Komut kütüphanesi</span></a>`);
         if (L.wizard) out.push(`<a class="cg-chip" href="${L.wizard}"><i class="fas fa-stethoscope"></i><span class="cg-chip-l">Sorun giderme</span></a>`);
         return out.length ? `<div class="cg-ts-rel">${out.join('')}</div>` : '';
+    },
+    // Aynı lab, farklı varyant (öncekinden farklı arıza); yıldızlar bu tur için yeniden hesaplanır
+    _newRound() {
+        const lab = this._lab, old = this._stt.variant || 0, n = lab.variants.length;
+        let v = Math.floor(Math.random() * n); if (n > 1 && v === old) v = (v + 1) % n;
+        const best = Math.max(this._stt.stars || 0, this._stt.best || 0);
+        this._store().labs[lab.id] = { done: [], hints: {}, sol: false, log: [], t0: null, tDone: null, stars: 0, best, variant: v, answers: {}, wrong: {}, rounds: (this._stt.rounds || 0) + 1 };
+        this._fb = {}; this._save(); this._paintLab(lab);
+        this._toast('Yeni tur: farklı bir arıza yüklendi');
     },
     _confirmReset() {
         const bar = this._root.querySelector('.cg-term-acts');

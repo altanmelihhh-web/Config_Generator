@@ -1237,3 +1237,15 @@
   .app-nav { gap: 0; }
   .app-nav-tab { padding: 8px 8px; }
 }
+/* Lab: çoktan seçmeli teşhis soruları */
+#config-generator-root .cg-lab-ask { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+#config-generator-root .cg-lab-choice { font: inherit; font-size: .82rem; text-align: left; padding: 8px 12px; min-height: 40px; border-radius: 8px; border: 1px solid var(--border-color, #d1d5db); background: var(--bg-primary, #fff); color: var(--text-primary, #1f2937); cursor: pointer; transition: border-color .15s, background .15s; }
+#config-generator-root .cg-lab-choice:hover:not([disabled]) { border-color: var(--primary-color, #4F46E5); }
+#config-generator-root .cg-lab-choice:focus-visible { outline: 2px solid var(--primary-color, #4F46E5); outline-offset: 2px; }
+#config-generator-root .cg-lab-choice.ok { border-color: #10b981; background: #ecfdf5; font-weight: 600; }
+#config-generator-root .cg-lab-choice.bad { border-color: #ef4444; background: #fef2f2; }
+#config-generator-root .cg-lab-choice[disabled] { cursor: default; opacity: .85; }
+[data-theme="dark"] #config-generator-root .cg-lab-choice { background: #161b22; border-color: #30363d; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-lab-choice.ok { background: #0f2a1f; border-color: #065f46; }
+[data-theme="dark"] #config-generator-root .cg-lab-choice.bad { background: #2d1215; border-color: #7f1d1d; }
+@media (max-width: 900px) { #config-generator-root .cg-lab-choice { min-height: 44px; } }

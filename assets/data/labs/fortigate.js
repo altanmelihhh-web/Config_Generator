@@ -7,6 +7,11 @@
     const same = (a, b) => Array.isArray(a) && a.length === b.length && b.every(x => a.includes(x));
     const def0 = r => r.find(x => x.len === 0);
     const IF = (port, ip, extra) => ['config system interface', 'edit ' + port, 'set ip ' + ip].concat(extra || [], ['end']);
+    // Teşhis lab'larının ortak başlangıcı: WAN/LAN arayüzleri, varsayılan rota, LAN-NET
+    const BASE = () => IF('port1', '203.0.113.2 255.255.255.252', ['set role wan']).concat(IF('port2', '10.64.10.1 255.255.255.0', ['set role lan']),
+        ['config router static', 'edit 1', 'set gateway 203.0.113.1', 'set device port1', 'end', 'config firewall address', 'edit LAN-NET', 'set subnet 10.64.10.0 255.255.255.0', 'end']);
+    const POL = svc => ['config firewall policy', 'edit 1', 'set name LAN-TO-WAN', 'set srcintf port2', 'set dstintf port1', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service ' + svc.join(' '), 'set nat enable', 'end'];
+    const NOISE = { src: '10.64.10.51', dst: '198.51.100.80', dport: 80, in: 'port2' };
 
     const LABS = [
     {
@@ -215,10 +220,192 @@
         learn: ['Hedef NAT = VIP nesnesi + VIP\'yi hedef alan kural.', 'portforward ile yalnız gereken port çevrilir.', 'Gelen kuralda nat disable: istemci IP\'si korunur.', 'Kural hedefinde gerçek IP değil VIP kullanılır.'],
         links: { tool: '#/fortigate/nat', cli: '#/cli/fortigate' }, cert: 'NSE 4 · M2'
     },
+    // ═══ Faz C: teşhis lab'ları ══════════════════════════════════════════
+    {
+        id: 'fgt-15', vendor: 'fortigate', level: 5, title: 'debug flow: paket neden düşüyor?', minutes: 25, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-04'], ordered: true,
+        up: ['port1', 'port2'], hosts: ['203.0.113.1'],
+        start: BASE().concat(['config firewall policy', 'edit 1', 'set name LAN-TO-WAN', 'set srcintf port2', 'set dstintf port1', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service HTTP DNS', 'set nat enable', 'end']),
+        sim: { flows: [{ src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'port2' }, { src: '10.64.10.51', dst: '198.51.100.80', dport: 80, in: 'port2' }, { src: '10.64.10.60', dst: '198.51.100.53', dport: 53, proto: 'udp', in: 'port2' }] },
+        story: '<b>Arıza kaydı:</b> "10.64.10.50 kullanıcısı HTTPS sitelerine giremiyor, HTTP çalışıyor." FortiGate\'in pakete ne karar verdiğini <code>debug flow</code> ile izleyin, nedeni bulun, düzeltin ve yeniden doğrulayın. Cihazda başka kullanıcıların trafiği de akıyor.',
+        goals: ['debug flow\'u güvenli biçimde kurmak (reset → filtre → trace → enable)', 'İz çıktısını okumak (policy 0, rota, NAT)', 'En az değişiklikle düzeltip yeniden doğrulamak', 'İş bitince debug\'ı kapatmak'],
+        tasks: [
+            { t: 'Önceki debug ayarlarını temizleyin.',
+              why: 'Başka birinin bıraktığı filtre ya da açık debug, çıktıyı yanıltır. <code>diagnose debug reset</code> her debug oturumunun ilk komutudur.',
+              hints: ['Debug\'ı sıfırlayan komut.', '<code>diagnose debug ____</code>'], steps: ['diagnose debug reset'],
+              check: s => s.ev.ran(/^diagnose debug reset$/) },
+            { t: 'İzlemeyi yalnız sorunlu kullanıcıyla sınırlayın (10.64.10.50).',
+              why: 'Filtresiz debug flow, cihazdaki TÜM trafiği izler: çıktı okunmaz hâle gelir ve üretimde CPU\'yu yorar. Her zaman adres (gerekirse port) filtresi koyun.',
+              hints: ['flow filter addr.', '<code>diagnose debug flow filter addr ____</code>'], steps: ['diagnose debug flow filter addr 10.64.10.50'],
+              check: s => s.ev.ran(/^diagnose debug flow filter (s?addr) 10\.64\.10\.50$/),
+              fb: s => s.ev.warned('debug-nofilter') ? 'Filtresiz iz aldınız: diğer kullanıcıların trafiği de göründü. Filtreyi ekleyin.' : null },
+            { t: 'Fonksiyon adlarını açıp 10 paketlik izi başlatın ve debug çıktısını etkinleştirin. Çıktıyı okuyun.',
+              why: '<code>trace start N</code> N paketi izler; çıktının ekrana gelmesi için <code>diagnose debug enable</code> gerekir. <code>show function-name enable</code> hangi aşamada karar verildiğini gösterir.',
+              hints: ['show function-name, trace start, debug enable.', '<code>diagnose debug flow trace start 10</code> → <code>diagnose debug enable</code>'],
+              steps: ['diagnose debug flow show function-name enable', 'diagnose debug flow trace start 10', 'diagnose debug enable'],
+              check: s => s.ev.list().some(e => e.trace === 'denied' && /^10\.64\.10\.50>/.test(e.flow)) },
+            { t: 'İze göre paket neden düşüyor?', ask: { choices: [['policy', 'Eşleşen kural yok — örtük deny (policy 0)'], ['route', 'Hedefe rota yok'], ['nat', 'NAT hatası'], ['noarrive', 'Paket FortiGate\'e hiç gelmiyor']], correct: 'policy' },
+              why: '"Denied by forward policy check (policy 0)" = hiçbir kural eşleşmedi, sondaki örtük deny uygulandı. Rota bulunmuştu ("find a route … via port1"), yani sorun kural tarafında.',
+              hints: ['Son satıra bakın: kim, neden reddetti?', '"policy 0" ne anlama gelir?'] },
+            { t: 'Sorunu en az değişiklikle düzeltin: mevcut LAN-TO-WAN kuralına yalnız HTTPS\'i ekleyin.',
+              why: 'Yeni kural açmak yerine mevcut kurala servisi eklemek kural tablosunu sade tutar. <code>set service ALL</code> çalışır ama en az yetki ilkesini bozar.',
+              hints: ['Kuralın servis listesine ekleme.', '<code>append service HTTPS</code>'], steps: ['config firewall policy', 'edit 1', 'append service HTTPS', 'end'],
+              check: s => s.decide({ src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'port2' }).stage === 'allowed' && !(s.obj('firewall policy', '1').service || []).includes('ALL'),
+              fb: s => (s.obj('firewall policy', '1').service || []).includes('ALL') ? 'Çalışır ama ALL tüm portları açar: yalnız HTTPS ekleyin (<code>unselect service ALL</code>).' : null },
+            { t: 'Düzeltmeyi yeniden izleyerek doğrulayın: kural artık izin veriyor mu?',
+              why: 'Düzeltme sonrası aynı izi almak kanıttır: "Allowed by Policy-1: SNAT" ve SNAT satırı kural + NAT\'ın çalıştığını gösterir.',
+              hints: ['İz sayacı bitti; yeniden başlatın.', '<code>diagnose debug flow trace start 10</code>'], steps: ['diagnose debug enable', 'diagnose debug flow trace start 10'],
+              check: s => s.ev.list().some(e => e.trace === 'allowed' && /^10\.64\.10\.50>/.test(e.flow)) },
+            { t: 'İş bitti: debug çıktısını kapatın.',
+              why: 'Açık bırakılan debug, konsolu doldurur ve performansı etkiler. <code>diagnose debug disable</code> (ve istenirse <code>reset</code>) ile kapatın.',
+              hints: ['enable\'ın tersi.', '<code>diagnose debug disable</code>'], steps: ['diagnose debug disable'],
+              check: s => { const L = s.ev.list(), i = L.map(e => e.trace === 'allowed').lastIndexOf(true); return i >= 0 && L.slice(i + 1).some(e => e.canon && /^diagnose debug (disable|reset)$/.test(e.canon)); } },
+        ],
+        solution: ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow show function-name enable', 'diagnose debug flow trace start 10', 'diagnose debug enable', { answer: 3, v: 'policy' },
+            'config firewall policy', 'edit 1', 'append service HTTPS', 'end', 'diagnose debug flow trace start 10', 'diagnose debug disable'],
+        verify: ['diagnose debug flow filter', 'diagnose debug info', 'show firewall policy 1'],
+        learn: ['Sıra: reset → filter → show function-name → trace start → enable.', 'policy 0 = eşleşen kural yok (örtük deny).', '"find a route" satırı rotanın bulunduğunu gösterir.', 'Allowed + SNAT satırları kural ve NAT\'ın çalıştığını kanıtlar.', 'İş bitince debug disable/reset.'],
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/3' }, cert: 'NSE 4 · M15'
+    },
+    {
+        id: 'fgt-16', vendor: 'fortigate', level: 5, title: 'Sniffer ile trafiği okumak: nerede kesiliyor?', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-15'],
+        up: ['port1', 'port2'], hosts: ['203.0.113.1'],
+        start: BASE(),
+        variants: [
+            { key: 'noarrive', sim: { flows: [{ src: '10.64.10.60', dst: '198.51.100.25', dport: 443, in: 'port2', arrives: false }, NOISE] }, start: POL(['HTTP', 'HTTPS', 'DNS']) },
+            { key: 'drop', sim: { flows: [{ src: '10.64.10.60', dst: '198.51.100.25', dport: 443, in: 'port2' }, NOISE] }, start: POL(['HTTP', 'DNS']) },
+            { key: 'noreply', sim: { flows: [{ src: '10.64.10.60', dst: '198.51.100.25', dport: 443, in: 'port2', reply: 'none' }, NOISE] }, start: POL(['HTTP', 'HTTPS', 'DNS']) },
+            { key: 'rst', sim: { flows: [{ src: '10.64.10.60', dst: '198.51.100.25', dport: 443, in: 'port2', reply: 'rst' }, NOISE] }, start: POL(['HTTP', 'HTTPS', 'DNS']) },
+        ],
+        story: '<b>Arıza kaydı:</b> "10.64.10.60, 198.51.100.25:443 sunucusuna bağlanamıyor." Sniffer ile paketlerin nereye kadar gittiğini görün ve sorunun hangi tarafta olduğuna karar verin. <small>Her denemede farklı bir arıza gelir — "Yeni tur" ile tekrar oynayın.</small>',
+        goals: ['Sniffer\'ı filtre, ayrıntı seviyesi ve adet sınırıyla çalıştırmak', 'in/out satırlarından paketin yolunu okumak', 'İstek yok / FortiGate düşürüyor / dönüş yok / RST ayrımı'],
+        tasks: [
+            { t: 'Sorunlu kullanıcının trafiğini tüm arayüzlerde yakalayın: host filtresi, <b>arayüz adlarını gösteren</b> ayrıntı seviyesi (4) ve bir <b>adet sınırı</b> kullanın.',
+              why: 'Seviye 4, paketin hangi arayüzden girip (in) hangisinden çıktığını (out) gösterir. Adet sınırı konmazsa yakalama siz durdurana kadar sürer; yoğun cihazda konsolu kilitler.',
+              hints: ['diagnose sniffer packet any \'host …\' 4 N', '<code>diagnose sniffer packet any \'host 10.64.10.60\' 4 20</code>'],
+              steps: ["diagnose sniffer packet any 'host 10.64.10.60' 4 20"],
+              check: s => s.ev.sniffed(x => x.intf === 'any' && /host 10\.64\.10\.60/.test(x.expr) && x.verb >= 4 && x.cnt > 0),
+              fb: s => s.ev.sniffed(x => /10\.64\.10\.60/.test(x.expr)) ? 'Yakaladınız ama ayrıntı seviyesi 4 ve adet sınırı (ör. 20) birlikte olmalı.' : null },
+            { t: 'Çıktıya göre sorun nerede?', ask: { choices: [['noarrive', 'İstek FortiGate\'e hiç gelmiyor'], ['drop', 'İstek geliyor ama FortiGate dışarı çıkarmıyor'], ['noreply', 'İstek dışarı çıkıyor, dönüş gelmiyor'], ['rst', 'Karşı taraf bağlantıyı RST ile reddediyor']], correct: v => v.key },
+              why: 'Okuma anahtarı: hiç satır yok → sorun FortiGate\'ten önce · yalnız "port2 in" → FortiGate düşürüyor · "in" + "out" var, dönüş yok → karşı taraf/yol · "rst ack" geliyor → sunucu portu kapalı/reddediyor.',
+              hints: ['Satırları sayın: in var mı, out var mı, dönüş var mı?', 'Dönüş satırındaki bayrak "syn ack" mı "rst ack" mi?'] },
+            { t: 'Sıradaki doğru adım hangisi?', ask: { choices: [['client', 'İstemci tarafı: ağ geçidi, ARP, anahtar portu'], ['flow', 'debug flow ile FortiGate\'in kararını (kural/rota) görmek'], ['upstream', 'Dönüş yolu / karşı taraf: ISP, sunucu, karşı firewall'], ['server', 'Sunucuda servisin ve portun açık olup olmadığı']], correct: v => ({ noarrive: 'client', drop: 'flow', noreply: 'upstream', rst: 'server' })[v.key] },
+              why: 'Sniffer "nerede" sorusunu, debug flow "neden" sorusunu yanıtlar. Sorunu doğru tarafa yönlendirmek, saatler süren yanlış yerde arama yapmayı önler.',
+              hints: ['Sorun FortiGate\'in içinde mi dışında mı?', 'İçindeyse kararı gösteren araç debug flow\'dur.'] },
+        ],
+        solution: v => ["diagnose sniffer packet any 'host 10.64.10.60' 4 20", { answer: 1, v: v.key }, { answer: 2, v: ({ noarrive: 'client', drop: 'flow', noreply: 'upstream', rst: 'server' })[v.key] }],
+        verify: ["diagnose sniffer packet any 'host 10.64.10.60' 4 20", 'diagnose debug flow trace start 10'],
+        learn: ['Seviye 4: arayüz + yön (in/out) gösterir; her zaman adet sınırı verin.', 'Hiç paket yok → sorun FortiGate öncesi.', 'Yalnız in → FortiGate düşürüyor (debug flow ile nedenini bulun).', 'in + out, dönüş yok → karşı taraf/dönüş yolu.', 'rst ack → sunucu portu reddediyor.'],
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/9' }, cert: 'NSE 4 · M15'
+    },
+    {
+        id: 'fgt-20', vendor: 'fortigate', level: 1, title: 'Sağlık kontrolü turu: ilk 5 dakika', minutes: 15, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-00'], ordered: true,
+        up: ['port1', 'port2'], start: BASE(),
+        story: 'Bir FortiGate\'e ilk kez bağlandınız ya da "bir terslik var mı?" sorusu geldi. Uzmanların ilk dakikalarda baktığı kontrolleri sırayla yapın: sürüm/mod, kaynak kullanımı, en çok kaynak tüketen süreçler, bellek koruma modu ve oturum sayısı.',
+        goals: ['Cihaz kimliği ve modu', 'CPU / bellek / oturum özetini okumak', 'Süreç listesini yorumlamak', 'conserve mode\'u kontrol etmek'],
+        tasks: [
+            { t: 'Sürümü, HA modunu ve çalışma modunu görün.', why: 'Destek kaydında ilk sorulan bilgiler; ayrıca HA üyesi mi, VDOM açık mı hemen anlaşılır.',
+              hints: ['get system …', '<code>get system status</code>'], steps: ['get system status'], check: s => s.ev.ran(/^get system status$/) },
+            { t: 'CPU, bellek, oturum ve çalışma süresi özetini görüntüleyin.', why: '<code>get system performance status</code> tek ekranda CPU (idle), bellek (%), oturum sayısı ve uptime verir. Uptime beklenmedik kısa ise cihaz yeniden başlamış olabilir.',
+              hints: ['get system … status', '<code>get system performance status</code>'], steps: ['get system performance status'], check: s => s.ev.ran(/^get system performance status$/) },
+            { t: 'CPU ne kadar boşta (idle)?', ask: { choices: [['97', '%97 — rahat'], ['50', '%50 — orta'], ['10', '%10 — çok yoğun']], correct: '97' },
+              why: '"CPU states" satırındaki idle değeri boşta kalan oranıdır. Kalıcı olarak %20\'nin altı yoğunluğa işaret eder.',
+              hints: ['"CPU states" satırındaki idle.', 'idle ne kadar yüksekse o kadar iyi.'] },
+            { t: 'En çok kaynak kullanan süreçleri görün.', why: '<code>diagnose sys top</code> süreçleri CPU\'ya göre sıralar (sütunlar: ad, PID, durum, CPU%, bellek%). Gerçek cihazda "q" ile çıkılır.',
+              hints: ['diagnose sys …', '<code>diagnose sys top</code>'], steps: ['diagnose sys top'], check: s => s.ev.ran(/^diagnose sys top/) },
+            { t: 'Listenin başındaki süreç hangisi ve neden?', ask: { choices: [['newcli', 'newcli — sizin CLI oturumunuz'], ['ipsengine', 'ipsengine — IPS motoru'], ['wad', 'wad — proxy/ssl denetimi']], correct: 'newcli' },
+              why: 'Sağlıklı, boşta bir cihazda listenin başında çoğu zaman <code>newcli</code> (o an kullandığınız CLI) görünür — bu normaldir. Yoğun bir cihazda ipsengine/wad gibi süreçler öne çıkar.',
+              hints: ['İlk satırdaki ada bakın.', 'Siz şu an CLI kullanıyorsunuz.'] },
+            { t: 'Bellek koruma (conserve) modunu ve oturum istatistiklerini kontrol edin.', why: 'Conserve mode\'da FortiGate yeni oturumları ve UTM denetimini kısıtlar; "yavaşlık" şikâyetlerinin sık nedenidir.',
+              hints: ['hardware sysinfo conserve + sys session stat', '<code>diagnose hardware sysinfo conserve</code>'], steps: ['diagnose hardware sysinfo conserve', 'diagnose sys session stat'],
+              check: s => s.ev.ran(/^diagnose hardware sysinfo conserve$/) && s.ev.ran(/^diagnose sys session stat$/) },
+            { t: 'Conserve mode açık mı?', ask: { choices: [['off', 'Kapalı (off)'], ['on', 'Açık (on)']], correct: 'off' },
+              why: 'İlk satır "memory conserve mode: off" ise bellek normal eşiklerde. Açık olsaydı bellek tüketen süreci (sys top, bellek sütunu) aramak gerekirdi.',
+              hints: ['İlk satır.', '"memory conserve mode:" satırı.'] },
+        ],
+        solution: ['get system status', 'get system performance status', { answer: 2, v: '97' }, 'diagnose sys top', { answer: 4, v: 'newcli' }, 'diagnose hardware sysinfo conserve', 'diagnose sys session stat', { answer: 6, v: 'off' }],
+        verify: ['get system status', 'get system performance status', 'diagnose sys top'],
+        learn: ['İlk kontroller: get system status → performance status → sys top → conserve → session stat.', 'idle düşük = CPU yoğun; uptime kısa = yeniden başlama.', 'Boşta cihazda sys top\'ta newcli görmek normaldir.', 'Conserve mode yavaşlığın sık nedenidir.'],
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/2' }, cert: 'NSE 4 · M15'
+    },
+    {
+        id: 'fgt-21', vendor: 'fortigate', level: 5, title: '"Cihaz yavaş" — suçluyu bulun', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-20'],
+        up: ['port1', 'port2'], start: BASE(),
+        variants: [
+            { key: 'cpu', sim: { perf: { cpu: [81, 9, 0, 10, 0, 0, 0], memPct: 58, sessions: 2140, rate: 38 }, procs: [['ipsengine', 190, 'R', 78.4, 21.3], ['wad', 205, 'S', 3.2, 11.0], ['newcli', 8923, 'R', 0.5, 0.8], ['miglogd', 201, 'S', 0.4, 1.2], ['httpsd', 214, 'S', 0.2, 1.9]] } },
+            { key: 'mem', sim: { perf: { cpu: [22, 6, 0, 72, 0, 0, 0], memPct: 91, freeable: 2, sessions: 3010, rate: 41 }, conserve: true, procs: [['wad', 205, 'S', 11.2, 38.6], ['ipsengine', 190, 'S', 6.1, 14.2], ['newcli', 8923, 'R', 0.5, 0.8], ['miglogd', 201, 'S', 0.4, 1.2], ['httpsd', 214, 'S', 0.2, 1.9]] } },
+            { key: 'sess', sim: { perf: { cpu: [34, 21, 0, 45, 0, 0, 0], memPct: 67, sessions: 18532, rate: 412 }, procs: [['newcli', 8923, 'R', 0.5, 0.8], ['ipsengine', 190, 'S', 4.2, 12.1], ['wad', 205, 'S', 2.0, 9.0]],
+                bulk: [{ src: '10.64.10.77', dst: '198.51.100.9', dport: 53, proto: 'udp', n: 17800, snat: '203.0.113.2' }, { src: '10.64.10.50', dst: '198.51.100.80', dport: 443, n: 420, snat: '203.0.113.2' }, { src: '10.64.10.51', dst: '198.51.100.81', dport: 443, n: 312, snat: '203.0.113.2' }] } },
+        ],
+        story: '<b>Arıza kaydı:</b> "İnternet çok yavaş, sayfalar geç açılıyor." Arayüzler ve kurallar değişmedi. Kaynak kullanımından başlayıp suçluyu bulun. <small>Her denemede farklı bir neden gelir — "Yeni tur" ile tekrar oynayın.</small>',
+        goals: ['Özet → ayrıntı teşhis zinciri', 'CPU, bellek ve oturum kaynaklı yavaşlığı ayırt etmek', 'Doğru sonraki adımı seçmek'],
+        tasks: [
+            { t: 'Kaynak özetine bakın.', why: 'Teşhise her zaman özetle başlanır; hangi kaynağın sıkıştığı buradan anlaşılır.',
+              hints: ['get system … status', '<code>get system performance status</code>'], steps: ['get system performance status'], check: s => s.ev.ran(/^get system performance status$/) },
+            { t: 'İlk bulgu hangisi?', ask: { choices: [['cpu', 'CPU çok yoğun (idle çok düşük)'], ['mem', 'Bellek çok yüksek'], ['sess', 'Oturum sayısı ve kurulum hızı anormal yüksek']], correct: v => v.key },
+              why: 'CPU için idle, bellek için "used (%)", oturumlar için "Average sessions" ve "session setup rate" satırlarına bakılır.', hints: ['Üç satırı karşılaştırın: CPU idle, Memory used %, sessions.', 'Normalde idle yüksek, bellek < %80, oturumlar birkaç yüz/bin.'] },
+            { t: 'Bulguya uygun ayrıntı komutunu çalıştırın.', why: 'CPU → <code>diagnose sys top</code> (hangi süreç) · Bellek → <code>diagnose hardware sysinfo conserve</code> + <code>sys top</code> (bellek sütunu) · Oturum → <code>get system session list</code> (kim üretiyor).',
+              hints: ['Bulgunun "kim?" sorusunu yanıtlayan komut.', 'CPU/bellek: sys top · oturum: session list'],
+              steps: v => v.key === 'sess' ? ['get system session list'] : v.key === 'mem' ? ['diagnose hardware sysinfo conserve', 'diagnose sys top'] : ['diagnose sys top'],
+              check: s => { const k = s.variant().key; return k === 'cpu' ? s.ev.ran(/^diagnose sys top/) : k === 'mem' ? s.ev.ran(/^diagnose hardware sysinfo (conserve|memory)$/) && s.ev.ran(/^diagnose sys top/) : s.ev.ran(/^(get system session list|diagnose sys session list)/); } },
+            { t: 'Suçlu kim?', ask: { choices: [['ipsengine', 'ipsengine süreci (IPS motoru)'], ['wad', 'wad süreci (proxy / SSL denetimi) — bellek'], ['10.64.10.77', '10.64.10.77 istemcisi (binlerce oturum)'], ['newcli', 'newcli (CLI oturumu)']], correct: v => ({ cpu: 'ipsengine', mem: 'wad', sess: '10.64.10.77' })[v.key] },
+              why: 'sys top\'ta CPU% ya da bellek% sütununda öne çıkan süreç; session list\'te ise örneklemin çoğunu kaplayan kaynak IP suçludur.', hints: ['Listenin başına bakın.', 'Oturum varyantında SOURCE sütununda tekrar eden IP.'] },
+            { t: 'Doğru ilk müdahale hangisi?', ask: { choices: [['ips', 'IPS profil kapsamını daraltmak / IPS motorunu yeniden başlatmak (diagnose test application ipsmonitor 99)'], ['conserve', 'Bellek tüketen proxy/SSL denetimini ve oturumları azaltmak; conserve\'den çıkışı izlemek'], ['host', 'Kaynağı incelemek: diagnose sys session filter src … ile oturumlarını görmek, gerekirse politikayla sınırlamak'], ['reboot', 'Cihazı hemen yeniden başlatmak']], correct: v => ({ cpu: 'ips', mem: 'conserve', sess: 'host' })[v.key] },
+              why: 'Yeniden başlatmak belirtiyi geçici siler, nedeni yok eder ve kanıtı kaybettirir. Doğru müdahale suçlu bileşene yöneliktir.', hints: ['Nedene yönelik olan seçenek.', '"Hemen reboot" neden kötü bir alışkanlıktır?'] },
+        ],
+        solution: v => ['get system performance status', { answer: 1, v: v.key }].concat(v.key === 'sess' ? ['get system session list'] : v.key === 'mem' ? ['diagnose hardware sysinfo conserve', 'diagnose sys top'] : ['diagnose sys top'],
+            [{ answer: 3, v: ({ cpu: 'ipsengine', mem: 'wad', sess: '10.64.10.77' })[v.key] }, { answer: 4, v: ({ cpu: 'ips', mem: 'conserve', sess: 'host' })[v.key] }]),
+        verify: ['get system performance status', 'diagnose sys top', 'diagnose hardware sysinfo conserve', 'get system session list'],
+        learn: ['Özet (performance status) → ayrıntı (sys top / conserve / session list).', 'CPU yavaşlığı: süreç; bellek: conserve + bellek sütunu; oturum: kaynak IP.', 'Reboot nedeni silmez, kanıtı siler.'],
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/2' }, cert: 'NSE 4 · M15'
+    },
+    {
+        id: 'fgt-22', vendor: 'fortigate', level: 5, title: 'Çöktü mü, hata var mı? crashlog ve config-error-log', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-20'],
+        up: ['port1', 'port2'], hosts: ['203.0.113.1'],
+        start: BASE(),
+        sim: { crash: ['2026-09-24 03:12:45 <00211> application ipsengine', '2026-09-24 03:12:45 <00211> *** signal 11 (Segmentation fault) received ***', '2026-09-24 03:12:46 the killed daemon is /bin/ipsengine: status=0x0'],
+            cfgErr: ['>>> "set" "srcaddr" "SRV-NEW" @ root.firewall.policy.3.srcaddr: entry not found in datasource', '>>> "next" @ root.firewall.policy.3: Attribute \'srcaddr\' MUST be set.'],
+            flows: [{ src: '10.64.20.10', dst: '198.51.100.80', dport: 443, in: 'port2' }] },
+        story: '<b>Arıza kaydı:</b> "Dün geceki firmware yükseltmesinden sonra sunucu ağı (10.64.20.0/24) internete çıkamıyor; ayrıca cihaz gece bir an takıldı." Yükseltmede bazı ayarlar yeni sürüme aktarılamamış olabilir. Kayıtları okuyun, eksik ayarı yeniden oluşturun, düzeltmeyi kanıtlayın.',
+        goals: ['crashlog ile çöken süreci bulmak', 'config-error-log ile aktarılamayan ayarı bulmak', 'Eksik nesneyi yeniden oluşturup kurala bağlamak', 'debug flow ile doğrulamak'],
+        tasks: [
+            { t: 'Çökme kaydını okuyun.', why: 'Kısa süreli takılmaların nedeni çoğu zaman yeniden başlayan bir süreçtir; iz <code>crashlog</code>\'da kalır.',
+              hints: ['diagnose debug crashlog …', '<code>diagnose debug crashlog read</code>'], steps: ['diagnose debug crashlog read'], check: s => s.ev.ran(/^diagnose debug crashlog read$/) },
+            { t: 'Hangi süreç çökmüş?', ask: { choices: [['ipsengine', 'ipsengine'], ['wad', 'wad'], ['httpsd', 'httpsd'], ['miglogd', 'miglogd']], correct: 'ipsengine' },
+              why: '"the killed daemon is /bin/…" satırı çöken süreci söyler. Tekrarlıyorsa sürüm notlarındaki bilinen hatalar ve destek kaydı gündeme gelir.', hints: ['"killed daemon" satırı.', '/bin/ sonrası ad.'] },
+            { t: 'Yapılandırma hata kaydını okuyun.', why: 'Yükseltme ya da yedekten dönüşte cihazın kabul edemediği satırlar <code>config-error-log</code>\'a yazılır; sessizce kaybolan ayarların tek izi budur.',
+              hints: ['diagnose debug config-error-log …', '<code>diagnose debug config-error-log read</code>'], steps: ['diagnose debug config-error-log read'], check: s => s.ev.ran(/^diagnose debug config-error-log read$/) },
+            { t: 'Hangi nesne aktarılamamış?', ask: { choices: [['SRV-NEW', 'SRV-NEW adres nesnesi'], ['LAN-NET', 'LAN-NET'], ['policy3', 'policy 3 kuralı'], ['port1', 'port1 arayüzü']], correct: 'SRV-NEW' },
+              why: '"entry not found in datasource" = satırın başvurduğu nesne yok. SRV-NEW aktarılamayınca policy 3\'ün zorunlu srcaddr alanı boş kaldı ve kural hiç oluşturulamadı; sunucu ağının çıkış kuralı bu yüzden yok.', hints: ['Tırnak içindeki değer.', 'Kural var, başvurduğu nesne yok.'] },
+            { t: 'Eksik nesneyi (<code>SRV-NEW</code> = <code>10.64.20.0/24</code>) oluşturun ve aktarılamayan <b>policy 3</b>\'ü yeniden kurun: <code>SRV-TO-WAN</code>, port2 → port1, kaynak SRV-NEW, hedef all, HTTPS, accept, always, NAT açık.',
+              why: 'Önce nesne, sonra ona başvuran kural. Hata kaydı hangi kuralın, hangi alanın düştüğünü söylediği için yeniden kurmak tahmin değil, kayda dayalı bir işlemdir.',
+              hints: ['config firewall address → SRV-NEW; config firewall policy → edit 3', '<code>edit 3</code> → <code>set srcaddr SRV-NEW</code> …'],
+              steps: ['config firewall address', 'edit SRV-NEW', 'set subnet 10.64.20.0/24', 'end', 'config firewall policy', 'edit 3', 'set name SRV-TO-WAN', 'set srcintf port2', 'set dstintf port1', 'set srcaddr SRV-NEW', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service HTTPS', 'set nat enable', 'end'],
+              check: s => { const a = s.obj('firewall address', 'SRV-NEW'), p = s.obj('firewall policy', '3'); return !!a && a.subnet === '10.64.20.0 255.255.255.0' && !!p && same(p.srcaddr, ['SRV-NEW']) && p.action === 'accept' && p.nat === 'enable' && s.decide({ src: '10.64.20.10', dst: '198.51.100.80', dport: 443, in: 'port2' }).policy === '3'; },
+              fb: s => { if (!s.obj('firewall address', 'SRV-NEW')) return 'Önce SRV-NEW adres nesnesi.'; const p = s.obj('firewall policy', '3'); if (!p) return 'policy 3 henüz yok (zorunlu alanlar eksikse end kaydetmez).'; if (p.nat !== 'enable') return 'İnternete çıkış için nat enable.'; return null; } },
+            { t: 'Düzeltmeyi debug flow ile kanıtlayın: 10.64.20.10\'un trafiği policy 3 ile izinli mi?',
+              why: 'Kayıt okuyup ayarı düzeltmek yetmez; aynı trafiğin artık izinli geçtiğini izle göstermek kanıttır.',
+              hints: ['reset → filter addr 10.64.20.10 → trace start → enable', '<code>diagnose debug flow filter addr 10.64.20.10</code>'],
+              steps: ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.20.10', 'diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable'],
+              needs: [4], check: s => s.ev.list().some(e => e.trace === 'allowed' && e.policy === '3' && /^10\.64\.20\.10>/.test(e.flow)) },
+        ],
+        solution: ['diagnose debug crashlog read', { answer: 1, v: 'ipsengine' }, 'diagnose debug config-error-log read', { answer: 3, v: 'SRV-NEW' },
+            'config firewall address', 'edit SRV-NEW', 'set subnet 10.64.20.0/24', 'end', 'config firewall policy', 'edit 3', 'set name SRV-TO-WAN', 'set srcintf port2', 'set dstintf port1', 'set srcaddr SRV-NEW', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service HTTPS', 'set nat enable', 'end',
+            'diagnose debug reset', 'diagnose debug flow filter addr 10.64.20.10', 'diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable'],
+        verify: ['diagnose debug crashlog read', 'diagnose debug config-error-log read', 'show firewall policy 3'],
+        learn: ['crashlog: çöken süreç ("killed daemon").', 'config-error-log: yükseltme/geri yüklemede kaybolan satırlar.', '"entry not found in datasource" = başvurulan nesne yok.', 'Önce nesne, sonra kural; sonra debug flow ile kanıt.'],
+        links: { cli: '#/cli/fortigate' }, cert: 'NSE 4 · M15'
+    },
     { id: 'fgt-sandbox', vendor: 'fortigate', level: null, sandbox: true, title: 'Serbest terminal — FortiGate', kind: 'firewall', hostname: 'FGT', up: ['port1', 'port2'], hosts: ['203.0.113.1'],
       start: IF('port1', '203.0.113.2 255.255.255.0', ['set role wan']),
       story: 'port1–4 arayüzlü bir FortiGate (port1: 203.0.113.2/24, bağlı). Görev yok; config / edit / set / next / end akışını deneyin. <kbd>?</kbd> her noktada seçenekleri gösterir.', tasks: [] },
     ];
+    // Çoktan seçmeli (ask) görevler: cevap s.answers['<lab>:<görev>'] içinde
+    LABS.forEach(l => l.tasks.forEach((t, i) => {
+        if (!t.ask) return;
+        const key = l.id + ':' + i, want = v => typeof t.ask.correct === 'function' ? t.ask.correct(v || {}) : t.ask.correct;
+        t.check = s => !!s.answers && s.answers[key] === want(s.variant && s.variant());
+        t.steps = t.steps || (v => [{ answer: i, v: want(v) }]);
+    }));
     const LABS_BY_ID = {};
     LABS.forEach(l => { LABS_BY_ID[l.id] = l; });
     const root = typeof window !== 'undefined' ? window : globalThis;
