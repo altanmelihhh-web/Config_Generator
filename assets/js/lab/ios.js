@@ -81,7 +81,7 @@ const CgLabIos = (() => {
     function newIf(sw, name) {
         return { desc: '', shutdown: !sw && isPhys(name), mode: null, accessVlan: 1, voiceVlan: null, native: 1, allowed: null,
             nonegotiate: false, ip: null, mask: null, portfast: false, bpduguard: false, speed: 'auto', duplex: 'auto', errdis: false, errReason: null, accessIn: null, accessOut: null, nat: null,
-            helpers: [], ps: null, stpCost: null, chan: null, ospf: { hello: null, dead: null, cost: null, pri: 1, net: null, pid: null, area: null }, mtu: 1500 };
+            helpers: [], ps: null, stpCost: null, chan: null, hsrp: {}, ospf: { hello: null, dead: null, cost: null, pri: 1, net: null, pid: null, area: null }, mtu: 1500 };
     }
     function baseModel(lab) {
         const sw = lab.kind !== 'router';
@@ -92,7 +92,7 @@ const CgLabIos = (() => {
             ifs: {}, vlans: sw ? { 1: 'default' } : {}, stpMode: 'pvst', stpPri: {}, portfastDefault: false, bpduguardDefault: false,
             errRecovery: { bpduguard: false, interval: 300 }, ipRouting: !sw, defaultGw: null, routes: [],
             lines: { con: { pw: null, login: false, logsync: false, timeout: null }, vty: { '0 4': { pw: null, login: 'login', transport: null, timeout: null, acl: null }, '5 15': { pw: null, login: 'login', transport: null, timeout: null, acl: null } } },
-            ospf: {}, links: {}, acls: {}, nat: [],
+            ospf: {}, links: {}, acls: {}, nat: [], tracks: {},
             aaaNew: false, tacacs: {}, radius: {}, sgroups: {}, authn: {}, authz: {}, acct: {}, tacSrc: null, radSrc: null,
             http: false, https: false, httpAuth: null, sshAlg: {}, sshDhMin: null,
             dhcpExcl: [], dhcpPools: {}, macStatic: [], macAging: 300, archive: null
@@ -166,6 +166,9 @@ const CgLabIos = (() => {
             { p: 'show spanning-tree vlan (1-4094)$v', sw: 1, run: (a) => M().vlans[a.v] ? showStp(a.v) : 'Spanning tree instance(s) for vlan ' + a.v + ' does not exist.' },
             { p: 'show spanning-tree root', sw: 1, run: () => showStpRoot() },
             { p: 'show etherchannel summary', sw: 1, run: () => showEcSummary() },
+            { p: 'show standby', run: () => showStandby() },
+            { p: 'show standby brief', run: () => showStandbyBrief() },
+            { p: 'show track', run: () => showTrack() },
             { p: 'show interfaces IFNAME$if switchport', sw: 1, run: (a) => showIfSwitchport(a.if) },
             { p: 'show ip ssh', run: showIpSsh },
             { p: 'show aaa servers', run: showAaaServers },
@@ -258,6 +261,7 @@ const CgLabIos = (() => {
             { p: 'ip dhcp pool WORD$n', run: (a) => { M().dhcpPools[a.n] = M().dhcpPools[a.n] || { network: null, mask: null, gw: [], dns: [], domain: null, lease: null }; S.mode = 'dhcp'; S.ctx = [a.n]; }, no: (a) => { delete M().dhcpPools[a.n]; } },
             { p: 'mac address-table static WORD$m vlan (1-4094)$v interface IFNAME$i', sw: 1, run: (a) => { if (!/^[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}$/i.test(a.m)) return { err: 'invalid', col: 25 }; M().macStatic = M().macStatic.filter(x => !(x.mac === a.m.toLowerCase() && x.vlan === a.v)); M().macStatic.push({ mac: a.m.toLowerCase(), vlan: a.v, port: a.i }); }, no: (a) => { M().macStatic = M().macStatic.filter(x => !(x.mac === a.m.toLowerCase() && x.vlan === a.v)); } },
             { p: 'mac address-table aging-time !(0-1000000)$t', sw: 1, run: (a) => { if (a.t !== 0 && a.t < 10) return '% [Simülatör] Geçerli aralık: 0 ya da 10–1000000 sn.'; M().macAging = a.t; }, no: () => { M().macAging = 300; } },
+            { p: 'track (1-1000)$t interface IFNAME$i line-protocol', run: (a) => { M().tracks[a.t] = { ifn: a.i }; S.mode = 'track'; S.ctx = [String(a.t)]; }, no: (a) => { delete M().tracks[a.t]; } },
             { p: 'archive', run: () => { M().archive = M().archive || { path: null, wm: false, period: null, max: 10 }; S.mode = 'archive'; S.ctx = ['archive']; }, no: () => { M().archive = null; } },
             { p: 'aaa new-model', run: () => { M().aaaNew = true; }, no: () => { M().aaaNew = false; } },
             { p: 'tacacs server WORD$n', run: (a) => { M().tacacs[a.n] = M().tacacs[a.n] || { addr: null, key: null, port: 49, timeout: 5 }; S.mode = 'tacsrv'; S.ctx = [a.n]; }, no: (a) => { delete M().tacacs[a.n]; } },
@@ -304,6 +308,11 @@ const CgLabIos = (() => {
             { p: 'switchport trunk allowed vlan !VLIST$l', sw: 1, l2: 1, run: (a) => secsIf().forEach(i => { i.allowed = vlanList(a.l); }), no: () => secsIf().forEach(i => { i.allowed = null; }) },
             { p: 'channel-group (1-48)$g mode !<active|passive|on|desirable|auto>$m', sw: 1, phys: 1, run: (a) => chanJoin(a.g, a.m), no: () => secsIf().forEach(i => { i.chan = null; }) },
             { p: 'channel-group', noOnly: 1, sw: 1, phys: 1, no: () => secsIf().forEach(i => { i.chan = null; }) },
+            { p: 'standby (0-255)$g ip A.B.C.D$ip', run: (a) => secsIf().forEach(i => { hsg(i, a.g).vip = a.ip; }), no: (a) => secsIf().forEach(i => { if (i.hsrp[a.g]) i.hsrp[a.g].vip = null; }) },
+            { p: 'standby (0-255)$g priority !(0-255)$p', run: (a) => secsIf().forEach(i => { hsg(i, a.g).pri = a.p; }), no: (a) => secsIf().forEach(i => { if (i.hsrp[a.g]) i.hsrp[a.g].pri = 100; }) },
+            { p: 'standby (0-255)$g preempt', run: (a) => secsIf().forEach(i => { hsg(i, a.g).preempt = true; }), no: (a) => secsIf().forEach(i => { if (i.hsrp[a.g]) i.hsrp[a.g].preempt = false; }) },
+            { p: 'standby (0-255)$g track (1-1000)$t decrement !(1-255)$d', run: (a) => secsIf().forEach(i => { hsg(i, a.g).track[a.t] = a.d; }), no: (a) => secsIf().forEach(i => { if (i.hsrp[a.g]) delete i.hsrp[a.g].track[a.t]; }) },
+            { p: 'standby (0-255)$g timers !(1-254)$h (2-255)$d', run: (a) => { if (a.d <= a.h) return '% [Simülatör] Hold süresi hello süresinden büyük olmalı.'; secsIf().forEach(i => { Object.assign(hsg(i, a.g), { hello: a.h, hold: a.d }); }); }, no: (a) => secsIf().forEach(i => { if (i.hsrp[a.g]) Object.assign(i.hsrp[a.g], { hello: 3, hold: 10 }); }) },
             { p: 'spanning-tree cost !(1-200000000)$v', sw: 1, run: (a) => secsIf().forEach(i => { i.stpCost = a.v; }), no: () => secsIf().forEach(i => { i.stpCost = null; }) },
             { p: 'ip ospf hello-interval !(1-65535)$v', run: (a) => secsIf().forEach(i => { i.ospf.hello = a.v; }), no: () => secsIf().forEach(i => { i.ospf.hello = null; }) },
             { p: 'ip ospf dead-interval !(1-65535)$v', run: (a) => secsIf().forEach(i => { i.ospf.dead = a.v; }), no: () => secsIf().forEach(i => { i.ospf.dead = null; }) },
@@ -411,8 +420,8 @@ const CgLabIos = (() => {
         function aclNumAdd(a, type) { return aclEntryAdd(String(a.n), type, undefined, [a.a].concat(a.r.trim().split(/\s+/)), ('access-list ' + a.n + ' ').length); }
         function natStaticAdd(r) { if (M().nat.some(x => x.type === 'static' && x.global === r.global && (x.gport || 0) === (r.gport || 0))) return '% similar static entry (' + r.local + ' -> ' + r.global + ') already exists'; M().nat.push(r); }
         const osp = () => M().ospf[S.ctx[0]];
-        const MODES = { config: CONFIG, if: IFMODE, range: IFMODE, vlan: VLANMODE, line: LINEMODE, router: ROUTERMODE, snacl: SNACL, enacl: ENACL, tacsrv: TACSRV, radsrv: RADSRV, sgtac: SG, sgrad: SG, dhcp: DHCPM, archive: ARCH };
-        const PROMPT = { user: '>', priv: '#', config: '(config)#', if: '(config-if)#', range: '(config-if-range)#', vlan: '(config-vlan)#', line: '(config-line)#', router: '(config-router)#', snacl: '(config-std-nacl)#', enacl: '(config-ext-nacl)#', tacsrv: '(config-server-tacacs)#', radsrv: '(config-radius-server)#', sgtac: '(config-sg-tacacs+)#', sgrad: '(config-sg-radius)#', dhcp: '(dhcp-config)#', archive: '(config-archive)#' };
+        const MODES = { config: CONFIG, if: IFMODE, range: IFMODE, vlan: VLANMODE, line: LINEMODE, router: ROUTERMODE, snacl: SNACL, enacl: ENACL, tacsrv: TACSRV, radsrv: RADSRV, sgtac: SG, sgrad: SG, dhcp: DHCPM, archive: ARCH, track: X([].concat(COMMON)) };
+        const PROMPT = { user: '>', priv: '#', config: '(config)#', if: '(config-if)#', range: '(config-if-range)#', vlan: '(config-vlan)#', line: '(config-line)#', router: '(config-router)#', snacl: '(config-std-nacl)#', enacl: '(config-ext-nacl)#', tacsrv: '(config-server-tacacs)#', radsrv: '(config-radius-server)#', sgtac: '(config-sg-tacacs+)#', sgrad: '(config-sg-radius)#', dhcp: '(dhcp-config)#', archive: '(config-archive)#', track: '(config-track)#' };
 
         // Cihaz türüne / arayüze göre komut süzgeci
         function avail(list, noForm) {
@@ -760,6 +769,7 @@ const CgLabIos = (() => {
                 if (i.mtu !== 1500) L.push(' ip mtu ' + i.mtu);
                 if (i.stpCost) L.push(' spanning-tree cost ' + i.stpCost);
                 if (i.chan) L.push(' channel-group ' + i.chan.g + ' mode ' + i.chan.m);
+                Object.entries(i.hsrp).forEach(([g, h]) => { if (h.vip) L.push(' standby ' + g + ' ip ' + h.vip); if (h.hello !== 3 || h.hold !== 10) L.push(' standby ' + g + ' timers ' + h.hello + ' ' + h.hold); if (h.pri !== 100) L.push(' standby ' + g + ' priority ' + h.pri); if (h.preempt) L.push(' standby ' + g + ' preempt'); Object.entries(h.track).forEach(([t, d]) => L.push(' standby ' + g + ' track ' + t + ' decrement ' + d)); });
                 if (i.ospf.pid) L.push(' ip ospf ' + i.ospf.pid + ' area ' + i.ospf.area);
                 if (i.ospf.net) L.push(' ip ospf network ' + i.ospf.net);
                 if (i.ospf.hello) L.push(' ip ospf hello-interval ' + i.ospf.hello);
@@ -795,6 +805,7 @@ const CgLabIos = (() => {
             if (m.httpAuth) L.push('ip http authentication ' + m.httpAuth);
             L.push(m.https ? 'ip http secure-server' : 'no ip http secure-server', '!');
             if (m.tacSrc) L.push('ip tacacs source-interface ' + m.tacSrc);
+            Object.entries(m.tracks).forEach(([t, x]) => L.push('!', 'track ' + t + ' interface ' + x.ifn + ' line-protocol'));
             m.dhcpExcl.forEach(([a, b]) => L.push('ip dhcp excluded-address ' + a + (b !== a ? ' ' + b : '')));
             for (const [n, P] of Object.entries(m.dhcpPools)) { L.push('!', 'ip dhcp pool ' + n); if (P.network) L.push(' network ' + P.network + ' ' + P.mask); if (P.gw.length) L.push(' default-router ' + P.gw.join(' ')); if (P.dns.length) L.push(' dns-server ' + P.dns.join(' ')); if (P.domain) L.push(' domain-name ' + P.domain); if (P.lease) L.push(' lease ' + P.lease); }
             if (m.macAging !== 300) L.push('mac address-table aging-time ' + m.macAging);
@@ -1344,6 +1355,79 @@ const CgLabIos = (() => {
         // RIB: connected + local + static (next-hop bağlı ağda ve arayüz up ise)
         // RIB: connected + local + static. Aynı önekte en düşük AD kazanır (eşitse ECMP);
         // next-hop bağlı bir ağda ve arayüz up değilse rota kurulmaz (yüzen rota böyle devreye girer).
+        // ═══ HSRP v1 (lab.sim.hsrp: { IF: { ip, groups: { g: { pri, preempt } } } } karşı router) ═══
+        const hsg = (i, g) => i.hsrp[g] || (i.hsrp[g] = { vip: null, pri: 100, preempt: false, track: {}, hello: 3, hold: 10 });
+        const trackUp = t => { const x = M().tracks[t]; return !!x && ifUp(x.ifn); };
+        const hsEff = h => Math.max(0, h.pri - Object.entries(h.track).reduce((a, [t, d]) => a + (M().tracks[t] && !trackUp(t) ? d : 0), 0));
+        function hsrpList() {
+            const out = [], peers = (S.lab.sim && S.lab.sim.hsrp) || {};
+            Object.entries(M().ifs).forEach(([n, i]) => Object.entries(i.hsrp).forEach(([g, h]) => {
+                if (!h.vip) return;
+                const pe = peers[n], pg = pe && pe.groups && pe.groups[g] ? Object.assign({ pri: 100, preempt: false }, pe.groups[g]) : null;
+                out.push({ n, g: +g, h, i, peer: pg ? Object.assign({ ip: pe.ip }, pg) : null, up: ifUp(n) && !!i.ip });
+            }));
+            return out;
+        }
+        const hsBetter = (pa, ipa, pb, ipb) => pa > pb || (pa === pb && ip2n(ipa) > ip2n(ipb));
+        // Durum makinesi: mevcut aktif, preempt olmadan korunur
+        function hsrpStep() {
+            S.hsAct = S.hsAct || {};
+            const ch = [];
+            hsrpList().forEach(x => {
+                const k = x.n + '/' + x.g, me = hsEff(x.h), prev = S.hsAct[k];
+                let cur = prev;
+                if (!x.up) cur = x.peer ? 'peer' : 'none';
+                else if (!x.peer) cur = 'me';
+                else if (cur === undefined || cur === 'none') cur = 'peer';   // gruba katılırken karşı taraf zaten aktif: preempt olmadan devralınmaz
+                else if (cur === 'me' && x.peer.preempt && hsBetter(x.peer.pri, x.peer.ip, me, x.i.ip)) cur = 'peer';
+                else if (cur === 'peer' && x.h.preempt && hsBetter(me, x.i.ip, x.peer.pri, x.peer.ip)) cur = 'me';
+                if (cur !== prev) { ch.push({ x, from: prev, to: cur }); S.hsAct[k] = cur; S.hsChanges = (S.hsChanges || 0) + 1; }
+            });
+            return ch;
+        }
+        function hsrpEvents() {
+            const out = [], ts = () => '*' + new Date().toTimeString().slice(0, 8) + '.931: ';
+            hsrpStep().forEach(({ x, from, to }) => {
+                const IF = ifShort(x.n) + ' Grp ' + x.g + ' state ';
+                if (to === 'me') { out.push(ts() + '%HSRP-5-STATECHANGE: ' + IF + (from === undefined || from === 'none' ? 'Speak -> Standby' : 'Standby -> Active')); if (from === undefined || from === 'none') out.push(ts() + '%HSRP-5-STATECHANGE: ' + IF + 'Standby -> Active'); log({ event: 'hsrp', to: 'active' }); }
+                else if (to === 'peer' && from === 'me') { out.push(ts() + '%HSRP-5-STATECHANGE: ' + IF + 'Active -> Speak', ts() + '%HSRP-5-STATECHANGE: ' + IF + 'Speak -> Standby'); log({ event: 'hsrp', to: 'standby' }); }
+                else if (to === 'peer' && (from === undefined || from === 'none') && x.up) { out.push(ts() + '%HSRP-5-STATECHANGE: ' + IF + 'Speak -> Standby'); log({ event: 'hsrp', to: 'standby' }); }
+            });
+            return out.join('\n');
+        }
+        const hsState = x => !x.up ? 'Init' : (S.hsAct || {})[x.n + '/' + x.g] === 'me' ? 'Active' : 'Standby';
+        function showStandbyBrief() {
+            const L = ['                     P indicates configured to preempt.', '                     |', 'Interface   Grp  Pri P State   Active          Standby         Virtual IP'];
+            hsrpList().forEach(x => { const st = hsState(x); L.push(pad(ifShort(x.n), 12) + pad(x.g, 5) + pad(hsEff(x.h), 4) + pad(x.h.preempt ? 'P' : ' ', 2) + pad(st, 8) + pad(st === 'Active' ? 'local' : x.peer ? x.peer.ip : 'unknown', 16) + pad(st === 'Active' ? (x.peer ? x.peer.ip : 'unknown') : st === 'Standby' ? 'local' : 'unknown', 16) + x.h.vip); });
+            log({ hsshow: 'brief' });
+            return L.join('\n');
+        }
+        function showStandby() {
+            const L = [];
+            hsrpList().forEach(x => {
+                const st = hsState(x), vmac = '0000.0c07.ac' + x.g.toString(16).padStart(2, '0'), eff = hsEff(x.h);
+                L.push(x.n + ' - Group ' + x.g, '  State is ' + st, '    ' + (S.hsChanges || 1) + ' state changes, last state change 00:00:12', '  Virtual IP address is ' + x.h.vip,
+                    '  Active virtual MAC address is ' + vmac + (st === 'Active' ? ' (MAC In Use)' : ' (MAC Not In Use)'), '    Local virtual MAC address is ' + vmac + ' (v1 default)',
+                    '  Hello time ' + x.h.hello + ' sec, hold time ' + x.h.hold + ' sec', '    Next hello sent in 1.456 secs', '  Preemption ' + (x.h.preempt ? 'enabled' : 'disabled'),
+                    '  Active router is ' + (st === 'Active' ? 'local' : x.peer ? x.peer.ip + ', priority ' + x.peer.pri + ' (expires in 8.816 sec)' : 'unknown'),
+                    '  Standby router is ' + (st === 'Active' ? (x.peer ? x.peer.ip + ', priority ' + x.peer.pri + ' (expires in 9.312 sec)' : 'unknown') : 'local'),
+                    '  Priority ' + eff + ' (configured ' + x.h.pri + ')');
+                Object.entries(x.h.track).forEach(([t, d]) => L.push('    Track object ' + t + ' state ' + (M().tracks[t] ? (trackUp(t) ? 'Up' : 'Down') : 'Undefined') + ' decrement ' + d));
+                L.push('  Group name is "hsrp-' + ifShort(x.n) + '-' + x.g + '" (default)');
+            });
+            log({ hsshow: 'detail' });
+            return L.join('\n');
+        }
+        function showTrack() {
+            const L = [];
+            Object.entries(M().tracks).forEach(([t, x]) => {
+                const by = hsrpList().filter(y => y.h.track[t] !== undefined);
+                L.push('Track ' + t, '  Interface ' + x.ifn + ' line-protocol', '  Line protocol is ' + (trackUp(t) ? 'Up' : 'Down'), '    1 change, last change 00:05:12');
+                if (by.length) L.push('  Tracked by:'), by.forEach(y => L.push('    HSRP ' + y.n + ' ' + y.g));
+            });
+            log({ trackshow: true });
+            return L.join('\n');
+        }
         // ═══ EtherChannel (lab.sim.lacp: { PORT: { mode } } karşı uç) ═════════
         const PROTO = m => m === 'on' ? 'on' : (m === 'active' || m === 'passive') ? 'lacp' : 'pagp';
         function chanJoin(g, m) {
@@ -1749,7 +1833,7 @@ const CgLabIos = (() => {
         }
         // Gerçek cihazda var, bu lab sürümünde yok → dürüst mesaj (desteklenen kökler buraya yazılmaz; yazım hatası gerçek %Invalid verir)
         const UNSUP = ['snmp-server', 'ntp', 'logging host', 'logging trap', 'clock timezone', 'cdp', 'lldp', 'ip dhcp snooping', 'ip arp inspection',
-            'router eigrp', 'router bgp', 'router rip', 'standby', 'crypto isakmp', 'crypto ipsec', 'crypto map', 'ipv6', 'vtp', 'monitor session',
+            'router eigrp', 'router bgp', 'router rip', 'vrrp', 'glbp', 'ip sla', 'track list', 'show ip sla', 'show vrrp', 'show glbp', 'crypto isakmp', 'crypto ipsec', 'crypto map', 'ipv6', 'vtp', 'monitor session',
             'ip ospf authentication', 'ip ospf message-digest-key', 'area', 'encapsulation', 'show cdp', 'show lldp', 'show ip ospf database', 'show ip protocols',
             'show etherchannel detail', 'show etherchannel port-channel', 'show lacp', 'show pagp', 'lacp', 'port-channel load-balance', 'channel-protocol', 'show spanning-tree summary', 'show spanning-tree blockedports', 'show spanning-tree detail', 'show spanning-tree interface', 'show standby', 'spanning-tree port-priority', 'spanning-tree uplinkfast', 'spanning-tree backbonefast', 'spanning-tree loopguard', 'spanning-tree guard', 'show interfaces counters', 'show arp', 'show ip dhcp snooping', 'debug', 'traceroute',
             'clear counters', 'clear arp-cache', 'clear logging', 'clear line', 'clear ip ospf', 'clear ip route', 'clear access-list', 'clear spanning-tree', 'clear port-security'];
@@ -1798,7 +1882,7 @@ const CgLabIos = (() => {
             const out = isNo ? (r.cmd.no ? r.cmd.no(r.args) : undefined) : r.cmd.run(r.args);
             if (out && typeof out === 'object') { S.mode = prevMode; S.ctx = prevCtx; S.ev.pop(); return errText(Object.assign({}, out, { col: (out.col || 0) + off }), line, 0, S.mode); }
             chanSync();
-            const evs = [bpduEvents(), psecEvents(), chanEvents(), ospfEvents()].filter(Boolean).join('\n');
+            const evs = [bpduEvents(), psecEvents(), chanEvents(), ospfEvents(), hsrpEvents()].filter(Boolean).join('\n');
             return [out || '', evs].filter(Boolean).join('\n');
         }
         function help(raw) {
@@ -1876,7 +1960,7 @@ const CgLabIos = (() => {
             mode: () => S.mode,
             run: (n) => ({ up: ifUp(n) }),
             rib, lookup, forward: f => forward(f, false), acl: n => M().acls[n] || null,
-            stp: v => stpCalc(v), stpPri: v => myPri(v), chan: () => chanState(),
+            stp: v => stpCalc(v), stpPri: v => myPri(v), chan: () => chanState(), hsrp: () => hsrpList().map(x => ({ n: x.n, g: x.g, state: hsState(x), pri: hsEff(x.h), preempt: x.h.preempt, track: x.h.track })),
             ospfNbrs: () => ospfNbrs(), ospfIf: n => ospfIf(n), ospfPassive: n => { const o = ospfIf(n); return !!o && ospfPassive(n, o.pid); },
             dhcpLeases: () => dhcpLeases(), psec: n => psecEval(n), macRows: () => macRows(), flash: () => Object.keys(S.flash), archives: () => S.archives.map(a => a.name),
             aaaAuth: (list, u, p) => aaaAuth(M().authn[list] || [], u, p),
