@@ -624,9 +624,16 @@ function cgHighlight(text) {
 }
 
 // Terminal panelini günceller. config boşsa bekleme durumu gösterir.
+// Üreteçler değerleri cgEsc ile kaçırarak üretir; çıktı metin olduğundan burada bir kez çözülür.
+// Böylece kopyalanan/indirilen config ham olur (ör. PSK "Ab&1" → önceden "Ab&amp;1" kopyalanıyordu),
+// ekranda ise cgHighlight tek kez kaçırır.
+function cgUnesc(v) {
+    return String(v == null ? '' : v).replace(/&(lt|gt|quot|#39|amp);/g, (m, e) => ({ lt: '<', gt: '>', quot: '"', '#39': "'", amp: '&' })[e]);
+}
 function cgShowOutput(config, warnings = []) {
     const body = document.getElementById('cg-term-body');
     if (!body) return;
+    config = cgUnesc(config);
 
     const has = config && String(config).trim().length > 0;
     cgLastOutput = has ? config : '';

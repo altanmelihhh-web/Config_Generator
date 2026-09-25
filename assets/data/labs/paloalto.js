@@ -93,7 +93,7 @@
             'set cli config-output-format set', 'show config running', 'configure', 'set deviceconfig system hostname YANLIS', 'revert config', 'show deviceconfig system', 'validate full', 'run show jobs all', 'exit', 'show system info', { answer: 7, v: 'sw' }],
         verify: ['show system info', 'show config diff', 'show config running', 'show jobs all'],
         learn: ['<code>&gt;</code> operasyonel, <code>#</code> yapılandırma; <code>run</code> ile yapılandırmadan operasyonel komut.', 'set candidate\'i değiştirir; commit running yapar (iş/job olarak).', '<code>show config diff</code> commit öncesi fark.', '<code>revert config</code> commit edilmemiş değişiklikleri atar.', '<code>validate full</code> commit etmeden doğrular.', 'Commit ya hep ya hiç: başarısızsa running değişmez.', '<code>sw-version</code> PAN-OS sürümü; <code>app-version</code> App-ID içerik sürümü.'],
-        links: { cli: '#/cli/paloalto' }, cert: 'Network Security Analyst'
+        links: { wizard: '#/troubleshoot/paloalto/104', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst'
     },
     // ═══ Seviye 1 ═══════════════════════════════════════════════════════════
     {
@@ -151,7 +151,7 @@
         ],
         verify: ['show interface all', 'show interface ethernet1/2', 'show routing route', 'test routing fib-lookup virtual-router default ip 198.51.100.80'],
         learn: ['Trafik için: L3 adres + zone + virtual-router.', 'Zone\'a yalnız aynı tip (layer3) arayüz.', 'Statik rota VR altında adla; sonraki atlama bağlı ağda.', 'Cihaza ping/SSH: interface-management-profile; WAN\'da kapalı.', 'Profilde http/telnet yok; permitted-ip ile kaynak ağ daraltılır.', 'Rota seçimi en uzun önekle: bağlı /24, /0 varsayılan rotadan önce gelir.'],
-        links: { tool: '#/paloalto/interface', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst'
+        links: { wizard: '#/troubleshoot/paloalto/105', tool: '#/paloalto/interface', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst'
     },
     // ═══ Seviye 2 ═══════════════════════════════════════════════════════════
     {
@@ -207,7 +207,7 @@
         ],
         verify: ['show rulebase security', 'test security-policy-match from trust to untrust source 10.64.10.50 destination 198.51.100.80 destination-port 443 protocol 6 application ssl', 'show config running'],
         learn: ['Kurallar App-ID ile yazılır; service application-default uygulamanın standart portu.', 'Standart dışı port: özel servis nesnesi.', 'Eşleşmeyen trafik: interzone-default (deny); aynı zone içi: intrazone-default (allow).', 'test security-policy-match trafik üretmeden kuralı gösterir.', 'application any + service any = port tabanlı kural: kaçının.', 'log-end açık kalsın; intrazone/interzone-default varsayılan olarak loglamaz.'],
-        links: { tool: '#/paloalto/policy', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst'
+        links: { wizard: '#/troubleshoot/paloalto/108', tool: '#/paloalto/policy', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst'
     },
     // ═══ Seviye 3 ═══════════════════════════════════════════════════════════
     {
@@ -259,7 +259,7 @@
         ],
         verify: ['show rulebase nat', 'test nat-policy-match from untrust to untrust source 198.51.100.7 destination 203.0.113.10 destination-port 443 protocol 6', 'test security-policy-match from untrust to dmz source 198.51.100.7 destination 203.0.113.10 destination-port 443 protocol 6 application ssl', 'show session all'],
         learn: ['SNAT (DIPP): dynamic-ip-and-port interface-address.', 'NAT kuralı: hedef zone pre-NAT (rota aramasına göre).', 'Güvenlik kuralı: hedef IP pre-NAT, hedef zone post-NAT.', 'test nat-policy-match pre-NAT değerlerle çalıştırılır.', 'NAT testinde "=&gt;" solunda orijinal, sağında çevrilmiş adres:port.', 'Yanlış zone ya da IP commit hatası vermez: test komutlarıyla doğrulayın.'],
-        links: { tool: '#/paloalto/nat', cli: '#/cli/paloalto', wizard: '#/troubleshoot/paloalto/0' }, cert: 'Network Security Analyst'
+        links: { tool: '#/paloalto/nat', cli: '#/cli/paloalto', wizard: '#/troubleshoot/paloalto/100' }, cert: 'Network Security Analyst'
     },
     // ═══ Seviye 4 ═══════════════════════════════════════════════════════════
     {
@@ -300,7 +300,7 @@
         ],
         verify: ['show rulebase security', 'test security-policy-match from trust to dmz source 10.64.10.50 destination 172.24.50.10 destination-port 443 protocol 6 application ssl'],
         learn: ['Kurallar yukarıdan aşağı; ilk eşleşen kazanır.', 'Geniş kural üstteyse altındaki özel kural gölgelenir.', 'move … before/after/top/bottom ile sırala; silme.', 'Test commit edilmiş kuralları sınar: commit sonrası yeniden test.', 'Commit gölgelenme için uyarı verir ("shadows rule") ama durdurmaz.'],
-        links: { tool: '#/paloalto/policy', cli: '#/cli/paloalto', wizard: '#/troubleshoot/paloalto/0' }, cert: 'Network Security Analyst'
+        links: { tool: '#/paloalto/policy', cli: '#/cli/paloalto', wizard: '#/troubleshoot/paloalto/101' }, cert: 'Network Security Analyst'
     },
     // ═══ Seviye 5 — arıza ═════════════════════════════════════════════════════
     {
@@ -360,7 +360,7 @@
         ],
         verify: ['test nat-policy-match from untrust to untrust source 198.51.100.7 destination 203.0.113.10 destination-port 443 protocol 6', 'test security-policy-match from untrust to dmz source 198.51.100.7 destination 203.0.113.10 destination-port 443 protocol 6 application ssl', 'show rulebase security', 'show config diff', 'show session all'],
         learn: ['DNAT: NAT kuralı to = pre-NAT zone; güvenlik kuralı: IP pre-NAT, zone post-NAT.', 'Önce NAT testi, sonra güvenlik testi.', 'Geniş deny üstteyse özel allow gölgelenir: move ile sırala.', 'Commit edilmemiş düzeltme cihazda yoktur: show config diff.', 'NAT eşleşmezse istek çevrilmez: untrust içinde kalır, sunucuya ulaşmaz.', 'Çok değerli alanda önce yanlış değeri delete, sonra doğrusunu set.'],
-        links: { cli: '#/cli/paloalto', wizard: '#/troubleshoot/paloalto/0', tool: '#/paloalto/nat' }, cert: 'NGFW Engineer'
+        links: { cli: '#/cli/paloalto', wizard: '#/troubleshoot/paloalto/102', tool: '#/paloalto/nat' }, cert: 'NGFW Engineer'
     },
     { id: 'pan-sandbox', vendor: 'paloalto', level: null, sandbox: true, title: 'Serbest terminal — PAN-OS', kind: 'firewall', hostname: 'PA-VM', up: UP, hosts: HOSTS, start: BASE,
       story: 'ethernet1/1–1/8 arayüzlü bir PA-VM (1/1 untrust 203.0.113.2/24, 1/2 trust 10.64.10.1/24, 1/3 dmz 172.24.50.1/24, varsayılan rota hazır). Görev yok; <code>configure</code> → <code>set</code> → <code>commit</code>, <code>test security-policy-match</code> ve <code>?</code> yardımını deneyin.', tasks: [] },

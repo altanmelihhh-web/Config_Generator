@@ -2,6 +2,46 @@
 
 const PaloAlto = {};
 
+// ── Lab bulgularından türetilen girdi uyarıları (CLI Lab pan-02/03/04/05/06) ──
+// Önekler: ⛔ engel (commit reddeder / çalışmaz) · ⚠ risk ya da sık hata · ℹ bilgi. Yardımcılar _paW* önekli.
+// Sözdizimi kaynakları: pan-os-python (network.py / policies.py / ha.py XML yolları = set CLI yolları),
+// iron-skillet PAN-OS 10.1 set şablonu, docs.paloaltonetworks.com.
+const _paWIsIp = ip => /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/.test(String(ip || '').trim());
+const _paWN = ip => String(ip || '').trim().split('.').reduce((a, o) => a * 256 + (+o), 0);
+// "A.B.C.D/NN" → { ip, len } (geçersizse null)
+function _paWNet(s) {
+    const m = String(s || '').trim().match(/^([\d.]+)\/(\d{1,2})$/);
+    return m && _paWIsIp(m[1]) && +m[2] <= 32 ? { ip: m[1], len: +m[2] } : null;
+}
+const _paWBase = (ip, len) => len === 0 ? 0 : Math.floor(_paWN(ip) / 2 ** (32 - len)) * 2 ** (32 - len);
+const _paWIn = (ip, net) => !!net && _paWIsIp(ip) && _paWBase(ip, net.len) === _paWBase(net.ip, net.len);
+const _paWOverlap = (a, b) => !!a && !!b && _paWBase(a.ip, Math.min(a.len, b.len)) === _paWBase(b.ip, Math.min(a.len, b.len));
+const _paWHostBits = n => !!n && _paWN(n.ip) !== _paWBase(n.ip, n.len);
+// Arayüz IP'si alt ağın ağ ya da yayın adresi mi? (/31-/32 hariç)
+function _paWNetOrBcast(n) {
+    if (!n || n.len > 30) return false;
+    const v = _paWN(n.ip), b = _paWBase(n.ip, n.len);
+    return v === b || v === b + 2 ** (32 - n.len) - 1;
+}
+const _paWIpOf = v => [24, 16, 8, 0].map(k => Math.floor(v / 2 ** k) % 256).join('.');
+const _paWMask = len => [0, 1, 2, 3].map(i => { const b = Math.max(0, Math.min(8, len - i * 8)); return 256 - 2 ** (8 - b); }).join('.');
+// Virgül / boşluk ayrımlı liste
+const _paWList = s => String(s || '').split(/[\s,]+/).map(x => x.trim()).filter(Boolean);
+// PAN-OS üye alanı: tek değer düz, çok değer köşeli parantezle ("[ a b ]")
+const _paWMembers = a => a.length > 1 ? '[ ' + a.map(cgEsc).join(' ') + ' ]' : cgEsc(a[0] || '');
+const _paWUntrust = z => /untrust|outside|wan|internet|external/i.test(String(z || ''));
+const _paWInside = z => !_paWUntrust(z) && /dmz|trust|inside|lan|server|srv/i.test(String(z || ''));
+// Nesne adı: en çok 63 karakter; harf/rakam/_ ile başlar; harf, rakam, boşluk, - _ . içerir
+function _paWName(label, v, w, max) {
+    const s = String(v || '');
+    if (!s) return;
+    if (s.length > (max || 63)) w.push('⛔ ' + label + ' en çok ' + (max || 63) + ' karakter olabilir (' + s.length + ').');
+    if (!/^[A-Za-z0-9_][A-Za-z0-9 ._-]*$/.test(s)) w.push('⛔ ' + label + ' "' + s + '": PAN-OS adı harf, rakam ya da _ ile başlar; yalnız harf, rakam, boşluk, - _ . içerir.');
+}
+// Arayüz yönetim profili hizmetleri (pan-os-python ManagementProfile)
+const _PAW_MP = ['ping', 'telnet', 'ssh', 'http', 'http-ocsp', 'https', 'snmp', 'response-pages', 'userid-service', 'userid-syslog-listener-ssl', 'userid-syslog-listener-udp'];
+const _PAW_VRNOTE = 'ℹ PAN-OS 10.2+ cihazda Advanced Routing açıksa virtual-router yerine logical-router kullanılır (network logical-router …); bu komutlar eski (legacy) yönlendirme motoru içindir.';
+
 // ── Palo Alto: Zone ───────────────────────────────────────────────────────────
 PaloAlto.zone = {
     label: 'Zone',
@@ -39,7 +79,7 @@ PaloAlto.zone = {
                     fields: [
                         { name: 'inside_zone', why: "İç ağ zone'u. Zone isimlendirmesinde tutarlılık (TRUST/UNTRUST/DMZ) 300 kurallı bir cihazda okunabilirliği belirler.", label: 'Inside Zone Adı', type: 'text', required: true, placeholder: 'inside', hint: 'Trust zone adı (ör: inside, Trust)' },
                         { name: 'inside_iface', why: "Arayüzü bir zone'a atamadan trafik <b>hiç</b> geçmez; zone'suz arayüz tüm paketleri sessizce düşürür. Virtual Router'a eklemeyi de unutma.", label: 'Inside Interface', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/2', hint: 'LAN bacağı arayüzü' },
-                        { name: 'inside_ip', why: "İç arayüz IP'si; LAN istemcilerinin gateway'i olur.", label: 'Inside IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '192.168.1.1/24', hint: 'CIDR formatında LAN gateway IP' }
+                        { name: 'inside_ip', why: "İç arayüz IP'si; LAN istemcilerinin gateway'i olur.", label: 'Inside IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.64.10.1/24', hint: 'CIDR formatında LAN gateway IP' }
                     ]
                 },
                 {
@@ -57,17 +97,45 @@ PaloAlto.zone = {
     }
 };
 function cgPaZoneGen(data) {
-    const ztype = cgEsc(data.zone_type || 'layer3');
+    const zt = ['layer3', 'tap', 'virtual-wire'].includes(data.zone_type) ? data.zone_type : 'layer3';
     const oz = cgEsc(data.outside_zone || ''), oi = cgEsc(data.outside_iface || ''), oip = cgEsc(data.outside_ip || '');
     const iz = cgEsc(data.inside_zone || ''), ii = cgEsc(data.inside_iface || ''), iip = cgEsc(data.inside_ip || '');
     const vr = cgEsc(data.vr || '');
+    const w = [];
+    _paWName('Outside zone adı', data.outside_zone, w, 31);
+    _paWName('Inside zone adı', data.inside_zone, w, 31);
+    if (oz && oz === iz) w.push('⛔ İki zone aynı adda: arayüzler aynı zone\'a düşer, aralarındaki trafik intrazone-default ile kuralsız geçer.');
+    if (oi && oi === ii) w.push('⛔ Outside ve inside aynı arayüz: bir arayüz yalnız bir zone\'a üye olabilir, commit reddeder.');
     let c = '# ========================================\n# Palo Alto — Zone & Interface Configuration\n# ========================================\n\n';
-    c += '# Outside Interface\nset network interface ethernet ' + oi + ' layer3 ip ' + oip + '\nset network interface ethernet ' + oi + ' layer3 mtu 1500\n\n';
-    c += '# Inside Interface\nset network interface ethernet ' + ii + ' layer3 ip ' + iip + '\nset network interface ethernet ' + ii + ' layer3 mtu 1500\n\n';
-    c += '# Zones\nset zone ' + oz + ' network ' + ztype + ' [ ' + oi + ' ]\nset zone ' + iz + ' network ' + ztype + ' [ ' + ii + ' ]\n\n';
-    c += '# Virtual Router\nset network virtual-router ' + vr + ' interface [ ' + oi + ' ' + ii + ' ]\n\n';
-    c += '# Doğrulama:\n# show zone\n# show interface all\n# show routing route\n';
-    return c;
+    if (zt === 'layer3') {
+        const on = _paWNet(data.outside_ip), inn = _paWNet(data.inside_ip);
+        [['Outside', on], ['Inside', inn]].forEach(([l, n]) => { if (_paWNetOrBcast(n)) w.push('⛔ ' + l + ' IP\'si alt ağın ağ ya da yayın adresi (' + n.ip + '/' + n.len + '); arayüze kullanılabilir bir host adresi verin.'); });
+        if (on && inn && _paWOverlap(on, inn)) w.push('⛔ Outside ve inside alt ağları çakışıyor: aynı VR\'da iki bağlı ağ çakışınca commit reddeder ya da trafik yanlış arayüze gider.');
+        c += '# Outside Interface\nset network interface ethernet ' + oi + ' layer3 ip ' + oip + '\nset network interface ethernet ' + oi + ' layer3 mtu 1500\n\n';
+        c += '# Inside Interface\nset network interface ethernet ' + ii + ' layer3 ip ' + iip + '\nset network interface ethernet ' + ii + ' layer3 mtu 1500\n\n';
+        c += '# Zones\nset zone ' + oz + ' network layer3 [ ' + oi + ' ]\nset zone ' + iz + ' network layer3 [ ' + ii + ' ]\n\n';
+        c += '# Virtual Router (VR\'a eklenmeyen arayüzün bağlı ağı rota tablosuna girmez)\nset network virtual-router ' + vr + ' interface [ ' + oi + ' ' + ii + ' ]\n\n';
+        w.push('ℹ Varsayılan rota üretilmedi: "Virtual Router + Route" aracıyla 0.0.0.0/0 ekleyin. Arayüzü doğrulamak için show interface all (zone ve VR sütunları) (pan-02).');
+        w.push(_PAW_VRNOTE);
+    } else if (zt === 'tap') {
+        // TAP: arayüz tap modunda, IP ve VR yok; zone tipi tap
+        c += '# TAP arayüzleri (pasif izleme: IP ve sanal yönlendirici kullanılmaz)\n';
+        c += 'set network interface ethernet ' + oi + ' tap\nset network interface ethernet ' + ii + ' tap\n\n';
+        c += '# Zones\nset zone ' + oz + ' network tap [ ' + oi + ' ]\nset zone ' + iz + ' network tap [ ' + ii + ' ]\n\n';
+        w.push('ℹ TAP modunda IP adresi ve Virtual Router alanları kullanılmaz; arayüz yalnız SPAN kopyasını dinler, trafik geçirmez.');
+    } else {
+        // Virtual Wire: iki arayüz bir vwire nesnesiyle eşlenir; IP ve VR yok; zone tipi virtual-wire
+        const vw = 'VW-' + oz + '-' + iz;
+        c += '# Virtual Wire arayüzleri (şeffaf geçiş: IP ve sanal yönlendirici kullanılmaz)\n';
+        c += 'set network interface ethernet ' + oi + ' virtual-wire\nset network interface ethernet ' + ii + ' virtual-wire\n';
+        c += 'set network virtual-wire ' + vw + ' interface1 ' + oi + ' interface2 ' + ii + '\n\n';
+        c += '# Zones\nset zone ' + oz + ' network virtual-wire [ ' + oi + ' ]\nset zone ' + iz + ' network virtual-wire [ ' + ii + ' ]\n\n';
+        w.push('ℹ Virtual Wire modunda IP adresi ve Virtual Router alanları kullanılmaz; iki arayüz ' + vw + ' nesnesiyle eşlenir.');
+    }
+    w.push('ℹ Zone\'lar arası trafik için güvenlik kuralı gerekir: kural yoksa interzone-default (deny) uygulanır; aynı zone içi trafik intrazone-default (allow) ile geçer.');
+    c += '# Commit gerekli!\n# commit\n\n';
+    c += '# Doğrulama:\n# show interface all\n' + (zt === 'layer3' ? '# show routing route\n' : '');
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: Address Object ──────────────────────────────────────────────────
@@ -91,9 +159,9 @@ PaloAlto.address = {
                             { value: 'fqdn', label: 'FQDN' },
                             { value: 'ip-range', label: 'IP Range' }
                         ], hint: 'IP/Netmask en yaygın; FQDN DNS tabanlı nesneler için' },
-                        { name: 'netmask', why: "PAN-OS CIDR bekler. Tek host için <code>/32</code> yaz; ağ tanımlarken prefix'i unutmak nesneyi tek adrese daraltır ve kural beklediğinden çok dar çalışır.", label: 'IP / Prefix (CIDR)', type: 'text', requiredIf: { field: 'addr_type', in: ['ip-netmask'] }, validate: 'cidr', placeholder: '192.168.1.10/32', hint: 'IP/Netmask tipi seçildiyse doldurun' },
+                        { name: 'netmask', why: "PAN-OS CIDR bekler. Tek host için <code>/32</code> yaz; ağ tanımlarken prefix'i unutmak nesneyi tek adrese daraltır ve kural beklediğinden çok dar çalışır.", label: 'IP / Prefix (CIDR)', type: 'text', requiredIf: { field: 'addr_type', in: ['ip-netmask'] }, validate: 'cidr', placeholder: '172.24.50.10/32', hint: 'IP/Netmask tipi seçildiyse doldurun' },
                         { name: 'fqdn_val', why: "PAN-OS, FQDN'i periyodik çözer ve önbelleğe alır. DNS erişimi koparsa nesne eski IP ile kalır; erişim sorunlarının sessiz kaynağıdır.", label: 'FQDN', type: 'text', requiredIf: { field: 'addr_type', in: ['fqdn'] }, placeholder: 'example.com', hint: 'FQDN tipi seçildiyse doldurun' },
-                        { name: 'ip_range', why: "Range nesnesi, aradaki kullanılmayan adresler dahil <b>tüm</b> aralığı kapsar. İleride bu bloğa eklenecek her cihaz otomatik olarak aynı yetkiyi alır.", label: 'IP Range', type: 'text', requiredIf: { field: 'addr_type', in: ['ip-range'] }, validate: 'ip_range', placeholder: '192.168.1.10-192.168.1.20', hint: 'IP Range tipi seçildiyse doldurun' },
+                        { name: 'ip_range', why: "Range nesnesi, aradaki kullanılmayan adresler dahil <b>tüm</b> aralığı kapsar. İleride bu bloğa eklenecek her cihaz otomatik olarak aynı yetkiyi alır.", label: 'IP Range', type: 'text', requiredIf: { field: 'addr_type', in: ['ip-range'] }, validate: 'ip_range', placeholder: '172.24.50.10-172.24.50.20', hint: 'IP Range tipi seçildiyse doldurun' },
                         { name: 'desc', why: "Altı ay sonra bu nesnenin neden açıldığını hatırlamayacaksın. Ticket numarası yazmak, kural temizliğinde neyin silinebileceğini belirleyen tek ipucudur.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'Web sunucusu', hint: 'Nesne açıklaması (opsiyonel)' },
                         { name: 'group_name', why: 'Adres grubu kural sayısını azaltır. <b>Dynamic Address Group</b> ise etiket bazlı çalışır ve commit gerektirmeden güncellenir — otomasyon için güçlü bir araçtır.', label: 'Adres Grubu', type: 'text', optional: true, placeholder: 'WEB_SERVERS', hint: 'Bu nesneyi eklemek istediğiniz adres grubu adı' }
                     ]
@@ -106,23 +174,32 @@ PaloAlto.address = {
     }
 };
 function cgPaAddrGen(data) {
-    const name = cgEsc(data.addr_name || ''), type = cgEsc(data.addr_type || 'ip-netmask');
+    const name = cgEsc(data.addr_name || ''), type = ['ip-netmask', 'fqdn', 'ip-range'].includes(data.addr_type) ? data.addr_type : 'ip-netmask';
     const desc = cgEsc(data.desc || ''), grp = cgEsc(data.group_name || '');
+    const w = [];
+    _paWName('Nesne adı', data.addr_name, w);
+    if (grp) _paWName('Adres grubu adı', data.group_name, w);
     let c = '# ========================================\n# Palo Alto — Address Object\n# ========================================\n\n';
     if (type === 'ip-netmask') {
-        c += 'set address "' + name + '" ' + type + ' ' + cgEsc(data.netmask || '') + '\n';
+        const n = _paWNet(data.netmask);
+        if (!n && _paWIsIp(data.netmask)) w.push('ℹ Önek verilmedi: PAN-OS tek adresi /32 kabul eder. Bir ağ kastediliyorsa /24 gibi önek yazın.');
+        if (n && n.len < 32 && _paWHostBits(n)) w.push('⚠ ' + n.ip + '/' + n.len + ' host bitleri dolu: nesne tek sunucuyu değil tüm /' + n.len + ' ağını kapsar. Tek host için /32, ağ için ağ adresi yazın.');
+        c += 'set address "' + name + '" ip-netmask ' + cgEsc(data.netmask || '') + '\n';
     } else if (type === 'fqdn') {
-        c += 'set address "' + name + '" ' + type + ' ' + cgEsc(data.fqdn_val || '') + '\n';
+        w.push('ℹ FQDN nesnesi cihazın DNS ayarıyla çözülür; DNS erişilemezse nesne eski ya da boş adresle kalır (Device Setup aracı).');
+        c += 'set address "' + name + '" fqdn ' + cgEsc(data.fqdn_val || '') + '\n';
     } else {
-        c += 'set address "' + name + '" ' + type + ' ' + cgEsc(data.ip_range || '') + '\n';
+        const r = String(data.ip_range || '').split('-').map(x => x.trim());
+        if (r.length === 2 && _paWIsIp(r[0]) && _paWIsIp(r[1]) && _paWN(r[0]) > _paWN(r[1])) w.push('⛔ IP aralığının başlangıcı bitişinden büyük (' + r[0] + ' > ' + r[1] + '): commit reddeder.');
+        c += 'set address "' + name + '" ip-range ' + cgEsc(data.ip_range || '') + '\n';
     }
     if (desc) c += 'set address "' + name + '" description "' + desc + '"\n';
     c += '\n';
     if (grp) {
-        c += '# Adres Grubuna Ekle\nset address-group "' + grp + '" static [ "' + name + '" ]\n\n';
+        c += '# Adres Grubuna Ekle (set üye listesine ekler, mevcut üyeler korunur)\nset address-group "' + grp + '" static [ "' + name + '" ]\n\n';
     }
-    c += '# Doğrulama:\n# show address "' + name + '"\n# show address-group\n';
-    return c;
+    c += '# Doğrulama (configure modu):\n# show address "' + name + '"\n' + (grp ? '# show address-group "' + grp + '"\n' : '');
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: Security Policy ────────────────────────────────────────────────
@@ -143,9 +220,9 @@ PaloAlto.policy = {
                     fields: [
                         { name: 'rule_name', why: 'Kurallar yukarıdan aşağıya değerlendirilir, <b>ilk eşleşen</b> uygulanır. Sonda iki gizli kural vardır: intrazone-default (allow) ve interzone-default (deny).', label: 'Kural Adı', type: 'text', required: true, placeholder: 'Allow_LAN_to_WAN', hint: 'Kural adı boşluk içermemeli (ör: Allow_LAN_to_WAN)' },
                         { name: 'from_zone', why: 'Kaynak zone. Palo Alto kuralları <b>zone bazlıdır</b>, arayüz bazlı değil — yanlış zone kuralın hiç eşleşmemesine yol açar.', label: 'Kaynak Zone', type: 'text', required: true, placeholder: 'inside', hint: 'Trafiğin geldiği zone' },
-                        { name: 'to_zone', why: "Hedef zone. NAT uygulanıyorsa kuralda <b>çevrilmiş hedefin zone'u</b> değil, orijinal paketin gideceği zone yazılır — en kafa karıştırıcı noktalardan biri.", label: 'Hedef Zone', type: 'text', required: true, placeholder: 'outside', hint: 'Trafiğin gittiği zone' },
+                        { name: 'to_zone', why: "Hedef zone. Hedef NAT (DNAT) varsa güvenlik kuralında <b>post-NAT zone</b>, yani sunucunun gerçekte bulunduğu zone yazılır (ör. dmz); NAT kuralında ise pre-NAT zone (untrust) yazılır. En kafa karıştırıcı noktalardan biri (pan-04).", label: 'Hedef Zone', type: 'text', required: true, placeholder: 'outside', hint: 'Trafiğin gittiği zone; birden çok zone boşlukla' },
                         { name: 'src_addr', why: "Boş ya da <code>any</code> bırakmak, zone içindeki her cihaza aynı hakkı verir. Palo Alto kuralı zaten zone ile sınırlıdır; adresi daraltmamak bu sınırı anlamsız kılar.", label: 'Kaynak Adres', type: 'text', required: true, placeholder: 'LAN_SUBNET', hint: '"any" veya adres nesnesi adı (ör: LAN_SUBNET)' },
-                        { name: 'dst_addr', why: "NAT kuralında hedef adres <b>pre-NAT</b> (çevrilmeden önceki) adrestir, ama zone <b>post-NAT</b> zone'dur. Bu asimetri Palo Alto'daki en klasik NAT hatasıdır.", label: 'Hedef Adres', type: 'text', required: true, placeholder: 'WEB_SERVERS', hint: '"any" veya hedef adres nesnesi' },
+                        { name: 'dst_addr', why: "DNAT'lı bir yayında güvenlik kuralının hedef adresi <b>pre-NAT</b> (dıştaki genel) IP'dir, zone'u ise <b>post-NAT</b> zone'dur. Sunucunun gerçek iç IP'sini yazmak kuralı ıskalatır; Palo Alto'daki en klasik NAT hatasıdır (pan-06).", label: 'Hedef Adres', type: 'text', required: true, placeholder: 'WEB_SERVERS', hint: '"any" veya hedef adres nesnesi; birden çok değer boşlukla' },
                         { name: 'application', why: "App-ID, Palo Alto'nun asıl farkıdır: trafiği porttan değil içeriğinden tanır. <code>any</code> yazmak bu korumayı devre dışı bırakır. Bağımlılıkları da eklemeyi unutma (ör. <code>ssl</code>, <code>web-browsing</code>).", label: 'Uygulama', type: 'text', required: true, placeholder: 'web-browsing ssl', hint: '"any" veya App-ID adları boşlukla ayrılmış (ör: web-browsing ssl)' }
                     ]
                 },
@@ -178,20 +255,42 @@ PaloAlto.policy = {
 function cgPaPolicyGen(data) {
     const rname = cgEsc(data.rule_name || '');
     const base = 'set rulebase security rules "' + rname + '"';
+    const fz = _paWList(data.from_zone), tz = _paWList(data.to_zone);
+    const sa = _paWList(data.src_addr), da = _paWList(data.dst_addr), ap = _paWList(data.application);
+    const svc = data.service === 'any' ? 'any' : 'application-default';
+    const act = ['allow', 'deny', 'drop'].includes(data.action) ? data.action : 'allow';
+    const logEnd = data.log_end === 'no' ? 'no' : 'yes';
+    const isAny = a => a.length === 1 && /^any$/i.test(a[0]);
+    const w = [];
+    _paWName('Kural adı', data.rule_name, w);
+    [['Kaynak adres', sa], ['Hedef adres', da], ['Uygulama', ap], ['Kaynak zone', fz], ['Hedef zone', tz]].forEach(([l, a]) => { if (a.length > 1 && a.some(x => /^any$/i.test(x))) w.push('⛔ ' + l + ': "any" başka değerle birlikte yazılamaz; ya any ya da liste.'); });
+    if (act === 'allow' && isAny(sa) && isAny(da) && isAny(ap))
+        w.push('⚠ Kaynak, hedef ve uygulama "any": kural iki zone arasındaki TÜM trafiğe izin verir. Gereken ağ ve uygulamalarla daraltın.');
+    if (act === 'allow' && isAny(ap) && svc === 'any')
+        w.push('⚠ Uygulama any + servis any: port ve uygulama sınırı yok; App-ID koruması devre dışı kalır (pan-03).');
+    else if (act === 'allow' && !isAny(ap) && svc === 'any')
+        w.push('⚠ Servis any: ' + ap.join(' ') + ' uygulaması standart dışı her portta da geçer (tünelleme). application-default seçin; standart dışı port gerekiyorsa Service Object ile yalnız o portu yazın (pan-03).');
+    else if (isAny(ap) && svc === 'application-default')
+        w.push('ℹ Uygulama any + application-default: her uygulama yalnız kendi standart portunda eşleşir; bilinmeyen (unknown-tcp) trafik bu kurala girmez.');
+    if (logEnd === 'no') w.push('⚠ log-end kapalı: bu kuralın eşleştiği oturumlar Traffic logunda görünmez; sorun gidermede "hangi kural düşürdü/izin verdi" sorusunun cevabı kaybolur.');
+    if (fz.length && fz.join() === tz.join() && !isAny(fz)) w.push('ℹ Kaynak ve hedef zone aynı: aynı zone içi trafik kural olmadan da intrazone-default (allow) ile geçer; bu kural yalnız kısıtlama ya da loglama için anlamlıdır.');
+    if (act === 'allow' && fz.some(_paWUntrust) && !isAny(da))
+        w.push('ℹ Dışarıdan yayınlanan (DNAT) bir sunucu içinse: hedef adres pre-NAT genel IP, hedef zone post-NAT zone (sunucunun gerçek zone\'u) yazılır. Gerçek iç IP ya da "to untrust" kuralı ıskalatır (pan-04 / pan-06).');
+    if (act !== 'allow') w.push('ℹ ' + act + ' kuralı: eşleşmeyen trafik zaten interzone-default ile düşer ama o kural varsayılan olarak loglanmaz; açık deny kuralı log üretir. Geniş bir deny, altındaki özel allow kurallarını gölgeler (pan-05).');
+    else w.push('ℹ Yeni kural kural tabanının sonuna eklenir: üstte daha geniş bir deny varsa hiç eşleşmez (gölgelenme). Gerekirse: move rulebase security rules "' + rname + '" before <kural> (pan-05).');
     let c = '# ========================================\n# Palo Alto — Security Policy\n# ========================================\n\n';
-    if (data.action === 'allow' && [data.src_addr, data.dst_addr, data.application].every(x => /^any$/i.test(x || '')))
-        c += '# UYARI: kaynak, hedef ve uygulama "any" — bu kural iki zone arasında TÜM trafiğe izin verir.\n';
-    c += base + ' from ' + cgEsc(data.from_zone || '') + '\n';
-    c += base + ' to ' + cgEsc(data.to_zone || '') + '\n';
-    c += base + ' source [ ' + cgEsc(data.src_addr || '') + ' ]\n';
-    c += base + ' destination [ ' + cgEsc(data.dst_addr || '') + ' ]\n';
-    c += base + ' application [ ' + cgEsc(data.application || '') + ' ]\n';
-    c += base + ' service ' + cgEsc(data.service || 'application-default') + '\n';
-    c += base + ' action ' + cgEsc(data.action || '') + '\n';
-    c += base + ' log-end ' + cgEsc(data.log_end || 'yes') + '\n\n';
+    c += base + ' from ' + _paWMembers(fz) + '\n';
+    c += base + ' to ' + _paWMembers(tz) + '\n';
+    c += base + ' source ' + _paWMembers(sa) + '\n';
+    c += base + ' destination ' + _paWMembers(da) + '\n';
+    c += base + ' application ' + _paWMembers(ap) + '\n';
+    c += base + ' service ' + svc + '\n';
+    c += base + ' action ' + act + '\n';
+    c += base + ' log-end ' + logEnd + '\n\n';
     c += '# Commit gerekli!\n# commit\n\n';
-    c += '# Doğrulama:\n# show rulebase security rules "' + rname + '"\n# test security-policy-match from ' + cgEsc(data.from_zone || '') + ' to ' + cgEsc(data.to_zone || '') + ' source <ip> destination <ip>\n';
-    return c;
+    const app1 = isAny(ap) ? '<uygulama>' : cgEsc(ap[0] || '');
+    c += '# Doğrulama (test komutu commit edilmiş kurallara bakar; protocol 6=TCP 17=UDP):\n# show rulebase security rules "' + rname + '"   (configure modu)\n# test security-policy-match from ' + cgEsc(fz[0] || '') + ' to ' + cgEsc(tz[0] || '') + ' source <ip> destination <ip> destination-port <port> protocol 6 application ' + app1 + '\n';
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: NAT ────────────────────────────────────────────────────────────
@@ -231,7 +330,8 @@ PaloAlto.nat = {
                             { value: 'dynamic-ip-and-port translated-address', label: 'Dynamic IP+Port (Pool)' },
                             { value: 'static-ip static-translated-address', label: 'Static IP' }
                         ], hint: 'Interface-address: WAN IP üzerinden PAT' },
-                        { name: 'to_iface', why: "Interface NAT'ta çıkış arayüzünün IP'si kullanılır — ISS'den tek IP alıyorsan doğru seçimdir.", label: 'To Interface (Interface NAT için)', type: 'text', requiredIf: { field: 'src_trans_type', in: ['dynamic-ip-and-port interface-address'] }, validate: 'iface', placeholder: 'ethernet1/1', hint: 'Dynamic IP+Port Interface seçildiyse WAN arayüzü' }
+                        { name: 'to_iface', why: "Interface NAT'ta kaynak adres bu arayüzün IP'sine çevrilir (<code>interface-address interface ethernet1/1</code>) — ISS'den tek IP alıyorsan doğru seçimdir. Arayüz adı verilmezse satır eksik kalır ve commit reddeder.", label: 'Çeviri Arayüzü (Interface NAT için)', type: 'text', requiredIf: { field: 'src_trans_type', in: ['dynamic-ip-and-port interface-address'] }, validate: 'iface', placeholder: 'ethernet1/1', hint: 'Dynamic IP+Port Interface seçildiyse WAN arayüzü' },
+                        { name: 'snat_pool', why: "Havuzlu DIPP'te kaynaklar bu adres(ler)e port çevirisiyle bağlanır; Static IP'de tek adrese 1:1 eşlenir. Havuz adresleri WAN alt ağındaysa cihaz onlar için ARP'a cevap verir; değilse ISS'nin bu adresleri size yönlendirmesi gerekir.", label: 'Çevrilmiş Adres / Havuz', type: 'text', requiredIf: { field: 'src_trans_type', in: ['dynamic-ip-and-port translated-address', 'static-ip static-translated-address'] }, placeholder: '203.0.113.20', hint: 'IP, IP/önek, aralık ya da adres nesnesi (havuzda boşlukla birden çok)' }
                     ]
                 },
                 {
@@ -239,7 +339,7 @@ PaloAlto.nat = {
                     icon: 'fas fa-arrow-down',
                     showFor: ['destination'],
                     fields: [
-                        { name: 'trans_dst_ip', why: "Destination NAT'ta iç sunucunun gerçek IP'si. <b>Güvenlik kuralında hedef adres olarak orijinal (dış) IP yazılır</b>, çevrilmiş IP değil — bu ayrımı kaçırmak en sık yapılan Palo Alto hatasıdır.", label: 'Translated Hedef IP', type: 'text', required: true, validate: 'ip', placeholder: '192.168.1.10', hint: 'İç sunucunun IP adresi' },
+                        { name: 'trans_dst_ip', why: "Destination NAT'ta iç sunucunun gerçek IP'si. <b>Güvenlik kuralında hedef adres olarak orijinal (dış) IP yazılır</b>, çevrilmiş IP değil — bu ayrımı kaçırmak en sık yapılan Palo Alto hatasıdır.", label: 'Translated Hedef IP', type: 'text', required: true, validate: 'ip', placeholder: '172.24.50.10', hint: 'İç sunucunun IP adresi' },
                         { name: 'trans_dst_port', why: "Port yönlendirme. Dış 8080'i iç 80'e çevirmek gibi. Servis nesnesinin <b>orijinal</b> portu içermesi gerekir.", label: 'Translated Hedef Port', type: 'text', validate: 'port', optional: true, placeholder: '80', hint: 'Hedef porta yönlendirilecek port (opsiyonel)' }
                     ]
                 }
@@ -251,31 +351,53 @@ PaloAlto.nat = {
     }
 };
 function cgPaNatGen(data) {
-    const type = cgEsc(data._cgtype || 'source'), rname = cgEsc(data.rule_name || '');
+    const type = data._cgtype === 'destination' ? 'destination' : 'source', rname = cgEsc(data.rule_name || '');
     const base = 'set rulebase nat rules "' + rname + '"';
+    const fz = _paWList(data.from_zone), tz = _paWList(data.to_zone);
+    const sa = _paWList(data.src_addr), da = _paWList(data.dst_addr), sv = _paWList(data.service);
+    const isAny = a => a.length === 1 && /^any$/i.test(a[0]);
+    const w = [];
+    _paWName('Kural adı', data.rule_name, w);
+    if (tz.length > 1) w.push('⛔ NAT kuralında yalnız bir hedef (to) zone olabilir; commit reddeder.');
+    if (sv.length > 1) w.push('⛔ NAT kuralında servis tek değerdir (any, service-http, service-https ya da bir Service Object adı); birden çok port için Service Group kullanılamaz, ayrı NAT kuralı yazın.');
+    else if (sv.length && /^(tcp|udp)?[\/-]?\d+$/i.test(sv[0])) w.push('⛔ Servis alanına port yazılmış (' + sv[0] + '): NAT kuralı servis NESNESİ adı bekler (ör. service-https ya da Service Object aracıyla oluşturulan SVC-TCP-8443).');
     let c = '# ========================================\n# Palo Alto — NAT Rule\n# ========================================\n\n';
-    c += base + ' from ' + cgEsc(data.from_zone || '') + '\n';
-    c += base + ' to ' + cgEsc(data.to_zone || '') + '\n';
-    c += base + ' source [ ' + cgEsc(data.src_addr || '') + ' ]\n';
-    c += base + ' destination [ ' + cgEsc(data.dst_addr || '') + ' ]\n';
-    const svc = cgEsc(data.service || '');
-    if (type === 'destination' && /^any$/i.test(svc)) c += '# UYARI: hedef NAT servis "any" — sunucunun TÜM portları dışarı açılır.\n';
-    c += base + ' service ' + svc + '\n';
+    c += base + ' from ' + _paWMembers(fz) + '\n';
+    c += base + ' to ' + _paWMembers(tz) + '\n';
+    c += base + ' source ' + _paWMembers(sa) + '\n';
+    c += base + ' destination ' + _paWMembers(da) + '\n';
+    c += base + ' service ' + cgEsc(sv[0] || '') + '\n';
     if (type === 'source') {
-        const trans = cgEsc(data.src_trans_type || 'dynamic-ip-and-port interface-address');
-        const toIface = cgEsc(data.to_iface || '');
-        c += base + ' source-translation ' + trans + '\n';
-        if (toIface && trans.includes('interface')) {
-            c += base + ' to-interface ' + toIface + '\n';
+        const tt = data.src_trans_type || 'dynamic-ip-and-port interface-address';
+        const toIface = cgEsc(String(data.to_iface || '').trim()), pool = _paWList(data.snat_pool);
+        if (tt === 'dynamic-ip-and-port interface-address') {
+            // Çeviri adresi, verilen arayüzün IP'si (DIPP). "to-interface" ayrı bir eşleşme alanıdır, çeviri arayüzü değildir.
+            if (!toIface) w.push('⛔ Interface NAT için çeviri arayüzü gerekli: source-translation dynamic-ip-and-port interface-address interface <arayüz> eksik kalır.');
+            c += base + ' source-translation dynamic-ip-and-port interface-address interface ' + toIface + '\n';
+        } else if (tt === 'dynamic-ip-and-port translated-address') {
+            if (!pool.length) w.push('⛔ Havuzlu DIPP için çeviri adres(ler)i gerekli (IP, aralık ya da adres nesnesi).');
+            c += base + ' source-translation dynamic-ip-and-port translated-address ' + _paWMembers(pool) + '\n';
+        } else {
+            if (!pool.length) w.push('⛔ Static IP çevirisi için çevrilmiş adres gerekli.');
+            if (pool.length > 1) w.push('⛔ Static IP çevirisinde tek çevrilmiş adres (ya da aynı boyutta ağ) verilir.');
+            c += base + ' source-translation static-ip translated-address ' + cgEsc(pool[0] || '') + '\n';
+            w.push('ℹ Static IP (1:1) çeviri varsayılan olarak tek yönlüdür; dışarıdan da aynı eşlemeyle erişilecekse bi-directional yes eklenebilir. Güvenlik kuralı yine ayrıca gerekir.');
         }
+        if (fz.length && fz.join() === tz.join()) w.push('⚠ Kaynak NAT\'ta from ve to aynı zone: internete çıkışta "to" çıkış (untrust) zone\'udur; aynı zone ile kural beklenen trafiği yakalamaz.');
+        w.push('ℹ Kaynak NAT tek başına trafiği geçirmez: aynı akış için ayrı güvenlik kuralı (ör. trust → untrust allow) gerekir (pan-04).');
     } else {
-        const tdip = cgEsc(data.trans_dst_ip || ''), tdport = cgEsc(data.trans_dst_port || '');
-        c += base + ' destination-translation translated-address ' + tdip + '\n';
+        const tdip = String(data.trans_dst_ip || '').trim(), tdport = cgEsc(data.trans_dst_port || '');
+        if (isAny(da)) w.push('⛔ Hedef NAT\'ta hedef adres any: zone\'a gelen TÜM hedefler sunucuya çevrilir. Yayınlanan genel (pre-NAT) IP\'yi yazın.');
+        if (tdip && da.some(x => x === tdip || x === tdip + '/32')) w.push('⛔ Hedef adres ile çevrilmiş adres aynı (' + tdip + '): NAT kuralının hedefi pre-NAT genel IP, translated-address sunucunun gerçek IP\'sidir.');
+        if (sv.length === 1 && /^any$/i.test(sv[0])) w.push('⚠ Hedef NAT\'ta servis any: sunucunun TÜM portları dışarı açılır. Yalnız yayınlanan servisi yazın (ör. service-https) (pan-04).');
+        if (tz.some(_paWInside)) w.push('⚠ NAT kuralında hedef zone "' + tz.join(' ') + '": NAT kuralı pre-NAT değerlerle eşleşir; genel IP\'nin bulunduğu zone (çoğunlukla untrust, yani from ile aynı) yazılmalı. "to dmz" en yaygın DNAT hatasıdır (pan-06 natzone).');
+        c += base + ' destination-translation translated-address ' + cgEsc(tdip) + '\n';
         if (tdport) c += base + ' destination-translation translated-port ' + tdport + '\n';
+        w.push('ℹ Eşleşen güvenlik kuralı: from ' + (fz.join(' ') || '<from>') + ' to <sunucunun zone\'u (post-NAT, ör. dmz)> destination ' + (da.join(' ') || '<genel IP>') + ' (pre-NAT IP) — Security Policy aracı (pan-04).');
     }
     c += '\n# Commit gerekli!\n# commit\n\n';
-    c += '# Doğrulama:\n# show rulebase nat rules "' + rname + '"\n# test nat-policy-match from ' + cgEsc(data.from_zone || '') + ' to ' + cgEsc(data.to_zone || '') + ' source <ip> destination <ip>\n';
-    return c;
+    c += '# Doğrulama (NAT testi pre-NAT değerlerle yapılır):\n# show rulebase nat rules "' + rname + '"   (configure modu)\n# test nat-policy-match from ' + cgEsc(fz[0] || '') + ' to ' + cgEsc(tz[0] || '') + ' source <ip> destination <ip> destination-port <port> protocol 6\n# show session all filter source <ip>\n';
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: IPSec VPN ───────────────────────────────────────────────────────
@@ -330,8 +452,9 @@ PaloAlto.ipsec = {
                     fields: [
                         { name: 'tunnel_name', why: "Tünel arayüzünü bir zone'a ve Virtual Router'a eklemeyi unutma. İkisi olmadan tünel up olur ama üzerinden hiçbir trafik akmaz — en sık yaşanan yanılgıdır.", label: 'Tunnel Adı', type: 'text', required: true, placeholder: 'VPN_TUNNEL', hint: 'IPSec tunnel nesnesi adı' },
                         { name: 'tunnel_iface', why: "Tünel arayüzü (<code>tunnel.1</code>) bir zone'a ve Virtual Router'a atanmalıdır. Atanmazsa tünel kurulur ama trafik akmaz.", label: 'Tunnel Interface', type: 'text', validate: 'iface', required: true, placeholder: 'tunnel.1', hint: 'PAN-OS tunnel arayüzü (ör: tunnel.1)' },
-                        { name: 'proxy_local', why: "Proxy ID, hangi trafiğin şifreleneceğini belirler. <b>Route-based</b> VPN'de bile karşı taraf policy-based ise Proxy ID zorunludur.", label: 'Proxy ID — Yerel Subnet', type: 'text', required: true, placeholder: '192.168.1.0/24', hint: 'Bu taraftaki ilgili subnet' },
-                        { name: 'proxy_remote', why: "İki tarafın Proxy ID'leri <b>ayna</b> olmalı: senin local'in karşının remote'u. Uyuşmazlık Phase 2'nin kurulmamasına yol açar.", label: 'Proxy ID — Uzak Subnet', type: 'text', required: true, placeholder: '10.0.0.0/24', hint: 'Karşı taraftaki ilgili subnet' }
+                        { name: 'proxy_local', why: "Proxy ID, hangi trafiğin şifreleneceğini belirler. <b>Route-based</b> VPN'de bile karşı taraf policy-based ise Proxy ID zorunludur.", label: 'Proxy ID — Yerel Subnet', type: 'text', required: true, placeholder: '10.64.10.0/24', hint: 'Bu taraftaki ilgili subnet' },
+                        { name: 'proxy_remote', why: "İki tarafın Proxy ID'leri <b>ayna</b> olmalı: senin local'in karşının remote'u. Uyuşmazlık Phase 2'nin kurulmamasına yol açar.", label: 'Proxy ID — Uzak Subnet', type: 'text', required: true, placeholder: '10.128.20.0/24', hint: 'Karşı taraftaki ilgili subnet' },
+                        { name: 'tun_zone', why: "Tünel arayüzü de bir zone'a üye olmalıdır; zone'suz tunnel arayüzü up olsa bile trafik işlemez. Ayrı bir <code>vpn</code> zone'u, tünel trafiğini kural düzeyinde LAN'dan ayırır.", label: 'Tünel Zone\'u', type: 'text', optional: true, placeholder: 'vpn', hint: 'Tunnel arayüzünün atanacağı zone (ör: vpn)' }
                     ]
                 }
             ],
@@ -344,36 +467,55 @@ PaloAlto.ipsec = {
 function cgPaIpsecGen(data) {
     const ikeProf = cgEsc(data.ike_profile || ''), ipsecProf = cgEsc(data.ipsec_profile || '');
     const gwName = cgEsc(data.gw_name || ''), gwIface = cgEsc(data.gw_iface || '');
-    const peerIp = cgEsc(data.peer_ip || ''), psk = cgEsc(data.psk || ''), ikeVer = cgEsc(data.ike_ver || 'ikev2');
+    const peerIp = cgEsc(data.peer_ip || ''), ikeVer = data.ike_ver === 'ikev1' ? 'ikev1' : 'ikev2';
+    const psk = String(data.psk || '');
     const ikeEnc = cgEsc(data.ike_enc || 'aes-256-cbc'), ikeHash = cgEsc(data.ike_hash || 'sha256'), dhGrp = cgEsc(data.dh_grp || 'group14');
-    const tunName = cgEsc(data.tunnel_name || ''), tunIface = cgEsc(data.tunnel_iface || '');
+    const tunName = cgEsc(data.tunnel_name || ''), tunIface = cgEsc(data.tunnel_iface || ''), tunZone = cgEsc(String(data.tun_zone || '').trim());
     const proxyLocal = cgEsc(data.proxy_local || ''), proxyRemote = cgEsc(data.proxy_remote || '');
+    const w = [];
+    [['IKE crypto profil adı', data.ike_profile], ['IPSec crypto profil adı', data.ipsec_profile], ['IKE gateway adı', data.gw_name], ['Tünel adı', data.tunnel_name]].forEach(([l, v]) => _paWName(l, v, w));
+    if (tunIface && !/^tunnel\.\d+$/.test(tunIface)) w.push('⛔ Tünel arayüzü adı tunnel.<sayı> biçiminde olmalı (ör. tunnel.1): "' + tunIface + '".');
+    if (/["\\]/.test(psk)) w.push('⛔ Pre-shared key çift tırnak ya da ters bölü içeriyor: CLI\'da tırnaklı değer bu karakterlerde bölünür. Bu karakterleri kullanmayın ya da anahtarı web arayüzünden girin.');
+    if (psk.length && psk.length < 12) w.push('⚠ Pre-shared key ' + psk.length + ' karakter: en az 20 karakterlik rastgele bir anahtar kullanın.');
+    if (ikeHash === 'sha1') w.push('⚠ SHA-1 zayıf kabul ediliyor; iki tarafta da sha256 ya da üstünü kullanın.');
+    if (dhGrp === 'group5') w.push('⚠ DH group 5 (1536 bit) kırılabilir kabul ediliyor; en az group14, tercihen group19/20.');
+    if (ikeVer === 'ikev1') w.push('ℹ IKEv1 eski cihazlar içindir; karşı taraf destekliyorsa IKEv2 kullanın.');
+    const pl = _paWNet(data.proxy_local), pr = _paWNet(data.proxy_remote);
+    if (pl && pr && pl.ip === pr.ip && pl.len === pr.len) w.push('⛔ Yerel ve uzak Proxy ID aynı ağ: faz 2 kurulmaz.');
+    else if (pl && pr && _paWOverlap(pl, pr)) w.push('⚠ Yerel ve uzak ağ çakışıyor: uzak ağa giden rota yerel ağı da kapsar; iki uçta NAT ya da farklı adresleme gerekir.');
+    [['Yerel', pl], ['Uzak', pr]].forEach(([l, n]) => { if (_paWHostBits(n)) w.push('⚠ ' + l + ' Proxy ID\'de host bitleri dolu (' + n.ip + '/' + n.len + '): ağ adresi yazın; karşı taraf ayna değeri beklerken uyuşmazlık faz 2\'yi durdurur.'); });
+    if (!tunZone) w.push('⚠ Tünel arayüzü için zone verilmedi: zone\'suz tunnel arayüzü trafik geçirmez. Arayüzü bir zone\'a (ör. vpn) ekleyin ve o zone ile LAN arasında güvenlik kuralı yazın.');
     let c = '# ========================================\n# Palo Alto — IPSec VPN Configuration\n# ========================================\n\n';
-    c += '# IKE Crypto Profile\nset network ike crypto-profiles ike-crypto-profiles "' + ikeProf + '" dh-group ' + dhGrp + '\n';
-    c += 'set network ike crypto-profiles ike-crypto-profiles "' + ikeProf + '" hash ' + ikeHash + '\n';
-    c += 'set network ike crypto-profiles ike-crypto-profiles "' + ikeProf + '" encryption ' + ikeEnc + '\n';
-    c += 'set network ike crypto-profiles ike-crypto-profiles "' + ikeProf + '" lifetime hours 24\n\n';
-    c += '# IPSec Crypto Profile\nset network ike crypto-profiles ipsec-crypto-profiles "' + ipsecProf + '" esp authentication ' + ikeHash + '\n';
-    c += 'set network ike crypto-profiles ipsec-crypto-profiles "' + ipsecProf + '" esp encryption ' + ikeEnc + '\n';
-    c += 'set network ike crypto-profiles ipsec-crypto-profiles "' + ipsecProf + '" dh-group ' + dhGrp + '\n';
-    c += 'set network ike crypto-profiles ipsec-crypto-profiles "' + ipsecProf + '" lifetime hours 8\n\n';
-    c += '# IKE Gateway\nset network ike gateway "' + gwName + '" interface ' + gwIface + '\n';
-    c += 'set network ike gateway "' + gwName + '" peer-address ip ' + peerIp + '\n';
-    c += 'set network ike gateway "' + gwName + '" authentication pre-shared-key key ' + psk + '\n';
-    c += 'set network ike gateway "' + gwName + '" protocol ' + ikeVer + '\n';
-    c += 'set network ike gateway "' + gwName + '" protocol-common ike-crypto-profile "' + ikeProf + '"\n\n';
-    c += '# Tunnel Interface\nset network interface tunnel units ' + tunIface + '\n\n';
-    c += '# IPSec Tunnel\nset network tunnel ipsec "' + tunName + '" tunnel-interface ' + tunIface + '\n';
-    c += 'set network tunnel ipsec "' + tunName + '" ike gateway "' + gwName + '"\n';
-    c += 'set network tunnel ipsec "' + tunName + '" ike ipsec-crypto-profile "' + ipsecProf + '"\n';
-    c += 'set network tunnel ipsec "' + tunName + '" tunnel-monitor enable no\n\n';
-    c += '# Proxy ID (Interesting Traffic)\nset network tunnel ipsec "' + tunName + '" tunnel-monitor destination-ip ' + peerIp + '\n';
-    c += 'set network tunnel ipsec "' + tunName + '" auto-key proxy-id "proxy1" local ' + proxyLocal + '\n';
-    c += 'set network tunnel ipsec "' + tunName + '" auto-key proxy-id "proxy1" remote ' + proxyRemote + '\n\n';
-    c += '# Virtual Router — Tunnel Interface Ekle\nset network virtual-router default interface [ ' + tunIface + ' ]\n\n';
+    const ike = 'set network ike crypto-profiles ike-crypto-profiles "' + ikeProf + '"';
+    c += '# IKE Crypto Profile (faz 1)\n' + ike + ' dh-group ' + dhGrp + '\n' + ike + ' hash ' + ikeHash + '\n' + ike + ' encryption ' + ikeEnc + '\n' + ike + ' lifetime hours 8\n\n';
+    const ips = 'set network ike crypto-profiles ipsec-crypto-profiles "' + ipsecProf + '"';
+    c += '# IPSec Crypto Profile (faz 2; dh-group = PFS)\n' + ips + ' esp authentication ' + ikeHash + '\n' + ips + ' esp encryption ' + ikeEnc + '\n' + ips + ' dh-group ' + dhGrp + '\n' + ips + ' lifetime hours 1\n\n';
+    const gw = 'set network ike gateway "' + gwName + '"';
+    c += '# IKE Gateway\n' + gw + ' local-address interface ' + gwIface + '\n';
+    c += gw + ' peer-address ip ' + peerIp + '\n';
+    // Anahtar ham yazılır (HTML kaçışı anahtarı bozar: & → &amp;); boşluk ve özel karakter için tırnak içinde
+    c += gw + ' authentication pre-shared-key key "' + psk + '"\n';
+    c += gw + ' protocol version ' + ikeVer + '\n';
+    c += gw + ' protocol ' + ikeVer + ' ike-crypto-profile "' + ikeProf + '"\n\n';
+    c += '# Tunnel Interface (zone + virtual router olmadan trafik geçmez)\nset network interface tunnel units ' + tunIface + '\n';
+    if (tunZone) c += 'set zone ' + tunZone + ' network layer3 ' + tunIface + '\n';
+    c += 'set network virtual-router default interface ' + tunIface + '\n\n';
+    const tn = 'set network tunnel ipsec "' + tunName + '"';
+    c += '# IPSec Tunnel\n' + tn + ' tunnel-interface ' + tunIface + '\n';
+    c += tn + ' auto-key ike-gateway "' + gwName + '"\n';
+    c += tn + ' auto-key ipsec-crypto-profile "' + ipsecProf + '"\n\n';
+    c += '# Proxy ID (karşı taraf policy-based ise gerekli; iki uçta ayna olmalı)\n';
+    c += tn + ' auto-key proxy-id "proxy1" local ' + proxyLocal + '\n';
+    c += tn + ' auto-key proxy-id "proxy1" remote ' + proxyRemote + '\n\n';
+    c += '# Uzak ağa rota (route-based VPN: trafik tünel arayüzüne yönlendirilir)\n';
+    c += 'set network virtual-router default routing-table ip static-route "VPN-' + tunName + '" destination ' + proxyRemote + '\n';
+    c += 'set network virtual-router default routing-table ip static-route "VPN-' + tunName + '" interface ' + tunIface + '\n';
+    c += '\n';
     c += '# Commit gerekli!\n# commit\n\n';
-    c += '# Doğrulama:\n# show vpn ike-sa gateway "' + gwName + '"\n# show vpn ipsec-sa tunnel "' + tunName + '"\n# show vpn flow tunnel-id all\n';
-    return c;
+    c += '# Doğrulama:\n# test vpn ike-sa gateway "' + gwName + '"\n# show vpn ike-sa gateway "' + gwName + '"\n# show vpn ipsec-sa tunnel "' + tunName + '"\n# show vpn flow name "' + tunName + '"\n# less mp-log ikemgr.log\n';
+    w.push('ℹ Tünel trafiği için iki yönlü güvenlik kuralı gerekir (LAN zone ↔ ' + (tunZone || 'tünel zone\'u') + '); site-to-site trafikte kaynak NAT uygulanmamalı, aksi hâlde Proxy ID eşleşmez.');
+    w.push(_PAW_VRNOTE);
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: Threat Prevention Profiles ────────────────────────────────────
@@ -580,7 +722,7 @@ PaloAlto.ha = {
                         { name: 'ha_role', why: "Active-Passive'de yalnızca bir cihaz trafik işler. İki cihazın <b>aynı PAN-OS sürümünde</b> ve aynı donanım modelinde olması gerekir.", label: 'Rol', type: 'select', options: [
                             { value: 'primary', label: 'Primary (Active)', selected: true },
                             { value: 'secondary', label: 'Secondary (Passive)' }
-                        ], hint: 'Primary cihaza düşük device-priority atanır (10), secondary\'ye 100' },
+                        ], hint: 'Primary cihaza düşük device-priority atanır (10), secondary\'ye 100: PAN-OS\'ta düşük değer kazanır' },
                         { name: 'grp_id', why: 'Group ID aynı L2 segmentindeki farklı HA çiftlerinde benzersiz olmalıdır; çakışma iki çiftin birbirini üye sanmasına yol açar.', label: 'Group ID (1-63)', type: 'text', required: true, placeholder: '1', hint: 'Her iki cihazda aynı group ID kullanılmalı' },
                         { name: 'preemptive', why: 'Açıkken birincil cihaz döndüğünde rolü geri alır — bu ikinci bir kesinti demektir. Çoğu kurulumda <b>kapalı</b> bırakmak daha az kesinti üretir.', label: 'Preemptive?', type: 'select', options: [
                             { value: 'yes', label: 'Evet', selected: true },
@@ -593,8 +735,8 @@ PaloAlto.ha = {
                     icon: 'fas fa-link',
                     fields: [
                         { name: 'ha1_iface', why: 'HA1 kontrol kanalıdır (heartbeat, config senkronu). Üyeler arasında <b>doğrudan</b> bağlanmalı; switch üzerinden geçerse split-brain riski doğar.', label: 'HA1 Interface', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/3', hint: 'HA control link arayüzü' },
-                        { name: 'ha1_ip', why: "HA1 kontrol bağlantısıdır; kopması split-brain riski doğurur. Mümkünse doğrudan kablo ya da ayrı bir yol kullan, üretim switch'i üzerinden geçirme.", label: 'HA1 IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '169.254.0.1/24', hint: 'Bu cihazın HA1 IP adresi' },
-                        { name: 'ha1_peer', why: "Peer IP yanlışsa HA hiç kurulmaz ve iki cihaz da kendini aktif sanar. Her iki cihazda karşılıklı doğru girildiğini mutlaka teyit et.", label: 'HA1 Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '169.254.0.2', hint: 'Karşı cihazın HA1 IP adresi' }
+                        { name: 'ha1_ip', why: "HA1 kontrol bağlantısıdır; kopması split-brain riski doğurur. Mümkünse doğrudan kablo ya da ayrı bir yol kullan, üretim switch'i üzerinden geçirme.", label: 'HA1 IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.222.1.1/30', hint: 'Bu cihazın HA1 IP adresi' },
+                        { name: 'ha1_peer', why: "Peer IP yanlışsa HA hiç kurulmaz ve iki cihaz da kendini aktif sanar. Her iki cihazda karşılıklı doğru girildiğini mutlaka teyit et.", label: 'HA1 Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '10.222.1.2', hint: 'Karşı cihazın HA1 IP adresi (group peer-ip)' }
                     ]
                 },
                 {
@@ -602,7 +744,7 @@ PaloAlto.ha = {
                     icon: 'fas fa-sync',
                     fields: [
                         { name: 'ha2_iface', why: 'HA2 veri kanalıdır (session senkronu). Kopması failover sırasında mevcut oturumların düşmesine yol açar.', label: 'HA2 Interface', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/4', hint: 'HA data sync link arayüzü' },
-                        { name: 'ha2_ip', why: "HA2 oturum senkronizasyonu taşır ve HA1 ile <b>aynı</b> alt ağda olmamalı. Aynı ağa koymak yönlendirme belirsizliği ve sessiz sync kaybı yaratır.", label: 'HA2 IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '169.254.1.1/24', hint: 'Bu cihazın HA2 IP adresi' }
+                        { name: 'ha2_ip', why: "HA2 oturum senkronizasyonu taşır ve HA1 ile <b>aynı</b> alt ağda olmamalı. Aynı ağa koymak yönlendirme belirsizliği ve sessiz sync kaybı yaratır.", label: 'HA2 IP / Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '10.222.2.1/30', hint: 'Bu cihazın HA2 IP adresi' }
                     ]
                 }
             ],
@@ -613,24 +755,41 @@ PaloAlto.ha = {
     }
 };
 function cgPaHaGen(data) {
-    const role = cgEsc(data.ha_role || 'primary');
-    const ha1Iface = cgEsc(data.ha1_iface || ''), ha1Ip = cgEsc(data.ha1_ip || '');
-    const ha1Peer = cgEsc(data.ha1_peer || ''), ha2Iface = cgEsc(data.ha2_iface || ''), ha2Ip = cgEsc(data.ha2_ip || '');
-    const grpId = cgEsc(data.grp_id || ''), preemptive = cgEsc(data.preemptive || 'yes');
+    const role = data.ha_role === 'secondary' ? 'secondary' : 'primary';
+    const ha1Iface = cgEsc(data.ha1_iface || ''), ha2Iface = cgEsc(data.ha2_iface || '');
+    const ha1Peer = cgEsc(String(data.ha1_peer || '').trim());
+    const grpId = String(data.grp_id || '').trim(), preemptive = data.preemptive === 'no' ? 'no' : 'yes';
+    const n1 = _paWNet(data.ha1_ip), n2 = _paWNet(data.ha2_ip);
+    const w = [];
+    if (grpId && !(/^\d+$/.test(grpId) && +grpId >= 1 && +grpId <= 63)) w.push('⛔ Group ID 1–63 arasında bir sayı olmalı ("' + grpId + '").');
+    if (!n1) w.push('⛔ HA1 IP\'si IP/önek biçiminde olmalı (ör. 10.222.1.1/30); PAN-OS adresi ve maskeyi ayrı alanlara yazar.');
+    if (!n2) w.push('⛔ HA2 IP\'si IP/önek biçiminde olmalı (ör. 10.222.2.1/30).');
+    if (n1 && ha1Peer === n1.ip) w.push('⛔ HA1 IP\'si ile eş (peer) IP aynı: iki üye farklı adres kullanmalı.');
+    if (n1 && _paWIsIp(ha1Peer) && !_paWIn(ha1Peer, n1)) w.push('⚠ Eş IP (' + ha1Peer + ') HA1 alt ağında değil: HA1 bağlantısı ancak HA1 için ağ geçidi tanımlanırsa kurulur; doğrudan kabloda aynı alt ağı kullanın.');
+    if (n1 && n2 && _paWOverlap(n1, n2)) w.push('⚠ HA1 ve HA2 aynı alt ağda: iki bağlantıyı ayrı alt ağlara koyun.');
+    if (ha1Iface && ha1Iface === ha2Iface) w.push('⛔ HA1 ve HA2 aynı arayüz olamaz.');
+    w.push('ℹ PAN-OS\'ta DÜŞÜK device-priority kazanır: bu araç primary\'ye 10, secondary\'ye 100 verir. Preemptive iki üyede de aynı olmalı; yalnız birinde açıksa etkisizdir.');
+    w.push('ℹ Karşı üyede aynı group-id ve mode, kendi HA1/HA2 adresleri ve bu cihazın HA1 IP\'si peer-ip olarak yazılır. İki üye aynı model ve aynı PAN-OS sürümünde olmalı.');
+    const g = 'set deviceconfig high-availability group';
     let c = '# ========================================\n# Palo Alto — HA Active-Passive (' + (role === 'primary' ? 'Primary' : 'Secondary') + ')\n# ========================================\n\n';
+    c += '# PAN-OS 8.1+ sözdizimi (group altında group-id; peer-ip grup düzeyinde)\n';
     c += 'set deviceconfig high-availability enabled yes\n';
-    c += 'set deviceconfig high-availability group ' + grpId + ' mode active-passive\n';
-    c += 'set deviceconfig high-availability group ' + grpId + ' election-option device-priority ' + (role === 'primary' ? '10' : '100') + '\n';
-    c += 'set deviceconfig high-availability group ' + grpId + ' election-option preemptive ' + preemptive + '\n';
+    c += g + ' group-id ' + cgEsc(grpId) + '\n';
+    c += g + ' peer-ip ' + ha1Peer + '\n';
+    c += g + ' mode active-passive\n';
+    c += g + ' election-option device-priority ' + (role === 'primary' ? '10' : '100') + '\n';
+    c += g + ' election-option preemptive ' + preemptive + '\n';
+    c += g + ' state-synchronization enabled yes\n\n';
+    c += '# HA1 (kontrol) ve HA2 (oturum senkronu) bağlantıları\n';
     c += 'set deviceconfig high-availability interface ha1 port ' + ha1Iface + '\n';
-    c += 'set deviceconfig high-availability interface ha1 ip-address ' + ha1Ip + '\n';
-    c += 'set deviceconfig high-availability interface ha1 gateway ' + ha1Peer + '\n';
+    c += 'set deviceconfig high-availability interface ha1 ip-address ' + (n1 ? n1.ip : '') + '\n';
+    c += 'set deviceconfig high-availability interface ha1 netmask ' + (n1 ? _paWMask(n1.len) : '') + '\n';
     c += 'set deviceconfig high-availability interface ha2 port ' + ha2Iface + '\n';
-    c += 'set deviceconfig high-availability interface ha2 ip-address ' + ha2Ip + '\n';
-    c += 'set deviceconfig high-availability group ' + grpId + ' state-synchronization enabled yes\n\n';
+    c += 'set deviceconfig high-availability interface ha2 ip-address ' + (n2 ? n2.ip : '') + '\n';
+    c += 'set deviceconfig high-availability interface ha2 netmask ' + (n2 ? _paWMask(n2.len) : '') + '\n\n';
     c += '# Commit gerekli!\n# commit\n\n';
     c += '# Doğrulama:\n# show high-availability all\n# show high-availability state\n# show high-availability state-synchronization\n';
-    return c;
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: Interface (L3/VLAN/Loopback) ───────────────────────────────────
@@ -651,14 +810,18 @@ PaloAlto.interface = {
                         { name: 'intf_name', why: "Arayüz adları sabittir (<code>ethernet1/1</code>); alt arayüzde <code>.100</code> gibi bir etiket eklenir. Bu etiketi VLAN ID ile aynı tutmamak sorun gidermeyi gereksizce zorlaştırır.", label: 'Interface Adı', type: 'text', required: true, placeholder: 'ethernet1/3', hint: 'PAN-OS formatı: ethernet1/3, loopback.1' },
                         { name: 'intf_type', why: '<b>Layer3</b> yönlendirir, <b>Layer2</b> köprüler, <b>Virtual Wire</b> şeffaf geçer, <b>Tap</b> sadece dinler. Tip sonradan değiştirilince bağlı tüm config sıfırlanır.', label: 'Interface Tipi', type: 'select', options: [
                             { value: 'layer3', label: 'Layer 3', selected: true },
-                            { value: 'vlan', label: 'VLAN Sub-Interface' },
+                            { value: 'vlan', label: 'VLAN Alt Arayüzü (802.1Q)' },
                             { value: 'loopback', label: 'Loopback' }
-                        ], hint: 'Layer3 fiziksel port; VLAN sub-interface için vlan_id gerekir' },
+                        ], hint: 'Layer3 fiziksel port; VLAN alt arayüzü için VLAN ID gerekir (ethernet1/2 → ethernet1/2.100)' },
                         { name: 'ip_prefix', why: "PAN-OS CIDR bekler (<code>/24</code>), nokta-ondalık maske değil. Yanlış prefix yönetim erişimini commit anında koparabilir.", label: 'IP / Prefix (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '10.0.0.1/30', hint: 'CIDR formatında IP adresi' },
                         { name: 'zone', why: "Zone atanmamış arayüz trafiği <b>tamamen</b> düşürür. Zone'u sonradan değiştirmek ise o arayüze referans veren tüm kuralları geçersiz kılar.", label: 'Zone', type: 'text', required: true, placeholder: 'untrust', hint: 'Arayüzün atanacağı zone adı' },
                         { name: 'description', why: "Çok portlu bir cihazda hangi kablonun nereye gittiğini söyleyen tek kayıt budur. Boş bırakılan portlar, arıza anında en çok zaman kaybettiren yerdir.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'WAN Link', hint: 'İsteğe bağlı arayüz açıklaması' },
                         { name: 'mtu', why: 'Varsayılan 1500. IPSec tünelleri üzerinden geçen trafikte MTU/MSS ayarı yapılmazsa büyük paketler parçalanır ve uygulamalar yavaşlar.', label: 'MTU', type: 'text', optional: true, placeholder: '1500', hint: 'MTU değeri (varsayılan 1500, VLAN için 1400–1500)' },
-                        { name: 'vlan_id', why: "Alt arayüzdeki VLAN etiketi karşı switch'in trunk'ında izinli olmalı. Uyuşmazlıkta arayüz up görünür ama tek bir paket bile gelmez.", label: 'VLAN ID', type: 'text', validate: 'vlan', optional: true, placeholder: '100', hint: 'Yalnızca VLAN tipi seçildiyse gerekli' }
+                        { name: 'vlan_id', why: "Alt arayüzdeki VLAN etiketi karşı switch'in trunk'ında izinli olmalı. Uyuşmazlıkta arayüz up görünür ama tek bir paket bile gelmez.", label: 'VLAN ID', type: 'text', validate: 'vlan', optional: true, placeholder: '100', hint: 'Yalnızca VLAN tipi seçildiyse gerekli' },
+                        { name: 'vr', why: "Arayüz bir sanal yönlendiriciye (virtual-router) eklenmezse bağlı ağı rota tablosuna girmez ve o arayüzden gelen paket için rota bulunamaz — arayüz up görünür ama trafik geçmez (pan-02).", label: 'Virtual Router', type: 'text', optional: true, placeholder: 'default', hint: 'Arayüzün ekleneceği VR (genellikle default)' },
+                        { name: 'mp_name', why: "Veri arayüzleri varsayılan olarak cihazın kendisine gelen ping/SSH/HTTPS'e cevap vermez; hangi hizmetin açık olacağını arayüz yönetim profili belirler (pan-02).", label: 'Yönetim Profili Adı', type: 'text', optional: true, placeholder: 'MGMT-PING-SSH', hint: 'interface-management-profile adı (opsiyonel)' },
+                        { name: 'mp_services', why: "Yalnız gereken hizmeti açın. <code>telnet</code> ve <code>http</code> şifresizdir; internete bakan arayüzde ssh/https açmak saldırı yüzeyidir.", label: 'Yönetim Hizmetleri', type: 'text', optional: true, placeholder: 'ping ssh https', hint: 'Boşlukla: ping ssh https snmp …' },
+                        { name: 'mp_permitted', why: "permitted-ip verilmezse profil hizmetleri arayüze erişebilen her adrese açıktır. Yönetim ağını (ör. 10.64.0.0/16) yazarak sınırlayın.", label: 'İzinli Kaynak (permitted-ip)', type: 'text', optional: true, placeholder: '10.64.0.0/16', hint: 'Yönetime izinli ağlar; boşluk veya virgülle' }
                     ]
                 }
             ],
@@ -669,26 +832,79 @@ PaloAlto.interface = {
     }
 };
 function cgPaInterfaceGen(data) {
-    const intfName = cgEsc(data.intf_name || ''), intfType = cgEsc(data.intf_type || 'layer3');
-    const ipPrefix = cgEsc(data.ip_prefix || ''), zone = cgEsc(data.zone || '');
-    const description = cgEsc(data.description || ''), mtu = cgEsc(data.mtu || ''), vlanId = cgEsc(data.vlan_id || '');
-    let c = '# ========================================\n# Palo Alto — Interface Configuration\n# ========================================\n\n';
-    if (intfType === 'layer3' || intfType === 'vlan') {
-        c += 'set network interface ethernet ' + intfName + ' layer3 ip ' + ipPrefix + '\n';
-        if (mtu) c += 'set network interface ethernet ' + intfName + ' layer3 mtu ' + mtu + '\n';
-        if (description) c += 'set network interface ethernet ' + intfName + ' comment "' + description + '"\n';
-        if (intfType === 'vlan' && vlanId) {
-            c += 'set network interface ethernet ' + intfName + ' layer3 units vlan.' + vlanId + '\n';
-        }
-        c += 'set zone ' + zone + ' network layer3 ' + intfName + '\n';
-    } else {
-        c += 'set network interface loopback units ' + intfName + ' ip ' + ipPrefix + '\n';
-        if (description) c += 'set network interface loopback units ' + intfName + ' comment "' + description + '"\n';
-        c += 'set zone ' + zone + ' network layer3 ' + intfName + '\n';
+    const t = ['layer3', 'vlan', 'loopback'].includes(data.intf_type) ? data.intf_type : 'layer3';
+    const raw = String(data.intf_name || '').trim(), vlanId = String(data.vlan_id || '').trim();
+    const ipPrefix = cgEsc(data.ip_prefix || ''), zone = cgEsc(String(data.zone || '').trim()), vr = cgEsc(String(data.vr || '').trim());
+    const description = cgEsc(data.description || ''), mtu = String(data.mtu || '').trim();
+    const w = [];
+    // Alt arayüz adı: <fiziksel>.<etiket> (ör. ethernet1/2.100); yalnız fiziksel ad verilirse etiket eklenir
+    let parent = raw, name = raw;
+    if (t === 'vlan') {
+        const m = raw.match(/^(.+)\.(\d+)$/);
+        parent = m ? m[1] : raw;
+        name = m ? raw : raw + '.' + (vlanId || '<VLAN-ID>');
+        if (!vlanId && !m) w.push('⛔ VLAN alt arayüzü için VLAN ID (tag) gerekli: etiketsiz alt arayüz trafik almaz.');
+        if (!vlanId && m) w.push('ℹ VLAN ID verilmedi: tag, alt arayüz numarasından (' + m[2] + ') alındı.');
+        if (m && vlanId && m[2] !== vlanId) w.push('ℹ Alt arayüz numarası (' + m[2] + ') ile VLAN tag (' + vlanId + ') farklı: çalışır ama sorun gidermede karışıklık yaratır; aynı tutun.');
     }
+    const N = cgEsc(name), P = cgEsc(parent);
+    if (t === 'loopback' && !/^loopback\.\d+$/.test(raw)) w.push('⛔ Loopback arayüzü adı loopback.<sayı> biçiminde olmalı (ör. loopback.1): "' + raw + '".');
+    if (t !== 'loopback' && raw && !/^(ethernet\d+\/\d+|ae\d+)(\.\d+)?$/.test(raw)) w.push('⚠ Arayüz adı PAN-OS biçiminde görünmüyor (ethernet1/3, ethernet1/3.100 ya da ae1): "' + raw + '".');
+    if (t === 'layer3' && /\.\d+$/.test(raw)) w.push('⚠ Ad bir alt arayüz (' + raw + '): Layer 3 yerine "VLAN Alt Arayüzü" tipini seçin; fiziksel arayüz komutu alt arayüz adıyla çalışmaz.');
+    const n = _paWNet(data.ip_prefix);
+    if (_paWNetOrBcast(n)) w.push('⛔ Arayüz IP\'si alt ağın ağ ya da yayın adresi (' + n.ip + '/' + n.len + ').');
+    if (t === 'loopback' && n && n.len !== 32) w.push('⚠ Loopback adresi /' + n.len + ': loopback için /32 kullanın; daha geniş önek, aynı ağdaki gerçek hostlara giden trafiği yutabilir.');
+    if (mtu && !(/^\d+$/.test(mtu) && +mtu >= 576 && +mtu <= 9192)) w.push('⛔ MTU 576–9192 arasında bir sayı olmalı ("' + mtu + '").');
+    if (!zone) w.push('⛔ Zone verilmedi: zone\'a üye olmayan arayüz trafik geçirmez (pan-02).');
+    if (!vr) w.push('⚠ Virtual Router verilmedi: arayüz bir VR\'a eklenmezse bağlı ağı rota tablosuna girmez; "arayüz up ama trafik yok" arızasının klasik nedeni (pan-02).');
+    // Arayüz yönetim profili (cihazın kendisine ping/SSH/HTTPS)
+    const mpSvc = _paWList(data.mp_services).map(x => x.toLowerCase()), mpIp = _paWList(data.mp_permitted);
+    let mp = cgEsc(String(data.mp_name || '').trim());
+    if (!mp && mpSvc.length) { mp = 'MGMT-' + (zone || 'IF').toUpperCase(); w.push('ℹ Yönetim profili adı verilmedi: ' + mp + ' kullanıldı.'); }
+    if (mp) _paWName('Yönetim profili adı', mp, w, 31);
+    const unk = mpSvc.filter(x => _PAW_MP.indexOf(x) === -1);
+    if (unk.length) w.push('⛔ Tanınmayan yönetim hizmeti: ' + unk.join(', ') + '. Geçerli: ' + _PAW_MP.join(' ') + '.');
+    if (mpSvc.includes('telnet')) w.push('⚠ Yönetim profilinde telnet: parola ağda düz metin gider; yalnız ssh kullanın.');
+    if (mpSvc.includes('http')) w.push('⚠ Yönetim profilinde http: web yönetimi şifresiz; yalnız https kullanın.');
+    const mgmtSvc = mpSvc.filter(x => x !== 'ping' && x !== 'response-pages' && _PAW_MP.indexOf(x) !== -1);
+    if (mgmtSvc.length && _paWUntrust(zone)) w.push('⚠ ' + zone + ' zone\'unda (internete bakan) ' + mgmtSvc.join(' ') + ' açılıyor: yönetimi internete açmayın; yalnız iç arayüzde ve permitted-ip ile (pan-02).');
+    if (mgmtSvc.length && !mpIp.length) w.push('⚠ permitted-ip yok: ' + mgmtSvc.join(' ') + ' bu arayüze erişebilen HER adrese açık. Yönetim ağını permitted-ip ile sınırlayın.');
+    mpIp.forEach(x => { const q = _paWNet(x) || (_paWIsIp(x) ? { ip: x, len: 32 } : null); if (!q) w.push('⛔ permitted-ip değeri IP ya da IP/önek olmalı: "' + x + '".'); else if (q.len === 0) w.push('⚠ permitted-ip 0.0.0.0/0: kısıtlama etkisiz.'); });
+    if (mp && !mpSvc.length) w.push('ℹ Yalnız profil adı verildi: ' + mp + ' profili cihazda zaten tanımlı olmalı, yoksa commit "is not a valid reference" ile reddeder.');
+    let c = '# ========================================\n# Palo Alto — Interface Configuration\n# ========================================\n\n';
+    if (mp && mpSvc.length) {
+        c += '# Arayüz yönetim profili\nset network profiles interface-management-profile ' + mp + ' ' + mpSvc.filter(x => _PAW_MP.indexOf(x) !== -1).map(x => cgEsc(x) + ' yes').join(' ') + '\n';
+        mpIp.forEach(x => { c += 'set network profiles interface-management-profile ' + mp + ' permitted-ip ' + cgEsc(x) + '\n'; });
+        c += '\n';
+    }
+    let ifBase;
+    if (t === 'layer3') {
+        ifBase = 'set network interface ethernet ' + N + ' layer3';
+        c += ifBase + ' ip ' + ipPrefix + '\n';
+        if (mtu) c += ifBase + ' mtu ' + cgEsc(mtu) + '\n';
+        if (description) c += 'set network interface ethernet ' + N + ' comment "' + description + '"\n';
+    } else if (t === 'vlan') {
+        // 802.1Q alt arayüz: fiziksel arayüz layer3 modunda (IP'siz), alt arayüz units altında tag + ip
+        const m2 = raw.match(/^(.+)\.(\d+)$/);
+        ifBase = 'set network interface ethernet ' + P + ' layer3 units ' + N;
+        c += ifBase + ' tag ' + cgEsc(vlanId || (m2 ? m2[2] : '<VLAN-ID>')) + '\n';
+        c += ifBase + ' ip ' + ipPrefix + '\n';
+        if (mtu) c += ifBase + ' mtu ' + cgEsc(mtu) + '\n';
+        if (description) c += ifBase + ' comment "' + description + '"\n';
+        w.push('ℹ Karşı switch portu trunk olmalı ve VLAN ' + (vlanId || '<id>') + '\'e izin vermeli; fiziksel arayüz ' + parent + ' IP\'siz layer3 modunda kalır.');
+    } else {
+        ifBase = 'set network interface loopback units ' + N;
+        c += ifBase + ' ip ' + ipPrefix + '\n';
+        if (mtu) c += ifBase + ' mtu ' + cgEsc(mtu) + '\n';
+        if (description) c += ifBase + ' comment "' + description + '"\n';
+    }
+    if (mp) c += ifBase + ' interface-management-profile ' + mp + '\n';
+    if (zone) c += 'set zone ' + zone + ' network layer3 ' + N + '\n';
+    if (vr) c += 'set network virtual-router ' + vr + ' interface ' + N + '\n';
     c += '\n# Commit gerekli!\n# commit\n\n';
-    c += '# Doğrulama:\n# show interface ' + intfName + '\n# show zone ' + zone + '\n';
-    return c;
+    c += '# Doğrulama:\n# show interface ' + N + '   (zone, VR ve yönetim profili satırları)\n# show routing route\n';
+    if (vr) w.push(_PAW_VRNOTE);
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: Virtual Router + Static Route ───────────────────────────────────
@@ -708,7 +924,7 @@ PaloAlto.staticroute = {
                     fields: [
                         { name: 'vr_name', why: "Virtual Router ayrı bir yönlendirme tablosudur. Arayüzü doğru VR'a eklemezsen rota yazsan bile trafik yönlenmez; VR'lar arası geçiş ayrıca statik rota ister.", label: 'Virtual Router Adı', type: 'text', required: true, placeholder: 'default', hint: 'Varsayılan VR genellikle "default" olarak adlandırılır' },
                         { name: 'dst', why: "Hedef ağ CIDR olarak. Palo Alto'da rota eklemek yetmez; trafiğin geçmesi için ayrıca <b>güvenlik kuralı</b> gerekir.", label: 'Hedef Ağ (CIDR)', type: 'text', validate: 'cidr', required: true, placeholder: '0.0.0.0/0', hint: 'Rota hedefi; default route için 0.0.0.0/0' },
-                        { name: 'nexthop', why: 'Next-hop IP. Tünel arayüzü üzerinden rota veriyorsan next-hop yerine arayüzü seçmelisin.', label: 'Next-Hop IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.254', hint: 'Bir sonraki hop IP adresi' },
+                        { name: 'nexthop', why: 'Next-hop IP, VR\'daki bir bağlı ağda olmalı; değilse rota tabloya girmez. Tünel arayüzü üzerinden rota veriyorsan next-hop boş bırakılır, yalnız arayüz yazılır.', label: 'Next-Hop IP', type: 'text', validate: 'ip', optional: true, placeholder: '203.0.113.1', hint: 'Bir sonraki hop IP adresi (tunnel rotasında boş)' },
                         { name: 'interface', why: "Next-hop yerine yalnızca arayüz vermek point-to-point dışında risklidir. Ethernet segmentinde next-hop IP belirtmek ARP kaynaklı yanlış yönlendirmeleri önler.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/1', hint: 'Çıkış arayüzü' },
                         { name: 'metric', why: 'Aynı hedefe birden fazla rota varsa düşük metric kazanır. Yedek hat için yüksek metric vererek failover kurulur.', label: 'Metric', type: 'text', required: true, placeholder: '10', hint: 'Rota metriği; düşük değer öncelikli' }
                     ]
@@ -721,17 +937,27 @@ PaloAlto.staticroute = {
     }
 };
 function cgPaStaticrouteGen(data) {
-    const vrName = cgEsc(data.vr_name || ''), dst = cgEsc(data.dst || '');
-    const nexthop = cgEsc(data.nexthop || ''), iface = cgEsc(data.interface || ''), metric = cgEsc(data.metric || '');
-    const routeName = dst.replace(/[^a-zA-Z0-9]/g, '-');
+    const vrName = cgEsc(data.vr_name || ''), dst = cgEsc(String(data.dst || '').trim());
+    const nexthop = cgEsc(String(data.nexthop || '').trim()), iface = cgEsc(String(data.interface || '').trim()), metric = String(data.metric || '').trim();
+    const routeName = dst === '0.0.0.0/0' ? 'DEFAULT' : dst.replace(/[^a-zA-Z0-9]/g, '-');
+    const w = [];
+    const dn = _paWNet(data.dst);
+    if (_paWHostBits(dn)) w.push('⚠ Hedefte host bitleri dolu (' + dn.ip + '/' + dn.len + '): ağ adresini yazın (' + _paWIpOf(_paWBase(dn.ip, dn.len)) + '/' + dn.len + ').');
+    if (!nexthop && !iface) w.push('⛔ Sonraki atlama da çıkış arayüzü de yok: rota hiçbir yere gönderemez. Next-hop IP (Ethernet) ya da arayüz (tunnel) verin.');
+    else if (!nexthop && /^tunnel\.\d+$/.test(iface)) w.push('ℹ Next-hop olmadan tunnel arayüzüne rota: route-based VPN için doğru kullanım.');
+    else if (!nexthop) w.push('⚠ Statik rotada next-hop yok, yalnız ' + iface + ': Ethernet segmentinde hedef için ARP yapılır ve karşı tarafta proxy-ARP gerekir; next-hop IP verin.');
+    if (metric && !(/^\d+$/.test(metric) && +metric >= 1 && +metric <= 65535)) w.push('⛔ Metric 1–65535 arasında bir sayı olmalı ("' + metric + '").');
+    if (nexthop) w.push('ℹ Next-hop ' + nexthop + ', VR\'daki bir arayüzün bağlı ağında olmalı; değilse rota tabloya girmez (show routing route\'da görünmez) (pan-02). Yedek hat için aynı hedefe daha yüksek metric ile ikinci rota yazın; yönetsel mesafe varsayılanı 10.');
+    const b = 'set network virtual-router ' + vrName + ' routing-table ip static-route ' + routeName;
     let c = '# ========================================\n# Palo Alto — Virtual Router + Static Route\n# ========================================\n\n';
-    c += 'set network virtual-router ' + vrName + ' routing-table ip static-route ' + routeName + ' destination ' + dst + '\n';
-    c += 'set network virtual-router ' + vrName + ' routing-table ip static-route ' + routeName + ' nexthop ip-address ' + nexthop + '\n';
-    c += 'set network virtual-router ' + vrName + ' routing-table ip static-route ' + routeName + ' interface ' + iface + '\n';
-    c += 'set network virtual-router ' + vrName + ' routing-table ip static-route ' + routeName + ' metric ' + metric + '\n';
+    c += b + ' destination ' + dst + '\n';
+    if (nexthop) c += b + ' nexthop ip-address ' + nexthop + '\n';
+    if (iface) c += b + ' interface ' + iface + '\n';
+    if (metric) c += b + ' metric ' + cgEsc(metric) + '\n';
     c += '\n# Commit gerekli!\n# commit\n\n';
-    c += '# Doğrulama:\n# show routing route\n# show routing fib\n';
-    return c;
+    c += '# Doğrulama:\n# show routing route type static\n# test routing fib-lookup virtual-router ' + vrName + ' ip ' + (dn ? cgEsc(dn.len === 0 ? '198.51.100.80' : dn.ip) : '<hedef-ip>') + '\n';
+    w.push(_PAW_VRNOTE);
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: OSPF ───────────────────────────────────────────────────────────
@@ -859,7 +1085,7 @@ PaloAlto.vlan = {
                         { name: 'vlan_id', why: "802.1Q etiketi (1-4094). Karşı switch portu <b>trunk</b> modda olmalı ve bu VLAN'a izin vermeli, aksi halde tag'li trafik sessizce düşer.", label: 'VLAN ID', type: 'text', validate: 'vlan', required: true, placeholder: '100', hint: '1–4094 arası VLAN numarası' },
                         { name: 'vlan_name', why: "PAN-OS'ta alt arayüz adı <code>ethernet1/1.100</code> biçiminde oluşur. Ad yalnızca okunabilirlik içindir, trafiği etkilemez.", label: 'VLAN Adı', type: 'text', required: true, placeholder: 'SERVERS', hint: 'VLAN nesne adı (büyük harf önerilir)' },
                         { name: 'interface', why: "Alt arayüzün bağlanacağı fiziksel arayüz. Üst arayüzün de bir zone'a ve Virtual Router'a atanmış olması gerekir.", label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'ethernet1/2', hint: 'VLAN üyesi fiziksel arayüz' },
-                        { name: 'ip', why: "Alt arayüz IP'si, o VLAN'daki istemcilerin gateway'i olur. CIDR formatında verilir.", label: 'IP / Prefix', type: 'text', validate: 'cidr', optional: true, placeholder: '192.168.100.1/24', hint: 'VLAN SVI IP adresi (opsiyonel)' },
+                        { name: 'ip', why: "Alt arayüz IP'si, o VLAN'daki istemcilerin gateway'i olur. CIDR formatında verilir.", label: 'IP / Prefix', type: 'text', validate: 'cidr', optional: true, placeholder: '10.64.100.1/24', hint: 'VLAN arayüzü (vlan.<id>) IP adresi (opsiyonel)' },
                         { name: 'zone', why: "Her alt arayüz bir zone'a atanmalıdır. Atanmazsa trafik güvenlik kurallarına hiç girmez ve düşer.", label: 'Zone', type: 'text', optional: true, placeholder: 'trust', hint: 'VLAN arayüzünün atanacağı zone (opsiyonel)' }
                     ]
                 }
@@ -871,20 +1097,30 @@ PaloAlto.vlan = {
     }
 };
 function cgPaVlanGen(data) {
-    const vlanId = cgEsc(data.vlan_id || ''), vlanName = cgEsc(data.vlan_name || '');
-    const iface = cgEsc(data.interface || ''), ip = cgEsc(data.ip || ''), zone = cgEsc(data.zone || '');
+    const vlanId = cgEsc(String(data.vlan_id || '').trim()), vlanName = cgEsc(data.vlan_name || '');
+    const iface = cgEsc(String(data.interface || '').trim()), ip = cgEsc(String(data.ip || '').trim()), zone = cgEsc(String(data.zone || '').trim());
+    const sub = iface + '.' + vlanId, vif = 'vlan.' + vlanId;
+    const w = [];
+    _paWName('VLAN adı', data.vlan_name, w, 31);
+    if (/\./.test(iface)) w.push('⛔ Arayüz alanına fiziksel arayüz yazın (ör. ethernet1/2); alt arayüz (' + iface + '.' + vlanId + ') araç tarafından oluşturulur.');
+    const n = _paWNet(data.ip);
+    if (_paWNetOrBcast(n)) w.push('⛔ VLAN arayüzü IP\'si alt ağın ağ ya da yayın adresi (' + n.ip + '/' + n.len + ').');
+    if (zone && !ip) w.push('ℹ IP verilmediği için VLAN (L3) arayüzü oluşturulmadı; zone ataması yazılmadı.');
+    if (ip && !zone) w.push('⚠ VLAN arayüzü (' + vif + ') için zone verilmedi: zone\'suz arayüz trafik geçirmez.');
+    w.push('ℹ Katman 2 alt arayüzü ' + sub + ' da bir layer2 zone\'una üye olmalı (set zone <L2-zone> network layer2 ' + sub + '); zone\'suz arayüz trafik işlemez.');
     let c = '# ========================================\n# Palo Alto — VLAN\n# ========================================\n\n';
-    c += 'set network vlan ' + vlanName + ' vlan-id ' + vlanId + '\n';
-    c += 'set network vlan ' + vlanName + ' interface ' + iface + '\n';
+    c += '# Katman 2 alt arayüzü (802.1Q etiketi ' + vlanId + ')\nset network interface ethernet ' + iface + ' layer2 units ' + sub + ' tag ' + vlanId + '\n\n';
+    c += '# VLAN nesnesi (PAN-OS VLAN nesnesinde vlan-id alanı yoktur; etiket alt arayüzdedir)\nset network vlan ' + vlanName + ' interface ' + sub + '\n';
     if (ip) {
-        c += 'set network interface vlan units vlan.' + vlanId + ' ip ' + ip + '\n';
-    }
-    if (zone) {
-        c += 'set zone ' + zone + ' network layer3 vlan.' + vlanId + '\n';
+        c += '\n# VLAN (L3) arayüzü: VLAN\'ın ağ geçidi\nset network interface vlan units ' + vif + ' ip ' + ip + '\n';
+        c += 'set network vlan ' + vlanName + ' virtual-interface interface ' + vif + '\n';
+        if (zone) c += 'set zone ' + zone + ' network layer3 ' + vif + '\n';
+        c += 'set network virtual-router default interface ' + vif + '\n';
+        w.push(_PAW_VRNOTE);
     }
     c += '\n# Commit gerekli!\n# commit\n\n';
-    c += '# Doğrulama:\n# show vlan all\n';
-    return c;
+    c += '# Doğrulama:\n# show vlan all\n# show interface ' + (ip ? vif : sub) + '\n';
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: Service Object ─────────────────────────────────────────────────
@@ -920,19 +1156,22 @@ PaloAlto.service = {
     }
 };
 function cgPaServiceGen(data) {
-    const name = cgEsc(data.name || ''), protocol = cgEsc(data.protocol || 'tcp');
-    const dstPort = cgEsc(data.dst_port || ''), srcPort = cgEsc(data.src_port || ''), description = cgEsc(data.description || '');
+    const name = cgEsc(data.name || ''), protocol = data.protocol === 'udp' ? 'udp' : 'tcp';
+    const dstPort = String(data.dst_port || '').trim(), srcPort = String(data.src_port || '').trim(), description = cgEsc(data.description || '');
+    const w = [];
+    _paWName('Servis adı', data.name, w);
+    if (/^any$/i.test(dstPort)) w.push('⛔ Hedef port "any" olamaz: servis nesnesi port (ör. 443), aralık (8080-8090) ya da virgüllü liste ister.');
+    if (/^(0|1)-65535$/.test(dstPort)) w.push('⚠ Hedef port 1-65535: tüm portlar açılır; kuralda servis any ile aynı etkiyi yapar.');
+    if (srcPort && !/^any$/i.test(srcPort)) w.push('⚠ Kaynak port kısıtı: istemciler rastgele kaynak port kullanır; bu nesneyle yazılan kural büyük olasılıkla hiç eşleşmez.');
+    const b = 'set service ' + name + ' protocol ' + protocol;
     let c = '# ========================================\n# Palo Alto — Service Object\n# ========================================\n\n';
-    c += 'set shared service ' + name + ' protocol ' + protocol + ' port ' + dstPort + '\n';
-    if (srcPort && srcPort !== 'any') {
-        c += 'set shared service ' + name + ' protocol ' + protocol + ' source-port ' + srcPort + '\n';
-    }
-    if (description) {
-        c += 'set shared service ' + name + ' description "' + description + '"\n';
-    }
+    c += b + ' port ' + cgEsc(dstPort) + '\n';
+    if (srcPort && !/^any$/i.test(srcPort)) c += b + ' source-port ' + cgEsc(srcPort) + '\n';
+    if (description) c += 'set service ' + name + ' description "' + description + '"\n';
+    w.push('ℹ Kuralda uygulama (App-ID) ile birlikte kullanın: application ssl + service ' + (name || '<servis>') + ' uygulamayı yalnız bu portta geçirir (pan-03). Standart porttaki uygulama için application-default yeterlidir.');
     c += '\n# Commit gerekli!\n# commit\n\n';
-    c += '# Doğrulama:\n# show service name ' + name + '\n';
-    return c;
+    c += '# Doğrulama (configure modu):\n# show service ' + name + '\n';
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: Custom Application ─────────────────────────────────────────────
