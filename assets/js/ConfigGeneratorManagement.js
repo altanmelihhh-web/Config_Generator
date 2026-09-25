@@ -7,6 +7,11 @@ function cgEsc(v) {
         ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'})[c]);
 }
 
+// Tırnaklı CLI değeri (FortiOS/PAN-OS): önce \\ ve \" kaçırması, sonra cgEsc (cgShowOutput çıktıyı bir kez çözer)
+function cgQ(v) {
+    return '"' + cgEsc(String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')) + '"';
+}
+
 // Canlı önizleme sırasında true olur: cgValidate alanları işaretler ama engellemez.
 let cgSoftMode = false;
 

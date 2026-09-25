@@ -468,15 +468,16 @@ function cgPaIpsecGen(data) {
     const ikeProf = cgEsc(data.ike_profile || ''), ipsecProf = cgEsc(data.ipsec_profile || '');
     const gwName = cgEsc(data.gw_name || ''), gwIface = cgEsc(data.gw_iface || '');
     const peerIp = cgEsc(data.peer_ip || ''), ikeVer = data.ike_ver === 'ikev1' ? 'ikev1' : 'ikev2';
-    const psk = String(data.psk || '');
+    // Tırnak içi: önce \\ ve \" kaçırması, sonra cgEsc (çıktı gösterilirken tek kez çözülür)
+    const pskRaw = String(data.psk || ''), psk = cgEsc(pskRaw.replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
     const ikeEnc = cgEsc(data.ike_enc || 'aes-256-cbc'), ikeHash = cgEsc(data.ike_hash || 'sha256'), dhGrp = cgEsc(data.dh_grp || 'group14');
     const tunName = cgEsc(data.tunnel_name || ''), tunIface = cgEsc(data.tunnel_iface || ''), tunZone = cgEsc(String(data.tun_zone || '').trim());
     const proxyLocal = cgEsc(data.proxy_local || ''), proxyRemote = cgEsc(data.proxy_remote || '');
     const w = [];
     [['IKE crypto profil adı', data.ike_profile], ['IPSec crypto profil adı', data.ipsec_profile], ['IKE gateway adı', data.gw_name], ['Tünel adı', data.tunnel_name]].forEach(([l, v]) => _paWName(l, v, w));
     if (tunIface && !/^tunnel\.\d+$/.test(tunIface)) w.push('⛔ Tünel arayüzü adı tunnel.<sayı> biçiminde olmalı (ör. tunnel.1): "' + tunIface + '".');
-    if (/["\\]/.test(psk)) w.push('⛔ Pre-shared key çift tırnak ya da ters bölü içeriyor: CLI\'da tırnaklı değer bu karakterlerde bölünür. Bu karakterleri kullanmayın ya da anahtarı web arayüzünden girin.');
-    if (psk.length && psk.length < 12) w.push('⚠ Pre-shared key ' + psk.length + ' karakter: en az 20 karakterlik rastgele bir anahtar kullanın.');
+    if (/["\\]/.test(pskRaw)) w.push('⛔ Pre-shared key çift tırnak ya da ters bölü içeriyor: CLI\'da tırnaklı değer bu karakterlerde bölünür. Bu karakterleri kullanmayın ya da anahtarı web arayüzünden girin.');
+    if (pskRaw.length && pskRaw.length < 12) w.push('⚠ Pre-shared key ' + pskRaw.length + ' karakter: en az 20 karakterlik rastgele bir anahtar kullanın.');
     if (ikeHash === 'sha1') w.push('⚠ SHA-1 zayıf kabul ediliyor; iki tarafta da sha256 ya da üstünü kullanın.');
     if (dhGrp === 'group5') w.push('⚠ DH group 5 (1536 bit) kırılabilir kabul ediliyor; en az group14, tercihen group19/20.');
     if (ikeVer === 'ikev1') w.push('ℹ IKEv1 eski cihazlar içindir; karşı taraf destekliyorsa IKEv2 kullanın.');

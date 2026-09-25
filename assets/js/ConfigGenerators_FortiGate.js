@@ -270,7 +270,7 @@ function cgFgPolicyGen(data) {
     const sI = _fgWList(data.srcintf), dI = _fgWList(data.dstintf);
     const splitN = s => String(s || '').split(/[,\n]+/).map(x => x.trim()).filter(Boolean);
     const sA = splitN(data.srcaddr), dA = splitN(data.dstaddr), sv = splitN(data.service);
-    const q = a => a.map(x => '"' + cgEsc(x) + '"').join(' ');
+    const q = a => a.map(x => cgQ(x)).join(' ');
     const w = [];
     if (rid && !/^\d+$/.test(rid)) w.push('⛔ Kural ID sayı olmalı (edit <sayı>); "' + rid + '" reddedilir.');
     else if (rid === '0') w.push('ℹ edit 0: FortiOS sıradaki boş kural numarasını kendisi verir.');
@@ -515,7 +515,8 @@ function cgFgIpsecGen(data) {
     const p1       = cgEsc(data.p1_name || '');
     const iface    = cgEsc(data.p1_iface || '');
     const gw       = cgEsc(data.remote_gw || '');
-    const psk      = cgEsc(data.psk || '');
+    // Önce FortiOS kaçırması (\\ ve \"), sonra cgEsc: çıktı gösterilirken tek kez çözülür (cgShowOutput)
+    const psk      = cgEsc(String(data.psk || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
     const ikever   = cgEsc(data.ike_ver || '2');
     const proposal = cgEsc(data.proposal || 'aes256-sha256');
     const dhgrp    = cgEsc(data.dhgrp || '14');
@@ -531,7 +532,7 @@ function cgFgIpsecGen(data) {
     c += '        set remote-gw ' + gw + '\n';
     c += '        set authmethod psk\n';
     // PSK tırnak içinde: boşluklu anahtar tırnaksız yazılırsa ikinci sözcükte "value parse error" verir
-    c += '        set psksecret "' + psk.replace(/"/g, '\\"') + '"\n';
+    c += '        set psksecret "' + psk + '"\n';
     c += '        set ike-version ' + ikever + '\n';
     c += '        set proposal ' + proposal + '\n';
     c += '        set dhgrp ' + dhgrp + '\n';
@@ -914,9 +915,9 @@ function cgFgHaGen(data) {
     c += '    set group-name "' + grpName + '"\n';
     c += '    set password "' + haPass + '"\n';
     // hbdev tek satırda "<arayüz> <öncelik>" çiftleri: ikinci bir "set hbdev" satırı öncekinin yerine geçer
-    c += '    set hbdev ' + hbPorts.map(p => '"' + cgEsc(p) + '" 50').join(' ') + '\n';
+    c += '    set hbdev ' + hbPorts.map(p => cgQ(p) + ' 50').join(' ') + '\n';
     c += '    set session-pickup ' + sessionSync + '\n';
-    if (mon.length) c += '    set monitor ' + mon.map(p => '"' + cgEsc(p) + '"').join(' ') + '\n';
+    if (mon.length) c += '    set monitor ' + mon.map(p => cgQ(p)).join(' ') + '\n';
     if (ovr) c += '    set override enable\n';
     c += '    set priority ' + priority + '\n';
     c += 'end\n\n';
@@ -1589,7 +1590,7 @@ function cgFgHaaaGen(data) {
     const monitorIntfs = _fgWList(data.monitor_intfs);
     const priority     = cgEsc(String(data.priority || '128').trim());
     const sessionSync  = cgEsc(data.session_sync || 'enable');
-    const monitorStr   = monitorIntfs.map(i => '"' + cgEsc(i) + '"').join(' ');
+    const monitorStr   = monitorIntfs.map(i => cgQ(i)).join(' ');
     const w = [];
     let c = '# ========================================\n# FortiGate — HA Active-Active\n# ========================================\n\n';
     c += 'config system ha\n    set mode a-a\n    set group-id ' + groupId + '\n    set group-name "' + groupName + '"\n';
@@ -1722,12 +1723,12 @@ function cgFgFswportGen(data) {
 // Nesne adları boşluk içerebildiği için boşluk ayraç DEĞİLDİR.
 function cgFgQList(s) {
     return String(s || '').split(/[,\n]+/).map(x => x.trim()).filter(Boolean)
-        .map(x => '"' + cgEsc(x) + '"').join(' ');
+        .map(x => cgQ(x)).join(' ');
 }
 // Arayüz adları boşluk içermez: virgül / boşluk / satır sonu ayraçtır.
 function cgFgIfList(s) {
     return String(s || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean)
-        .map(x => '"' + cgEsc(x) + '"').join(' ');
+        .map(x => cgQ(x)).join(' ');
 }
 // FortiOS port aralığı listesi: '443 8443 1000-2000' → geçerli parçalar + hatalı parçalar.
 function cgFgPortRanges(s) {
