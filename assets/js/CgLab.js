@@ -327,6 +327,11 @@ const CgLab = {
         });
         if (show) this._paintSide();
     },
+    // Tamamlanmış görevde "çalışır ama yanlış" uyarısı: kontrol geçti ama yapılandırma riskli (fb "Çalışır ama…" ile başlar)
+    _warnHtml(t) {
+        let m = null; try { m = t.fb ? t.fb(this._sess) : null; } catch (e) { m = null; }
+        return m && /^Çalışır ama/i.test(m) ? `<div class="cg-lab-warn"><i class="fas fa-exclamation-triangle"></i> ${m}</div>` : '';
+    },
     _paintSide(justDone) {
         const lab = this._lab, st = this._stt, side = document.getElementById('cg-lab-side');
         if (!side) return;
@@ -360,6 +365,7 @@ const CgLab = {
                     ${!done && !locked ? `<div class="cg-lab-hints">${hintsOf(t).slice(0, hl).map((h, k) => `<div class="cg-lab-hint lv${k + 1}"><b>${['İpucu', 'Komut iskeleti', 'Çözüm'][k]}:</b> ${h}</div>`).join('')}
                         ${hl < 3 ? `<button class="cg-lab-hbtn" data-hint="${i}"><i class="far fa-lightbulb"></i> ${['İpucu', 'Komut iskeleti', 'Tam çözüm'][hl]}${hl >= 1 ? ' <small>(★ düşürür)</small>' : ''}</button>` : ''}</div>` : ''}
                     ${this._fb && this._fb[i] && !done ? `<div class="cg-lab-fb"><i class="fas fa-exclamation-circle"></i> ${this._fb[i]}</div>` : ''}
+                    ${done ? this._warnHtml(t) : ''}
                 </div>
             </li>`;
         }).join('');
