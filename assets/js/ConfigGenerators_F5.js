@@ -2426,3 +2426,470 @@ function cgF5TcpdumpGen(data) {
     w.push('ℹ Okuma: kaynak VIP olan RST BIG-IP\'den gelir (nedeni rst_cause alanında); kaynak üye olan RST sunucudandır. Yanıtsız yinelenen SYN\'ler dönüş yolunun BIG-IP\'ye gelmediğini (SNAT yok, asimetrik yönlendirme) gösterir.');
     return { config: c.replace(/ {2,}#/g, ' #'), warnings: w };
 }
+
+// ── F5 BIG-IP: iRule Kütüphanesi (Temel koleksiyon) ──────────────────────────
+// Kaynak: F5 Operations Portal IRULE_TEMPLATES.md şablonları (hataları düzeltilmiş, benzerleri birleştirilmiş) ve
+// f5devcentral/irules-toolbox (MIT) fikirleri. Her kural CLI Lab iRule simülatöründe derlenip denenmiştir (labtest.d/irule-lib).
+// Pool / data group / alan adları örnektir; kendi ortamınıza göre değiştirin.
+const CG_IRULE_LIB = [
+    { id: 'https301', cat: 'Yönlendirme', title: 'HTTP → HTTPS kalıcı yönlendirme (301)', lab: 'f5-30', src: 'şablon 2.1 (düzeltildi: 301 için HTTP::respond)',
+      code: String.raw`when HTTP_REQUEST {
+    # Host başlığındaki port atılır (app:8080 → app); URI yol + sorgu dizesidir
+    HTTP::respond 301 Location "https://[getfield [HTTP::host] ":" 1][HTTP::uri]"
+}`, desc: 'Port 80\'deki virtual server\'a bağlanır; her isteği aynı adres ve yolla https://\'e kalıcı olarak yönlendirir.', warn: ['Yalnız HTTP (80) VS\'ye bağlayın; HTTPS VS\'ye bağlanırsa sonsuz döngü olur.', 'HTTP::redirect her zaman 302 döner ve kod parametresi almaz ("HTTP::redirect url 301" yanlıştır).'], test: 'curl -I http://<vip>/sayfa?a=1' },
+    { id: 'domain', cat: 'Yönlendirme', title: 'Eski alan adından yenisine taşıma (301)', lab: 'f5-30', src: 'şablon 2.2 (düzeltildi)',
+      code: String.raw`when HTTP_REQUEST {
+    set host [string tolower [getfield [HTTP::host] ":" 1]]
+    if { $host ends_with "eski.lab.example" } {
+        HTTP::respond 301 Location "https://yeni.lab.example[HTTP::uri]"
+        return
+    }
+}`, desc: 'Eski alan adına (ve alt alan adlarına) gelen istekleri yol korunarak yeni alan adına taşır.', warn: ['contains yerine ends_with: "eski.lab.example.baska.site" gibi adlar eşleşmesin.', 'Yeni alan adı da aynı VS\'ye geliyorsa koşul onu dışarıda bırakmalı; yoksa döngü olur.'], test: 'curl -I --resolve eski.lab.example:80:<vip> http://eski.lab.example/a' },
+    { id: 'www', cat: 'Yönlendirme', title: 'www olmayan adı www\'ye tamamlama', lab: 'f5-30', src: 'şablon 2.2',
+      code: String.raw`when HTTP_REQUEST {
+    if { [string tolower [getfield [HTTP::host] ":" 1]] eq "lab.example" } {
+        HTTP::respond 301 Location "https://www.lab.example[HTTP::uri]"
+        return
+    }
+}`, desc: 'Çıplak alan adını (lab.example) tek bir kanonik ada (www.lab.example) yönlendirir.', warn: ['Koşul "eşit değilse yönlendir" biçiminde yazılırsa hedef adın kendisi de yönlendirilir: sonsuz döngü (curl -L ile görülür).'], test: 'curl -IL --resolve lab.example:80:<vip> http://lab.example/' },
+    { id: 'slash', cat: 'Yönlendirme', title: 'Sonda eğik çizgi (trailing slash) tamamlama', lab: 'f5-32', src: 'şablon 2.5 (düzeltildi: URI::path yerine HTTP::path)',
+      code: String.raw`when HTTP_REQUEST {
+    set path [HTTP::path]
+    # uzantısı olmayan ve / ile bitmeyen yollar: /hakkimizda → /hakkimizda/
+    if { $path ne "/" && ![string match "*/" $path] && ![string match "*.*" [URI::basename $path]] } {
+        set q [HTTP::query]
+        HTTP::respond 301 Location "[expr { $q eq "" ? "$path/" : "$path/?$q" }]"
+        return
+    }
+}`, desc: 'Dizin gibi davranan yolların hep / ile bitmesini sağlar; sorgu dizesi korunur.', warn: ['URI::path dosya adını atıp dizini döner; yolun tamamı için HTTP::path kullanın.', 'Uygulama /a ve /a/ yollarını farklı işliyorsa önce uygulama ekibiyle konuşun.'], test: 'curl -I http://<vip>/hakkimizda?x=1' },
+    { id: 'rewrite', cat: 'Yönlendirme', title: '/api önekini kaldırarak sunucuya iletme (URI yeniden yazma)', lab: 'f5-32', src: 'şablon 2.3',
+      code: String.raw`when HTTP_REQUEST {
+    # istemci /api/v1/x ister, sunucu /v1/x bekler; istemci farkı görmez (yönlendirme değil)
+    if { [HTTP::path] starts_with "/api/" } {
+        HTTP::uri [string range [HTTP::uri] 4 end]
+    }
+}`, desc: 'İsteği yönlendirmeden, sunucuya giderken yolu değiştirir.', warn: ['Sunucunun ürettiği mutlak bağlantılar (Location, HTML içindeki linkler) eski yolu bilmez; gerekirse yanıtta da düzeltme gerekir.'], test: 'curl http://<vip>/api/headers' },
+    { id: 'hostpool', cat: 'Yük dengeleme', title: 'Host adına göre pool seçimi', lab: 'f5-32', src: 'şablon 4.2',
+      code: String.raw`when HTTP_REQUEST {
+    switch -- [string tolower [getfield [HTTP::host] ":" 1]] {
+        "api.lab.example" { pool api_pool }
+        "www.lab.example" -
+        "lab.example" { pool web_pool }
+        default {
+            HTTP::respond 404 content "Bilinmeyen site" Content-Type "text/plain"
+        }
+    }
+}`, desc: 'Tek VIP arkasında birden çok siteyi Host başlığına göre farklı pool\'lara dağıtır.', warn: ['Pool adları kayıtta doğrulanır: olmayan ad 01070151 "Unable to find pool" verir.', 'Liste uzarsa data group ve class match -value kullanın.'], test: 'curl --resolve api.lab.example:80:<vip> http://api.lab.example/' },
+    { id: 'pathpool', cat: 'Yük dengeleme', title: 'Yola ve dosya uzantısına göre pool seçimi', lab: 'f5-32', src: 'şablon 4.1 + irules-toolbox "pool selection by file extension"',
+      code: String.raw`when HTTP_REQUEST {
+    switch -glob -- [string tolower [HTTP::path]] {
+        "/api/*" { pool api_pool }
+        "*.jpg" - "*.png" - "*.css" -
+        "*.js" { pool static_pool }
+        default { pool web_pool }
+    }
+}`, desc: 'API çağrılarını ve statik dosyaları ayrı sunuculara gönderir.', warn: ['switch ilk eşleşen dalı çalıştırır: özel desenleri genelden önce yazın.', 'HTTP::uri ile eşleştirmek sorgu dizesi yüzünden uzantı desenlerini kaçırır; HTTP::path kullanın.'], test: 'curl http://<vip>/api/x ; curl http://<vip>/a.png' },
+    { id: 'hdrpool', cat: 'Yük dengeleme', title: 'Başlığa göre API sürümü yönlendirme', lab: 'f5-32', src: 'şablon 4.4 (persist kaldırıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    switch -- [HTTP::header value "X-API-Version"] {
+        "v2" { pool api_v2_pool }
+        default { pool api_v1_pool }
+    }
+}`, desc: 'İstemcinin gönderdiği sürüm başlığına göre farklı API sunucularına yönlendirir.', warn: ['Başlık istemciden gelir ve kolayca değiştirilir: erişim/güvenlik kararı için kullanmayın.'], test: 'curl -H "X-API-Version: v2" http://<vip>/' },
+    { id: 'canary', cat: 'Yük dengeleme', title: 'Kanarya (canary) dağıtımı: %10 yeni sürüme', lab: 'f5-32', src: 'şablon 4.3',
+      code: String.raw`when HTTP_REQUEST {
+    # test ekibi başlıkla zorlayabilir
+    if { [HTTP::header value "X-Canary"] eq "true" } {
+        pool canary_pool
+        return
+    }
+    # geri kalan trafiğin yaklaşık %10'u yeni sürüme
+    if { [expr { int(rand() * 100) }] < 10 } {
+        pool canary_pool
+    }
+}`, desc: 'Yeni sürümü önce trafiğin küçük bir kısmıyla dener.', warn: ['Rastgele seçim her istekte değişir: kullanıcı oturumu iki sürüm arasında gidip gelebilir. Oturum tutarlılığı için persistence ya da çerez tabanlı karar gerekir.'], test: 'for i in {1..10}; do curl -s http://<vip>/; done' },
+    { id: 'pathparse', cat: 'Yük dengeleme', title: 'Yolu parçalara ayırma (split / lindex / getfield)', lab: 'f5-32', src: 'irules-toolbox "tokenize http path" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    # /musteri/1234/fatura → parçalar: musteri 1234 fatura
+    set parts [split [string trimleft [HTTP::path] "/"] "/"]
+    set musteri [lindex $parts 1]
+    if { [string is integer -strict $musteri] } {
+        HTTP::header replace X-Musteri-No $musteri
+    }
+}`, desc: 'Yolun belirli bir parçasını okuyup sunucuya başlık olarak taşır.', warn: ['lindex olmayan indekste boş döner; sayı denetimi (string is integer) sahte değerleri eler.'], test: 'curl http://<vip>/musteri/1234/headers' },
+    { id: 'ipblock', cat: 'Güvenlik', title: 'IP engelleme listesi (data group)', lab: 'f5-34', src: 'şablon 3.1',
+      dg: 'tmsh create ltm data-group internal dg_engelli type ip records add { 203.0.113.0/24 { data "tarama" } }',
+      code: String.raw`when CLIENT_ACCEPTED {
+    # TCP bağlantısı kurulur kurulmaz, HTTP'ye geçmeden kes
+    if { [class match [IP::client_addr] equals dg_engelli] } {
+        log local0.warn "ENGELLI: [IP::client_addr]"
+        reject
+    }
+}`, desc: 'Listedeki adreslerden gelen bağlantıyı en erken noktada (CLIENT_ACCEPTED) sıfırlar.', warn: ['Liste data group\'ta: yeni adres eklemek için kuralı değil listeyi değiştirin.', 'Yoğun saldırıda her engelleme log yazar: gerekirse logu kaldırın.'], test: 'tmsh modify ltm data-group internal dg_engelli records add { 198.51.100.0/24 { } }' },
+    { id: 'pathacl', cat: 'Güvenlik', title: 'Yönetim yoluna yalnız izinli ağlardan erişim', lab: 'f5-34', src: 'irules-toolbox "restrict access by uri and ip" (yeniden yazıldı)',
+      dg: 'tmsh create ltm data-group internal dg_yonetim type ip records add { 10.240.0.0/16 { } }',
+      code: String.raw`when HTTP_REQUEST {
+    if { [string tolower [HTTP::path]] starts_with "/yonetim" and ![class match [IP::client_addr] equals dg_yonetim] } {
+        HTTP::respond 403 content "Erisim yok" Content-Type "text/plain"
+        return
+    }
+}`, desc: 'Uygulamanın belirli bir yolunu yalnız data group\'taki ağlara açar; geri kalan her şey herkese açık kalır.', warn: ['Yol karşılaştırmasında büyük/küçük harf ve %2F gibi kodlamalar atlatma yolu olabilir; ciddi erişim denetimi için APM/WAF.'], test: 'curl -I http://<vip>/yonetim' },
+    { id: 'method', cat: 'Güvenlik', title: 'HTTP metodu kısıtlama (TRACE ve diğerleri)', lab: 'f5-33', src: 'şablon 3.5',
+      code: String.raw`when HTTP_REQUEST {
+    switch -- [HTTP::method] {
+        GET - HEAD - POST - PUT - DELETE - OPTIONS - PATCH { }
+        default {
+            HTTP::respond 405 content "Method Not Allowed" Allow "GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH"
+            return
+        }
+    }
+}`, desc: 'İzin listesindeki metotlar dışındakileri (TRACE dahil) 405 ile reddeder.', warn: ['Allow başlığı istemciye hangi metotların kabul edildiğini söyler (RFC gereği 405 ile birlikte gönderilir).'], test: 'curl -I -X TRACE http://<vip>/' },
+    { id: 'uafilter', cat: 'Güvenlik', title: 'Tarama araçlarını User-Agent ile engelleme (data group)', lab: 'f5-34', src: 'şablon 3.4 (liste data group\'a taşındı)',
+      dg: 'tmsh create ltm data-group internal dg_kotu_ua type string records add { nikto { } sqlmap { } masscan { } zgrab { } }',
+      code: String.raw`when HTTP_REQUEST {
+    set ua [string tolower [HTTP::header value "User-Agent"]]
+    if { $ua eq "" or [class match $ua contains dg_kotu_ua] } {
+        log local0.warn "KOTU_UA: [IP::client_addr] ua=$ua"
+        HTTP::respond 403 content "Forbidden" Content-Type "text/plain"
+        return
+    }
+}`, desc: 'Boş ya da bilinen tarama aracı User-Agent\'larını engeller.', warn: ['User-Agent kolayca değiştirilir; bu yalnız gürültüyü azaltır, güvenlik denetimi değildir.', 'Boş UA bazı izleme araçlarında olabilir: önce log ile gözlemleyin.'], test: 'curl -I -A "sqlmap/1.7" http://<vip>/' },
+    { id: 'sqli', cat: 'Güvenlik', title: 'Basit SQL enjeksiyonu desen yakalama (WAF yerine geçmez)', lab: 'f5-33', src: 'şablon 3.3 (URI decode eklendi)',
+      code: String.raw`when HTTP_REQUEST {
+    # %27, + gibi kodlamaları açmadan bakmak kolayca atlatılır
+    set u [string tolower [URI::decode [HTTP::uri]]]
+    foreach p { "union select" "' or '1'='1" "drop table" "information_schema" "sleep(" } {
+        if { $u contains $p } {
+            log local0.warn "SQLI: [IP::client_addr] [HTTP::uri]"
+            HTTP::respond 403 content "Forbidden" Content-Type "text/plain"
+            return
+        }
+    }
+}`, desc: 'URI\'de bilinen SQL enjeksiyonu kalıplarını arar.', warn: ['Bu bir öğretim örneğidir: çift kodlama, yorum satırları, gövdede gelen parametreler vb. kolayca atlatır. Gerçek koruma Advanced WAF (ASM) işidir.'], test: 'curl -I "http://<vip>/ara?q=1%27%20or%20%271%27=%271"' },
+    { id: 'ratelimit', cat: 'Güvenlik', title: 'İstemci başına istek sınırı (table)', lab: 'f5-31', src: 'şablon 3.2',
+      code: String.raw`when HTTP_REQUEST {
+    set key "rl_[IP::client_addr]"
+    # sayaç 60 saniye yaşar; limit 100 istek
+    set n [table incr -mustexist $key]
+    if { $n eq "" } {
+        table set $key 1 60
+        set n 1
+    }
+    if { $n > 100 } {
+        HTTP::respond 429 content "Too Many Requests" Retry-After 60
+        return
+    }
+}`, desc: 'Aynı istemci IP\'sinden gelen istekleri pencere başına sınırlar (oturum tablosu tüm bağlantılar arasında paylaşılır).', warn: ['NAT arkasındaki birçok kullanıcı tek IP\'den gelir: limiti buna göre seçin.', 'Büyük ölçekte BIG-IP\'nin DoS/L7 koruma özellikleri daha uygundur. Simülatör süreyi saymaz.'], test: 'for i in {1..5}; do curl -s -o /dev/null -w "%{http_code}\\n" http://<vip>/; done' },
+    { id: 'sechdr', cat: 'Başlıklar', title: 'Güvenlik başlıkları paketi (HSTS, X-Frame-Options, nosniff…)', lab: 'f5-33', src: 'şablon 1.1',
+      code: String.raw`when HTTP_RESPONSE {
+    HTTP::header replace Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    HTTP::header replace X-Frame-Options SAMEORIGIN
+    HTTP::header replace X-Content-Type-Options nosniff
+    HTTP::header replace Referrer-Policy strict-origin-when-cross-origin
+    HTTP::header replace Permissions-Policy "camera=(), microphone=(), geolocation=()"
+}`, desc: 'Tarama raporlarında sık çıkan eksik güvenlik başlıklarını yanıtlara ekler.', warn: ['insert yerine replace: sunucu zaten ekliyorsa çift başlık oluşmaz.', 'HSTS yalnız HTTPS sitelerinde anlamlıdır; tarayıcı max-age boyunca HTTP\'ye dönmez. Önce kısa süreyle deneyin.', 'X-XSS-Protection artık önerilmez (modern tarayıcılarda etkisiz ya da zararlı); eklenmedi.'], test: 'curl -I https://<vip>/' },
+    { id: 'hidehdr', cat: 'Başlıklar', title: 'Sunucu sürüm bilgisini gizleme', lab: 'f5-33', src: 'şablon 1.2',
+      code: String.raw`when HTTP_RESPONSE {
+    foreach h { Server X-Powered-By X-AspNet-Version X-AspNetMvc-Version } {
+        HTTP::header remove $h
+    }
+}`, desc: 'Yazılım ve sürüm bilgisi taşıyan yanıt başlıklarını kaldırır.', warn: ['Bilgi gizleme tek başına güvenlik sağlamaz; yamaları yapmanın yerine geçmez.'], test: 'curl -I http://<vip>/' },
+    { id: 'reqhdr', cat: 'Başlıklar', title: 'Sunucuya istemci bilgisi taşıma (X-Forwarded-For, -Proto)', lab: 'f5-33', src: 'şablon 1.3',
+      code: String.raw`when HTTP_REQUEST {
+    # replace: istemcinin gönderdiği sahte değer ezilir
+    HTTP::header replace X-Forwarded-For [IP::client_addr]
+    HTTP::header replace X-Forwarded-Proto [expr { [TCP::local_port] == 443 ? "https" : "http" }]
+}`, desc: 'SNAT arkasındaki sunucuya gerçek istemci adresini ve protokolü iletir.', warn: ['HTTP profilinde insert-xforwarded-for açıksa ikisini birlikte kullanmayın.', 'Proxy zincirinde önceki XFF değerleri korunacaksa replace yerine ekleme mantığı gerekir.'], test: 'curl http://<vip>/headers' },
+    { id: 'cors', cat: 'Başlıklar', title: 'CORS: ön kontrol (OPTIONS) yanıtı ve izin başlıkları', lab: 'f5-33', src: 'şablon 1.4',
+      code: String.raw`when HTTP_REQUEST {
+    if { [HTTP::method] eq "OPTIONS" } {
+        HTTP::respond 204 Access-Control-Allow-Origin "https://app.lab.example" Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" Access-Control-Allow-Headers "Authorization, Content-Type" Access-Control-Max-Age 86400
+        return
+    }
+}
+when HTTP_RESPONSE {
+    HTTP::header replace Access-Control-Allow-Origin "https://app.lab.example"
+}`, desc: 'Başka alan adındaki bir ön yüzün API\'yi çağırabilmesi için CORS başlıklarını BIG-IP\'de yönetir.', warn: ['Kimlik bilgili isteklerde (Allow-Credentials: true) Origin "*" olamaz; belirli adı yazın.', 'Bu kural HTTP_RESPONSE\'ta HTTP::method okumaz; istek bilgisi gerekiyorsa HTTP_REQUEST\'te değişkene alın.'], test: 'curl -I -X OPTIONS http://<vip>/api/x' },
+    { id: 'csp', cat: 'Başlıklar', title: 'Content-Security-Policy (önce yalnız rapor)', lab: 'f5-33', src: 'şablon 1.6',
+      code: String.raw`when HTTP_RESPONSE {
+    if { [HTTP::header value "Content-Type"] starts_with "text/html" } {
+        HTTP::header replace Content-Security-Policy-Report-Only "default-src 'self'; img-src 'self' data:; frame-ancestors 'self'"
+    }
+}`, desc: 'Tarayıcıya hangi kaynaklardan içerik yüklenebileceğini söyler; önce Report-Only ile gözlem yapılır.', warn: ['Uygulamaya özel yazılmalıdır; hazır bir CSP çoğu sitenin bir kısmını bozar. Rapor dönemi bitince Content-Security-Policy\'ye geçin.'], test: 'curl -I http://<vip>/' },
+    { id: 'cache', cat: 'Başlıklar', title: 'Uzantıya göre Cache-Control', lab: 'f5-31', src: 'şablon 1.5 (düzeltildi: yol HTTP_REQUEST\'te saklanır)',
+      code: String.raw`when HTTP_REQUEST {
+    # HTTP::path yanıt olayında geçersizdir (kayıtta reddedilir): burada saklanır
+    set path [string tolower [HTTP::path]]
+}
+when HTTP_RESPONSE {
+    if { [regexp {\.(jpg|jpeg|png|gif|css|js|woff2?)$} $path] } {
+        HTTP::header replace Cache-Control "public, max-age=2592000, immutable"
+    } elseif { [HTTP::header value "Content-Type"] contains "application/json" } {
+        HTTP::header replace Cache-Control "no-store"
+    }
+}`, desc: 'Statik dosyalara uzun önbellek süresi, API yanıtlarına önbelleğe almama başlığı ekler.', warn: ['immutable yalnız içerik adı değişen (sürümlü) dosyalarda güvenlidir.', 'regexp yerine switch -glob daha ucuzdur; birkaç desende fark önemsizdir.'], test: 'curl -I http://<vip>/a.css' },
+    { id: 'lochttps', cat: 'Başlıklar', title: 'Sunucunun Location başlığındaki http://\'yi https://\'e çevirme', lab: 'f5-33', src: 'irules-toolbox "http to https redirect in location header" (düzeltildi)',
+      code: String.raw`when HTTP_RESPONSE {
+    # SSL offload arkasındaki sunucu kendini http sanıp http:// ile yönlendirir
+    if { [HTTP::header exists Location] } {
+        HTTP::header replace Location [string map { "http://" "https://" } [HTTP::header value Location]]
+    }
+}`, desc: 'SSL offload arkasında sunucunun ürettiği yönlendirmelerin HTTPS\'te kalmasını sağlar.', warn: ['Orijinal örnekte string map listesi süslü parantez içinde $host kullandığı için değişken açılmıyordu; burada sabit önek değiştiriliyor.', 'Aynı iş HTTP profilinde redirect-rewrite ile de yapılabilir.'], test: 'curl -I http://<vip>/eski' },
+    { id: 'maint', cat: 'Kullanılabilirlik', title: 'Bakım modu: yöneticiler hariç 503', lab: 'f5-35', src: 'şablon 2.4 (bayrak ve IP listesi data group\'a taşındı)',
+      dg: 'tmsh create ltm data-group internal dg_bakim type string records add { aktif { data 1 } }\ntmsh create ltm data-group internal dg_yonetici type ip records add { 10.240.0.0/16 { } }',
+      code: String.raw`when HTTP_REQUEST {
+    if { [class lookup aktif dg_bakim] eq "1" and ![class match [IP::client_addr] equals dg_yonetici] } {
+        HTTP::respond 503 content "<h1>Bakimdayiz</h1>" Content-Type "text/html" Retry-After 3600
+        return
+    }
+}`, desc: 'Bakım anahtarı data group\'ta tutulur: kuralı değiştirmeden aç/kapa yapılır; yöneticiler siteyi görmeye devam eder.', warn: ['Kapatmak için: tmsh modify ltm data-group internal dg_bakim records modify { aktif { data 0 } }.', 'Bakım sayfası 200 değil 503 + Retry-After ile dönmeli.'], test: 'curl -I http://<vip>/' },
+    { id: 'sorry', cat: 'Kullanılabilirlik', title: 'Özür sayfası: pool\'da üye kalmayınca 503', lab: 'f5-35', src: 'irules-toolbox "sorry page" fikri (yeniden yazıldı)',
+      code: String.raw`when LB_FAILED {
+    HTTP::respond 503 content "<h1>Kisa sure sonra tekrar deneyin</h1>" Content-Type "text/html" Retry-After 300
+}`, desc: 'Sunucuların hepsi kapalıyken kullanıcı bağlantı hatası yerine anlaşılır bir sayfa görür.', warn: ['Yalnız LB seçimi başarısız olduğunda çalışır; sunucu 5xx dönüyorsa tetiklenmez.'], test: 'curl -I http://<vip>/' },
+    { id: 'accesslog', cat: 'Log', title: 'Erişim ve sunucu hatası logu (istek → yanıt)', lab: 'f5-31', src: 'şablon 5.1 + 5.2 (birleştirildi)',
+      code: String.raw`when HTTP_REQUEST {
+    # yanıt olayında istek komutları geçersiz: değerler burada saklanır
+    set t0 [clock clicks -milliseconds]
+    set req "[IP::client_addr] [HTTP::method] [HTTP::host][HTTP::uri]"
+}
+when HTTP_RESPONSE {
+    set ms [expr { [clock clicks -milliseconds] - $t0 }]
+    if { [HTTP::status] >= 500 } {
+        log local0.err "HATA $req -> [HTTP::status] sunucu=[LB::server addr] sure_ms=$ms"
+    } else {
+        log local0. "$req -> [HTTP::status] sure_ms=$ms"
+    }
+}`, desc: 'Her isteği ve özellikle 5xx dönen sunucuları /var/log/ltm\'e yazar.', warn: ['Yoğun sitede her istek bir log satırıdır: yalnız sorun giderme süresince bağlayın ya da Request Logging profili/HSL kullanın.'], test: 'curl http://<vip>/rapor ; tail /var/log/ltm' },
+    { id: 'cookiesec', cat: 'Çerez', title: 'Çerezlere Secure, HttpOnly ve SameSite ekleme', lab: 'f5-33', src: 'F5 Agility iRules lab "Securing Cookies" fikri (yeniden yazıldı)',
+      code: String.raw`when HTTP_RESPONSE {
+    set cerezler [HTTP::header values Set-Cookie]
+    if { [llength $cerezler] == 0 } { return }
+    HTTP::header remove Set-Cookie
+    foreach c $cerezler {
+        set l [string tolower $c]
+        if { !($l contains "; secure") } { append c "; Secure" }
+        if { !($l contains "; httponly") } { append c "; HttpOnly" }
+        if { !($l contains "; samesite") } { append c "; SameSite=Lax" }
+        HTTP::header insert Set-Cookie $c
+    }
+}`, desc: 'Sunucunun gönderdiği tüm çerezlere eksik güvenlik bayraklarını ekler; tarama bulgusunu uygulamaya dokunmadan kapatır.', warn: ['Secure bayraklı çerez yalnız HTTPS\'te gönderilir: HTTP ile çalışan bir uygulamada oturum kopar.', 'HttpOnly JavaScript\'in çereze erişimini keser; ön yüz çerezi okuyorsa o çerezi hariç tutun.'], test: 'curl -I https://<vip>/giris' },
+    { id: 'cookieexp', cat: 'Çerez', title: 'Bir çerezi istemcide silme (süresi geçmiş çerez)', lab: 'f5-33', src: 'irules-toolbox "expire a cookie" (yeniden yazıldı)',
+      code: String.raw`when HTTP_RESPONSE {
+    # eski_oturum çerezini tarayıcıdan sildir
+    HTTP::header insert Set-Cookie "eski_oturum=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/"
+}`, desc: 'Uygulama değişikliği sonrası tarayıcılarda kalan eski bir çerezi temizler.', warn: ['Path ve Domain, silinecek çerezin ayarlandığı değerlerle aynı olmalı; yoksa tarayıcı başka bir çerez sanar.'], test: 'curl -I http://<vip>/' },
+    { id: 'cookielogin', cat: 'Çerez', title: 'Oturum çerezi yoksa giriş sayfasına yönlendirme', lab: 'f5-32', src: 'irules-toolbox "cookie checking" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    set p [string tolower [HTTP::path]]
+    # giriş sayfası ve statik dosyalar serbest
+    if { $p starts_with "/giris" or $p starts_with "/static/" } { return }
+    if { ![HTTP::cookie exists "OTURUM"] } {
+        HTTP::redirect "/giris?geri=[URI::encode [HTTP::uri]]"
+    }
+}`, desc: 'Oturum çerezi olmayan istekleri giriş sayfasına gönderir; dönüş adresi parametre olarak taşınır.', warn: ['Bu bir kimlik doğrulama değildir: çerezin varlığı değerinin geçerli olduğunu kanıtlamaz. Gerçek denetim APM ya da uygulama işidir.', 'Giriş sayfasını istisna tutmazsanız sonsuz yönlendirme olur.'], test: 'curl -I http://<vip>/hesap' },
+    { id: 'reselect', cat: 'Kullanılabilirlik', title: 'Ana pool çökünce yedek pool\'a geçiş (LB::reselect)', lab: 'f5-35', src: 'irules-toolbox "disable persistence and reselect on lb fail" (sadeleştirildi)',
+      code: String.raw`when LB_FAILED {
+    # ana pool'da üye kalmadı: yedek pool dene
+    if { [active_members yedek_pool] > 0 } {
+        LB::reselect pool yedek_pool
+    } else {
+        HTTP::respond 503 content "Hizmet gecici olarak kullanilamiyor" Retry-After 120
+    }
+}`, desc: 'Birincil sunucuların hepsi kapalıyken trafiği başka bir veri merkezindeki ya da yedek sunuculara aktarır.', warn: ['Aynı işi pool üzerinde priority group ya da VS fallback ayarları da yapabilir; iRule yalnız özel mantık gerektiğinde.'], test: 'curl -I http://<vip>/' },
+    { id: 'srcpool', cat: 'Yük dengeleme', title: 'İstemci ağına göre pool seçimi', lab: 'f5-34', src: 'irules-toolbox "distribute by source ip" (yeniden yazıldı)',
+      code: String.raw`when CLIENT_ACCEPTED {
+    # iç ağdan gelenler iç sunuculara (HTTP'ye gerek yok: bağlantı kurulurken karar verilir)
+    if { [IP::addr [IP::client_addr] equals 10.240.0.0/16] } {
+        pool ic_pool
+    }
+}`, desc: 'Kaynak adrese göre farklı sunucu grubuna yönlendirir (ör. iç kullanıcılar ve internet).', warn: ['Çok sayıda ağ varsa data group ve class match kullanın.', 'CLIENT_ACCEPTED HTTP profili gerektirmez; her protokolde çalışır.'], test: 'curl http://<vip>/' },
+    { id: 'memberdbg', cat: 'Yük dengeleme', title: 'Hata ayıklama: sorgu parametresiyle belirli sunucuya gitme', lab: 'f5-32', src: 'irules-toolbox "poolmem select by query param" (yeniden yazıldı)',
+      dg: 'tmsh create ltm data-group internal dg_yonetim type ip records add { 10.240.0.0/16 { } }',
+      code: String.raw`when HTTP_REQUEST {
+    # ?sunucu=10.64.30.51 yalnız yönetim ağından kabul edilir
+    set s [URI::query [HTTP::uri] sunucu]
+    if { $s ne "" and [class match [IP::client_addr] equals dg_yonetim] } {
+        pool web_pool member $s 80
+    }
+}`, desc: 'Destek ekibinin sorunlu bir sunucuyu doğrudan test edebilmesi için isteği seçilen üyeye gönderir.', warn: ['İzin kontrolü olmadan açık bırakmayın: herkes arka uç sunucuları tek tek hedefleyebilir.'], test: 'curl "http://<vip>/?sunucu=10.64.30.51"' },
+    { id: 'porthdr', cat: 'Başlıklar', title: 'Gelinen porta göre başlık ekleme', lab: 'f5-33', src: 'irules-toolbox "insert custom header by vip port" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    switch -- [TCP::local_port] {
+        443 { HTTP::header replace X-Kanal "guvenli" }
+        8080 { HTTP::header replace X-Kanal "test" }
+        default { HTTP::header replace X-Kanal "genel" }
+    }
+}`, desc: 'Aynı iRule birden çok VS\'de kullanıldığında sunucuya hangi porttan gelindiğini bildirir.', warn: ['TCP::local_port VS\'nin portudur; istemcinin portu için TCP::client_port.'], test: 'curl http://<vip>/headers' },
+    { id: 'reqid', cat: 'Başlıklar', title: 'İstek kimliği: istek ve yanıta aynı X-Request-ID', lab: 'f5-31', src: 'irules-toolbox "request headers in response" fikri (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    # istemci göndermediyse üret; aynı değer sunucuya ve yanıta gider
+    set rid [HTTP::header value X-Request-ID]
+    if { $rid eq "" } {
+        set rid [format "%08x%04x" [clock seconds] [expr { int(rand() * 65535) }]]
+        HTTP::header insert X-Request-ID $rid
+    }
+}
+when HTTP_RESPONSE {
+    HTTP::header replace X-Request-ID $rid
+}`, desc: 'Bir isteği BIG-IP, sunucu ve istemci loglarında aynı kimlikle izlemeyi sağlar.', warn: ['Değişken HTTP_REQUEST\'te set edildi: HTTP_RESPONSE\'ta okunabilir (bağlantı boyunca yaşar).'], test: 'curl -I http://<vip>/' },
+    { id: 'xffchain', cat: 'Başlıklar', title: 'X-Forwarded-For zincirine ekleme (önünde başka proxy varsa)', lab: 'f5-33', src: 'şablon 1.3 çeşitlemesi',
+      code: String.raw`when HTTP_REQUEST {
+    set xff [HTTP::header value X-Forwarded-For]
+    if { $xff eq "" } {
+        HTTP::header insert X-Forwarded-For [IP::client_addr]
+    } else {
+        HTTP::header replace X-Forwarded-For "$xff, [IP::client_addr]"
+    }
+}`, desc: 'BIG-IP önünde CDN ya da başka bir proxy varken gerçek istemci zincirini koruyarak kendi gördüğü adresi ekler.', warn: ['Zincirin ilk elemanı istemcinin kendisi yazabileceği bir değerdir; yalnız güvendiğiniz proxy\'lerden gelen kısmına güvenin.'], test: 'curl -H "X-Forwarded-For: 192.0.2.5" http://<vip>/headers' },
+    { id: 'hostrewrite', cat: 'Başlıklar', title: 'Sunucuya giden Host başlığını iç ada çevirme', lab: 'f5-33', src: 'irules-toolbox "reverse proxy" / "changing http header host" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    # dış ad: www.lab.example → iç uygulama adı
+    if { [string tolower [getfield [HTTP::host] ":" 1]] eq "www.lab.example" } {
+        HTTP::header replace Host "portal.ic.lab.example"
+    }
+}`, desc: 'Arka uç uygulama farklı bir sanal host adıyla yapılandırıldığında dış adı iç ada çevirir.', warn: ['Sunucu yanıtlarındaki Location ve linkler iç adı içerebilir; yanıt tarafında da düzeltme gerekebilir (Location yeniden yazma kuralı).'], test: 'curl --resolve www.lab.example:80:<vip> http://www.lab.example/headers' },
+    { id: 'mobile', cat: 'Yönlendirme', title: 'Mobil tarayıcıları mobil siteye yönlendirme', lab: 'f5-32', src: 'irules-toolbox "redirect mobile browsers" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    set ua [string tolower [HTTP::header value User-Agent]]
+    if { ($ua contains "iphone" or $ua contains "android") and [HTTP::cookie value "masaustu"] ne "1" } {
+        HTTP::redirect "https://m.lab.example[HTTP::uri]"
+    }
+}`, desc: 'Telefonlardan gelenleri mobil siteye gönderir; kullanıcı masaüstünü seçtiyse (çerez) dokunmaz.', warn: ['User-Agent tespiti kusurludur; mümkünse duyarlı (responsive) tasarım tercih edilir.', 'Mobil site aynı VS\'deyse koşul m.lab.example\'ı dışarıda bırakmalı.'], test: 'curl -I -A "Mozilla/5.0 (iPhone)" http://<vip>/' },
+    { id: 'locport', cat: 'Yönlendirme', title: 'Sunucu yönlendirmelerindeki iç portu temizleme', lab: 'f5-33', src: 'irules-toolbox "remove port from redirects" (yeniden yazıldı)',
+      code: String.raw`when HTTP_RESPONSE {
+    # sunucu Location: http://site:8080/... üretiyor; istemci 80/443'ten geliyor
+    if { [HTTP::is_redirect] } {
+        HTTP::header replace Location [string map { ":8080/" "/" } [HTTP::header value Location]]
+    }
+}`, desc: 'Arka uç sunucunun kendi dinlediği portu yönlendirme adresine koyduğu durumlarda istemcinin kırık bağlantıya gitmesini önler.', warn: ['HTTP profilindeki redirect-rewrite seçeneği aynı işi kod yazmadan yapar.'], test: 'curl -I http://<vip>/eski' },
+    { id: 'queryrename', cat: 'Yönlendirme', title: 'Sorgu parametresinin adını değiştirme (URI yeniden yazma)', lab: 'f5-32', src: 'irules-toolbox "rewrite partial query string" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    # eski istemciler ?id= gönderiyor, yeni uygulama ?no= bekliyor
+    if { [HTTP::query] contains "id=" } {
+        HTTP::uri [string map { "?id=" "?no=" "&id=" "&no=" } [HTTP::uri]]
+    }
+}`, desc: 'Eski bağlantıları uygulamayı değiştirmeden yeni parametre adına uyarlar.', warn: ['string map düz metin değiştirir: "valid=" gibi parametreleri etkilememesi için ?/& önekleriyle eşleştirildi.'], test: 'curl http://<vip>/ara?id=5' },
+    { id: 'lower', cat: 'Yönlendirme', title: 'URI\'yi küçük harfe çevirme (büyük/küçük harf duyarlı sunucular)', lab: 'f5-32', src: 'irules-toolbox "lowercase uri" (düzeltildi: çift köşeli parantez ve tek karakterlik desen hatası)',
+      code: String.raw`when HTTP_REQUEST {
+    # yalnız büyük harf içeriyorsa değiştir
+    if { [HTTP::path] ne [string tolower [HTTP::path]] } {
+        HTTP::path [string tolower [HTTP::path]]
+    }
+}`, desc: 'Windows\'tan taşınan sitelerde /Resimler/Logo.PNG ile /resimler/logo.png\'yi aynı yapar; sorgu dizesine dokunmaz.', warn: ['Orijinal topluluk örneğinde [string match {[A-Z]} …] yalnız tek karakterlik URI\'yi eşliyor, [[HTTP::path] …] ise TCL hatası veriyordu.', 'Sorgu değerleri büyük/küçük harf duyarlı olabilir: yalnız path değiştirilir.'], test: 'curl http://<vip>/Resimler/Logo.PNG' },
+    { id: 'index', cat: 'Yönlendirme', title: 'Kök isteği varsayılan sayfaya çevirme', lab: 'f5-32', src: 'irules-toolbox "append uri" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    if { [HTTP::path] eq "/" } {
+        HTTP::path "/index.html"
+    }
+}`, desc: 'Varsayılan belge tanımlı olmayan sunucularda / isteğini /index.html olarak iletir (istemci fark etmez).', warn: ['Yönlendirme değil yeniden yazmadır: tarayıcı adres çubuğunda / görmeye devam eder.'], test: 'curl http://<vip>/' },
+    { id: 'selhttps', cat: 'Yönlendirme', title: 'Yalnız hassas yolları HTTPS\'e zorlama', lab: 'f5-30', src: 'irules-toolbox "selective https redirect" (düzeltildi: http\'ye yönlendirip döngü yapıyordu)',
+      code: String.raw`when HTTP_REQUEST {
+    switch -glob -- [string tolower [HTTP::path]] {
+        "/giris*" - "/hesap*" - "/odeme*" {
+            HTTP::respond 301 Location "https://[getfield [HTTP::host] ":" 1][HTTP::uri]"
+        }
+    }
+}`, desc: 'Sitenin tamamı henüz HTTPS\'e geçmediyse kimlik ve ödeme sayfalarını HTTPS\'e zorlar.', warn: ['Topluluk örneği hedef adres olarak yine http:// kullanıyordu: sonsuz döngü.', 'Uzun vadede tüm siteyi HTTPS\'e taşıyın; karma içerik (mixed content) tarayıcı uyarısı üretir.'], test: 'curl -I http://<vip>/giris' },
+    { id: 'hotlink', cat: 'Güvenlik', title: 'Görsellerin başka sitelerce kullanımını engelleme (Referer)', lab: 'f5-33', src: 'irules-toolbox "referer inspection" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    switch -glob -- [string tolower [HTTP::path]] {
+        "*.jpg" - "*.png" - "*.gif" {
+            set ref [string tolower [HTTP::header value Referer]]
+            # Referer yoksa (doğrudan açma) izin ver; başka siteden geliyorsa engelle
+            if { $ref ne "" and !($ref contains "lab.example") } {
+                HTTP::respond 403 content "Bu gorsel baska sitelerde kullanilamaz"
+            }
+        }
+    }
+}`, desc: 'Başka sitelerin sizin bant genişliğinizle görsellerinizi göstermesini (hotlinking) engeller.', warn: ['Referer istemci tarafından gönderilir ve değiştirilebilir; bu bir erişim güvenliği değildir.', 'contains "lab.example" "lab.example.kotu.site" gibi adları da geçirir; kesin denetim için host kısmını ayırıp ends_with kullanın.'], test: 'curl -I -H "Referer: https://baska.site/" http://<vip>/a.png' },
+    { id: 'shellshock', cat: 'Güvenlik', title: 'Shellshock (CVE-2014-6271) deseni taşıyan başlıkları engelleme', lab: 'f5-34', src: 'irules-toolbox "shellshock http" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    foreach h [HTTP::header names] {
+        if { [HTTP::header value $h] starts_with "() \{" } {
+            log local0.warn "SHELLSHOCK: [IP::client_addr] baslik=$h"
+            reject
+            return
+        }
+    }
+}`, desc: 'Başlık değeri bash fonksiyon tanımıyla başlayan istekleri keser (eski ama hâlâ taranan bir açık).', warn: ['Yamasız bir CGI sunucusunun yerine geçmez; asıl çözüm bash güncellemesi ve WAF imzalarıdır.'], test: 'curl -I -A "() { :; }; /bin/eject" http://<vip>/' },
+    { id: 'decode', cat: 'Güvenlik', title: 'Çift kodlanmış URI\'yi sonuna kadar çözüp denetleme', lab: 'f5-34', src: 'irules-toolbox "fully decode uri" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    # %252e%252e → %2e%2e → .. : tek çözme yetmez
+    set u [HTTP::uri]
+    set n 0
+    while { $u ne [URI::decode $u] and $n < 5 } {
+        set u [URI::decode $u]
+        incr n
+    }
+    if { $u contains "../" } {
+        HTTP::respond 400 content "Gecersiz istek"
+    }
+}`, desc: 'Dizin gezinme (path traversal) gibi saldırıları gizlemek için yapılan çoklu URL kodlamasını açar.', warn: ['Döngüye üst sınır konmalı (burada 5): kötü niyetli girdi işlemciyi yormasın.'], test: 'curl -I "http://<vip>/%252e%252e/%252e%252e/etc/passwd"' },
+    { id: 'botnoise', cat: 'Güvenlik', title: 'Uygulamada olmayan bilinen saldırı yollarını düşürme', lab: 'f5-34', src: 'irules-toolbox "discard requests on url" (yeniden yazıldı)',
+      code: String.raw`when HTTP_REQUEST {
+    switch -glob -- [string tolower [HTTP::path]] {
+        "/wp-admin*" - "/wp-login.php" - "/xmlrpc.php" - "/phpmyadmin*" {
+            # yanıt verme: tarayıcı botu zaman kaybetsin, sunucu yorulmasın
+            drop
+        }
+    }
+}`, desc: 'WordPress kullanmayan bir sitede WordPress/phpMyAdmin tarayan bot trafiğini sunucuya ulaşmadan atar.', warn: ['drop sessizce düşürür (istemci zaman aşımı görür); reject RST gönderir, HTTP::respond 404 kibar bir yanıt verir.', 'Sitenizde bu yollardan biri gerçekten varsa kendi uygulamanızı kapatırsınız.'], test: 'curl -I -m 3 http://<vip>/wp-login.php' },
+    { id: 'sensfiles', cat: 'Güvenlik', title: '.git, .env, yedek dosyalarına erişimi engelleme', lab: 'f5-34', src: 'yeni (sık tarama bulgusu)',
+      code: String.raw`when HTTP_REQUEST {
+    set p [string tolower [URI::decode [HTTP::path]]]
+    if { $p contains "/.git" or $p contains "/.env" or $p ends_with ".bak" or $p ends_with ".old" or $p ends_with "~" } {
+        HTTP::respond 404 content "Not Found"
+    }
+}`, desc: 'Yanlışlıkla yayında bırakılmış depo, ortam değişkeni ve yedek dosyalarının indirilmesini engeller.', warn: ['Kök neden sunucudaki dosyalardır: kural geçici önlemdir, dosyaları kaldırın.', 'Gerçek dosya yoksa bile 404 dönmek bilgi vermez; 403 dosyanın varlığını ima eder.'], test: 'curl -I http://<vip>/.git/config' },
+    { id: 'portrange', cat: 'Güvenlik', title: 'Tüm portları dinleyen VS\'de yalnız izinli portlar', lab: 'f5-23', src: 'irules-toolbox "manage vip and port range" (yeniden yazıldı)',
+      code: String.raw`when CLIENT_ACCEPTED {
+    # VS destination 203.0.113.50:any: yalnız 80, 443 ve 8000-8099 kabul
+    set p [TCP::local_port]
+    if { !($p == 80 or $p == 443 or ($p >= 8000 and $p <= 8099)) } {
+        reject
+    }
+}`, desc: 'Port\'u any olan bir virtual server\'da istenmeyen portlara gelen bağlantıları keser.', warn: ['Mümkünse ayrı VS\'ler ya da port listesi (traffic matching criteria) kullanın; iRule her bağlantıda çalışır.'], test: 'curl -I -m 3 http://<vip>:9000/' },
+
+];
+F5LTM.irulelib = {
+    label: 'iRule Kütüphanesi',
+    init(container) {
+        const cats = [...new Set(CG_IRULE_LIB.map(x => x.cat))];
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-book',
+                title: 'iRule Kütüphanesi (' + CG_IRULE_LIB.length + ' doğrulanmış kural)',
+                desc: 'Sahada en sık ihtiyaç duyulan iRule\'lar: her biri CLI Lab simülatöründe denendi, Türkçe açıklamalı ve yükleme / bağlama / doğrulama komutlarıyla. Kaynak: F5 Operations Portal şablonları (düzeltilmiş) ve f5devcentral/irules-toolbox (MIT) fikirleri.',
+                badge: { text: 'iRule', cls: 'info' }
+            },
+            sections: [
+                {
+                    title: 'Kural',
+                    icon: 'fas fa-code',
+                    fields: [
+                        { name: 'id', label: 'Kural', type: 'select', options: [].concat(...cats.map(c => CG_IRULE_LIB.filter(x => x.cat === c).map(x => ({ value: x.id, label: c + ' · ' + x.title })))) },
+                        { name: 'name', label: 'Kural adı (BIG-IP\'de)', type: 'text', optional: true, placeholder: 'r_ornek', hint: 'Boşsa şablon adından türetilir.' },
+                        { name: 'vs', label: 'Bağlanacak virtual server (opsiyonel)', type: 'text', optional: true, placeholder: 'vs_web' }
+                    ]
+                }
+            ],
+            submit: 'Kuralı Göster'
+        }, (data) => cgF5IruleLibGen(data));
+    }
+};
+function cgF5IruleLibGen(data) {
+    const t = CG_IRULE_LIB.find(x => x.id === data.id) || CG_IRULE_LIB[0];
+    const name = String(data.name || '').trim() || 'r_' + t.id, vs = String(data.vs || '').trim(), w = [];
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,62}$/.test(name)) w.push('⛔ Kural adı harfle başlamalı; harf, rakam, _ . - kullanın.');
+    let c = '# ========================================\n# iRule Kütüphanesi — ' + t.title + '\n# ========================================\n# ' + t.desc + '\n\n';
+    let k = 1;
+    if (t.dg) c += '# ' + (k++) + ') Data group\n' + t.dg + '\n\n';
+    c += '# ' + (k++) + ') Kuralı yükle: tmsh\'e yapıştırın ve Ctrl+D (ya da GUI: Local Traffic > iRules > Create)\ntmsh load sys config merge from-terminal\nltm rule ' + name + ' {\n' + t.code + '\n}\n\n';
+    c += '# ' + (k++) + ') Virtual server\'a ekle (mevcut kurallar korunur; HTTP olayı için VS\'de HTTP profili gerekir)\ntmsh modify ltm virtual ' + (vs || '<vs>') + ' rules add { ' + name + ' }\n\n';
+    c += '# Doğrulama\n' + t.test.replace(/<vip>/g, '<vip>') + '\ntmsh show ltm rule ' + name + '   # Executions / Failures\ngrep 01220001 /var/log/ltm       # TCL hatası var mı?\n';
+    t.warn.forEach(x => w.push('⚠ ' + x));
+    w.push('ℹ Pool, data group ve alan adları örnektir; kendi ortamınıza göre değiştirin. Kaynak: ' + t.src + '.');
+    w.push('ℹ Kuralı CLI Lab\'da deneyin: ' + t.lab + ' (Lab > F5 > Seviye 7). Simülatör kuralı gerçek BIG-IP gibi kayıtta doğrular ve istekte çalıştırır.');
+    return { config: c.replace(/ {2,}#/g, ' #'), warnings: w };
+}

@@ -1289,7 +1289,8 @@ const CgLabTmsh = (function () {
             const hasHttp = v.profiles.some(x => profType(x) === 'http');
             if (X.rules.length && hasHttp) {
                 X.req = { method: o.method || 'GET', uri: o.path || '/', version: '1.1', headers: [['Host', o.host || o.ip + (o.port === 80 || o.port === 443 ? '' : ':' + o.port)], ['User-Agent', 'curl/7.81.0'], ['Accept', '*/*']].concat(o.cookie && Object.keys(o.cookie).length ? [['Cookie', Object.entries(o.cookie).map(([k, x]) => k + '=' + x).join('; ')]] : [], (o.hdrs || []).map(h => { const m = h.match(/^([^:]+):\s*(.*)$/); return m ? [m[1], m[2]] : null; }).filter(Boolean)) };
-                { const hh = X.req.headers.filter(h => /^host$/i.test(h[0])); if (hh.length > 1) X.req.headers.splice(X.req.headers.indexOf(hh[0]), 1); }
+                // curl -H ile verilen başlık varsayılanın (Host, User-Agent, Accept) yerine geçer
+                ['Host', 'User-Agent', 'Accept'].forEach(n => { const hh = X.req.headers.filter(h => h[0].toLowerCase() === n.toLowerCase()); if (hh.length > 1) X.req.headers.splice(X.req.headers.indexOf(hh[0]), 1); });
                 const f = fire('HTTP_REQUEST'); if (f) return Object.assign(f, { vs: vn, tls });
             }
             const PN = X.act.pool || v.pool;
@@ -1305,6 +1306,8 @@ const CgLabTmsh = (function () {
             const persistOk = k => { if (!pl.members[k]) return false; if (L.includes(k)) return true; const st = memberStatus(PN, k); return (st.avail === 'available' || st.avail === 'unknown') && st.session === 'user-disabled'; };
             if (pers === 'cookie' && o.cookie && o.cookie[cname]) { key = pl.order.find(k => f5cookie(pl.members[k].ip, pl.members[k].port) === o.cookie[cname] && persistOk(k)) || null; persisted = !!key; }
             if (pers === 'source-addr' || (!key && pers === 'cookie' && v.fallback && persistType(v.fallback) === 'source-addr')) { const pr = (S.rt.persist || (S.rt.persist = {}))[PN + '|' + o.src]; if (pr && persistOk(pr)) { key = pr; persisted = true; } }
+            // iRule pool … member <ip> [port]: belirtilen üye (kullanılabilirse) seçilir
+            if (!key && X.act.member) { const mk = pl.order.find(k => k === X.act.member || k.split(':')[0] === X.act.member); if (mk && (L.includes(mk) || persistOk(mk))) key = mk; }
             if (!key) key = lbPick(PN, L);
             const m = pl.members[key];
             if (pers === 'source-addr' || (pers === 'cookie' && v.fallback)) { S.rt.persist[PN + '|' + o.src] = key; (S.rt.pmeta || (S.rt.pmeta = {}))[PN + '|' + o.src] = { vs: vn, age: 12 + (ip2n(o.src) % 150) }; }
@@ -1570,7 +1573,26 @@ const CgLabTmsh = (function () {
         }
         // curl: VIP'e istek dış istemciden (lab.sim.client) gönderilmiş kabul edilir; sunucu IP'sine istek BIG-IP'nin kendisinden gider
         const JARS = {};
-        function curl(a) {
+        // curl -L: 3xx yanıtında Location izlenir (en çok --max-redirs, varsayılan 50; curl 7.81: "curl: (47) Maximum (50) redirects followed")
+        function curl(a, depth) {
+            depth = depth || 0;
+            const Li = a.findIndex(x => x === '-L' || x === '--location' || (/^-[vkIsSL]+$/.test(x) && x.includes('L')));
+            if (Li > 0 && depth === 0) {
+                const mi = a.indexOf('--max-redirs'), max = mi > 0 ? +a[mi + 1] : 50;
+                const base = a.filter((x, k) => k !== Li && k !== mi && k !== mi + 1 || (k === Li && /^-[vkIsS]+L/.test(x))).map(x => (/^-[vkIsSL]+$/.test(x) ? x.replace('L', '') : x)).filter(x => x !== '-');
+                const url0 = base.find(x => /^https?:\/\//.test(x)); let url = url0, out = [], n = 0;
+                for (;;) {
+                    const r = curl(base.map(x => (x === url0 ? url : x)), 1);
+                    if (r.err) return r;
+                    const txt = r.out; out.push(txt);
+                    const ev = S.ev.slice().reverse().find(e => e.curl); const c = ev && ev.curl;
+                    if (!c || !c.loc || !/^30[1237]$/.test(String(c.code))) break;
+                    if (n >= max) { out.push('curl: (47) Maximum (' + max + ') redirects followed'); log({ curlLoop: true, n }); break; }
+                    n++; url = /^https?:\/\//.test(c.loc) ? c.loc : url.replace(/^(https?:\/\/[^/]+).*$/, '$1') + c.loc;
+                }
+                const shown = out.length > 6 ? out.slice(0, 3).concat(['# [Simülatör] … ' + (out.length - 5) + ' yönlendirme daha …'], out.slice(-2)) : out;
+                return { out: shown.join('\n') };
+            }
             let url = null, verbose = false, head = false, silent = false, out = null, wfmt = null, method = null, jarR = null, jarW = null, iface = null, insecure = false; const hdr = [], resolve = {};
             for (let i = 1; i < a.length; i++) {
                 const t = a[i];
@@ -2082,6 +2104,12 @@ const CgLabTmsh = (function () {
             ev: EV, mode: () => S.mode, dirty,
             // yan etkisiz VIP testi (kontrollerde kullanılır): sayaçları ve kalıcılık tablosunu değiştirmez
             vsFor: (ip, port, src) => vsMatch(ip, port, src || SIM.client || '198.51.100.20'),
+            // iRule oyunları için yan etkisiz istek: { ip, port, path, method, host, src, hdrs } → sonuç ayrıntıları (log satırları dahil)
+            irTest: q => { const keepRt = JSON.stringify(S.rt), keepLog = S.ltmlog.length, keepSt = JSON.stringify(S.rstat), keepTb = JSON.stringify(S.rtable);
+                const r = viaPeer(() => vipRequest({ ip: q.ip || '203.0.113.100', port: q.port || 80, path: q.path || '/', method: q.method || 'GET', src: q.src || SIM.client || '198.51.100.20', cookie: q.cookie || {}, host: q.host, hdrs: q.hdrs || [], test: false }));
+                const logs = S.ltmlog.slice(keepLog); S.ltmlog.length = keepLog; S.rt = JSON.parse(keepRt); S.rstat = JSON.parse(keepSt); S.rtable = JSON.parse(keepTb);
+                const H = r.resp ? (r.resp.headers || []) : []; const hv = n => { const x = H.find(h => h.toLowerCase().startsWith(n.toLowerCase() + ':')); return x ? x.slice(x.indexOf(':') + 1).trim() : null; };
+                return { kind: r.kind, why: r.why || null, code: r.resp ? r.resp.code : null, byF5: !!r.byF5, member: r.member || null, loc: hv('Location'), hdr: hv, headers: H.slice(), body: r.resp ? r.resp.body : null, logs, err: logs.find(l => /01220001/.test(l)) || null }; },
             vipTest: (ip, port, path) => { const keep = JSON.stringify(S.rt); const r = viaPeer(() => vipRequest({ ip, port, path: path || '/', method: 'GET', src: SIM.client || '198.51.100.20', cookie: {}, test: true })); S.rt = JSON.parse(keep); return { kind: r.kind, code: r.resp ? r.resp.code : null, member: r.member || null }; },
             ha: () => ({ st: HA.st, sync: syncStatus().status, link: haLink(), synced: HA.syncKey !== null }),
             conns: () => S.ct.map(c => Object.assign({}, c)), persistRecords: () => Object.assign({}, S.rt.persist || {}),

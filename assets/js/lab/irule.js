@@ -448,7 +448,7 @@ const CgIRule = (() => {
         C['TCP::close'] = (I) => { I.ctx.act.reject = true; return ''; };
         C['virtual'] = (I, a) => { if (!a.length || a[0] === 'name') return '/Common/' + I.ctx.vs.name; throw new TclError('virtual: bu lab\'da yalnız "virtual name"'); };
         C['pool'] = (I, a) => {
-            need(a, 1, 3, 'pool <pool_name> ?member <addr> ?<port>??');
+            need(a, 1, 4, 'pool <pool_name> ?member <addr> ?<port>??');
             if (!I.ctx.hasPool(a[0])) throw new TclError('no such pool: ' + a[0] + ' (line ' + I.ctx.line + ')', 'nopool');
             I.ctx.act.pool = a[0]; I.ctx.act.member = a[1] === 'member' ? (a[2] || '') + (a[3] ? ':' + a[3] : '') : (a[1] ? a[1] + (a[2] ? ':' + a[2] : '') : null); I.ctx.act.node = null; return '';
         };
@@ -569,6 +569,7 @@ const CgIRule = (() => {
                 for (const p of w.parts) if (p.t === 'cmd') { const b = scanCmds(p.script); if (b) return b; }
                 if (w.braced && ['if', 'elseif', 'while'].includes(lit)) { const idx = c.words.indexOf(w); const prev = c.words[idx - 1]; const pv = prev && (prev.braced ? prev.parts[0].v : prev.parts.map(p => p.v || '').join('')); if (idx === 1 || pv === 'elseif') { const b = scanExpr(w.parts[0].v, w.line); if (b) return b; continue; } }
                 if (w.braced && lit === 'expr') { const b = scanExpr(w.parts[0].v, w.line); if (b) return b; continue; }
+                if (w.braced && lit === 'foreach' && c.words.indexOf(w) !== c.words.length - 1) continue;   // değişken ve liste argümanları komut değildir
                 if (w.braced && /[\n;]|^\s*[A-Za-z_:]+(\s|$)/.test(w.parts[0].v) && ['if', 'elseif', 'else', 'switch', 'foreach', 'while', 'for', 'catch', 'then'].includes(lit) ) {
                     let inner; try { inner = parse(w.parts[0].v, w.line); } catch (e) { continue; }
                     // switch gövdesi: desen/gövde çiftleri → yalnız gövdeleri tara
