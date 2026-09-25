@@ -92,7 +92,8 @@ const CgLabTmsh = (function () {
             return { hostname: lab.hostname || 'bigip-a.lab.example', guiSetup: 'enabled', mgmtIp: null, mgmtRoutes: {}, ifs, vlans: {}, selfs: {}, routes: {},
                 httpd: { allow: ['ALL'], idle: 1200 }, sshd: { allow: ['ALL'], idle: 0, banner: 'disabled', bannerText: '' }, dns: { servers: [], search: [] }, ntp: { servers: [], tz: 'America/Los_Angeles' },
                 prov, users: { admin: { role: 'admin', shell: 'tmsh', pw: true } }, pwpol: { enf: 'disabled', min: 6, up: 0, low: 0, num: 0, spec: 0, fail: 0, maxdur: 99999 },
-                nodes: {}, pools: {}, monitors: {}, virtuals: {}, snatpools: {}, persists: {}, httpProfiles: {},
+                nodes: {}, pools: {}, monitors: {}, virtuals: {}, snatpools: {}, persists: {}, httpProfiles: {}, cssl: {}, sssl: {},
+                certs: { 'default.crt': { cn: 'localhost.localdomain', issuer: 'localhost.localdomain', self: true, san: [], pair: 'default', bits: 2048, nb: 'Jan 15 09:12:44 2024 GMT', na: 'Jan 12 09:12:44 2034 GMT' }, 'ca-bundle.crt': { bundle: true, cn: 'ca-bundle' } }, keys: { 'default.key': { bits: 2048, pair: 'default' } },
                 cm: { cs: null, uni: [], mirror: null, trusted: [], dgs: {}, tgMac: null },
                 db: { 'tm.rstcause.log': { value: 'disable' }, 'tm.rstcause.pkt': { value: 'disable' } } };
         }
@@ -331,7 +332,7 @@ const CgLabTmsh = (function () {
         const BUILTIN_MON = { http: { type: 'http', send: 'GET /\\r\\n', recv: '' }, https: { type: 'https', send: 'GET /\\r\\n', recv: '' }, tcp: { type: 'tcp', send: '', recv: '' }, tcp_half_open: { type: 'tcp_half_open' }, gateway_icmp: { type: 'gateway-icmp' }, icmp: { type: 'icmp' }, http_head_f5: { type: 'http', send: 'HEAD / HTTP/1.0\\r\\n\\r\\n', recv: 'Server' } };
         const monOf = n => M().monitors[n] || BUILTIN_MON[n] || null;
         const BUILTIN_PROF = { tcp: 'tcp', http: 'http', clientssl: 'client-ssl', serverssl: 'server-ssl', fastL4: 'fastl4', oneconnect: 'one-connect', 'f5-tcp-progressive': 'tcp', 'f5-tcp-wan': 'tcp', 'f5-tcp-lan': 'tcp' };
-        const profType = n => BUILTIN_PROF[n] || (M().httpProfiles[n] ? 'http' : null);
+        const profType = n => BUILTIN_PROF[n] || (M().httpProfiles[n] ? 'http' : (M().cssl || {})[n] ? 'client-ssl' : (M().sssl || {})[n] ? 'server-ssl' : null);
         const BUILTIN_PERSIST = { cookie: 'cookie', source_addr: 'source-addr', ssl: 'ssl', dest_addr: 'dest-addr', universal: 'universal', hash: 'hash' };
         const persistType = n => BUILTIN_PERSIST[n] || (M().persists[n] ? M().persists[n].type : null);
         const memberList = s => { const r = listOp([], { op: 'replace-all-with', items: [{ k: s }] }, x => x); return r.list; };
@@ -468,7 +469,7 @@ const CgLabTmsh = (function () {
         };
         T['ltm virtual'] = {
             kind: 'virtual server', named: true, coll: () => M().virtuals,
-            fresh: () => ({ dest: null, proto: 'tcp', pool: null, profiles: ['tcp'], persist: [], fallback: null, sat: { type: 'none' }, tport: 'enabled', taddr: 'enabled', mask: '255.255.255.255', enabled: true, desc: '', idx: 2 + Object.keys(M().virtuals).length }),
+            fresh: () => ({ dest: null, proto: 'tcp', pool: null, profiles: ['tcp'], persist: [], fallback: null, sat: { type: 'none' }, tport: 'enabled', taddr: 'enabled', mask: '255.255.255.255', source: '0.0.0.0/0', enabled: true, desc: '', idx: 2 + Object.keys(M().virtuals).length }),
             flags: ['enabled', 'disabled'],
             set(o, P, name, isCreate) {
                 for (const p of P) {
@@ -496,15 +497,18 @@ const CgLabTmsh = (function () {
                     }
                     else if (p.k === 'snat') { if (p.v === 'automap') o.sat = { type: 'automap' }; else if (p.v === 'none') o.sat = { type: 'none' }; else return SYNx('"' + p.v + '" (snat automap|none; yeni sürümlerde source-address-translation { type … })'); }
                     else if (p.k === 'translate-port' || p.k === 'translate-address') { if (!['enabled', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o[p.k === 'translate-port' ? 'tport' : 'taddr'] = p.v; }
-                    else if (p.k === 'mask') { if (!isIp(p.v)) return SYNx('"' + p.v + '" invalid mask'); o.mask = p.v; }
+                    else if (p.k === 'mask') { const mv = p.v === 'any' ? '0.0.0.0' : p.v; if (!isIp(mv) || C.maskLen(mv) < 0) return SYNx('"' + p.v + '" invalid mask'); o.mask = mv; }
+                    else if (p.k === 'source') { const c = p.v === 'any' ? { ip: '0.0.0.0', len: 0 } : cidr(p.v || ''); if (!c || ip2n(c.ip) !== netOf(c.ip, c.len)) return SYNx('"' + p.v + '" invalid source (A.B.C.D/len)'); o.source = c.ip + '/' + c.len; }
                     else if (p.k === 'connection-limit') { if (!/^\d{1,9}$/.test(p.v || '')) return SYNx('"' + p.v + '" invalid connection-limit'); o.limit = +p.v; }
                     else if (p.k === 'description') o.desc = p.v;
                     else if (p.k === 'rules') return E('# [Simülatör] iRule\'lar ileri seviye modülde gelecek; bu lab sürümünde rules desteklenmiyor.', 'unsupported');
                     else return SYN(p.k);
                 }
                 if (isCreate && !o.dest) return E('# [Simülatör] Virtual server için destination gerekli (ör. destination 203.0.113.100:80).');
-                const dup = Object.entries(M().virtuals).find(([vn, v]) => vn !== name && v.dest === o.dest && v.proto === o.proto);
+                { const di = o.dest.split(':')[0], ml = C.maskLen(o.mask); if (netOf(di, ml) !== ip2n(di)) return E('# [Simülatör] Hedef adres (' + di + ') maskeyle (' + o.mask + ') uyumsuz: ağ virtual server\'ında adres ağ adresi olmalı (ör. 203.0.113.0 mask 255.255.255.0).'); }
+                const dup = Object.entries(M().virtuals).find(([vn, v]) => vn !== name && v.dest === o.dest && v.proto === o.proto && (v.mask || '255.255.255.255') === o.mask && (v.source || '0.0.0.0/0') === o.source);
                 if (dup) return E('01070333:3: Virtual Server /Common/' + name + ' illegally shares destination address, source address, service port, ip-protocol, and vlan with Virtual Server /Common/' + dup[0]);
+                { const cs = o.profiles.filter(x => profType(x) === 'client-ssl'); if (cs.length > 1 && !cs.some(x => (M().cssl[x] || {}).sniDefault === 'true')) return E('0107149c:3: Virtual server /Common/' + name + ' has more than one clientssl/serverssl profile but none of them is default for SNI'); }
                 const hasHttp = o.profiles.some(x => profType(x) === 'http');
                 if (o.persist.some(x => persistType(x) === 'cookie') && !hasHttp) return E('Cookie persistence requires an HTTP or FastHTTP profile to be associated with the virtual server.\n# [Simülatör] Önce profiles add { http }.');
                 if (o.profiles.some(x => profType(x) === 'http') && !o.profiles.some(x => ['tcp', 'fastl4'].includes(profType(x)))) return E('# [Simülatör] HTTP profili bir TCP profili gerektirir.');
@@ -515,17 +519,17 @@ const CgLabTmsh = (function () {
                 const d = o.dest.split(':'); L.push('    destination ' + d[0] + ':' + pname(+d[1])); if (!o.enabled) L.push('    disabled');
                 if (o.fallback) L.push('    fallback-persistence ' + o.fallback);
                 if (o.limit) L.push('    connection-limit ' + o.limit);
-                L.push('    ip-protocol ' + o.proto, '    last-modified-time 2026-09-24:10:21:07', '    mask ' + o.mask);
+                L.push('    ip-protocol ' + o.proto, '    last-modified-time 2026-09-24:10:21:07', '    mask ' + (o.mask === '0.0.0.0' ? 'any' : o.mask));
                 if (o.persist.length) { L.push('    persist {'); o.persist.forEach(x => L.push('        ' + x + ' {', '            default yes', '        }')); L.push('    }'); }
                 if (o.pool) L.push('    pool ' + o.pool);
                 L.push('    profiles {'); o.profiles.forEach(x => L.push('        ' + x + ' { }')); L.push('    }');
-                L.push('    serverssl-use-sni disabled', '    source 0.0.0.0/0');
+                L.push('    serverssl-use-sni disabled', '    source ' + (o.source || '0.0.0.0/0'));
                 L.push('    source-address-translation {', '        ' + (o.sat.type === 'snat' ? 'pool ' + o.sat.pool : '') + (o.sat.type === 'snat' ? '\n        ' : '') + 'type ' + o.sat.type, '    }');
                 if (o.taddr !== 'enabled') L.push('    translate-address ' + o.taddr); else L.push('    translate-address enabled');
                 L.push('    translate-port ' + o.tport, '    vs-index ' + o.idx, '}');
                 return L;
             },
-            props: ['destination', 'ip-protocol', 'pool', 'profiles', 'persist', 'connection-limit', 'fallback-persistence', 'source-address-translation', 'translate-port', 'translate-address', 'mask', 'description', 'enabled', 'disabled'],
+            props: ['destination', 'ip-protocol', 'pool', 'profiles', 'persist', 'connection-limit', 'fallback-persistence', 'source-address-translation', 'translate-port', 'translate-address', 'mask', 'source', 'description', 'enabled', 'disabled'],
         };
         // ═══ HA: cihazlar, güven, device group, traffic group ════════════════
         // Eş cihaz lab.sim.peer: { name, mgmt, ha (HA/configsync self IP'si), timeSkew?, garpBlocked? } — eşin kendi taban ağı hazır kabul edilir.
@@ -592,6 +596,139 @@ const CgLabTmsh = (function () {
             list(n, o) { return o.local ? ['cm traffic-group traffic-group-local-only { }'] : ['cm traffic-group traffic-group-1 {', '    mac ' + (o.tgMac || 'none'), '    unit-id 1', '}']; },
             props: ['mac'],
         };
+        // ═══ SSL: sertifika/anahtar (sys crypto), client-ssl / server-ssl profilleri ═══
+        // Biçimler: notes/f5-ssl-arastirma.md (sözdizimi ve hata kodları clouddocs/bug tracker; list çıktıları yaklaşık)
+        const certOf = n => M().certs[n] || null;
+        const certSubj = c => (c.ca ? 'C=TR; O=Lab; CN=' : 'CN=') + c.cn;
+        const certSubjF5 = c => 'CN=' + c.cn + (c.ca ? ',O=Lab,C=TR' : '');
+        const certSubjSsl = c => (c.ca ? 'C = TR, O = Lab, CN = ' : 'CN = ') + c.cn;
+        const issuerCert = c => Object.values(M().certs).find(x => x.cn === c.issuer && x.ca) || null;
+        function certFields(k, P) {
+            const kv = {}; for (const p of P) { if (p.flag) continue; kv[p.k] = p.v; }
+            return kv;
+        }
+        T['sys crypto key'] = {
+            kind: 'key', named: true, coll: () => M().keys,
+            fresh: () => ({ bits: 2048, pair: null }),
+            flags: ['gen-certificate', 'gen-csr'],
+            set(o, P, name, isCreate) {
+                if (!isCreate) return E('# [Simülatör] Anahtar değiştirilemez; yenisini install/create edin.', 'value');
+                const kv = certFields(name, P), gen = P.some(p => p.k === 'gen-certificate');
+                for (const p of P) if (!p.flag && !['key-size', 'key-type', 'common-name', 'subject-alternative-name', 'lifetime', 'country', 'state', 'city', 'organization', 'ou', 'email-address'].includes(p.k)) return SYN(p.k);
+                if (kv['key-size'] && !['512', '1024', '2048', '4096'].includes(kv['key-size'])) return SYNx('"' + kv['key-size'] + '" invalid key-size');
+                o.bits = +(kv['key-size'] || 2048); o.pair = 'gen:' + name;
+                if (gen) {
+                    if (!kv['common-name']) return E('# [Simülatör] gen-certificate için common-name gerekli.', 'incomplete');
+                    const san = kv['subject-alternative-name'] ? kv['subject-alternative-name'].split(/\s*,\s*/) : [];
+                    M().certs[name] = { cn: kv['common-name'], issuer: kv['common-name'], self: true, san, pair: o.pair, bits: o.bits, nb: 'Sep 24 10:21:07 2026 GMT', na: 'Sep 24 10:21:07 ' + (2026 + Math.max(1, Math.round((+(kv.lifetime || 365)) / 365))) + ' GMT' };
+                }
+                return null;
+            },
+            del(name) { const u = Object.entries(M().cssl).find(([, p]) => p.ckc.some(e => e.key === name)); if (u) return E('# [Simülatör] Anahtar /Common/' + u[0] + ' profilinde kullanılıyor.'); return null; },
+            list(n, o) { return ['sys crypto key ' + n + ' {', '    key-size ' + o.bits, '    key-type rsa-private', '    security-type normal', '}']; },
+            props: ['key-size', 'key-type', 'common-name', 'subject-alternative-name', 'lifetime', 'gen-certificate'],
+        };
+        T['sys crypto cert'] = {
+            kind: 'certificate', named: true, coll: () => M().certs,
+            fresh: () => ({}),
+            set(o, P, name, isCreate) {
+                if (!isCreate) { for (const p of P) { if (p.k !== 'issuer-cert') return SYN(p.k); if (!certOf(p.v)) return NF('certificate', p.v); } return null; }
+                const kv = certFields(name, P);
+                for (const p of P) if (!['key', 'common-name', 'subject-alternative-name', 'lifetime', 'country', 'organization', 'ou'].includes(p.k)) return SYN(p.k);
+                const k = M().keys[kv.key]; if (!kv.key) return E('# [Simülatör] Sertifika oluşturmak için key gerekli (create sys crypto cert <ad> key <anahtar> common-name <ad>).', 'incomplete');
+                if (!k) return E('01070277:3: The requested key (/Common/' + kv.key + ') was not found.');
+                if (!kv['common-name']) return E('# [Simülatör] common-name gerekli.', 'incomplete');
+                Object.assign(o, { cn: kv['common-name'], issuer: kv['common-name'], self: true, san: kv['subject-alternative-name'] ? kv['subject-alternative-name'].split(/\s*,\s*/) : [], pair: k.pair, bits: k.bits, nb: 'Sep 24 10:21:07 2026 GMT', na: 'Sep 24 10:21:07 2027 GMT' });
+                return null;
+            },
+            del(name) { if (['default.crt', 'ca-bundle.crt'].includes(name)) return E('# [Simülatör] Sistem sertifikası silinemez.'); const u = Object.entries(M().cssl).find(([, p]) => p.ckc.some(e => e.cert === name || e.chain === name)); if (u) return E('# [Simülatör] Sertifika /Common/' + u[0] + ' profilinde kullanılıyor.'); return null; },
+            list(n, o) { if (o.bundle) return ['sys crypto cert ' + n + ' {', '    # [Simülatör] Güvenilen kök CA paketi (çok sertifika)', '}']; const L = ['sys crypto cert ' + n + ' {', '    common-name ' + o.cn]; if (o.ca) L.push('    country TR'); L.push('    expiration ' + o.na, '    key-size ' + (o.bits || 2048), '    key-type rsa-public'); if (o.ca) L.push('    organization Lab'); if (o.san && o.san.length) L.push('    subject-alternative-name ' + o.san.join(', ')); L.push('}'); return L; },
+            props: ['key', 'common-name', 'subject-alternative-name', 'lifetime', 'issuer-cert'],
+        };
+        T['sys file ssl-cert'] = {
+            kind: 'certificate', named: true, fixed: true, coll: () => M().certs,
+            set() { return E('# [Simülatör] Sertifika dosyası install sys crypto cert ile yönetilir.', 'value'); },
+            list(n, o) {
+                if (o.bundle) return ['sys file ssl-cert ' + n + ' {', '    bundle-certificates { # [Simülatör] güvenilen kök CA\'lar }', '    is-bundle true', '}'];
+                const L = ['sys file ssl-cert ' + n + ' {', '    certificate-key-size ' + (o.bits || 2048), '    expiration-string "' + o.na + '"', '    issuer "' + (o.self ? certSubjF5(o) : 'CN=' + o.issuer + ',O=Lab,C=TR') + '"', '    key-type rsa-public'];
+                if (o.path) L.push('    source-path file://' + o.path);
+                L.push('    subject "' + certSubjF5(o) + '"'); if (o.san && o.san.length) L.push('    subject-alternative-name ' + o.san.join(', ')); L.push('}'); return L;
+            },
+            props: ['certificate-key-size', 'expiration-string', 'issuer', 'key-type', 'source-path', 'subject', 'subject-alternative-name'],
+        };
+        const sslProfT = (kind, parentBase) => ({
+            kind: 'profile', named: true, coll: () => (kind === 'client' ? M().cssl : M().sssl),
+            fresh: () => (kind === 'client' ? { parent: 'clientssl', ckc: [], serverName: 'none', sniDefault: 'false' } : { parent: 'serverssl', serverName: 'none', peer: 'ignore' }),
+            set(o, P, name) {
+                for (const p of P) {
+                    if (p.k === 'defaults-from') { if (profType(p.v) !== (kind === 'client' ? 'client-ssl' : 'server-ssl')) return NF('profile', p.v); o.parent = p.v; }
+                    else if (p.k === 'server-name') o.serverName = p.v;
+                    else if (kind === 'client' && p.k === 'sni-default') { if (!['true', 'false'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.sniDefault = p.v; }
+                    else if (kind === 'server' && p.k === 'peer-cert-mode') { if (!['ignore', 'require', 'request'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.peer = p.v; }
+                    else if (kind === 'client' && p.k === 'cert-key-chain') {
+                        if (p.v === 'none') { o.ckc = []; continue; }
+                        const ents = (p.items || []).map(it => { const e = { name: it.k }; const b = it.b || []; for (let i = 0; i < b.length; i += 2) e[b[i].k] = b[i + 1] ? b[i + 1].k : undefined; return e; });
+                        for (const e of ents) for (const k of Object.keys(e)) if (!['name', 'cert', 'key', 'chain', 'passphrase', 'usage'].includes(k)) return SYN(k);
+                        if (p.op === 'replace-all-with') o.ckc = ents;
+                        else if (p.op === 'add') { for (const e of ents) { if (o.ckc.some(x => x.name === e.name)) return E('# [Simülatör] ' + e.name + ' girdisi zaten var.'); o.ckc.push(e); } }
+                        else if (p.op === 'delete') o.ckc = o.ckc.filter(x => !ents.some(e => e.name === x.name));
+                        else if (p.op === 'modify') { for (const e of ents) { const x = o.ckc.find(y => y.name === e.name); if (!x) return E('# [Simülatör] ' + e.name + ' girdisi yok.'); Object.assign(x, e); } }
+                    }
+                    else if (['cert', 'key', 'chain'].includes(p.k) && kind === 'client') return E('# [Simülatör] Üst seviye cert/key/chain eski biçimdir; F5 cert-key-chain kullanılmasını önerir: cert-key-chain replace-all-with { <ad> { cert … key … chain … } }', 'value');
+                    else return SYN(p.k);
+                }
+                if (kind === 'client') {
+                    if (o.ckc.length > 1) return E('010717e1:3: Client SSL profile (/Common/' + name + '): cannot contain more than one set of same certificate/key type.');
+                    for (const e of o.ckc) {
+                        if (!e.cert || !certOf(e.cert)) return NF('certificate', e.cert || '(cert)');
+                        if (!e.key) return E('01070315:3: profile /Common/' + name + ' requires a key');
+                        if (!M().keys[e.key]) return E('01070277:3: The requested key (/Common/' + e.key + ') was not found.');
+                        if (e.chain && e.chain !== 'none' && !certOf(e.chain)) return NF('certificate', e.chain);
+                        if (certOf(e.cert).pair !== M().keys[e.key].pair) return E('01070317:3: profile /Common/' + name + '\'s key and certificate do not match');
+                    }
+                }
+                return null;
+            },
+            del(name) { const u = Object.entries(M().virtuals).find(([, v]) => v.profiles.includes(name)); if (u) return E('# [Simülatör] Profil /Common/' + u[0] + ' tarafından kullanılıyor.'); return null; },
+            list(n, o) {
+                const L = ['ltm profile ' + kind + '-ssl ' + n + ' {', '    app-service none'];
+                if (kind === 'client') { L.push('    cert-key-chain {'); (o.ckc.length ? o.ckc : [{ name: 'default', cert: 'default.crt', key: 'default.key' }]).forEach(e => { L.push('        ' + e.name + ' {', '            cert ' + e.cert); if (e.chain && e.chain !== 'none') L.push('            chain ' + e.chain); L.push('            key ' + e.key, '        }'); }); L.push('    }'); }
+                L.push('    defaults-from ' + o.parent);
+                if (kind === 'client') L.push('    inherit-certkeychain ' + (o.ckc.length ? 'false' : 'true'));
+                if (kind === 'server') L.push('    peer-cert-mode ' + o.peer);
+                L.push('    server-name ' + o.serverName); if (kind === 'client') L.push('    sni-default ' + o.sniDefault);
+                L.push('}'); return L;
+            },
+            props: kind === 'client' ? ['defaults-from', 'cert-key-chain', 'server-name', 'sni-default'] : ['defaults-from', 'server-name', 'peer-cert-mode'],
+        });
+        T['ltm profile client-ssl'] = sslProfT('client'); T['ltm profile server-ssl'] = sslProfT('server');
+        // istemcinin sunulan sertifikayı doğrulaması (OpenSSL sırası: zincir, sonra ad). trust: lab.sim.trust (kök CA adları)
+        function tlsFor(vn, sni) {
+            const v = M().virtuals[vn]; const ps = v.profiles.filter(x => profType(x) === 'client-ssl');
+            const pr = n => (M().cssl[n] || { ckc: [], serverName: 'none', sniDefault: 'false' });
+            const nameOk = (pat, h) => pat && pat !== 'none' && (pat === h || (/^\*\./.test(pat) && h.split('.').slice(1).join('.') === pat.slice(2)));
+            let pn = ps.length === 1 ? ps[0] : (sni && ps.find(x => nameOk(pr(x).serverName, sni))) || ps.find(x => pr(x).sniDefault === 'true') || ps[0];
+            const p = pr(pn), e = p.ckc[0] || { cert: 'default.crt', key: 'default.key' };
+            const leaf = certOf(e.cert) || certOf('default.crt');
+            const chain = e.chain && e.chain !== 'none' && certOf(e.chain) ? [certOf(e.chain)] : [];
+            return { prof: pn, leaf, chain, presented: [leaf].concat(chain) };
+        }
+        function tlsVerify(t, host) {
+            const trust = SIM.trust || ['Lab Root CA'];
+            if (t.leaf.expired) return { code: 10, msg: 'certificate has expired' };
+            let cur = t.leaf;
+            for (let i = 0; i < 6; i++) {
+                if (trust.includes(cur.issuer)) break;
+                if (cur.self || cur.issuer === cur.cn) return cur === t.leaf ? { code: 18, msg: 'self-signed certificate' } : { code: 19, msg: 'self-signed certificate in certificate chain' };
+                const nx = t.chain.find(c => c.cn === cur.issuer && c !== cur);
+                if (!nx) return { code: 20, msg: 'unable to get local issuer certificate', depth0: cur === t.leaf };
+                cur = nx;
+            }
+            const names = (t.leaf.san || []).map(x => x.replace(/^(DNS|IP Address):/, ''));
+            const hit = names.find(nm => nm === host || (/^\*\./.test(nm) && host.split('.').slice(1).join('.') === nm.slice(2)));
+            if (!hit) return { code: 62, host: true, msg: 'no alternative certificate subject name matches target host name \'' + host + '\'' };
+            return { ok: true, matched: hit };
+        }
         // sys db (BigDB değişkenleri; yalnız modify/list). RST nedeni: tm.rstcause.log → /var/log/ltm, tm.rstcause.pkt → RST paketinin yükü
         T['sys db'] = {
             kind: 'BigDB variable', named: true, fixed: true, coll: () => M().db || (M().db = base().db),
@@ -696,6 +833,7 @@ const CgLabTmsh = (function () {
         }
         function listCmd(key, rest) {
             const t = T[key]; let opts = rest.map(x => x.t);
+            if (key === 'sys crypto cert' && opts[0] && !t.props.includes(opts[0]) && !['one-line', 'all-properties'].includes(opts[0]) && !M().certs[opts[0]]) { log({ list: key }); return { out: '', ok: true }; }
             const oneLine = opts.includes('one-line'); opts = opts.filter(x => x !== 'one-line' && x !== 'all-properties');
             const fmt = L => (oneLine ? L.map(l => l.trim()).join(' ').replace(/\{ \}/g, '{ }') : L.join('\n'));
             let blocks = [];
@@ -975,14 +1113,26 @@ const CgLabTmsh = (function () {
             if (/fastest|predictive/.test(lb)) return L.slice().sort((a, b) => ((SIM.latency || {})[a] || 5) - ((SIM.latency || {})[b] || 5))[0];
             const i = (rr[pn] || 0) % L.length; rr[pn] = (rr[pn] || 0) + 1; return L[i];
         }
+        // K14800: birden çok virtual server eşleşirse öncelik hedef adres (en uzun maske) > kaynak adres (en uzun önek) > port (belirli > any)
+        const vsNet = v => v.dest.split(':')[0] + '/' + C.maskLen(v.mask || '255.255.255.255');
+        function vsMatch(ip, port, src) {
+            const L = Object.entries(M().virtuals).filter(([, v]) => inNet(ip, vsNet(v)) && inNet(src || '0.0.0.0', v.source || '0.0.0.0/0') && (+v.dest.split(':')[1] === port || +v.dest.split(':')[1] === 0) && v.proto !== 'udp');
+            L.sort(([, a], [, b]) => C.maskLen(b.mask || '255.255.255.255') - C.maskLen(a.mask || '255.255.255.255') || cidr(b.source || '0.0.0.0/0').len - cidr(a.source || '0.0.0.0/0').len || (+b.dest.split(':')[1] ? 1 : 0) - (+a.dest.split(':')[1] ? 1 : 0));
+            return L.length ? L[0][0] : null;
+        }
+        const vipOwned = ip => Object.values(M().virtuals).some(v => inNet(ip, vsNet(v)));
         function vipRequest(o) {
             // o: { ip, port, path, method, src, cookie, https }
-            const vn = Object.keys(M().virtuals).find(n => { const v = M().virtuals[n]; return v.dest === o.ip + ':' + o.port || v.dest === o.ip + ':0'; });
-            if (!vn) return Object.values(M().virtuals).some(v => v.dest.split(':')[0] === o.ip) ? { kind: 'refused', why: 'novs' } : { kind: 'timeout', why: 'noaddr' };
+            const vn = vsMatch(o.ip, o.port, o.src);
+            if (!vn) return vipOwned(o.ip) ? { kind: 'refused', why: 'novs' } : { kind: 'timeout', why: 'noaddr' };
             const v = M().virtuals[vn];
             if (!v.enabled) return { kind: 'refused', why: 'disabled', vs: vn };
             if (v.limit && vsConn(vn) >= v.limit) { if (!o.test) S.ltmlog.push(lstamp() + ' ' + lh() + ' warning tmm[11925]: 01200009:4: Packet rejected remote IP ' + o.src + ' port 51514 local IP ' + o.ip + ' port ' + o.port + ' proto TCP: Connection limit exceeded.'); return { kind: 'reset', why: 'vslimit', vs: vn }; }
-            if (o.https && !v.profiles.some(x => profType(x) === 'client-ssl')) return { kind: 'sslerr', vs: vn };
+            const hasCssl = v.profiles.some(x => profType(x) === 'client-ssl');
+            if (o.https && !hasCssl) return { kind: 'sslerr', vs: vn };
+            if (!o.https && hasCssl) return { kind: 'reset', why: 'plain-to-ssl', vs: vn };
+            const tls = o.https ? tlsFor(vn, o.sni) : null;
+            if (tls && o.tlsOnly) return { kind: 'tls', vs: vn, tls };
             if (!v.pool) return { kind: 'reset', why: 'nopool', vs: vn };
             const L = eligible(v.pool);
             const hasPersisted = (S.rt.persist || {})[v.pool + '|' + o.src];
@@ -1004,14 +1154,16 @@ const CgLabTmsh = (function () {
             const sport = v.tport === 'enabled' ? m.port : o.port, sip = v.taddr === 'enabled' ? m.ip : o.ip;
             const srv = srvOf(sip), r = reach(m.ip);
             if (!srv || !r.ok) return { kind: 'timeout', why: 'l2', vs: vn, member: key };
-            if (!srv.ports || !srv.ports[sport]) return { kind: 'reset', why: 'srvrefused', vs: vn, member: key, sport };
+            if (!srv.ports || !srv.ports[sport]) return { kind: 'reset', why: 'srvrefused', vs: vn, member: key, sport, tls };
+            const hasSssl = v.profiles.some(x => profType(x) === 'server-ssl');
+            if (hasSssl && !srv.ports[sport].tls) return { kind: 'reset', why: 'srvssl', vs: vn, member: key, tls };
             // dönüş yolu: SNAT yoksa sunucu istemciye kendi ağ geçidi üzerinden döner
             if (v.sat.type === 'none') { const back = Object.values(M().selfs).some(s => s.address && s.address.split('/')[0] === srv.gw); if (!back) return { kind: 'timeout', why: 'asym', vs: vn, member: key }; }
             if (v.sat.type === 'snat') { const ok = M().snatpools[v.sat.pool].members.some(ip => Object.values(M().selfs).some(s => s.address && inNet(ip, s.address) && inNet(m.ip, s.address))); if (!ok) return { kind: 'timeout', why: 'snatroute', vs: vn, member: key }; }
-            const resp = serverResp(srv, sport, o.path, o.method);
+            const resp = srv.ports[sport].tls && !hasSssl ? { code: 400, headers: ['Connection: close'], body: '<p>Your browser sent a request that this server could not understand.<br />\nReason: You\'re speaking plain HTTP to an SSL-enabled server port.<br />\n Instead use the HTTPS scheme to access this URL, please.<br />\n</p>' } : serverResp(srv, sport, o.path, o.method);
             if (!resp) return { kind: 'reset', why: 'srvrefused', vs: vn, member: key };
             if (setCookie) resp.headers = resp.headers.concat(['Set-Cookie: ' + setCookie]);
-            return { kind: 'ok', resp, vs: vn, member: key, persisted, src: v.sat.type === 'automap' ? 'self' : v.sat.type === 'snat' ? 'snat' : 'client' };
+            return { kind: 'ok', resp, tls, vs: vn, member: key, persisted, src: v.sat.type === 'automap' ? 'self' : v.sat.type === 'snat' ? 'snat' : 'client' };
         }
         // ═══ Bağlantı tablosu (show/delete sys connection) ═══════════════════
         // lab.sim.clients: [{ ip, vs, n }] sürekli bağlı istemciler. Kurulu bağlantı yapılandırma değişikliğinden etkilenmez (K13253);
@@ -1079,7 +1231,7 @@ const CgLabTmsh = (function () {
         }
         // ═══ HA durumu, config sync, failover ═══════════════════════════════
         const HA = { st: 'active', syncKey: null, peerCfg: null };
-        const syncKey = m => JSON.stringify([m.nodes, m.pools, m.monitors, m.virtuals, m.snatpools, m.persists, m.httpProfiles]);
+        const syncKey = m => JSON.stringify([m.nodes, m.pools, m.monitors, m.virtuals, m.snatpools, m.persists, m.httpProfiles, m.cssl, m.sssl, m.certs, m.keys]);
         const haDg = () => Object.entries(M().cm.dgs).find(([, g]) => g.type === 'sync-failover' && PEER && g.devices.includes(PEER.name) && g.devices.includes(M().hostname));
         const selfOfIp = ip => Object.entries(M().selfs).find(([, x]) => x.address && x.address.split('/')[0] === ip);
         const selfAllowsSvc = (sn, pr, port) => { const x = M().selfs[sn]; if (!x) return false; if (x.allow === 'all') return true; if (x.allow === 'none') return false; const L = x.allow === 'default' ? ALLOW_DEFAULT : x.allow; return L.some(y => { const [p2, t2] = y.split(':'); return p2 === pr && (t2 === 'any' || +t2 === port || SVC_PORT[t2] === port); }); };
@@ -1104,7 +1256,7 @@ const CgLabTmsh = (function () {
         function doSync(dir, dg) {
             const g = M().cm.dgs[dg]; if (!g) return NF('device group', dg);
             const l = haLink(); if (!l.ok) return E('# [Simülatör] Eşitleme yapılamadı: eşe bağlantı yok (' + { trust: 'güven kurulmamış', time: 'saatler uyuşmuyor', csip: 'configsync-ip tanımlı değil', lockdown: 'ConfigSync self IP\'sinde TCP 4353 kapalı (port lockdown)', reach: 'eşin HA adresine ulaşılamıyor' }[l.why] + ').', 'value');
-            if (dir === 'from' && HA.peerCfg) { ['nodes', 'pools', 'monitors', 'virtuals', 'snatpools', 'persists', 'httpProfiles'].forEach(k => { M()[k] = clone(HA.peerCfg[k]); }); }
+            if (dir === 'from' && HA.peerCfg) { ['nodes', 'pools', 'monitors', 'virtuals', 'snatpools', 'persists', 'httpProfiles', 'cssl', 'sssl', 'certs', 'keys'].forEach(k => { M()[k] = clone(HA.peerCfg[k]); }); }
             HA.syncKey = syncKey(M()); HA.peerCfg = clone(M()); log({ haSync: dir });
             return { out: '', ok: true };
         }
@@ -1162,6 +1314,18 @@ const CgLabTmsh = (function () {
         }
         function installCmd(rest) {
             const a = rest.map(x => x.t);
+            if (a[0] === 'sys' && a[1] === 'crypto' && ['cert', 'key'].includes(a[2])) {
+                const nm = a[3], fi = a.indexOf('from-local-file'), path = fi > 0 ? a[fi + 1] : null;
+                if (!nm || nm === 'from-local-file') return E('Syntax Error: ' + a[2] + ' requires a name', 'incomplete');
+                if (!path) return E('Syntax Error: install sys crypto ' + a[2] + ' <ad> from-local-file <dosya>', 'incomplete');
+                const f = (SIM.sslFiles || {})[path];
+                if (!f) return E('# [Simülatör] ' + path + ' bulunamadı (ls /var/tmp). Dosya önce scp ile cihaza kopyalanır.', 'value');
+                if ((a[2] === 'cert') !== (f.type === 'cert')) return E('# [Simülatör] ' + path + ' bir ' + (f.type === 'cert' ? 'sertifika' : 'özel anahtar') + '; install sys crypto ' + (f.type === 'cert' ? 'cert' : 'key') + ' kullanın.', 'value');
+                const coll = a[2] === 'cert' ? M().certs : M().keys;
+                if (coll[nm] && a.includes('no-overwrite')) return E('The requested ' + a[2] + '(' + nm + ') already exists in this scope.');
+                coll[nm] = a[2] === 'cert' ? Object.assign({ san: [], bits: 2048, nb: 'Mar  1 10:12:44 2026 GMT', na: 'Mar  1 10:12:44 2027 GMT' }, f, { path }) : { bits: f.bits || 2048, pair: f.pair, path };
+                log({ install: 'crypto ' + a[2], name: nm }); return { out: '', ok: true };
+            }
             if (a[0] !== 'sys' || a[1] !== 'software' || !['image', 'hotfix'].includes(a[2])) return E('Syntax Error: install sys software image <iso> volume <HDx.y> [create-volume]', 'invalid');
             const iso = a[3]; if (!iso) return E('Syntax Error: image requires a file name', 'incomplete');
             if (!S.images.includes(iso)) return E('# [Simülatör] ' + iso + ' /shared/images altında yok (ls /shared/images). ISO önce bu dizine kopyalanmalı.', 'value');
@@ -1243,24 +1407,33 @@ const CgLabTmsh = (function () {
         // curl: VIP'e istek dış istemciden (lab.sim.client) gönderilmiş kabul edilir; sunucu IP'sine istek BIG-IP'nin kendisinden gider
         const JARS = {};
         function curl(a) {
-            let url = null, verbose = false, head = false, silent = false, out = null, wfmt = null, method = null, jarR = null, jarW = null, iface = null; const hdr = [];
+            let url = null, verbose = false, head = false, silent = false, out = null, wfmt = null, method = null, jarR = null, jarW = null, iface = null, insecure = false; const hdr = [], resolve = {};
             for (let i = 1; i < a.length; i++) {
                 const t = a[i];
-                if (/^-[vkIsSL]+$/.test(t)) { if (t.includes('v')) verbose = true; if (t.includes('I')) head = true; if (t.includes('s')) silent = true; continue; }
+                if (/^-[vkIsSL]+$/.test(t)) { if (t.includes('v')) verbose = true; if (t.includes('I')) head = true; if (t.includes('s')) silent = true; if (t.includes('k')) insecure = true; continue; }
+                if (t === '--insecure') { insecure = true; continue; }
+                if (t === '--resolve') { const r = String(a[++i] || '').match(/^([^:]+):(\d+):(\d{1,3}(?:\.\d{1,3}){3})$/); if (!r) return E('curl: option --resolve: error encountered when reading a file\n# [Simülatör] Biçim: --resolve <ad>:<port>:<ip>', 'invalid'); resolve[r[1] + ':' + r[2]] = r[3]; continue; }
                 if (t === '-o') { out = a[++i]; continue; } if (t === '-w') { wfmt = a[++i]; continue; } if (t === '-X') { method = (a[++i] || '').toUpperCase(); continue; }
                 if (t === '-H') { hdr.push(a[++i]); continue; } if (t === '-b') { jarR = a[++i]; continue; } if (t === '-c') { jarW = a[++i]; continue; }
                 if (t === '--interface') { iface = a[++i]; continue; } if (t === '-m' || t === '--max-time' || t === '--connect-timeout') { i++; continue; }
                 if (/^https?:\/\//.test(t)) { url = t; continue; }
-                return E('curl: option ' + t + ': is unknown\n# [Simülatör] Desteklenen: -v -I -k -s -o -w -X -H -b -c --interface -m', 'invalid');
+                return E('curl: option ' + t + ': is unknown\n# [Simülatör] Desteklenen: -v -I -k -s -o -w -X -H -b -c --interface -m --resolve', 'invalid');
             }
             if (!url) return E('curl: no URL specified!', 'incomplete');
-            const u = url.match(/^(https?):\/\/([^/:]+)(?::(\d+))?(\/[^\s]*)?$/); if (!u || !isIp(u[2])) return E('curl: (6) Could not resolve host: ' + (u ? u[2] : url) + '\n# [Simülatör] Bu lab\'da URL\'de IP adresi kullanın.', 'value');
-            const https = u[1] === 'https', ip = u[2], port = +(u[3] || (https ? 443 : 80)), path = u[4] || '/'; method = method || (head ? 'HEAD' : 'GET');
-            const isVip = Object.values(M().virtuals).some(v => v.dest.split(':')[0] === ip);
+            const u = url.match(/^(https?):\/\/([^/:]+)(?::(\d+))?(\/[^\s]*)?$/);
+            const https = !!u && u[1] === 'https', port = u ? +(u[3] || (https ? 443 : 80)) : 0, hostN = u ? u[2] : url;
+            const ip = u && (isIp(u[2]) ? u[2] : resolve[u[2] + ':' + port]);
+            if (!u || !ip) return E('curl: (6) Could not resolve host: ' + hostN + '\n# [Simülatör] Bu lab\'da DNS yok: URL\'de IP adresi ya da --resolve ' + hostN + ':' + port + ':<ip> kullanın.', 'value');
+            const path = u[4] || '/'; method = method || (head ? 'HEAD' : 'GET');
+            const sni = isIp(hostN) ? null : hostN;
+            const isVip = vipOwned(ip);
             const cookie = {}; if (jarR && JARS[jarR]) Object.assign(cookie, JARS[jarR]); hdr.forEach(h => { const m = h.match(/^Cookie:\s*([^=]+)=(\S+)/i); if (m) cookie[m[1]] = m[2]; });
             const L = [];
             let res;
-            if (isVip) { res = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https })); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi.'); }
+            let tlsI = null, ver = null;
+            if (isVip && https) { const t = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni, tlsOnly: true, test: true })); if (t.kind === 'tls') { tlsI = t.tls; ver = tlsVerify(tlsI, sni || ip); } }
+            if (isVip && tlsI && !ver.ok && !insecure) { res = { kind: 'tlsfail', vs: null }; if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi.'); }
+            else if (isVip) { res = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni })); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi' + (res.vs ? '; karşılayan virtual server: /Common/' + res.vs : '') + '.'); }
             else {
                 const r = reach(ip), srv = srvOf(ip);
                 if (iface && !Object.values(M().selfs).some(s => s.address && s.address.split('/')[0] === iface) && !(M().mgmtIp && M().mgmtIp.split('/')[0] === iface)) return E('curl: (45) bind failed with errno 99: Cannot assign requested address', 'value');
@@ -1271,15 +1444,24 @@ const CgLabTmsh = (function () {
                 else res = { kind: 'ok', resp: serverResp(srv, port, path, method) };
             }
             if (isVip) { const rc = rstCauseOf(res); if (rc) rstSent(ip + ':' + port, (SIM.client || '198.51.100.20') + ':' + (52100 + S.ev.length), rc.cause, rc.peer); }
-            log({ curl: { ip, port, path, method, vip: isVip, kind: res.kind, code: res.resp ? res.resp.code : null, member: res.member || null, persisted: !!res.persisted } });
+            log({ curl: { vs: res.vs || null, ip, host: hostN, https, port, path, method, vip: isVip, kind: res.kind, code: res.resp ? res.resp.code : null, member: res.member || null, persisted: !!res.persisted, tlsErr: ver && !ver.ok ? ver.code : null, insecure, prof: tlsI ? tlsI.prof : null } });
             // curl 7.81 biçimi (notes/f5-tmsh-cikti-ornekleri.md §9)
-            const reqLines = () => ['* Connected to ' + ip + ' (' + ip + ') port ' + port + ' (#0)', '> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + ip, '> User-Agent: curl/7.81.0', '> Accept: */*', '> '];
-            if (verbose) L.push('*   Trying ' + ip + ':' + port + '...');
+            const T12 = ['* ALPN, offering h2', '* ALPN, offering http/1.1', '*  CAfile: /etc/ssl/certs/ca-certificates.crt', '*  CApath: /etc/ssl/certs', '* TLSv1.0 (OUT), TLS header, Certificate Status (22):', '* TLSv1.3 (OUT), TLS handshake, Client hello (1):', '* TLSv1.2 (IN), TLS header, Certificate Status (22):', '* TLSv1.2 (IN), TLS handshake, Server hello (2):', '* TLSv1.2 (IN), TLS handshake, Certificate (11):'];
+            const T12b = ['* TLSv1.2 (IN), TLS handshake, Server key exchange (12):', '* TLSv1.2 (IN), TLS handshake, Server finished (14):', '* TLSv1.2 (OUT), TLS handshake, Client key exchange (16):', '* TLSv1.2 (OUT), TLS change cipher, Change cipher spec (1):', '* TLSv1.2 (OUT), TLS handshake, Finished (20):', '* TLSv1.2 (IN), TLS handshake, Finished (20):', '* SSL connection using TLSv1.2 / ECDHE-RSA-AES128-GCM-SHA256', '* ALPN, server accepted to use http/1.1'];
+            const certBlock = () => { const c = tlsI.leaf, ic = issuerCert(c); const L2 = ['* Server certificate:', '*  subject: ' + certSubj(c), '*  start date: ' + c.nb, '*  expire date: ' + c.na]; if (ver.host) L2.push('*  subjectAltName does not match ' + (sni || ip)); else if (ver.matched) L2.push('*  subjectAltName: host "' + (sni || ip) + '" matched cert\'s "' + ver.matched + '"'); L2.push('*  issuer: ' + (c.self ? certSubj(c) : ic ? certSubj(ic) : 'C=TR; O=Lab; CN=' + c.issuer)); L2.push(ver.ok ? '*  SSL certificate verify ok.' : '*  SSL certificate verify result: ' + ver.msg.replace(/ '.*$/, '') + ' (' + ver.code + '), continuing anyway.'); return L2; };
+            const TAIL = ['More details here: https://curl.se/docs/sslcerts.html', '', 'curl failed to verify the legitimacy of the server and therefore could not', 'establish a secure connection to it. To learn more about this situation and', 'how to fix it, please visit the web page mentioned above.'];
+            const reqLines = () => ['* Connected to ' + hostN + ' (' + ip + ') port ' + port + ' (#0)'].concat(tlsI ? T12.concat(T12b, certBlock()) : [], ['> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + hostN, '> User-Agent: curl/7.81.0', '> Accept: */*', '> ']);
+            if (verbose) { Object.entries(resolve).forEach(([k, v]) => L.push('* Added ' + k + ':' + v + ' to DNS cache')); if (sni && resolve[sni + ':' + port]) L.push('* Hostname ' + sni + ' was found in DNS cache'); L.push('*   Trying ' + ip + ':' + port + '...'); }
+            if (res.kind === 'tlsfail') {
+                if (verbose) { L.push('* Connected to ' + hostN + ' (' + ip + ') port ' + port + ' (#0)', ...T12); if (ver.host) L.push(...T12b, ...certBlock().slice(0, -2), '* SSL: ' + ver.msg); else L.push('* TLSv1.2 (OUT), TLS alert, ' + (ver.code === 10 ? 'certificate expired (557)' : 'unknown CA (560)') + ':', '* SSL certificate problem: ' + ver.msg); L.push('* Closing connection 0'); }
+                L.push('curl: (60) ' + (ver.host ? 'SSL: ' + ver.msg : 'SSL certificate problem: ' + ver.msg), ...TAIL);
+                return { out: L.join('\n') };
+            }
             if (res.kind !== 'ok') {
                 const K = res.kind, est = isVip && (K === 'reset' || (K === 'timeout' && !['l2', 'arp', 'noaddr', 'peer-empty'].includes(res.why)));
                 if (K === 'refused') { if (verbose) L.push('* connect to ' + ip + ' port ' + port + ' failed: Connection refused', '* Failed to connect to ' + ip + ' port ' + port + ' after 2 ms: Connection refused', '* Closing connection 0'); L.push('curl: (7) Failed to connect to ' + ip + ' port ' + port + ' after 2 ms: Connection refused'); }
                 else if (K === 'unreach') L.push('curl: (7) Failed to connect to ' + ip + ' port ' + port + ': Network is unreachable');
-                else if (K === 'sslerr') L.push('curl: (35) error:1408F10B:SSL routines:ssl3_get_record:wrong version number');
+                else if (K === 'sslerr') L.push('curl: (35) error:0A00010B:SSL routines::wrong version number');
                 else if (K === 'reset') { if (verbose) L.push(...(est ? reqLines() : []), '* Recv failure: Connection reset by peer', '* Closing connection 0'); L.push('curl: (56) Recv failure: Connection reset by peer'); }
                 else if (est) { if (verbose) L.push(...reqLines(), '* Operation timed out after 10001 milliseconds with 0 bytes received', '* Closing connection 0'); L.push('curl: (28) Operation timed out after 10001 milliseconds with 0 bytes received'); }
                 else { if (verbose) L.push('* Connection timed out after 5001 milliseconds', '* Closing connection 0'); L.push('curl: (28) Connection timed out after 5001 milliseconds'); }
@@ -1290,7 +1472,7 @@ const CgLabTmsh = (function () {
             if (verbose) { L.push(...reqLines().slice(0, -1)); Object.keys(cookie).length && L.push('> Cookie: ' + Object.entries(cookie).map(([k, v]) => k + '=' + v).join('; ')); L.push('> ', '< ' + st, '< Server: Apache'); r.headers.forEach(h => L.push('< ' + h)); L.push('< Content-Length: ' + r.body.length, '<'); }
             else if (head) { L.push(st, 'Server: Apache'); r.headers.forEach(h => L.push(h)); L.push('Content-Length: ' + r.body.length); }
             if (!head && out !== '/dev/null' && r.body) L.push(r.body);
-            if (verbose) L.push('* Connection #0 to host ' + ip + ' left intact');
+            if (verbose) L.push('* Connection #0 to host ' + hostN + ' left intact');
             if (wfmt) L.push(wfmt.replace(/%\{http_code\}/g, String(r.code)).replace(/\\n/g, '\n').replace(/\n$/, ''));
             return { out: L.join('\n') };
         }
@@ -1516,6 +1698,30 @@ const CgLabTmsh = (function () {
             }
             return { out: [hdr, note].filter(Boolean).concat(sel.map(p => fmtPkt(p, opt)), foot).join('\n') + (stopped ? '\n# [Simülatör] Yakalama Ctrl+C ile durduruldu.' : '') };
         }
+        // openssl s_client: VIP'in sunduğu sertifika zinciri (OpenSSL 3.0 biçimi; notes/f5-ssl-arastirma.md §5)
+        function opensslCmd(a) {
+            if (a[1] !== 's_client') return E('# [Simülatör] Bu lab\'da yalnız "openssl s_client -connect <ip>:443 -servername <ad> [-showcerts]" desteklenir.', 'unsupported');
+            const ci = a.indexOf('-connect'), si = a.indexOf('-servername'), tgt = ci > 0 ? a[ci + 1] : null, sn = si > 0 ? a[si + 1] : null;
+            const m = String(tgt || '').match(/^(\d{1,3}(?:\.\d{1,3}){3}):(\d+)$/); if (!m) return E('s_client: -connect requires host:port\n# [Simülatör] ör. openssl s_client -connect 203.0.113.100:443 -servername app.lab.example', 'incomplete');
+            const ip = m[1], port = +m[2];
+            const t = vipOwned(ip) ? viaPeer(() => vipRequest({ ip, port, path: '/', method: 'GET', src: SIM.client || '198.51.100.20', cookie: {}, https: true, sni: sn, tlsOnly: true, test: true })) : { kind: 'noaddr' };
+            log({ openssl: { ip, port, sni: sn, kind: t.kind, prof: t.tls ? t.tls.prof : null, chain: t.tls ? t.tls.chain.length : null } });
+            if (t.kind === 'refused' || t.kind === 'reset') return { out: 'connect:errno=111\n# [Simülatör] Bağlantı reddedildi.' };
+            if (t.kind === 'sslerr') return { out: 'CONNECTED(00000003)\n' + '4077F6A1B87F0000:error:0A00010B:SSL routines:ssl3_get_record:wrong version number:../ssl/record/ssl3_record.c:354:\n---\nno peer certificate available\n---\n# [Simülatör] Bu virtual server\'da client-ssl profili yok; karşı taraf TLS konuşmuyor.' };
+            if (t.kind !== 'tls') return { out: '# [Simülatör] ' + ip + ':' + port + ' yanıt vermedi (bağlantı zaman aşımı).' };
+            const T = t.tls, v = tlsVerify(T, sn || '__nohost__'), vcode = v.ok || v.host ? 0 : v.code;
+            const L = ['CONNECTED(00000003)'];
+            if (vcode === 20 || vcode === 21) L.push('depth=0 ' + certSubjSsl(T.leaf), 'verify error:num=20:unable to get local issuer certificate', 'verify return:1', 'depth=0 ' + certSubjSsl(T.leaf), 'verify error:num=21:unable to verify the first certificate', 'verify return:1');
+            else if (vcode === 18) L.push('depth=0 ' + certSubjSsl(T.leaf), 'verify error:num=18:self-signed certificate', 'verify return:1', 'depth=0 ' + certSubjSsl(T.leaf), 'verify return:1');
+            else if (vcode === 10) L.push('depth=0 ' + certSubjSsl(T.leaf), 'verify error:num=10:certificate has expired', 'notAfter=' + T.leaf.na, 'verify return:1');
+            else { const path = [T.leaf].concat(T.chain); const root = { cn: (SIM.trust || ['Lab Root CA'])[0], ca: true }; [root].concat(path.slice().reverse()).forEach((c, i, arr) => L.push('depth=' + (arr.length - 1 - i) + ' ' + certSubjSsl(c), 'verify return:1')); }
+            L.push('---', 'Certificate chain');
+            T.presented.forEach((c, i) => { const ic = c.self ? c : (issuerCert(c) || { cn: c.issuer, ca: true }); L.push(' ' + i + ' s:' + certSubjSsl(c), '   i:' + certSubjSsl(ic), '   a:PKEY: rsaEncryption, ' + (c.bits || 2048) + ' (bit); sigalg: RSA-SHA256', '   v:NotBefore: ' + c.nb + '; NotAfter: ' + c.na); if (a.includes('-showcerts')) L.push('-----BEGIN CERTIFICATE-----', 'MIID…(kısaltıldı)', '-----END CERTIFICATE-----'); });
+            L.push('---', 'Server certificate', '-----BEGIN CERTIFICATE-----', 'MIID…(kısaltıldı)', '-----END CERTIFICATE-----', 'subject=' + certSubjSsl(T.leaf), 'issuer=' + certSubjSsl(T.leaf.self ? T.leaf : (issuerCert(T.leaf) || { cn: T.leaf.issuer, ca: true })), '---', 'No client certificate CA names sent', '---',
+                'SSL handshake has read ' + (1400 + 1100 * T.presented.length) + ' bytes and written 405 bytes', vcode ? 'Verification error: ' + (vcode === 20 || vcode === 21 ? 'unable to verify the first certificate' : v.msg) : 'Verification: OK', '---', 'New, TLSv1.2, Cipher is ECDHE-RSA-AES128-GCM-SHA256', 'Server public key is 2048 bit', 'Secure Renegotiation IS supported', 'Compression: NONE', 'Expansion: NONE', 'No ALPN negotiated', 'SSL-Session:', '    Protocol  : TLSv1.2', '    Cipher    : ECDHE-RSA-AES128-GCM-SHA256',
+                '    Verify return code: ' + (vcode === 20 || vcode === 21 ? '21 (unable to verify the first certificate)' : vcode ? vcode + ' (' + v.msg + ')' : '0 (ok)'), '---', '# [Simülatör] Bağlantı kapatıldı (gerçekte s_client girdi bekler; "echo | openssl s_client …" ya da Ctrl+C).');
+            return { out: L.join('\n') };
+        }
         function bashCmd(a, line, nested) {
             const c = a[0];
             if (c === 'tmsh') {
@@ -1566,6 +1772,7 @@ const CgLabTmsh = (function () {
                 return { out: a.includes('-c') ? iso + ': ' + (okm ? 'OK' : 'FAILED') + (okm ? '' : '\nmd5sum: WARNING: 1 computed checksum did NOT match') : '3f9c2d6a8e0b4a1c9d7e5f2b6a8c0e14  /shared/images/' + iso, log: { md5: iso, ok: okm } };
             }
             if (c === 'tcpdump') return tcpdump(a);
+            if (c === 'openssl') return opensslCmd(a);
             if (['bigstart', 'netstat', 'ssldump', 'cpcfg', 'switchboot', 'config', 'top', 'ssh', 'scp'].includes(c)) return E('# [Simülatör] "' + c + '" gerçek BIG-IP\'de var ama bu lab sürümünde henüz desteklenmiyor.', 'unsupported');
             if (['list', 'show', 'create', 'modify', 'delete', 'save', 'load'].includes(c)) return E('-bash: ' + c + ': command not found\n# [Simülatör] Bu bir tmsh komutu. Önce "tmsh" yazın ya da tek komut için: tmsh ' + line, 'wrongmode');
             return E('-bash: ' + c + ': command not found', 'invalid');
@@ -1702,6 +1909,7 @@ const CgLabTmsh = (function () {
             get model() { return S.m; }, get savedModel() { return S.saved; },
             ev: EV, mode: () => S.mode, dirty,
             // yan etkisiz VIP testi (kontrollerde kullanılır): sayaçları ve kalıcılık tablosunu değiştirmez
+            vsFor: (ip, port, src) => vsMatch(ip, port, src || SIM.client || '198.51.100.20'),
             vipTest: (ip, port, path) => { const keep = JSON.stringify(S.rt); const r = viaPeer(() => vipRequest({ ip, port, path: path || '/', method: 'GET', src: SIM.client || '198.51.100.20', cookie: {}, test: true })); S.rt = JSON.parse(keep); return { kind: r.kind, code: r.resp ? r.resp.code : null, member: r.member || null }; },
             ha: () => ({ st: HA.st, sync: syncStatus().status, link: haLink(), synced: HA.syncKey !== null }),
             conns: () => S.ct.map(c => Object.assign({}, c)), persistRecords: () => Object.assign({}, S.rt.persist || {}),

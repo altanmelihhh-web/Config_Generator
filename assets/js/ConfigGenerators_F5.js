@@ -196,45 +196,62 @@ F5LTM.ssl = {
         cgFormBuilder(container, {
             topic: {
                 icon: 'fas fa-lock',
-                title: 'SSL Client Profile',
-                desc: 'İstemci tarafı SSL/TLS sonlandırması için sertifika, anahtar ve şifreleme zinciri yapılandırır; güvenli cipher suite zorunlu kılınır.'
+                title: 'SSL Client Profile (SSL Offload)',
+                desc: 'Sertifika, anahtar ve ara CA sertifikasını yükler; cert-key-chain ile client-ssl profili oluşturur ve istemci tarafından doğrulama komutlarını verir.<br>Örnek: <code>tmsh create ltm profile client-ssl app_clientssl defaults-from clientssl cert-key-chain replace-all-with { app.lab.example { cert app.lab.example.crt key app.lab.example.key chain intermediate-ca.crt } }</code>',
+                badge: { text: 'SSL', cls: 'info' }
             },
             sections: [
                 {
-                    title: 'Profil Bilgileri',
-                    icon: 'fas fa-id-card',
+                    title: 'Sertifika ve anahtar',
+                    icon: 'fas fa-certificate',
                     fields: [
-                        { name: 'prof_name', why: "Profil adı virtual server'a bağlanırken kullanılır; yanlış profil bağlanırsa istemciler sertifika isim uyuşmazlığı (name mismatch) uyarısı alır ve siteye güvenmez.", label: 'Profil Adı', type: 'text', required: true, placeholder: 'MY_CLIENT_SSL', hint: 'SSL profili için benzersiz bir isim.' },
-                        { name: 'cert_name', why: "Sertifika BIG-IP üzerinde önceden import edilmiş olmalı, aksi halde profil oluşturma <code>not found</code> ile başarısız olur. Sertifikadaki CN/SAN ile VIP'in DNS adı eşleşmezse tarayıcı güvenlik uyarısı gösterir.", label: 'Sertifika Adı', type: 'text', required: true, placeholder: 'myapp.crt', hint: 'BIG-IP üzerinde yüklü sertifika dosyası.' },
-                        { name: 'key_name', why: "Key sertifikayla eşleşmezse SSL handshake <b>key mismatch</b> ile kırılır ve servis hiç açılmaz. Private key yalnızca BIG-IP üzerinde kalmalı, dışa aktarılmamalıdır.", label: 'Key Adı', type: 'text', required: true, placeholder: 'myapp.key', hint: 'Sertifikaya ait özel anahtar dosyası.' },
-                        { name: 'chain', why: "Ara CA zinciri eksikse tarayıcılar çalışabilir ama mobil istemciler ve API çağrıları <b>untrusted issuer</b> hatası verir; bu sorun yalnızca tarayıcıda test edildiğinde hiç fark edilmez. Zinciri eklemek istemcinin ek doğrulama turunu da önler.", label: 'Chain Sertifika', type: 'text', optional: true, placeholder: 'ca-bundle.crt', hint: 'Ara CA zinciri; opsiyonel.' }
+                        { name: 'prof_name', label: 'Profil Adı', type: 'text', required: true, placeholder: 'app_clientssl', hint: 'Virtual server\'a bu adla bağlanır.' },
+                        { name: 'site', why: "Sertifikanın SAN listesinde bu ad olmalı; istemci siteye IP ile ya da başka adla giderse <b>no alternative certificate subject name matches</b> hatası alır.", label: 'Site adı (FQDN)', type: 'text', required: true, placeholder: 'app.lab.example' },
+                        { name: 'cert_name', why: "Sertifika önce cihaza yüklenir (install sys crypto cert). Yüklenmemiş nesne profilde kullanılamaz.", label: 'Sertifika Adı', type: 'text', required: true, placeholder: 'app.lab.example.crt' },
+                        { name: 'key_name', why: "Anahtar bu sertifikanın anahtarı olmalı; değilse profil <code>01070317 … key and certificate do not match</code> ile reddedilir.", label: 'Anahtar Adı', type: 'text', required: true, placeholder: 'app.lab.example.key' },
+                        { name: 'chain', why: "Sertifikayı bir ara CA imzaladıysa bu sertifika da gönderilmeli. Eksikse tarayıcı önbellekten tamamlayıp çalışabilir ama mobil ve API istemcileri <b>unable to get local issuer certificate</b> verir.", label: 'Ara CA sertifikası (chain)', type: 'text', optional: true, placeholder: 'intermediate-ca.crt' },
+                        { name: 'install', label: 'Dosyaları /var/tmp\'den yükle (install)', type: 'checkbox', checked: true }
                     ]
                 },
                 {
-                    title: 'Şifreleme',
-                    icon: 'fas fa-shield-alt',
+                    title: 'SNI ve virtual server',
+                    icon: 'fas fa-server',
                     fields: [
-                        { name: 'ciphers', why: "Cipher listesi çok darsa eski istemciler handshake failure alır; çok genişse RC4 ve 3DES gibi zayıf algoritmalar PCI-DSS taramalarında bulgu üretir. <code>!aNULL:!MD5</code> gibi negatif ifadeler kimlik doğrulamasız şifrelemeleri kapatır.", label: 'Cipher String', type: 'text', optional: true, placeholder: 'ECDHE+AES:!aNULL:!MD5:!RC4', hint: 'İzin verilen şifreleme algoritmaları.' }
+                        { name: 'sni', why: "Aynı VS'de birden çok client-ssl profili varsa her biri server-name ile ayrılır ve yalnız biri <code>sni-default true</code> olur; hiçbiri değilse <code>0107149c … none of them is default for SNI</code>.", label: 'SNI: server-name ve sni-default ayarla', type: 'checkbox' },
+                        { name: 'sni_default', label: 'Bu profil SNI varsayılanı (sni-default true)', type: 'checkbox' },
+                        { name: 'vs', label: 'Bağlanacak virtual server (opsiyonel)', type: 'text', optional: true, placeholder: 'vs_https', hint: 'Mevcut VS\'ye profil ekler; http profili de olmalı.' },
+                        { name: 'vip', label: 'VIP adresi (doğrulama komutları için)', type: 'text', validate: 'ip', optional: true, placeholder: '203.0.113.100' }
                     ]
                 }
             ],
             submit: 'Konfigürasyon Oluştur'
-        }, (data) => {
-            const { prof_name, cert_name, key_name, chain, ciphers } = data;
-            let c = '# ========================================\n# F5 BIG-IP LTM — SSL Client Profile\n# ========================================\n\n';
-            c += '# Sertifikayı yükle:\n# tmsh install sys crypto cert ' + cert_name + ' from-local-file /var/tmp/' + cert_name + '\n';
-            c += '# tmsh install sys crypto key ' + key_name + ' from-local-file /var/tmp/' + key_name + '\n\n';
-            c += 'tmsh create ltm profile client-ssl ' + prof_name + ' {\n';
-            c += '    cert ' + cert_name + '\n';
-            c += '    key ' + key_name + '\n';
-            if (chain) c += '    chain ' + chain + '\n';
-            if (ciphers) c += '    ciphers "' + ciphers + '"\n';
-            c += '    options { dont-insert-empty-fragments no-ssl no-tlsv1 no-tlsv1.1 }\n}\n\n';
-            c += '# Doğrulama:\n# tmsh show ltm profile client-ssl ' + prof_name + '\n';
-            return c;
-        });
+        }, (data) => cgF5SslGen(data));
     }
 };
+function cgF5SslGen(data) {
+    const w = [], E2 = x => cgEsc(String(x || '').trim());
+    const pn = E2(data.prof_name), site = E2(data.site), crt = E2(data.cert_name), key = E2(data.key_name), ch = E2(data.chain), vs = E2(data.vs), vip = E2(data.vip) || '<vip>';
+    let c = '# ========================================\n# F5 BIG-IP LTM — SSL Client Profile (offload)\n# ========================================\n\n';
+    if (data.install) {
+        c += '# 1) Dosyaları yükle (önce scp ile /var/tmp\'ye kopyalayın)\n';
+        c += 'tmsh install sys crypto key ' + key + ' from-local-file /var/tmp/' + key + '\n';
+        c += 'tmsh install sys crypto cert ' + crt + ' from-local-file /var/tmp/' + crt + '\n';
+        if (ch) c += 'tmsh install sys crypto cert ' + ch + ' from-local-file /var/tmp/' + ch + '\n';
+        c += 'tmsh list sys file ssl-cert ' + crt + ' subject issuer subject-alternative-name expiration-string\n\n';
+    }
+    c += '# 2) Profil (F5 önerisi: cert-key-chain; üst seviye cert/key eski biçim)\n';
+    c += 'tmsh create ltm profile client-ssl ' + pn + ' defaults-from clientssl cert-key-chain replace-all-with { ' + (site || 'default') + ' { cert ' + crt + ' key ' + key + (ch ? ' chain ' + ch : '') + ' } }' + (data.sni ? ' server-name ' + (site || '<fqdn>') + ' sni-default ' + (data.sni_default ? 'true' : 'false') : '') + '\n\n';
+    if (vs) c += '# 3) Virtual server\'a bağla\ntmsh modify ltm virtual ' + vs + ' profiles add { ' + pn + ' }\n\n';
+    c += '# Doğrulama (istemci tarafı)\ntmsh list ltm profile client-ssl ' + pn + ' cert-key-chain\n';
+    c += 'curl -v --resolve ' + (site || '<fqdn>') + ':443:' + vip + ' https://' + (site || '<fqdn>') + '/\n';
+    c += 'openssl s_client -connect ' + vip + ':443 -servername ' + (site || '<fqdn>') + '   # Certificate chain: 0 ve 1 satırları\n';
+    c += 'tmsh save sys config\n';
+    if (!ch) w.push('⚠ Ara CA sertifikası verilmedi. Sertifikayı bir ara CA imzaladıysa zincir eksik kalır: curl (60) unable to get local issuer certificate, openssl s_client "Verify return code: 21".');
+    if (crt && key && crt.replace(/\.crt$/, '') !== key.replace(/\.key$/, '')) w.push('ℹ Sertifika ve anahtar adları farklı: doğru eşleştiğinden emin olun (uyuşmazsa 01070317).');
+    if (data.sni_default && !data.sni) w.push('ℹ sni-default yalnız SNI seçeneğiyle birlikte yazılır.');
+    w.push('ℹ Şifre takımı ve protokol sıkılaştırması için "SSL Cipher Group Sıkılaştırma" aracını kullanın. Sunucu bacağı da şifrelenecekse server-ssl profili ekleyin (bridging); sunucular HTTPS beklerken server-ssl yoksa 400 "plain HTTP to an SSL-enabled server port" alınır.');
+    return { config: c.replace(/ {2,}#/g, ' #'), warnings: w };
+}
 
 // ── F5 LTM: iRule ─────────────────────────────────────────────────────────────
 F5LTM.irule = {
@@ -529,10 +546,10 @@ F5LTM.sslserver = {
                     icon: 'fas fa-certificate',
                     fields: [
                         { name: 'profile_name', why: "Server-SSL profili BIG-IP ile backend arasındaki bacağı şifreler; client-ssl ile karıştırılıp yanlış bacağa bağlanırsa handshake sürekli başarısız olur ve istemci 502 alır.", label: 'Profil Adı', type: 'text', required: true, placeholder: 'ssl-server-re-encrypt', hint: 'Profil için benzersiz bir isim.' },
-                        { name: 'cert', why: "Backend sunucu mutual TLS istiyorsa bu sertifika sunulur; istenmiyorken yanlış sertifika verilmesi de handshake'i kırabilir. Yol partition ile birlikte tam yazılmalıdır.", label: 'Sertifika Yolu', type: 'text', required: true, placeholder: '/Common/server.crt', hint: 'Tam sertifika yolu.' },
-                        { name: 'key', why: "Key ile sertifika eşleşmezse SSL bacağı hiç kurulamaz; pool üyeleri monitor'dan geçse bile trafik 502 ile döner ve sorun boş yere backend'de aranır.", label: 'Key Yolu', type: 'text', required: true, placeholder: '/Common/server.key', hint: 'Özel anahtar dosyasının tam yolu.' },
+                        { name: 'cert', why: "Backend sunucu mutual TLS istiyorsa bu sertifika sunulur; istenmiyorken yanlış sertifika verilmesi de handshake'i kırabilir. Yol partition ile birlikte tam yazılmalıdır.", label: 'İstemci sertifikası (opsiyonel)', type: 'text', optional: true, placeholder: '/Common/server.crt', hint: 'Yalnız backend karşılıklı TLS (mTLS) istiyorsa.' },
+                        { name: 'key', why: "Key ile sertifika eşleşmezse SSL bacağı hiç kurulamaz; pool üyeleri monitor'dan geçse bile trafik 502 ile döner ve sorun boş yere backend'de aranır.", label: 'İstemci anahtarı (opsiyonel)', type: 'text', optional: true, placeholder: '/Common/server.key', hint: 'Sertifika verildiyse gerekli.' },
                         { name: 'chain', why: "Backend sertifikası doğrulanacaksa zincir eksik olduğunda tüm backend bağlantıları reddedilir. Doğrulama kapalıysa zincir gereksizdir, ancak bu durumda sahte backend'e karşı koruma da kalmaz.", label: 'Chain Sertifika', type: 'text', optional: true, placeholder: '/Common/ca-bundle.crt', hint: 'Ara CA zinciri; opsiyonel.' },
-                        { name: 'cipher_string', why: "Backend ile ortak cipher bulunamazsa handshake <b>no shared cipher</b> ile başarısız olur; eski backend'ler modern cipher listesini desteklemeyebilir. SSL bridging senaryosunda iki bacağın cipher politikası ayrı ayrı yönetilir.", label: 'Cipher String', type: 'text', required: true, placeholder: 'DEFAULT:!SSLv3:!RC4', hint: 'İzin verilen şifreleme algoritmaları.' },
+                        { name: 'cipher_string', why: "Backend ile ortak cipher bulunamazsa handshake <b>no shared cipher</b> ile başarısız olur; eski backend'ler modern cipher listesini desteklemeyebilir. SSL bridging senaryosunda iki bacağın cipher politikası ayrı ayrı yönetilir.", label: 'Cipher String', type: 'text', optional: true, placeholder: 'DEFAULT', hint: 'Boş: parent (serverssl) ayarı.' },
                         { name: 'peer_cert_mode', why: "<b>Require</b> seçilirse backend sertifikası doğrulanır; CA bundle eksikse tüm backend bağlantıları kopar. <b>Ignore</b> daha performanslıdır ama sahte backend'e karşı koruma sağlamaz ve uçtan uca şifreleme iddiasını zayıflatır.", label: 'Peer Cert Mode', type: 'select', options: [
                             { value: 'require', label: 'require — backend sertifikasını doğrula', selected: true },
                             { value: 'request', label: 'request' },
@@ -546,17 +563,19 @@ F5LTM.sslserver = {
         }, (data) => {
             const { profile_name, cert, key, chain, cipher_string, peer_cert_mode, ca_file } = data;
             let c = '# ========================================\n# F5 BIG-IP LTM — SSL Server Profile\n# ========================================\n\n';
-            c += 'tmsh create ltm profile server-ssl ' + profile_name;
-            c += ' cert ' + cert;
-            c += ' key ' + key;
+            c += 'tmsh create ltm profile server-ssl ' + profile_name + ' defaults-from serverssl';
+            if (cert) c += ' cert ' + cert;
+            if (cert && key) c += ' key ' + key;
             if (chain) c += ' chain ' + chain;
-            c += ' ciphers "' + cipher_string + '"';
+            if (cipher_string) c += ' ciphers "' + cipher_string + '"';
             c += ' peer-cert-mode ' + peer_cert_mode;
             if (ca_file) c += ' ca-file ' + ca_file;
             c += '\n\n';
             if (peer_cert_mode === 'ignore') c += '# UYARI: peer-cert-mode ignore — backend sertifikası doğrulanmaz, sahte backend\'e karşı koruma yok.\n\n';
             else if (!ca_file) c += '# UYARI: ' + peer_cert_mode + ' seçili ama CA dosyası yok — doğrulama için ca-file verin.\n\n';
-            c += '# Doğrulama:\n# tmsh list ltm profile server-ssl ' + profile_name + '\n';
+            if (cert && !key) c += '# UYARI: sertifika verildi ama anahtar yok.\n\n';
+            c += '# Virtual server\'a ekleyin (bridging): tmsh modify ltm virtual <vs> profiles add { ' + profile_name + ' }\n';
+            c += '# Doğrulama:\n# tmsh list ltm profile server-ssl ' + profile_name + '\n# Sunucular HTTP (80) ise server-ssl eklemeyin: el sıkışma başarısız olur, bağlantı sıfırlanır.\n';
             return c;
         });
     }

@@ -146,5 +146,29 @@
                 { code: 'tmsh modify sys db tm.rstcause.log value disable', desc: 'Tanı ayarını geri alın. tm.rstcause.pkt açtıysanız onu da kapatın: nedeni istemciye giden RST paketine yazar.' },
             ]
         },
+        {
+            title: 'Trafik Beklenmeyen Virtual Server\'a Gidiyor: Wildcard / Ağ VS Önceliği (K14800)', severity: 'warn', topic: 'adc', lab: 'f5-23',
+            symptom: 'Yeni bir wildcard (0.0.0.0:any) ya da ağ (203.0.113.0/24) virtual server eklendikten sonra bazı istekler beklenen VS yerine başka bir VS\'ye düşüyor ya da tersi.',
+            steps: [
+                { code: 'tmsh list ltm virtual destination mask source', desc: 'Eşleşme sırası (K14800): önce hedef adres (en uzun maske kazanır: /32 > /24 > any), sonra kaynak adres (source; en uzun önek), en son port (belirli port > any). Port belirli diye bir ağ VS\'si host VS\'sini geçemez.' },
+                { code: 'curl -v http://203.0.113.9/', desc: 'İstemciden deneyin; hangi VS\'nin karşıladığını istatistik artışıyla (show ltm virtual … Total Connections) ya da bağlantı tablosundan (show sys connection cs-server-addr …) görün.' },
+                { code: 'tmsh show sys connection cs-server-addr 203.0.113.9', desc: 'Bağlantının hangi virtual server üzerinden (Virtual Path) kurulduğunu gösterir (all-properties).',
+                  fix: [{ cause: 'Belirli bir hizmet için daha özel bir VS gerekiyor', cmd: 'tmsh create ltm virtual vs_app9 destination 203.0.113.9:443 pool app_pool profiles add { http clientssl } source-address-translation { type automap }' },
+                        { cause: 'Yalnız belirli istemci ağı için ayrı davranış (source ile)', cmd: 'tmsh modify ltm virtual vs_partner source 198.51.100.0/24' }] },
+            ]
+        },
+        {
+            title: 'HTTPS Sertifika Hatası ya da SSL Sonrası Site Açılmıyor: Zincir, Ad, Anahtar ve server-ssl', severity: 'err', topic: 'adc', lab: 'f5-24',
+            symptom: 'Bazı istemciler (mobil, API, curl) "sertifikaya güvenilmiyor / unable to get local issuer" diyor; ya da HTTPS\'e geçildikten sonra 400, reset ya da el sıkışma hatası alınıyor.',
+            steps: [
+                { code: 'curl -v --resolve app.lab.example:443:203.0.113.100 https://app.lab.example/', desc: 'İstemci tarafı doğrulama. (60) unable to get local issuer certificate: ara sertifika gönderilmiyor. (60) no alternative certificate subject name: istemcinin yazdığı ad SAN\'da yok. (35) wrong version number: VS\'de client-ssl yok. 400 "plain HTTP to an SSL-enabled server port": sunucu bacağında server-ssl eksik.',
+                  fix: [{ cause: 'Ara sertifika (chain) eksik', cmd: 'tmsh modify ltm profile client-ssl app_clientssl cert-key-chain modify { app.lab.example { chain intermediate-ca.crt } }' },
+                        { cause: 'Sunucular HTTPS bekliyor, server-ssl yok (400)', cmd: 'tmsh create ltm profile server-ssl app_serverssl defaults-from serverssl\ntmsh modify ltm virtual vs_https profiles add { app_serverssl }' },
+                        { cause: 'VS\'de client-ssl yok (wrong version number)', cmd: 'tmsh modify ltm virtual vs_https profiles add { app_clientssl }' }] },
+                { code: 'openssl s_client -connect 203.0.113.100:443 -servername app.lab.example', desc: '"Certificate chain" bloğunda yalnız 0 numaralı satır varsa zincir eksiktir (Verify return code: 21). -servername SNI\'yi gönderir; birden çok client-ssl profili olan VS\'de hangi sertifikanın döndüğünü gösterir.' },
+                { code: 'tmsh list sys file ssl-cert app.lab.example.crt subject issuer subject-alternative-name expiration-string', desc: 'Sertifikanın adları (SAN), vereni ve bitiş tarihi. Veren bir ara CA ise o sertifika da yüklenip profilde chain olarak verilmelidir.' },
+                { code: 'tmsh list ltm profile client-ssl app_clientssl cert-key-chain', desc: 'Profilde doğru cert, key ve chain üçlüsü var mı? Başka sertifikanın anahtarı seçilirse "01070317:3: profile …\'s key and certificate do not match". Aynı VS\'de birden çok client-ssl profili varsa biri sni-default true olmalı (0107149c).' },
+            ]
+        },
 ];
 })();
