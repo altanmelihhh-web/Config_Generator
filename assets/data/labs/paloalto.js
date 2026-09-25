@@ -302,5 +302,7 @@
         l.solution = v => [].concat(...l.tasks.map(t => typeof t.steps === 'function' ? t.steps(v || {}) : t.steps));
     });
     const root = typeof window !== 'undefined' ? window : globalThis;
-    root.CG_LABS = (root.CG_LABS || []).filter(l => l.vendor !== 'paloalto').concat(LABS);
+    // Yalnız bu dosyanın lab'ları değiştirilir (paloalto-yol.js'teki lab'lar korunur)
+    const OWN = new Set(LABS.map(l => l.id));
+    root.CG_LABS = (root.CG_LABS || []).filter(l => !OWN.has(l.id)).concat(LABS);
 })();
