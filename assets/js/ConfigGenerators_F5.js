@@ -2868,7 +2868,7 @@ F5LTM.irulelib = {
                     title: 'Kural',
                     icon: 'fas fa-code',
                     fields: [
-                        { name: 'id', label: 'Kural', type: 'select', options: [].concat(...cats.map(c => CG_IRULE_LIB.filter(x => x.cat === c).map(x => ({ value: x.id, label: c + ' · ' + x.title })))) },
+                        { name: 'id', label: 'Kural', type: 'select', required: true, options: [].concat(...cats.map(c => CG_IRULE_LIB.filter(x => x.cat === c).map(x => ({ value: x.id, label: c + ' · ' + x.title })))) },
                         { name: 'name', label: 'Kural adı (BIG-IP\'de)', type: 'text', optional: true, placeholder: 'r_ornek', hint: 'Boşsa şablon adından türetilir.' },
                         { name: 'vs', label: 'Bağlanacak virtual server (opsiyonel)', type: 'text', optional: true, placeholder: 'vs_web' }
                     ]
