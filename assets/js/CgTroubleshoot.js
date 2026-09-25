@@ -24,6 +24,7 @@ const CgTroubleshoot = {
         'cisco-ios': ['cisco-ios', 'cisco-nxos'], 'cisco-asa': ['cisco-asa', 'cisco-ftd'],
         'juniper': ['juniper', 'juniper-srx', 'juniper-mx'], 'huawei': ['huawei', 'huawei-ce', 'huawei-usg'],
     },
+    TS_EXTRA: ['cisco-ios', 'huawei', 'dell', 'juniper'],   // assets/data/ts/<key>.js dosyası olan vendor'lar
     _state: {},   // "<vendor>/<n>" → { ans: ['ok'|'bad'...], found: index|null }
 
     async render(root, arg1, arg2) {
@@ -42,10 +43,23 @@ const CgTroubleshoot = {
         await Promise.all(idx.map(v => CgCli._load('assets/data/cli/' + v.key + '.js')));
         if (this._list) return;
         this._list = [];
-        idx.forEach(v => ((window.CG_CLI_DATA[v.key] || {}).scenarios || []).forEach((s, n) => {
-            const t = this.TOPICS.find(t => t.re.test(s.title));
-            this._list.push({ vendor: v.key, vname: v.name, n, s, topic: t.id });
-        }));
+        // Ek katman: assets/data/ts/<vendor>.js (CLI Lab arıza bulgularından; hub derlemesinden bağımsız).
+        // Ek senaryolar n = 100 + sıra ile numaralanır (hub senaryoları yeniden derlense de bağlantı sabit);
+        // "replaces" verilirse aynı başlıklı hub senaryosu listeden çıkar.
+        await Promise.all(this.TS_EXTRA.filter(k => idx.some(v => v.key === k)).map(k => CgCli._load('assets/data/ts/' + k + '.js').catch(() => null)));
+        const extra = window.CG_TS_EXTRA || {};
+        idx.forEach(v => {
+            const add = extra[v.key] || [], hide = new Set(add.map(s => s.replaces).filter(Boolean));
+            ((window.CG_CLI_DATA[v.key] || {}).scenarios || []).forEach((s, n) => {
+                if (hide.has(s.title)) return;
+                const t = this.TOPICS.find(t => t.re.test(s.title));
+                this._list.push({ vendor: v.key, vname: v.name, n, s, topic: t.id });
+            });
+            add.forEach((s, i) => {
+                const t = (s.topic && this.TOPICS.find(t => t.id === s.topic)) || this.TOPICS.find(t => t.re.test(s.title));
+                this._list.push({ vendor: v.key, vname: v.name, n: 100 + i, s, topic: t.id });
+            });
+        });
     },
 
     _sevCls(s) { return s.severity === 'err' ? 'e' : s.severity === 'warn' ? 'w' : 'i'; },
