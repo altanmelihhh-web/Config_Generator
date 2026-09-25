@@ -26,7 +26,7 @@
             title: 'GUI (Configuration Utility) ya da SSH\'a Erişilemiyor: httpd/sshd Allow, Port Lockdown ve Yönetim Rotası', severity: 'warn', topic: 'aaa', lab: 'f5-03',
             symptom: 'Bir yönetici BIG-IP GUI\'sine ya da SSH\'a bağlanamıyor; bağlantı reddediliyor ya da zaman aşımına uğruyor. Başka bir ağdan erişim çalışıyor olabilir.',
             steps: [
-                { code: 'tmsh list sys httpd allow\ntmsh list sys sshd allow', desc: 'Yöneticinin kaynak adresi (ya da ağı) listede mi? "replace-all-with" ile yapılan bir değişiklik kendi yönetim ağını dışarıda bırakmış olabilir. Liste yönetim IP\'sine ve self IP\'lere gelen yönetim bağlantılarının hepsine uygulanır.',
+                { code: 'tmsh list sys httpd allow\ntmsh list sys sshd allow', desc: 'Yöneticinin kaynak adresi (ya da ağı) listede mi? "replace-all-with" ile yapılan bir değişiklik kendi yönetim ağını dışarıda bırakmış olabilir. Liste yönetim IP\'sine ve self IP\'lere gelen yönetim bağlantılarının hepsine uygulanır. Liste All içeriyorsa add kısıtlama yapmaz; kısıtlamak için replace-all-with kullanılır.',
                   fix: [{ cause: 'Yönetim ağı GUI listesinde yok (konsoldan ya da SSH ile girip ekleyin)', cmd: 'tmsh modify sys httpd allow add { 10.240.0.0/255.255.0.0 }\ntmsh save sys config' },
                         { cause: 'Yönetim ağı SSH listesinde yok (konsoldan girip ekleyin)', cmd: 'tmsh modify sys sshd allow add { 10.240.0.0/255.255.0.0 }\ntmsh save sys config' }] },
                 { code: 'tmsh list sys management-ip\ntmsh list sys management-route', desc: 'Yönetici başka bir ağdan geliyorsa dönüş için yönetim rotası gerekir. Yönetim IP\'si değiştirilecekse eskisi silinip yenisi oluşturulur.' },

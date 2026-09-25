@@ -238,7 +238,8 @@ const CgLabTmsh = (function () {
             }
             return null;
         }, () => ['sys global-settings {', '    gui-setup ' + M().guiSetup, '    hostname ' + M().hostname, '}'], ['hostname', 'gui-setup']);
-        const allowSet = (tgt, p) => { const r = listOp(tgt.allow.filter(x => x !== 'ALL' || p.op !== 'add'), p, allowNorm); if (r.bad) return SYNx('"' + r.bad + '" invalid IP address or network'); if (r.missing) return E('# [Simülatör] ' + r.missing + ' listede yok.'); tgt.allow = r.list; return null; };
+        const allowSet = (tgt, p) => { const r = listOp(tgt.allow, p, allowNorm); if (r.bad) return SYNx('"' + r.bad + '" invalid IP address or network'); if (r.missing) return E('# [Simülatör] ' + r.missing + ' listede yok.'); tgt.allow = r.list; if (p.op === 'add' && r.list.includes('ALL') && r.list.length > 1) S.allowNote = '# [Simülatör] Listede hâlâ All var: herkes erişebilir. Kısıtlamak için replace-all-with { … } kullanın.'; return null; };
+        const allowShow = L => L.length ? L.map(x => (x === 'ALL' ? 'All' : x)).join(' ') : 'none';
         single('sys httpd', 'httpd', (o, P) => {
             for (const p of P) {
                 if (p.k === 'allow') { const e = allowSet(M().httpd, p); if (e) return e; }
@@ -246,7 +247,7 @@ const CgLabTmsh = (function () {
                 else return SYN(p.k);
             }
             return null;
-        }, () => ['sys httpd {', '    allow { ' + (M().httpd.allow.length ? M().httpd.allow.join(' ') : 'none') + ' }', '    auth-pam-idle-timeout ' + M().httpd.idle, '}'], ['allow', 'auth-pam-idle-timeout']);
+        }, () => ['sys httpd {', '    allow { ' + allowShow(M().httpd.allow) + ' }', '    auth-pam-idle-timeout ' + M().httpd.idle, '}'], ['allow', 'auth-pam-idle-timeout']);
         single('sys sshd', 'sshd', (o, P) => {
             for (const p of P) {
                 if (p.k === 'allow') { const e = allowSet(M().sshd, p); if (e) return e; }
@@ -256,7 +257,7 @@ const CgLabTmsh = (function () {
                 else return SYN(p.k);
             }
             return null;
-        }, () => { const s = M().sshd, L = ['sys sshd {', '    allow { ' + (s.allow.length ? s.allow.join(' ') : 'none') + ' }', '    banner ' + s.banner]; if (s.bannerText) L.push('    banner-text "' + s.bannerText + '"'); L.push('    inactivity-timeout ' + s.idle, '}'); return L; }, ['allow', 'inactivity-timeout', 'banner', 'banner-text']);
+        }, () => { const s = M().sshd, L = ['sys sshd {', '    allow { ' + allowShow(s.allow) + ' }', '    banner ' + s.banner]; if (s.bannerText) L.push('    banner-text "' + s.bannerText + '"'); L.push('    inactivity-timeout ' + s.idle, '}'); return L; }, ['allow', 'inactivity-timeout', 'banner', 'banner-text']);
         single('sys dns', 'dns', (o, P) => {
             for (const p of P) {
                 if (p.k === 'name-servers') { const r = listOp(M().dns.servers, p, x => (isIp(x) ? x : null)); if (r.bad) return SYNx('"' + r.bad + '" invalid IP address'); if (r.missing) return E('# [Simülatör] ' + r.missing + ' listede yok.'); M().dns.servers = r.list; }
@@ -664,7 +665,7 @@ const CgLabTmsh = (function () {
                 if (verb !== 'modify') return E('Syntax Error: "' + verb + '" is not supported for ' + key, 'invalid');
                 const pr = props(rest, 0, t.flags); if (pr.err) return perr(pr, rest);
                 const snap = clone(M()); const e = t.set(null, pr.P); if (e) { S.m = snap; return e; }
-                auditLog(line); return { out: '', ok: true, touched: key };
+                auditLog(line); const nt = S.allowNote || ''; S.allowNote = null; return { out: nt, ok: true, touched: key };
             }
             const nameT = rest[0]; if (!nameT) return E('Syntax Error: ' + key + ' requires a name', 'incomplete');
             const name = nameT.t, coll = t.coll();
