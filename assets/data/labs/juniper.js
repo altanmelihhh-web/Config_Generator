@@ -1,5 +1,5 @@
 'use strict';
-// ─── CLI Lab içerikleri: Juniper Junos (EX / SRX / MX görünümü) ────────────
+// ─── CLI Lab içerikleri: Juniper Junos (EX switch / MX router görünümü) ────────────
 // Kontroller AKTİF (commit edilmiş) yapılandırmaya ve olay kaydına bakar: Junos'ta commit edilmeyen değişiklik cihazda yoktur.
 // s.val('yol', 'cand'?) değer · s.decide(akış) trafik kararı · s.hostIn(zone, hizmet) · s.rib() · s.committed()
 // Adresler: yalnız güvenli örnek bloklar (bkz. docs/AGENT-URETIM-KURALLARI.md).
@@ -15,27 +15,19 @@
     // port güvenliği ayarı: ELS'de hem ge-0/0/5.0 hem ge-0/0/5 biçimi kabul edilir
     const so = (s, p, k) => { const a = s.val('switch-options interface ge-0/0/' + p + '.0 ' + k); return a !== undefined ? a : s.val('switch-options interface ge-0/0/' + p + ' ' + k); };
     const lastIdx = (s, f) => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (f(L[i])) return i; return -1; };
-    const WEB = { src: '10.64.10.50', dst: '203.0.113.80', dport: 443, proto: 'tcp' };
-    // SRX ortak başlangıç: WAN/LAN arayüzleri ve varsayılan rota
-    const SRX_IF = ['set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30', 'set interfaces ge-0/0/0 description WAN',
-        'set interfaces ge-0/0/1 unit 0 family inet address 10.64.10.1/24', 'set interfaces ge-0/0/1 description LAN',
-        'set routing-options static route 0.0.0.0/0 next-hop 203.0.113.1'];
-    const POL = (name, apps, act) => ['set security policies from-zone trust to-zone untrust policy ' + name + ' match source-address ' + (name === 'DENY-ALL' ? 'any' : 'LAN-NET'),
-        'set security policies from-zone trust to-zone untrust policy ' + name + ' match destination-address any',
-        'set security policies from-zone trust to-zone untrust policy ' + name + ' match application ' + apps,
-        'set security policies from-zone trust to-zone untrust policy ' + name + ' then ' + act];
-    const ZONES = lan => ['set security zones security-zone trust host-inbound-traffic system-services ping', 'set security zones security-zone trust host-inbound-traffic system-services ssh',
-        'set security zones security-zone ' + lan + ' interfaces ge-0/0/1.0', 'set security zones security-zone untrust interfaces ge-0/0/0.0', 'set security zones security-zone dmz description "Sunucu bolgesi"',
-        'set security address-book global address LAN-NET 10.64.10.0/24'];
-    const NAT = src => ['set security nat source rule-set TRUST-TO-UNTRUST from zone trust', 'set security nat source rule-set TRUST-TO-UNTRUST to zone untrust',
-        'set security nat source rule-set TRUST-TO-UNTRUST rule SNAT match source-address ' + src, 'set security nat source rule-set TRUST-TO-UNTRUST rule SNAT then source-nat interface'];
-    const ALLOW = POL('ALLOW-WEB', '[ junos-http junos-https junos-dns-udp ]', 'permit'), DENY = POL('DENY-ALL', 'any', 'deny').concat(['set security policies from-zone trust to-zone untrust policy DENY-ALL then log session-init']);
+    // MX süzgeç arızası (jun-12): LAN-IN terimleri (WEB portu varyantla değişir), akışlar ve beklenen davranış
+    const FP = 'set firewall family inet filter LAN-IN term ';
+    const FLT = (t, port) => [FP + t + ' from destination-address 10.64.50.10/32', FP + t + ' from protocol tcp', FP + t + ' from destination-port ' + port, FP + t + ' then accept'];
+    const FLT_REST = [FP + 'PING from destination-address 10.64.50.0/24', FP + 'PING from protocol icmp', FP + 'PING then accept', FP + 'SUNUCU-ENGEL from destination-address 10.64.50.0/24', FP + 'SUNUCU-ENGEL then count SUNUCU-ENGEL', FP + 'SUNUCU-ENGEL then discard', FP + 'DIGER then accept'];
+    const FLT_FLOWS = [{ src: '10.64.10.50', dst: '10.64.50.10', dport: 443, in: 'ge-0/0/1.0' }, { src: '10.64.10.50', dst: '10.64.50.10', dport: 22, in: 'ge-0/0/1.0' }, { src: '10.64.10.50', dst: '10.64.50.10', proto: 'icmp', in: 'ge-0/0/1.0' }, { src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'ge-0/0/1.0' }];
+    const fltOk = s => { const r = FLT_FLOWS.map(f => s.transit(f).stage); return r[0] === 'ok' && r[1] === 'filter-in' && r[2] === 'ok' && r[3] === 'ok' && !has(s, 'interfaces ge-0/0/1 unit 0 family inet filter output') && !has(s, 'firewall family inet filter LAN-IN term GECICI'); };
+    // MX rota arızası (jun-07): merkez ağı rotası; birincil next-hop ve yedek (qualified-next-hop) tercihi varyantla değişir
+    const RT = (pfx, nh, bpref) => ['set routing-options static route ' + pfx + ' next-hop ' + nh, 'set routing-options static route ' + pfx + ' qualified-next-hop 10.64.13.2 preference ' + bpref];
+    const rtOk = s => { const r = s.route('10.128.20.10'); return !!r && r.nh === '10.64.12.2' && r.via === 'ge-0/0/0.0' && s.val('routing-options static route 10.128.0.0/16 qualified-next-hop 10.64.13.2 preference') === '20' && !has(s, 'interfaces ge-0/0/0 disable'); };
     // Öğrenme yolu lab'ları: sanal akışlar, OSPF komşuları, RE'ye yönelik paketler
-    const WEBIN = { src: '198.51.100.77', dst: '203.0.113.10', dport: 443 }, MAILIN = { src: '198.51.100.78', dst: '203.0.113.11', dport: 25 }, MAILOUT = { src: '10.64.20.11', dst: '198.51.100.25', dport: 25 };
     const R2NB = { ifl: 'ge-0/0/1.0', addr: '10.64.12.2', rid: '10.255.0.2', routes: [{ pfx: '10.128.0.0/16', metric: 1 }, { pfx: '10.255.0.2/32', metric: 0 }] };
     const R3NB = { ifl: 'ge-0/0/2.0', addr: '10.64.13.2', rid: '10.255.0.3', routes: [{ pfx: '10.128.0.0/16', metric: 10 }, { pfx: '10.255.0.3/32', metric: 0 }] };
     const RE_ADMIN = { src: '10.64.99.10', dst: '10.255.0.1', proto: 'tcp', dport: 22 }, RE_ATTACK = { src: '198.51.100.66', dst: '203.0.113.2', proto: 'tcp', dport: 22 };
-    const FLOWS = [WEB, { src: '10.64.10.51', dst: '203.0.113.80', dport: 80 }, { src: '10.64.10.52', dst: '198.51.100.53', dport: 53, proto: 'udp' }];
 
     const LABS = [
     // ═══ Seviye 0 ═══════════════════════════════════════════════════════════
@@ -301,109 +293,81 @@
     },
     // ═══ Seviye 4 ═══════════════════════════════════════════════════════════
     {
-        id: 'jun-06', vendor: 'juniper', level: 4, title: 'SRX: bölgeler, host-inbound, güvenlik kuralı ve kaynak NAT', minutes: 30, kind: 'firewall', platform: 'srx', hostname: 'SRX-A', pre: ['jun-03'],
-        up: ['ge-0/0/0', 'ge-0/0/1'], hosts: ['203.0.113.1', '203.0.113.80', '198.51.100.53'], sim: { flows: FLOWS },
-        start: SRX_IF,
-        story: 'SRX\'te trafik <b>bölgeden (zone) bölgeye</b> akar: arayüz bir bölgeye girmeden paket geçmez, bölgeler arası kural (policy) yoksa varsayılan <b>deny-all</b> uygulanır. Cihazın <i>kendisine</i> gelen ping/SSH ise kurallarla değil <code>host-inbound-traffic</code> ile açılır. LAN (ge-0/0/1, 10.64.10.0/24) kullanıcıları yalnız web ve DNS ile internete (ge-0/0/0) çıkacak, adresleri WAN IP\'sine çevrilecek.',
-        lesson: LES('SRX\'te trafik <b>bölgeden bölgeye</b> akar: arayüz bir bölgede olmalı, bölgeler arası kural yoksa varsayılan <b>deny-all</b>. Cihazın kendisine gelen ping/SSH ise <code>host-inbound-traffic</code> ile açılır. İnternete çıkışta özel adresler <b>kaynak NAT</b> ile çevrilir.',
-            'Kural yazıp host-inbound\'u unutmak (ya da tersi) sahada en çok zaman kaybettiren SRX arızasıdır. En az yetki ilkesi: <code>application any</code> yerine gereken uygulamalar.',
-            'set security zones security-zone trust interfaces ge-0/0/1.0\nset security zones security-zone trust host-inbound-traffic system-services ssh\nset security policies from-zone trust to-zone untrust policy ALLOW-WEB match source-address LAN-NET destination-address any application [ junos-http junos-https ]\nset security policies from-zone trust to-zone untrust policy ALLOW-WEB then permit\nset security nat source rule-set T2U rule SNAT then source-nat interface',
-            ['untrust bölgesinde SSH / all açmak.', 'Arayüzü bölgeye atamayı unutmak (trafik düşer).', 'Kural var ama kaynak NAT yok: dönüş trafiği gelmez.']),
-        goals: ['security-zone ve arayüz ataması', 'host-inbound-traffic system-services', 'address-book ve from-zone/to-zone policy', 'Kaynak NAT (interface)', 'match-policies ve flow session ile doğrulama'],
+        id: 'jun-06', vendor: 'juniper', level: 4, title: 'Firewall filter: misafir VLAN\'ını sunucu ağından ayırma (IRB)', minutes: 30, kind: 'switch', platform: 'ex', hostname: 'SW-DAGITIM2', pre: ['jun-19'],
+        up: ['ge-0/0/0', 'ge-0/0/1', 'ge-0/0/2', 'ge-0/0/3'], hosts: ['10.64.99.1', '10.64.50.10', '10.64.50.53', '198.51.100.80'],
+        start: ['set vlans V10 vlan-id 10', 'set vlans V10 l3-interface irb.10', 'set vlans V20 vlan-id 20', 'set vlans V20 l3-interface irb.20', 'set vlans V50 vlan-id 50', 'set vlans V50 l3-interface irb.50',
+            'set interfaces ge-0/0/1 unit 0 family ethernet-switching interface-mode access vlan members V10', 'set interfaces ge-0/0/2 unit 0 family ethernet-switching interface-mode access vlan members V20',
+            'set interfaces ge-0/0/3 unit 0 family ethernet-switching interface-mode access vlan members V50', 'set interfaces irb unit 10 family inet address 10.64.10.1/24',
+            'set interfaces irb unit 20 family inet address 10.64.20.1/24', 'set interfaces irb unit 50 family inet address 10.64.50.1/24',
+            'set interfaces ge-0/0/0 unit 0 family inet address 10.64.99.2/30', 'set routing-options static route 0.0.0.0/0 next-hop 10.64.99.1'],
+        sim: { flows: [{ src: '10.64.20.30', dst: '10.64.50.10', dport: 445, in: 'irb.20' }, { src: '10.64.20.30', dst: '10.64.50.53', dport: 53, proto: 'udp', in: 'irb.20' },
+            { src: '10.64.20.30', dst: '198.51.100.80', dport: 443, in: 'irb.20' }, { src: '10.64.10.40', dst: '10.64.50.10', dport: 445, in: 'irb.10' }] },
+        story: 'Dağıtım switch\'i VLAN\'lar arası yönlendirmeyi IRB arayüzleriyle yapıyor: V10 kullanıcılar, V20 <b>misafir</b>, V50 sunucular. Şu an misafirler sunuculara da erişebiliyor. İstenen: misafir yalnız DNS sunucusunu (10.64.50.53, UDP 53) ve interneti kullanabilsin, sunucu ağının geri kalanı engellensin ve engellenen paketler sayılsın. Kullanıcılar etkilenmemeli.',
+        lesson: LES('Junos <b>firewall filter</b>, Cisco ACL\'nin karşılığıdır: <code>term</code>\'ler sırayla değerlendirilir, ilk eşleşen terimin <code>then</code> eylemi uygulanır, hiçbiri eşleşmezse sonda örtük <b>discard</b> vardır. Süzgeç bir arayüz birimine yönle bağlanır: <code>set interfaces irb unit 20 family inet filter input …</code>. <code>then count</code> eşleşen paketleri sayar; <code>show firewall</code> sayaçları gösterir.',
+            'VLAN\'lar arası yönlendirme varsayılan olarak her şeye izin verir; segmentasyon ancak süzgeçle gerçek olur. Son terimde <code>then accept</code> unutulursa misafirin interneti de kesilir; geniş bir terimi üste yazmak ise engellemeyi etkisiz kılar.',
+            'set firewall family inet filter MISAFIR-IN term DNS from destination-address 10.64.50.53/32\nset firewall family inet filter MISAFIR-IN term DNS from protocol udp\nset firewall family inet filter MISAFIR-IN term DNS from destination-port 53\nset firewall family inet filter MISAFIR-IN term DNS then accept\nset firewall family inet filter MISAFIR-IN term SUNUCU-ENGEL from destination-address 10.64.50.0/24\nset firewall family inet filter MISAFIR-IN term SUNUCU-ENGEL then count MISAFIR-ENGEL\nset firewall family inet filter MISAFIR-IN term SUNUCU-ENGEL then discard\nset firewall family inet filter MISAFIR-IN term DIGER then accept\nset interfaces irb unit 20 family inet filter input MISAFIR-IN',
+            ['Son terimde then accept\'i unutmak (örtük discard her şeyi keser).', 'Süzgeci output yönünde ya da yanlış IRB\'ye bağlamak.', 'DNS izninden önce geniş engel terimini yazmak (DNS de düşer).']),
+        goals: ['Terim sırası ve örtük discard', 'IRB\'ye input yönünde bağlamak', 'count ile kanıt', 'Kullanıcıları etkilememek'],
         tasks: [
-            { t: 'Bölgeler: <code>trust</code> ← <code>ge-0/0/1.0</code>, <code>untrust</code> ← <code>ge-0/0/0.0</code>. Commit edin.',
-              why: 'Bölgeye mantıksal arayüz (unit, ör. ge-0/0/1<b>.0</b>) atanır. Bir arayüz yalnız bir bölgede olabilir; bölgesiz arayüzden gelen trafik düşer.',
-              hints: ['security zones security-zone <ad> interfaces <arayüz.unit>', '<code>set security zones security-zone trust interfaces ge-0/0/1.0</code> · <code>… untrust interfaces ge-0/0/0.0</code>'],
-              steps: ['configure', 'set security zones security-zone trust interfaces ge-0/0/1.0', 'set security zones security-zone untrust interfaces ge-0/0/0.0', 'commit and-quit'],
-              check: s => s.zoneOf('ge-0/0/1.0') === 'trust' && s.zoneOf('ge-0/0/0.0') === 'untrust' },
-            { t: 'LAN\'dan SRX\'e <code>ping</code> ve <code>ssh</code> izni: trust bölgesinde <code>host-inbound-traffic system-services</code>. untrust\'ta yönetim <b>açmayın</b>. Commit edin.',
-              why: 'Cihazın kendisine (junos-host) yönelen trafik security policy ile değil host-inbound ile açılır: kural ekleyip ping\'in gelmesini beklemek sık yapılan hatadır. İnternete bakan bölgede SSH açmak saldırı yüzeyini büyütür.',
-              hints: ['zone altında host-inbound-traffic system-services ping / ssh', '<code>set security zones security-zone trust host-inbound-traffic system-services ping</code> · <code>… ssh</code>'],
-              steps: ['configure', 'set security zones security-zone trust host-inbound-traffic system-services ping', 'set security zones security-zone trust host-inbound-traffic system-services ssh', 'commit and-quit'],
-              check: s => s.hostIn('trust', 'ping') && s.hostIn('trust', 'ssh') && !s.hostIn('untrust', 'ssh') && !s.hostIn('untrust', 'all'),
-              fb: s => (s.hostIn('untrust', 'ssh') || s.hostIn('untrust', 'all') ? 'untrust (internet) bölgesinde SSH/all açık: kaldırın.' : null) },
-            { t: 'Adres defteri: <code>LAN-NET</code> = <code>10.64.10.0/24</code> (global). Commit edin.',
-              why: 'Kurallarda IP yerine ad kullanılır; adres değişince tek yerden güncellenir. <code>any</code> hazır bir addır.',
-              hints: ['security address-book global address <ad> <önek>', '<code>set security address-book global address LAN-NET 10.64.10.0/24</code>'],
-              steps: ['configure', 'set security address-book global address LAN-NET 10.64.10.0/24', 'commit and-quit'],
-              check: s => s.val('security address-book global address LAN-NET') === '10.64.10.0/24' },
-            { t: 'Kural <code>ALLOW-WEB</code> (trust → untrust): kaynak <code>LAN-NET</code>, hedef <code>any</code>, uygulama <code>junos-http junos-https junos-dns-udp</code>, eylem <code>permit</code>. Commit edin.',
-              why: 'Policy zorunlu parçaları: match (source-address, destination-address, application) ve then. Eksikse commit "Missing mandatory statement" der. En az yetki: <code>application any</code> yerine gereken uygulamalar.',
-              hints: ['security policies from-zone trust to-zone untrust policy ALLOW-WEB match … / then permit', '<code>set security policies from-zone trust to-zone untrust policy ALLOW-WEB match source-address LAN-NET destination-address any application [ junos-http junos-https junos-dns-udp ]</code> · <code>… then permit</code>'],
-              steps: ['configure', 'edit security policies from-zone trust to-zone untrust policy ALLOW-WEB', 'set match source-address LAN-NET destination-address any application [ junos-http junos-https junos-dns-udp ]', 'set then permit', 'top', 'commit and-quit'], needs: [0, 2],
-              check: s => { const d = s.decide(WEB), ssh = s.decide({ src: '10.64.10.50', dst: '203.0.113.80', dport: 22 }); return ['allowed', 'nonat'].includes(d.stage) && d.policy === 'ALLOW-WEB' && ssh.stage === 'denied'; },
-              fb: s => { const d = s.decide({ src: '10.64.10.50', dst: '203.0.113.80', dport: 22 }); return d.stage !== 'denied' && d.policy === 'ALLOW-WEB' ? 'Kural SSH\'ı da geçiriyor (application any?): yalnız web ve DNS.' : null; } },
-            { t: 'Kaynak NAT: kural kümesi <code>TRUST-TO-UNTRUST</code> (from zone trust, to zone untrust), kural <code>SNAT</code>: kaynak <code>10.64.10.0/24</code> → <code>source-nat interface</code>. Commit edin.',
-              why: '10.64.x özel adresleri internette yönlendirilemez; dönüş trafiği gelmez. <code>source-nat interface</code> kaynak adresi çıkış arayüzünün IP\'sine (PAT) çevirir. NAT kuralı bölge çiftiyle eşleşir; policy\'den bağımsızdır ama ikisi de gerekir.',
-              hints: ['security nat source rule-set … from zone / to zone / rule … match / then source-nat interface', '<code>set security nat source rule-set TRUST-TO-UNTRUST from zone trust</code> · <code>… to zone untrust</code> · <code>… rule SNAT match source-address 10.64.10.0/24</code> · <code>… rule SNAT then source-nat interface</code>'],
-              steps: ['configure'].concat(NAT('10.64.10.0/24'), ['commit and-quit']), needs: [0, 2, 3],
-              check: s => s.decide(WEB).stage === 'allowed' },
-            { t: 'Doğrulayın: kullanıcı akışı (10.64.10.50 → 203.0.113.80 tcp/443) için <code>show security match-policies</code> ve ardından <code>show security flow session</code>.',
-              why: '<code>match-policies</code> "bu akış hangi kurala düşer?" sorusunu trafik beklemeden cevaplar. <code>flow session</code> gerçek oturumları ve NAT sonrası adresi (Out: … --> 203.0.113.2) gösterir.',
-              hints: ['from-zone, to-zone, source-ip, destination-ip, source-port, destination-port, protocol', '<code>show security match-policies from-zone trust to-zone untrust source-ip 10.64.10.50 destination-ip 203.0.113.80 source-port 1025 destination-port 443 protocol tcp</code> · <code>show security flow session</code>'],
-              steps: ['show security match-policies from-zone trust to-zone untrust source-ip 10.64.10.50 destination-ip 203.0.113.80 source-port 1025 destination-port 443 protocol tcp', 'show security flow session'], needs: [0, 2, 3, 4],
-              check: s => s.ev.list().some(e => e.canon && /^show security match-policies/.test(e.canon) && e.res === 'ALLOW-WEB') && s.ev.ran(/^show security flow session/) && s.decide(WEB).stage === 'allowed' },
-            { t: 'Sorulan: LAN\'daki bir yönetici SRX\'in LAN adresine (10.64.10.1) ping atabiliyor. Bunu hangi ayar sağlıyor?',
-              ask: { choices: [['hostin', 'trust bölgesindeki host-inbound-traffic system-services ping'], ['policy', 'ALLOW-WEB güvenlik kuralı'], ['nat', 'Kaynak NAT kuralı']], correct: 'hostin' },
-              why: 'Cihazın kendisine (junos-host) gelen trafik bölgeler arası policy ile değil host-inbound-traffic ile açılır; ALLOW-WEB yalnız trust→untrust geçiş trafiği içindir.',
-              hints: ['Hedef cihazın kendisi.', '2. görev.'] },
+            { t: '<code>MISAFIR-IN</code> süzgeci: (1) DNS: 10.64.50.53/32, UDP 53 → accept; (2) SUNUCU-ENGEL: 10.64.50.0/24 → count MISAFIR-ENGEL + discard; (3) DIGER → accept. Commit edin.', why: 'Terimler yazıldığı sırayla değerlendirilir: önce dar izin (DNS), sonra geniş engel, en sonda "geri kalan her şey". Son terim olmadan internet de örtük discard\'a düşer.',
+              hints: ['set firewall family inet filter MISAFIR-IN term … from … / then …', '<code>… term DNS from destination-address 10.64.50.53/32</code> · <code>from protocol udp</code> · <code>from destination-port 53</code> · <code>then accept</code> · <code>… term SUNUCU-ENGEL from destination-address 10.64.50.0/24</code> · <code>then count MISAFIR-ENGEL</code> · <code>then discard</code> · <code>… term DIGER then accept</code>'],
+              steps: ['configure', 'set firewall family inet filter MISAFIR-IN term DNS from destination-address 10.64.50.53/32', 'set firewall family inet filter MISAFIR-IN term DNS from protocol udp', 'set firewall family inet filter MISAFIR-IN term DNS from destination-port 53', 'set firewall family inet filter MISAFIR-IN term DNS then accept',
+                  'set firewall family inet filter MISAFIR-IN term SUNUCU-ENGEL from destination-address 10.64.50.0/24', 'set firewall family inet filter MISAFIR-IN term SUNUCU-ENGEL then count MISAFIR-ENGEL', 'set firewall family inet filter MISAFIR-IN term SUNUCU-ENGEL then discard',
+                  'set firewall family inet filter MISAFIR-IN term DIGER then accept', 'commit and-quit'],
+              check: s => { const E2 = (dst, dport, proto) => s.fwEval('MISAFIR-IN', { src: '10.64.20.30', dst, dport, proto: proto || 'tcp' }).action; return E2('10.64.50.53', 53, 'udp') === 'accept' && E2('10.64.50.10', 445) === 'discard' && E2('198.51.100.80', 443) === 'accept'; },
+              fb: s => { const r = s.fwEval('MISAFIR-IN', { src: '10.64.20.30', dst: '198.51.100.80', dport: 443 }); if (r.implicit) return 'Son terim (then accept) yok: misafirin interneti örtük discard\'a düşüyor.'; if (s.fwEval('MISAFIR-IN', { src: '10.64.20.30', dst: '10.64.50.53', dport: 53, proto: 'udp' }).action !== 'accept') return 'DNS de engelleniyor: DNS terimi engel teriminden önce olmalı.'; return null; } },
+            { t: 'Süzgeci misafir VLAN\'ının IRB\'sine (irb.20) <b>input</b> yönünde bağlayın ve commit edin.', why: 'Misafirden gelen paketler IRB\'ye girerken süzülür (input). output yönü, IRB\'den misafir VLAN\'ına çıkan trafiğe uygulanırdı.',
+              hints: ['set interfaces irb unit 20 family inet filter …', '<code>set interfaces irb unit 20 family inet filter input MISAFIR-IN</code> → <code>commit and-quit</code>'],
+              steps: ['configure', 'set interfaces irb unit 20 family inet filter input MISAFIR-IN', 'commit and-quit'], needs: [0],
+              check: s => s.transit({ src: '10.64.20.30', dst: '10.64.50.10', dport: 445, in: 'irb.20' }).stage === 'filter-in' && s.transit({ src: '10.64.20.30', dst: '10.64.50.53', dport: 53, proto: 'udp', in: 'irb.20' }).stage === 'ok'
+                  && s.transit({ src: '10.64.20.30', dst: '198.51.100.80', dport: 443, in: 'irb.20' }).stage === 'ok' && s.transit({ src: '10.64.10.40', dst: '10.64.50.10', dport: 445, in: 'irb.10' }).stage === 'ok',
+              fb: s => (has(s, 'interfaces irb unit 20 family inet filter output') ? 'Süzgeç output yönünde: misafirden gelen trafik süzülmüyor. input olmalı.' : has(s, 'interfaces irb unit 10 family inet filter input') ? 'Süzgeç kullanıcı VLAN\'ına (irb.10) bağlandı: kullanıcılar sunuculara erişemez.' : null) },
+            { t: 'DIGER terimi (then accept) listenin en üstüne yazılmış olsaydı ne olurdu?', ask: { choices: [['all', 'Her şey geçerdi: ilk terim tüm trafiği kabul eder, engel terimine hiç sıra gelmez'], ['same', 'Fark etmezdi; Junos önce engelleri uygular'], ['none', 'Hiçbir şey geçmezdi']], correct: 'all' },
+              why: 'Terimler yazıldığı sırayla değerlendirilir ve ilk eşleşme kazanır. Sonradan eklenen terim sona gider; araya almak için <code>insert … before term …</code> kullanılır.', hints: ['İlk eşleşme kazanır.', 'Koşulsuz terim her şeyle eşleşir.'] },
+            { t: 'Sayaçlara bakın: <code>MISAFIR-ENGEL</code> neyi sayıyor?', ask: { choices: [['guest-srv', 'Misafir VLAN\'ından sunucu ağına düşürülen paketleri'], ['all', 'Misafirin tüm trafiğini'], ['dns', 'DNS sorgularını']], correct: 'guest-srv' },
+              why: 'count yalnız o terimle eşleşen paketleri sayar. Sayaç artıyorsa engel gerçekten çalışıyordur; 0 ise süzgeç yanlış yere bağlı ya da terim eşleşmiyordur.', hints: ['show firewall filter MISAFIR-IN', 'Sayaç hangi terimde?'],
+              steps: ['show firewall filter MISAFIR-IN', { answer: 3, v: 'guest-srv' }], needs: [0, 1] },
         ],
-        verify: ['show security zones', 'show security policies', 'show security nat source rule all', 'show security flow session', 'show security match-policies from-zone trust to-zone untrust source-ip 10.64.10.50 destination-ip 203.0.113.80 source-port 1025 destination-port 443 protocol tcp'],
-        learn: ['Arayüz bölgeye girmeden trafik geçmez; bölgeler arası kural yoksa deny-all.', 'Cihaza gelen ping/SSH: host-inbound-traffic (policy değil).', 'Policy: match (source/destination/application) + then zorunlu.', 'İnternete çıkışta kaynak NAT (source-nat interface).', 'match-policies ve flow session ile doğrulama.'],
-        links: { tool: '#/juniper-srx/policy', cli: '#/cli/juniper', wizard: '#/troubleshoot/juniper/0' }, cert: 'JNCIA-SEC'
+        verify: ['show firewall filter MISAFIR-IN', 'show configuration firewall', 'show configuration interfaces irb'],
+        learn: ['Terimler sırayla; ilk eşleşme kazanır; sonda örtük discard.', 'Son terim: then accept.', 'IRB\'ye input yönünde bağlanır.', 'count + show firewall ile kanıt.'],
+        links: { tool: '#/juniper/acl', cli: '#/cli/juniper', wizard: '#/troubleshoot/traffic' }, cert: 'JNCIA-Junos · Routing Policy & Firewall Filters'
     },
     // ═══ Seviye 5 — arıza ═════════════════════════════════════════════════════
     {
-        id: 'jun-07', vendor: 'juniper', level: 5, title: 'Arıza: SRX\'ten web çıkmıyor', minutes: 25, kind: 'firewall', platform: 'srx', hostname: 'SRX-A', pre: ['jun-06'],
-        up: ['ge-0/0/0', 'ge-0/0/1'], hosts: ['203.0.113.1', '203.0.113.80', '198.51.100.53'], sim: { flows: FLOWS },
-        start: SRX_IF,
+        id: 'jun-07', vendor: 'juniper', level: 5, title: 'Arıza: "Şubeden merkeze ulaşılamıyor" (MX router, statik rota)', minutes: 25, kind: 'router', platform: 'mx', hostname: 'R-SUBE', pre: ['jun-05'],
+        up: ['ge-0/0/0', 'ge-0/0/1', 'ge-0/0/3'], hosts: ['10.64.12.2', '10.128.20.10'],
+        start: ['set interfaces ge-0/0/0 unit 0 family inet address 10.64.12.1/30', 'set interfaces ge-0/0/0 description MERKEZ-BIRINCIL', 'set interfaces ge-0/0/3 unit 0 family inet address 10.64.13.1/30', 'set interfaces ge-0/0/3 description MERKEZ-YEDEK',
+            'set interfaces ge-0/0/1 unit 0 family inet address 10.64.10.1/24'],
         variants: [
-            { key: 'order', start: ZONES('trust').concat(DENY, ALLOW, NAT('10.64.10.0/24')) },
-            { key: 'zone', start: ZONES('dmz').concat(ALLOW, DENY, NAT('10.64.10.0/24')) },
-            { key: 'uncommitted', start: ZONES('trust').concat(DENY, NAT('10.64.10.0/24')), pending: ALLOW.concat(['insert security policies from-zone trust to-zone untrust policy ALLOW-WEB before policy DENY-ALL']) },
-            { key: 'nat', start: ZONES('trust').concat(ALLOW, DENY, NAT('10.128.10.0/24')) },
+            { key: 'disable', start: RT('10.128.0.0/16', '10.64.12.2', 20).concat(['set interfaces ge-0/0/0 disable']), fix: ['configure', 'delete interfaces ge-0/0/0 disable', 'commit and-quit'] },
+            { key: 'nexthop', start: RT('10.128.0.0/16', '10.64.21.2', 20), fix: ['configure', 'delete routing-options static route 10.128.0.0/16 next-hop 10.64.21.2', 'set routing-options static route 10.128.0.0/16 next-hop 10.64.12.2', 'commit and-quit'] },
+            { key: 'pref', start: RT('10.128.0.0/16', '10.64.12.2', 1), fix: ['configure', 'set routing-options static route 10.128.0.0/16 qualified-next-hop 10.64.13.2 preference 20', 'commit and-quit'] },
+            { key: 'mask', start: RT('10.128.0.0/24', '10.64.12.2', 20), fix: ['configure', 'delete routing-options static route 10.128.0.0/24', 'set routing-options static route 10.128.0.0/16 next-hop 10.64.12.2', 'set routing-options static route 10.128.0.0/16 qualified-next-hop 10.64.13.2 preference 20', 'commit and-quit'] },
         ],
-        story: '<b>Arıza kaydı:</b> "LAN\'daki 10.64.10.50 web sitelerine (ör. 203.0.113.80:443) çıkamıyor." Önceki yönetici <code>ALLOW-WEB</code> (LAN → internet web/DNS) ve en altta <code>DENY-ALL</code> (loglu engelleme) kurallarını yazmış, kaynak NAT da var. Tahmin yürütmeyin: önce <b>hangi kurala düştüğünü</b> sorgulayın, sonra bölgeyi, bekleyen değişiklikleri ve NAT\'ı kontrol edin. <code>DENY-ALL</code>\'u silmeyin. <small>Her turda farklı bir arıza — "Yeni tur".</small>',
-        lesson: LES('Sistematik arıza giderme: önce <b>karar noktası</b> (<code>show security match-policies</code>), sonra <b>bölge</b> (<code>show security zones</code>), <b>bekleyen değişiklik</b> (<code>show | compare</code>) ve <b>NAT</b> (<code>show security flow session</code>).',
-            'Tahmine dayalı değişiklik (kuralları silip baştan yazmak) çalışan parçaları da bozar. Kanıtla daraltmak hem hızlıdır hem de değişiklik kaydında gerekçe bırakır.',
-            'show security match-policies from-zone trust to-zone untrust source-ip 10.64.10.50 destination-ip 203.0.113.80 source-port 1025 destination-port 443 protocol tcp\nshow security zones\nshow security flow session destination-prefix 203.0.113.80\ninsert security policies from-zone trust to-zone untrust policy ALLOW-WEB before policy DENY-ALL',
-            ['DENY-ALL\'u silerek "çözmek".', 'match-policies "permit" dedi diye bölge ve NAT\'ı kontrol etmemek.', 'Düzeltmeyi commit etmeyi unutmak.']),
-        goals: ['match-policies ile karar noktasını bulmak', 'Kural sırasını (insert) düzeltmek', 'Arayüz–bölge eşleşmesini okumak', 'Commit edilmemiş değişikliği fark etmek', 'NAT kuralının kapsamını doğrulamak'],
+        story: '<b>Arıza kaydı:</b> "Şubeden merkezdeki uygulama sunucusuna (10.128.20.10) ulaşılamıyor." Şube router\'ı merkeze iki hatla bağlı: <b>birincil</b> ge-0/0/0 (karşı uç 10.64.12.2) ve <b>yedek</b> ge-0/0/3 (karşı uç 10.64.13.2, merkez tarafında şu an bakımda). Merkez ağı 10.128.0.0/16; yedek rota tercih değeri 20 ile yüzen rota olmalı. Tabloyu okuyun, farkı bulun, tek değişiklikle düzeltin. <small>Her turda farklı arıza — "Yeni tur".</small>',
+        lesson: LES('Junos statik rotada <code>next-hop</code> doğrudan bağlı bir ağda olmalıdır; değilse rota tabloya girmez. <code>qualified-next-hop … preference N</code> aynı hedef için ayrı tercihli bir yol ekler: <b>düşük tercih kazanır</b> (statik varsayılan 5). Birincil yolun arayüzü kapalıysa (<code>disable</code>) rota pasifleşir ve yedek devreye girer. <code>show route &lt;ip&gt;</code> hedef için seçilen yolu (*) gösterir.',
+            'Yönlendirme arızalarında belirti hep "ulaşılamıyor"dur; kök neden ise arayüz, next-hop, tercih ya da önek olabilir. Tabloyu okumadan rota eklemek sorunu gizler. Yüzen rotada tercih yanlışsa trafik sessizce yedek hatta kayar.',
+            'show route 10.128.20.10\nshow interfaces terse ge-0/0/0\nset routing-options static route 10.128.0.0/16 next-hop 10.64.12.2\nset routing-options static route 10.128.0.0/16 qualified-next-hop 10.64.13.2 preference 20',
+            ['Tercihi ters düşünmek (yüksek tercih = daha kötü yol).', 'Yanlış next-hop\'u silmeden doğrusunu eklemek.', 'Maskeyi dar yazıp hedefin kapsam dışında kalması.']),
+        goals: ['show route ile seçilen yolu okumak', 'Arayüz / next-hop / tercih / önek ayrımı', 'Tek değişiklik ve ping ile doğrulama'],
         tasks: [
-            { t: 'Kullanıcının akışı (10.64.10.50 → 203.0.113.80, tcp 1025 → 443) için trust → untrust kural eşleşmesini sorgulayın.',
-              why: '<code>show security match-policies</code> trafik üretmeden SRX\'in hangi kuralı seçeceğini söyler. Kurallar yukarıdan aşağı değerlendirilir; ilk eşleşen uygulanır.',
-              hints: ['show security match-policies + 7 parametre', '<code>show security match-policies from-zone trust to-zone untrust source-ip 10.64.10.50 destination-ip 203.0.113.80 source-port 1025 destination-port 443 protocol tcp</code>'],
-              steps: ['show security match-policies from-zone trust to-zone untrust source-ip 10.64.10.50 destination-ip 203.0.113.80 source-port 1025 destination-port 443 protocol tcp'],
-              check: s => s.ev.ran(/^show security match-policies from-zone trust to-zone untrust source-ip 10\.64\.10\.50 destination-ip 203\.0\.113\.80 /) },
-            { t: 'match-policies ne dedi?', ask: { choices: [['permit', 'ALLOW-WEB, action-type: permit'], ['deny', 'DENY-ALL, action-type: deny'], ['none', 'Eşleşen kural yok (varsayılan deny-all)']], correct: v => ({ order: 'deny', zone: 'permit', uncommitted: 'deny', nat: 'permit' })[v.key] },
-              why: '"permit" çıkması sorunun bittiği anlamına gelmez: match-policies sizin verdiğiniz bölge çiftini sınar. Paket gerçekten o bölgeden mi geliyor, dönüşü (NAT) var mı — ayrıca bakılır.',
-              hints: ['Çıktının ilk satırı: Policy: …, action-type: …', 'deny ise sıraya ve aktif kurallara; permit ise bölgeye ve NAT\'a bakın.'] },
-            { t: 'Üç yere bakın: <code>show security zones</code> (LAN arayüzü hangi bölgede?), <code>show security flow session destination-prefix 203.0.113.80</code> (oturum/NAT) ve yapılandırma modunda <code>show | compare</code> (bekleyen değişiklik var mı?).',
-              why: 'Bölge yanlışsa paket trust\'tan değil başka bölgeden gelir ve o bölge çiftinin kuralı yoktur. Oturumun Out satırında hedefe giden adres hâlâ 10.64.x ise NAT çalışmıyordur (dönüş gelmez). <code>configure</code> "The configuration has been changed but not committed" diyorsa candidate\'te bekleyen iş vardır.',
-              hints: ['Bir operasyonel, bir oturum, bir yapılandırma bakışı.', '<code>show security zones</code> · <code>show security flow session destination-prefix 203.0.113.80</code> · <code>configure</code> · <code>show | compare</code> · <code>exit</code>'],
-              steps: v => ['show security zones', 'show security flow session destination-prefix 203.0.113.80', 'configure', 'show | compare', 'exit'].concat(v.key === 'uncommitted' ? ['yes'] : []),
-              check: s => s.ev.ran(/^show security zones/) && s.ev.ran(/^show security flow session/) && s.ev.ran(/^show \| compare$/) },
-            { t: 'Kök neden hangisi?', ask: { choices: [['order', 'DENY-ALL, ALLOW-WEB\'in üstünde (kural sırası)'], ['zone', 'LAN arayüzü ge-0/0/1.0 trust bölgesinde değil'], ['uncommitted', 'Düzeltme candidate\'te duruyor, commit edilmemiş'], ['nat', 'Kaynak NAT kuralı LAN ağını (10.64.10.0/24) kapsamıyor'], ['hostin', 'trust bölgesinde host-inbound-traffic eksik']], correct: v => v.key },
-              why: 'order → show security policies\'te DENY-ALL önce; zone → show security zones\'ta ge-0/0/1.0 dmz\'de; uncommitted → show | compare\'de ALLOW-WEB "+" ile bekliyor; nat → oturum var ama Out satırı 10.64.10.50\'ye dönüyor. host-inbound yalnız cihazın kendisine gelen trafiği etkiler, geçen trafiği değil.',
-              hints: ['Üçüncü görevdeki üç çıktıdan hangisi anormal?', 'host-inbound geçiş trafiğini etkilemez.'] },
-            { t: 'En az değişiklikle düzeltin ve commit edin. <code>DENY-ALL</code> yerinde kalmalı.',
-              why: 'Yalnız bozuk parçayı düzeltin: sıra için <code>insert … before policy DENY-ALL</code>; bölge için arayüzü eski bölgeden silip trust\'a ekleyin; bekleyen iş için <code>show | compare</code> ile gözden geçirip commit; NAT için doğru kaynak öneki. Kuralları silip baştan yazmak diğer doğru ayarları riske atar.',
-              hints: ['Kök nedene karşılık gelen tek değişiklik + commit.', 'insert … before policy DENY-ALL · delete/set security-zone … interfaces · commit · delete/set … match source-address'],
-              steps: v => ({ order: ['configure', 'insert security policies from-zone trust to-zone untrust policy ALLOW-WEB before policy DENY-ALL', 'commit and-quit'],
-                  zone: ['configure', 'delete security zones security-zone dmz interfaces ge-0/0/1.0', 'set security zones security-zone trust interfaces ge-0/0/1.0', 'commit and-quit'],
-                  uncommitted: ['configure', 'show | compare', 'commit and-quit'],
-                  nat: ['configure', 'delete security nat source rule-set TRUST-TO-UNTRUST rule SNAT match source-address 10.128.10.0/24', 'set security nat source rule-set TRUST-TO-UNTRUST rule SNAT match source-address 10.64.10.0/24', 'commit and-quit'] })[v.key],
-              check: s => s.decide(WEB).stage === 'allowed' && has(s, 'security policies from-zone trust to-zone untrust policy DENY-ALL') && s.decide({ src: '10.64.10.50', dst: '203.0.113.80', dport: 22 }).stage === 'denied',
-              fb: s => { const d = s.decide(WEB); if (!has(s, 'security policies from-zone trust to-zone untrust policy DENY-ALL')) return 'DENY-ALL silinmiş: kuralı geri koyun, sırayı insert ile düzeltin.'; if (!s.committed() && d.stage !== 'allowed') return 'Candidate\'te değişiklik var ama commit edilmemiş.'; return d.stage === 'nonat' ? 'Kural geçiriyor ama NAT uygulanmıyor.' : d.stage === 'denied' ? 'Akış hâlâ ' + (d.policy || 'varsayılan politika') + ' ile düşüyor (bölge: ' + (d.zin || '?') + ').' : d.stage === 'nozone' ? 'LAN arayüzü hiçbir bölgede değil.' : null; } },
-            { t: 'Düzeltmeden <b>sonra</b> oturum tablosunda kullanıcının NAT\'lı oturumunu görün (<code>show security flow session destination-prefix 203.0.113.80</code>).',
-              why: 'Kapanış kanıtı: oturum var, Out satırı WAN adresine (203.0.113.2) dönüyor ve paket sayaçları artıyor. Arıza kaydını kapatmadan önce hep kanıt toplayın.',
-              hints: ['Aynı oturum komutu, commit\'ten sonra.', '<code>show security flow session destination-prefix 203.0.113.80</code>'],
-              steps: ['show security flow session destination-prefix 203.0.113.80'], needs: [4],
-              check: s => { const c = lastIdx(s, e => e.commit === 'ok'), f = lastIdx(s, e => e.canon && /^show security flow session/.test(e.canon)); return c >= 0 && f > c && s.decide(WEB).stage === 'allowed'; } },
+            { t: 'Belirti: hedefe giden yolu ve ping sonucunu görün.', why: 'Tablodaki seçili yol (*) ve çıkış arayüzü, trafiğin nereye gittiğini söyler; ping sonucu belirtiyi doğrular.',
+              hints: ['show route … / ping …', '<code>show route 10.128.20.10</code> → <code>ping 10.128.20.10 count 3</code>'], steps: ['show route 10.128.20.10', 'ping 10.128.20.10 count 3'],
+              check: s => s.ev.ran(/^show route 10\.128\.20\.10/) && s.ev.ran(/^ping 10\.128\.20\.10/) },
+            { t: 'Kök neden hangisi?', ask: { choices: [['disable', 'Birincil arayüz (ge-0/0/0) yönetsel olarak kapalı'], ['nexthop', 'Birincil rotanın next-hop\'u yanlış (bağlı ağda değil)'], ['pref', 'Yedek yolun tercihi birincilden düşük (yedek tercih ediliyor)'], ['mask', 'Rota önekinin maskesi dar: hedef kapsam dışında']], correct: v => v.key },
+              why: 'Rota hiç yoksa: önek ya da next-hop. Yedek hat seçiliyse: birincil arayüz kapalı ya da tercih ters. Arayüz durumu ve yapılandırma ayrımı yapar.', hints: ['show interfaces terse ge-0/0/0', 'show configuration routing-options'],
+              steps: v => ['show configuration routing-options', 'show interfaces terse ge-0/0/0', { answer: 1, v: v.key }], needs: [0] },
+            { t: 'Tek değişiklikle düzeltin ve commit edin: trafik birincil hattan gitsin, yedek yüzen rota (tercih 20) kalsın.', why: 'Yalnız farklı olanı düzeltin; yedek rotayı silmek bir sonraki kopmada şubeyi yalnız bırakır.',
+              hints: ['Kök nedene göre tek satır.', 'disable: <code>delete interfaces ge-0/0/0 disable</code> · nexthop: yanlışı silip 10.64.12.2 · pref: <code>… qualified-next-hop 10.64.13.2 preference 20</code> · mask: /24\'ü silip /16'],
+              steps: v => v.fix, check: s => rtOk(s),
+              fb: s => { if (!has(s, 'routing-options static route 10.128.0.0/16 qualified-next-hop 10.64.13.2')) return 'Yedek yüzen rota (10.64.13.2, tercih 20) silindi ya da yok.'; if (has(s, 'routing-options static route 10.128.0.0/24')) return 'Dar önekli (/24) eski rota hâlâ duruyor.'; return null; } },
+            { t: 'Doğrulayın: ping artık başarılı olmalı.', why: 'Düzeltmeden sonra aynı test, kaydı kapatmanın kanıtıdır.',
+              hints: ['ping 10.128.20.10 count 3', 'Commit\'ten sonra.'], steps: ['ping 10.128.20.10 count 3'], needs: [2], loo: false, /* 1. görevle aynı komut */
+              check: s => { const L = s.ev.list(), c = lastIdx(s, e => e.commit === 'ok'), i = lastIdx(s, e => e.ping && e.ping.ip === '10.128.20.10'); return c >= 0 && i > c && L[i].ping.ok; } },
         ],
-        verify: ['show security match-policies from-zone trust to-zone untrust source-ip 10.64.10.50 destination-ip 203.0.113.80 source-port 1025 destination-port 443 protocol tcp', 'show security policies', 'show security zones', 'show security flow session', 'show security nat source rule all'],
-        learn: ['Önce karar noktası: match-policies hangi kural?', 'Kurallar sıralıdır: insert … before/after ile sırala.', 'match-policies verilen bölgeyi sınar; arayüzün gerçek bölgesini show security zones ile doğrula.', 'Candidate\'te bekleyen iş cihazda yoktur: show | compare.', 'Oturumun Out satırı NAT\'ı ele verir.'],
-        links: { cli: '#/cli/juniper', wizard: '#/troubleshoot/juniper/0', tool: '#/juniper-srx/policy' }, cert: 'JNCIS-SEC'
+        verify: ['show route 10.128.20.10', 'show configuration routing-options', 'show interfaces terse'],
+        learn: ['next-hop bağlı ağda olmalı.', 'Düşük tercih kazanır; yedek > 5.', 'Kapalı arayüz rotayı pasifleştirir.', 'show route <ip> seçilen yolu gösterir.'],
+        links: { tool: '#/juniper/staticroute', cli: '#/cli/juniper', wizard: '#/troubleshoot/routing' }, cert: 'JNCIA-Junos'
     },
     // ═══ Öğrenme yolu: modül 2 — AAA (TACACS+ / RADIUS) ═══════════════════════
     {
@@ -506,50 +470,36 @@
         learn: ['Yönetim adresi IRB\'de; VLAN trunk\'ta taşınmalı.', 'Anahtara da dönüş için varsayılan rota gerekir.', 'SSH v2 + root-login deny.', 'telnet: delete system services telnet.', 'show system connections: gerçekten dinlenen portlar.'],
         links: { tool: '#/juniper/ssh', cli: '#/cli/juniper' }, cert: 'JNCIA-Junos'
     },
-    // ═══ modül 4 — web yönetimini kapatma (SRX J-Web) ══════════════════════════
+    // ═══ modül 4 — web yönetimini ve şifresiz hizmetleri kapatma (EX) ══════════════════════════
     {
-        id: 'jun-10', vendor: 'juniper', level: 2, title: 'Saldırı yüzeyi: J-Web (HTTP/HTTPS) yönetimini kapatma', minutes: 15, kind: 'firewall', platform: 'srx', hostname: 'SRX-SUBE', pre: ['jun-06'],
-        up: ['ge-0/0/0', 'ge-0/0/1'], hosts: ['203.0.113.1'],
-        start: SRX_IF.concat(['set security zones security-zone trust interfaces ge-0/0/1.0', 'set security zones security-zone untrust interfaces ge-0/0/0.0',
-            'set security zones security-zone trust host-inbound-traffic system-services ssh', 'set security zones security-zone trust host-inbound-traffic system-services http', 'set security zones security-zone trust host-inbound-traffic system-services https', 'set security zones security-zone trust host-inbound-traffic system-services ping',
-            'set security zones security-zone untrust host-inbound-traffic system-services https', 'set security zones security-zone untrust host-inbound-traffic system-services http', 'set security zones security-zone untrust host-inbound-traffic system-services ping',
-            'set system services ssh', 'set system services web-management http', 'set system services web-management https system-generated-certificate']),
-        story: 'Şube SRX\'i fabrika ayarlarından kurulmuş ve <b>J-Web</b> (web arayüzü) hem HTTP hem HTTPS\'te, <b>internete bakan untrust bölgesinden bile</b> açık. Tarama raporunda "yönetim arayüzü internete açık — kritik" yazıyor. Şube cihazları yalnız SSH ile yönetiliyor; web arayüzü kimsenin kullanmadığı bir risk.',
-        lesson: LES('SRX\'te bir yönetim hizmetine erişim için iki kapı vardır: hizmetin kendisi (<code>system services web-management</code>) ve bölgenin/arayüzün <code>host-inbound-traffic system-services</code> izni. Hizmeti silmek soketi kapatır; host-inbound\'u kaldırmak paketi kapıda düşürür.',
-            'İnternete açık yönetim arayüzleri, yama yayımlanır yayımlanmaz toplu taranır; J-Web açıkları geçmişte kimlik doğrulamasız erişime yol açtı. Kullanılmayan her hizmeti kapatmak ("en az hizmet") en ucuz güvenlik önlemidir.',
-            'delete system services web-management\ndelete security zones security-zone untrust host-inbound-traffic system-services https\ndelete security zones security-zone untrust host-inbound-traffic system-services http\nrun show system connections',
-            ['Yalnız host-inbound\'u kaldırıp hizmeti açık bırakmak (bir sonraki bölge değişikliğinde yeniden açığa çıkar).', 'untrust\'ta <code>system-services all</code> bırakmak.', 'Kapatmadan önce/sonra dinleyen portları kanıtlamamak.']),
-        goals: ['Dinleyen hizmetleri show system connections ile görmek', 'J-Web hizmetini silmek', 'host-inbound-traffic\'i en aza indirmek', 'Önce/sonra kanıtı'],
+        id: 'jun-10', vendor: 'juniper', level: 2, title: 'Saldırı yüzeyi: J-Web, Telnet ve FTP hizmetlerini kapatma', minutes: 15, kind: 'switch', platform: 'ex', hostname: 'SW-SUBE', pre: ['jun-09'],
+        up: ['ge-0/0/0'], hosts: ['10.64.99.1'],
+        start: ['set interfaces ge-0/0/0 unit 0 family inet address 10.64.99.2/24', 'set system services ssh', 'set system services telnet', 'set system services ftp',
+            'set system services web-management http', 'set system services web-management https system-generated-certificate'],
+        story: 'Şube erişim switch\'i (EX) fabrika ayarlarının üzerine eski bir şablonla kurulmuş: <b>J-Web</b> (HTTP ve HTTPS), <b>Telnet</b> ve <b>FTP</b> açık. Tarama raporunda "şifresiz yönetim protokolleri ve kullanılmayan web arayüzü" bulgusu var. Switch yalnız SSH ile yönetilecek.',
+        lesson: LES('Junos\'ta her yönetim hizmeti <code>system services</code> altında açılır: <code>ssh</code>, <code>telnet</code>, <code>ftp</code>, <code>web-management http|https</code> (J-Web), <code>netconf</code>. Hizmet ifadesi silinince o sunucu durur ve portu dinlemeyi bırakır. <code>show system connections</code> cihazda gerçekten dinleyen portları gösterir.',
+            'Telnet ve FTP parolayı açık metin taşır; J-Web kullanılmıyorsa yalnız saldırı yüzeyidir ve geçmişte kritik açıklar çıkmıştır. "Kullanmadığını kapat" ilkesi en ucuz güvenlik önlemidir; önce/sonra port listesi kapanışın kanıtıdır.',
+            'run show system connections\ndelete system services web-management\ndelete system services telnet\ndelete system services ftp\ncommit and-quit\nshow system connections',
+            ['SSH\'ı da silip cihaza yönetim erişimini kaybetmek.', 'Yalnız HTTP\'yi kapatıp HTTPS J-Web\'i açık bırakmak.', 'commit etmeyi unutmak: candidate\'teki silme cihazda yoktur.']),
+        goals: ['Dinleyen hizmetleri görmek', 'Gereksiz ve şifresiz hizmetleri kapatmak', 'SSH\'ı korumak', 'Önce/sonra kanıtı'],
         tasks: [
-            { t: 'Önce durumu görün: <code>show system connections</code>.',
-              why: 'Değişiklikten önceki çıktı, raporda "önce" kanıtıdır ve hangi portların gerçekten dinlendiğini gösterir.',
-              hints: ['show system …', '<code>show system connections</code>'], steps: ['show system connections'], loo: false, /* 5. görev aynı komutla doğrular */
+            { t: 'Önce durumu görün: hangi yönetim portları dinleniyor?', why: 'Değişiklikten önceki çıktı hem "önce" kanıtıdır hem de hangi hizmetlerin gerçekten açık olduğunu gösterir.',
+              hints: ['show system …', '<code>show system connections</code>'], steps: ['show system connections'], loo: false, /* 4. görev aynı komutla doğrular */
               check: s => s.ev.ran(/^show system connections/) },
-            { t: 'Sorulan: Hangi dinleyen portlar J-Web\'e aittir?',
-              ask: { choices: [['80-443', 'tcp/80 ve tcp/443'], ['22', 'tcp/22'], ['830', 'tcp/830']], correct: '80-443' },
-              why: 'J-Web HTTP (80) ve HTTPS (443) üzerinden sunulur; 22 SSH, 830 NETCONF\'tur.', hints: ['Web = HTTP/HTTPS.', '80 ve 443.'] },
-            { t: 'J-Web hizmetini tamamen kapatın ve commit edin.',
-              why: 'Hizmet ifadesini silmek, web sunucusunu durdurur: hiçbir bölgeden, hiçbir arayüzden ulaşılamaz. Yalnız bir arayüze kısıtlamak (<code>https interface …</code>) başka bir ihtiyaç için geçerli bir ara çözümdür ama burada istenen tamamen kapatmak.',
-              hints: ['system services web-management altını silin.', '<code>delete system services web-management</code> · <code>commit</code>'],
-              steps: ['configure', 'delete system services web-management', 'commit and-quit'],
-              check: s => !has(s, 'system services web-management'),
-              fb: s => (has(s, 'system services web-management https interface') ? 'Çalışır ama yanlış: yalnız arayüze kısıtladınız, hizmet hâlâ çalışıyor. Görev tamamen kapatmak.' : null) },
-            { t: 'Savunma derinliği: <code>untrust</code> ve <code>trust</code> bölgelerindeki <code>http</code>/<code>https</code> host-inbound izinlerini kaldırın (ping ve trust\'taki SSH kalsın). Commit edin.',
-              why: 'İleride biri J-Web\'i yeniden açsa bile bölge izni olmadan paket cihaza ulaşmaz. İzinler "gerekmedikçe kapalı" olmalı.',
-              hints: ['delete security zones security-zone <ad> host-inbound-traffic system-services <hizmet>', '<code>delete security zones security-zone untrust host-inbound-traffic system-services https</code> (ve http; trust için de)'],
-              steps: ['configure', 'delete security zones security-zone untrust host-inbound-traffic system-services https', 'delete security zones security-zone untrust host-inbound-traffic system-services http',
-                  'delete security zones security-zone trust host-inbound-traffic system-services https', 'delete security zones security-zone trust host-inbound-traffic system-services http', 'commit and-quit'],
-              check: s => ['untrust', 'trust'].every(z => !s.hostIn(z, 'http') && !s.hostIn(z, 'https')) && s.hostIn('trust', 'ssh') && s.hostIn('trust', 'ping'),
-              fb: s => (!s.hostIn('trust', 'ssh') ? 'trust\'taki SSH\'ı da kaldırdınız: cihaza yönetim erişimi kalmadı.' : s.hostIn('untrust', 'all') ? 'untrust\'ta system-services all var: tüm hizmetler açık.' : null) },
-            { t: 'Sonra kanıtı: <code>show system connections</code> ile 80/443\'ün artık dinlenmediğini gösterin.',
-              why: 'Kapanış kanıtı, raporda "önce/sonra" karşılaştırmasıdır.',
-              hints: ['Aynı komut, commit\'ten sonra.', '<code>show system connections</code>'],
-              steps: ['show system connections'], needs: [2], loo: false, /* 1. görevle aynı komut */
-              check: s => { const c = lastIdx(s, e => e.commit === 'ok'), f = lastIdx(s, e => e.canon && /^show system connections/.test(e.canon)); return c >= 0 && f > c && !has(s, 'system services web-management'); } },
+            { t: 'Hangi portlar kapatılmalı?', ask: { choices: [['21-23-80-443', '21 (FTP), 23 (Telnet), 80 ve 443 (J-Web)'], ['22', '22 (SSH)'], ['all', 'Hepsi, 22 dahil']], correct: '21-23-80-443' },
+              why: 'SSH (22) şifreli ve tek yönetim yolu olarak kalmalı. FTP ve Telnet şifresiz, J-Web ise kullanılmıyor.', hints: ['Hangi protokoller şifresiz?', 'Yönetim için hangisi kalacak?'] },
+            { t: 'J-Web, Telnet ve FTP\'yi kapatın; SSH açık kalsın. Commit edin.', why: 'Hizmet ifadesini silmek sunucuyu durdurur. Tek commit ile üç değişiklik birlikte ve tutarlı uygulanır.',
+              hints: ['delete system services …', '<code>delete system services web-management</code> · <code>delete system services telnet</code> · <code>delete system services ftp</code> · <code>commit and-quit</code>'],
+              steps: ['configure', 'delete system services web-management', 'delete system services telnet', 'delete system services ftp', 'commit and-quit'],
+              check: s => !has(s, 'system services web-management') && !has(s, 'system services telnet') && !has(s, 'system services ftp') && has(s, 'system services ssh'),
+              fb: s => (!has(s, 'system services ssh') ? 'SSH de silindi: switch\'e yönetim erişimi kalmadı.' : has(s, 'system services web-management https') ? 'HTTPS J-Web hâlâ açık.' : null) },
+            { t: 'Sonra kanıtı: yalnız 22 dinlenmeli.', why: 'Kapanış kanıtı, raporun "önce/sonra" karşılaştırmasıdır.',
+              hints: ['Aynı komut, commit\'ten sonra.', '<code>show system connections</code>'], steps: ['show system connections'], needs: [2], loo: false, /* 1. görevle aynı komut */
+              check: s => { const c = lastIdx(s, e => e.commit === 'ok'), f = lastIdx(s, e => e.canon && /^show system connections/.test(e.canon)); return c >= 0 && f > c && !has(s, 'system services telnet'); } },
         ],
-        verify: ['show system connections', 'show security zones detail', 'show configuration system services'],
-        learn: ['Yönetim erişimi = hizmet + host-inbound izni.', 'delete system services web-management J-Web\'i kapatır.', 'untrust\'ta yönetim hizmeti bırakmayın.', 'show system connections ile önce/sonra kanıtı.'],
-        links: { tool: '#/juniper-srx/zone', cli: '#/cli/juniper' }, cert: 'JNCIA-SEC'
+        verify: ['show system connections', 'show configuration system services'],
+        learn: ['Yönetim hizmetleri: system services altında.', 'Telnet/FTP şifresiz; J-Web kullanılmıyorsa kapalı.', 'SSH tek yönetim yolu olarak kalır.', 'show system connections ile önce/sonra.'],
+        links: { tool: '#/juniper/system', cli: '#/cli/juniper' }, cert: 'JNCIA-Junos'
     },
     // ═══ modül 5 — SSH sertleştirme ═════════════════════════════════════════════
     {
@@ -604,56 +554,42 @@
         learn: ['Çok değerli listede set ekler: önce delete, sonra set.', 'Cipher: CTR/GCM/ChaCha20; MAC: SHA-2; KEX: curve25519/ECDH.', 'client-alive + connection-limit + rate-limit oturumları sınırlar.', 'retry-options kaba kuvveti yavaşlatır.', 'Ortak algoritma yoksa bağlantı kurulmaz: istemcileri önceden denetleyin.'],
         links: { tool: '#/juniper/ssh', cli: '#/cli/juniper' }, cert: 'JNCIS-SEC'
     },
-    // ═══ modül 6 — NAT: statik + hedef NAT + proxy-arp ═══════════════════════════
+    // ═══ modül 17 — arıza: firewall filter (MX) ═══════════════════════════
     {
-        id: 'jun-12', vendor: 'juniper', level: 4, title: 'SRX NAT: hedef NAT (port yönlendirme), statik NAT ve proxy-ARP', minutes: 30, kind: 'firewall', platform: 'srx', hostname: 'SRX-DMZ', pre: ['jun-06'],
-        up: ['ge-0/0/0', 'ge-0/0/1', 'ge-0/0/2'], hosts: ['203.0.113.1', '198.51.100.25'], sim: { flows: [WEBIN, MAILIN, MAILOUT] },
-        start: ['set interfaces ge-0/0/0 description WAN', 'set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/28', 'set interfaces ge-0/0/1 unit 0 family inet address 10.64.10.1/24', 'set interfaces ge-0/0/2 description DMZ', 'set interfaces ge-0/0/2 unit 0 family inet address 10.64.20.1/24',
-            'set routing-options static route 0.0.0.0/0 next-hop 203.0.113.1', 'set security zones security-zone trust interfaces ge-0/0/1.0', 'set security zones security-zone untrust interfaces ge-0/0/0.0', 'set security zones security-zone dmz interfaces ge-0/0/2.0',
-            'set security address-book global address WEB-SRV 10.64.20.10/32', 'set security address-book global address WEB-PUB 203.0.113.10/32', 'set security address-book global address MAIL-SRV 10.64.20.11/32',
-            'set security policies from-zone untrust to-zone dmz policy ALLOW-MAIL match source-address any destination-address MAIL-SRV application junos-smtp', 'set security policies from-zone untrust to-zone dmz policy ALLOW-MAIL then permit',
-            'set security policies from-zone dmz to-zone untrust policy MAIL-OUT match source-address MAIL-SRV destination-address any application junos-smtp', 'set security policies from-zone dmz to-zone untrust policy MAIL-OUT then permit'],
-        story: 'ISP şirkete <b>203.0.113.0/28</b> bloğunu verdi: SRX\'in WAN adresi .2, ağ geçidi .1. DMZ\'de iki sunucu var: web <b>10.64.20.10</b> (dışarıdan <b>203.0.113.10:443</b>) ve posta <b>10.64.20.11</b> (dışarıdan <b>203.0.113.11</b>, giden postası da bu adresle çıkmalı). Posta için güvenlik kuralları hazır; web kuralını siz yazacaksınız. Dikkat: iki genel adres de SRX\'in arayüz adresi <b>değil</b>.',
-        lesson: LES('<b>Hedef NAT</b> genel adres/porta geleni iç sunucuya çevirir (tek yönlü, port yönlendirme). <b>Statik NAT</b> bire bir, iki yönlüdür: içeriden çıkan trafik de aynı genel adrese çevrilir. SRX sırası: statik/hedef NAT → rota → <b>güvenlik kuralı (NAT sonrası, gerçek adresle)</b> → kaynak NAT. Genel adres arayüz adresi değilse ISP\'nin ARP sorusuna cevap vermek için <b>proxy-ARP</b> gerekir.',
-            'Forumlardaki en sık SRX NAT sorusu "NAT kuralı doğru ama trafik gelmiyor"dur: ya kural genel adresle yazılmıştır (eşleşmez) ya da proxy-ARP unutulmuştur (paket SRX\'e hiç ulaşmaz, oturum tablosu boş kalır).',
-            'set security nat destination pool WEB-POOL address 10.64.20.10/32 port 443\nset security nat destination rule-set DNAT from zone untrust\nset security nat destination rule-set DNAT rule WEB match destination-address 203.0.113.10/32 destination-port 443\nset security nat destination rule-set DNAT rule WEB then destination-nat pool WEB-POOL\nset security nat static rule-set STATIC from zone untrust\nset security nat static rule-set STATIC rule MAIL match destination-address 203.0.113.11/32\nset security nat static rule-set STATIC rule MAIL then static-nat prefix 10.64.20.11/32\nset security nat proxy-arp interface ge-0/0/0.0 address 203.0.113.10/32 to 203.0.113.11',
-            ['Güvenlik kuralında genel (NAT öncesi) adresi kullanmak.', 'Arayüz alt ağındaki genel adresler için proxy-ARP\'ı unutmak.', 'Statik NAT varken aynı sunucu için ayrıca kaynak NAT yazıp çakıştırmak.']),
-        goals: ['Hedef NAT havuzu ve kuralı', 'Güvenlik kuralında NAT sonrası adres', 'Statik (iki yönlü) NAT', 'proxy-ARP\'ın gerekliliğini teşhis etmek', 'NAT kural ve oturum çıktılarını okumak'],
-        tasks: [
-            { t: 'Hedef NAT: havuz <code>WEB-POOL</code> = <code>10.64.20.10/32 port 443</code>; kural kümesi <code>DNAT</code> (from zone untrust), kural <code>WEB</code>: hedef <code>203.0.113.10/32</code>, port 443 → <code>destination-nat pool WEB-POOL</code>. Commit edin.',
-              why: 'Hedef NAT havuzu gerçek sunucu adres(ler)ini tutar; kural genel adres + portla eşleşir. Kural kümesinin <code>from zone</code> değeri paketin geldiği bölgedir (internetten gelen: untrust).',
-              hints: ['İki parça: pool ve rule-set (from + rule match/then).', '<code>set security nat destination pool WEB-POOL address 10.64.20.10/32 port 443</code> · <code>set security nat destination rule-set DNAT from zone untrust</code> · <code>… rule WEB match destination-address 203.0.113.10/32 destination-port 443</code> · <code>… rule WEB then destination-nat pool WEB-POOL</code>'],
-              steps: ['configure', 'set security nat destination pool WEB-POOL address 10.64.20.10/32 port 443', 'set security nat destination rule-set DNAT from zone untrust', 'set security nat destination rule-set DNAT rule WEB match destination-address 203.0.113.10/32 destination-port 443', 'set security nat destination rule-set DNAT rule WEB then destination-nat pool WEB-POOL', 'commit and-quit'],
-              check: s => { const d = s.decide(WEBIN); return !!d.dnat && d.dnat.kind === 'destination' && d.dnat.ip === '10.64.20.10' && d.dnat.port === 443; } },
-            { t: 'Web için güvenlik kuralı <code>ALLOW-WEB</code> (untrust → dmz): kaynak <code>any</code>, hedef <b>doğru adres nesnesi</b>, uygulama <code>junos-https</code>, <code>permit</code>. Commit edin.',
-              why: 'SRX güvenlik kuralını hedef NAT\'tan <b>sonra</b> değerlendirir: hedef, sunucunun gerçek adresi (WEB-SRV) olmalı. WEB-PUB (genel adres) ile yazılan kural hiç eşleşmez ve trafik varsayılan deny-all\'a düşer.',
-              hints: ['NAT sonrası adres = iç sunucu adresi.', '<code>set security policies from-zone untrust to-zone dmz policy ALLOW-WEB match source-address any destination-address WEB-SRV application junos-https</code> · <code>… then permit</code>'],
-              steps: ['configure', 'set security policies from-zone untrust to-zone dmz policy ALLOW-WEB match source-address any destination-address WEB-SRV application junos-https', 'set security policies from-zone untrust to-zone dmz policy ALLOW-WEB then permit', 'commit and-quit'],
-              check: s => { const m = s.matchPol('untrust', 'dmz', { src: '198.51.100.77', dst: '10.64.20.10', dport: 443 }); return !!m && m.name === 'ALLOW-WEB' && m.action === 'permit'; },
-              fb: s => (arr(s, 'security policies from-zone untrust to-zone dmz policy ALLOW-WEB match destination-address').includes('WEB-PUB') ? 'Çalışır gibi görünür ama yanlış: WEB-PUB NAT öncesi adres; SRX kuralı NAT sonrası (10.64.20.10) adresle eşleştirir.' : null) },
-            { t: 'Posta için statik NAT: kural kümesi <code>STATIC</code> (from zone untrust), kural <code>MAIL</code>: <code>203.0.113.11/32</code> ↔ <code>static-nat prefix 10.64.20.11/32</code>. Commit edin.',
-              why: 'Statik NAT iki yönlüdür: dışarıdan 203.0.113.11\'e geleni 10.64.20.11\'e çevirir; posta sunucusunun <b>çıkış</b> trafiğini de 203.0.113.11 yapar — ayrıca kaynak NAT yazmaya gerek kalmaz (posta itibarı için çıkış adresinin sabit olması önemlidir).',
-              hints: ['security nat static rule-set … from zone … rule … match destination-address / then static-nat prefix', '<code>set security nat static rule-set STATIC from zone untrust</code> · <code>… rule MAIL match destination-address 203.0.113.11/32</code> · <code>… rule MAIL then static-nat prefix 10.64.20.11/32</code>'],
-              steps: ['configure', 'set security nat static rule-set STATIC from zone untrust', 'set security nat static rule-set STATIC rule MAIL match destination-address 203.0.113.11/32', 'set security nat static rule-set STATIC rule MAIL then static-nat prefix 10.64.20.11/32', 'commit and-quit'],
-              check: s => { const d = s.decide(MAILOUT); return d.stage === 'allowed' && d.natIp === '203.0.113.11'; } },
-            { t: 'Dış testten haber: "203.0.113.10 ve .11\'e hiç erişilemiyor." <code>show security flow session</code>\'a bakın, sonra soruyu cevaplayın: neden?',
-              ask: { choices: [['arp', 'Genel adresler arayüz adresi değil; ISP yönlendiricisinin ARP sorusuna kimse cevap vermiyor (proxy-ARP yok)'], ['policy', 'Güvenlik kuralı yanlış'], ['route', 'Varsayılan rota yok']], correct: 'arp' },
-              why: 'İçeriden çıkan posta oturumu var ama dışarıdan gelen hiçbir oturum yok: paket SRX\'e hiç ulaşmıyor. 203.0.113.10/.11, WAN arayüzünün /28 alt ağında olduğu için ISP yönlendiricisi onları ARP ile arar; SRX yalnız kendi adresine (.2) cevap verir.',
-              hints: ['Oturum tablosunda gelen (In: 198.51.100.x) satır var mı?', 'Paket kapıya ulaşmıyorsa NAT/kural devreye girmez.'] },
-            { t: 'proxy-ARP: <code>ge-0/0/0.0</code> üzerinde <code>203.0.113.10/32 to 203.0.113.11</code> için ARP yanıtı verin. Commit edin; iki gelen akış da geçmeli.',
-              why: '<code>security nat proxy-arp</code> SRX\'in bu adreslere kendi MAC\'iyle cevap vermesini sağlar. Adres aralığı <code>address A to B</code> ile tek satırda yazılabilir.',
-              hints: ['security nat proxy-arp interface <arayüz.birim> address …', '<code>set security nat proxy-arp interface ge-0/0/0.0 address 203.0.113.10/32 to 203.0.113.11</code>'],
-              steps: ['configure', 'set security nat proxy-arp interface ge-0/0/0.0 address 203.0.113.10/32 to 203.0.113.11', 'commit and-quit'], needs: [0, 1, 2],
-              check: s => s.decide(WEBIN).stage === 'allowed' && s.decide(MAILIN).stage === 'allowed' },
-            { t: 'Doğrulayın: <code>show security nat destination rule all</code>, <code>show security nat static rule all</code> ve <code>show security flow session</code> (In/Out satırlarında çeviriyi okuyun).',
-              why: 'Translation hits sayacının artması kuralın kullanıldığını, oturumun Out satırı (10.64.20.10/443 → istemci) çevirinin yönünü gösterir.',
-              hints: ['Üç show komutu.', '<code>show security nat destination rule all</code> · <code>show security nat static rule all</code> · <code>show security flow session</code>'],
-              steps: ['show security nat destination rule all', 'show security nat static rule all', 'show security flow session'], needs: [0, 1, 2, 4],
-              check: s => s.ev.ran(/^show security nat destination rule all/) && s.ev.ran(/^show security nat static rule all/) && s.ev.ran(/^show security flow session/) && s.decide(WEBIN).stage === 'allowed' },
+        id: 'jun-12', vendor: 'juniper', level: 5, title: 'Arıza: "Süzgeç var ama çalışmıyor" (MX router firewall filter)', minutes: 25, kind: 'router', platform: 'mx', hostname: 'R-SUBE', pre: ['jun-06'],
+        up: ['ge-0/0/0', 'ge-0/0/1', 'ge-0/0/2'], hosts: ['203.0.113.1', '10.64.50.10', '198.51.100.80'],
+        start: ['set interfaces ge-0/0/0 unit 0 family inet address 203.0.113.2/30', 'set interfaces ge-0/0/1 unit 0 family inet address 10.64.10.1/24', 'set interfaces ge-0/0/2 unit 0 family inet address 10.64.50.1/24', 'set routing-options static route 0.0.0.0/0 next-hop 203.0.113.1'],
+        sim: { flows: FLT_FLOWS },
+        variants: [
+            { key: 'order', start: FLT('WEB', 443).concat(FLT_REST, ['set firewall family inet filter LAN-IN term GECICI then accept', 'insert firewall family inet filter LAN-IN term GECICI before term WEB', 'set interfaces ge-0/0/1 unit 0 family inet filter input LAN-IN']), fix: ['configure', 'delete firewall family inet filter LAN-IN term GECICI', 'commit and-quit'] },
+            { key: 'diger', start: FLT('WEB', 443).concat(FLT_REST.slice(0, -1), ['set interfaces ge-0/0/1 unit 0 family inet filter input LAN-IN']), fix: ['configure', 'set firewall family inet filter LAN-IN term DIGER then accept', 'commit and-quit'] },
+            { key: 'dir', start: FLT('WEB', 443).concat(FLT_REST, ['set interfaces ge-0/0/1 unit 0 family inet filter output LAN-IN']), fix: ['configure', 'delete interfaces ge-0/0/1 unit 0 family inet filter output', 'set interfaces ge-0/0/1 unit 0 family inet filter input LAN-IN', 'commit and-quit'] },
+            { key: 'port', start: FLT('WEB', 80).concat(FLT_REST, ['set interfaces ge-0/0/1 unit 0 family inet filter input LAN-IN']), fix: ['configure', 'delete firewall family inet filter LAN-IN term WEB from destination-port 80', 'set firewall family inet filter LAN-IN term WEB from destination-port 443', 'commit and-quit'] },
         ],
-        verify: ['show security nat destination rule all', 'show security nat static rule all', 'show security flow session', 'show configuration security nat'],
-        learn: ['Hedef NAT: havuz + kural (from zone = gelinen bölge).', 'Güvenlik kuralı NAT sonrası (gerçek) adresle yazılır.', 'Statik NAT iki yönlüdür; çıkış da aynı genel adresle olur.', 'Arayüz alt ağındaki genel adres = proxy-ARP.', 'Boş oturum tablosu = paket kapıya ulaşmıyor.'],
-        links: { tool: '#/juniper-srx/nat', cli: '#/cli/juniper', wizard: '#/troubleshoot/juniper/0' }, cert: 'JNCIS-SEC'
+        story: '<b>Arıza kaydı:</b> Şube router\'ında LAN\'dan (ge-0/0/1) gelen trafik <code>LAN-IN</code> süzgeciyle denetleniyor. Beklenen: web sunucusuna (10.64.50.10) <b>HTTPS izinli</b>, sunucu ağına <b>ping izinli</b>, sunucu ağına <b>diğer her şey yasak</b> (ör. SSH) ve sayılıyor, <b>internet serbest</b>. Bir değişiklikten sonra davranış bozuldu. Hangi akış beklenenden farklı? <small>Her turda farklı arıza — "Yeni tur".</small>',
+        lesson: LES('Süzgeç arızasında dört soru: (1) Doğru arayüze, <b>doğru yönde</b> mi bağlı? (<code>show configuration interfaces</code>) (2) <b>Terim sırası</b>: üstte koşulsuz bir <code>then accept</code> varsa altındakiler hiç çalışmaz. (3) <b>Örtük discard</b>: son terimde <code>then accept</code> yoksa listede olmayan her şey düşer. (4) <b>Terim içeriği</b>: port, protokol, önek. <code>show firewall</code> sayaçları hangi terimin trafiği yakaladığını gösterir.',
+            'Süzgeç hataları iki türlü görünür: "yasak olan geçiyor" (sıra ya da yön — güvenlik açığı) ve "izinli olan geçmiyor" (örtük discard ya da yanlış port — kesinti). Süzgeci silip yeniden yazmak yerine tek satırlık düzeltme hem hızlı hem güvenlidir.',
+            'show configuration interfaces ge-0/0/1\nshow firewall filter LAN-IN\n# sıra: delete … term GECICI  |  eksik son terim: set … term DIGER then accept\n# yön: delete … filter output + set … filter input LAN-IN',
+            ['Süzgeci tamamen silmek (koruma kalkar).', 'Yeni terimi sona ekleyip sırayı kontrol etmemek (insert gerekir).', 'Sayaçlara bakmadan terim eklemek.']),
+        goals: ['Bağlama yönünü ve sayaçları okumak', 'Sıra / örtük discard / yön / port ayrımı', 'Tek satırlık düzeltme ve commit'],
+        tasks: [
+            { t: 'Belirtiyi toplayın: süzgeç sayaçları ve ge-0/0/1\'in yapılandırması.', why: 'Sayaçlar hangi terimin çalıştığını, arayüz yapılandırması süzgecin hangi yönde bağlı olduğunu söyler.',
+              hints: ['show firewall … / show configuration interfaces …', '<code>show firewall filter LAN-IN</code> → <code>show configuration interfaces ge-0/0/1</code>'], steps: ['show firewall filter LAN-IN', 'show configuration interfaces ge-0/0/1'],
+              check: s => s.ev.ran(/^show firewall/) && s.ev.ran(/^show configuration interfaces ge-0\/0\/1/) },
+            { t: 'Kök neden hangisi?', ask: { choices: [['order', 'En üstteki geçici "then accept" terimi diğerlerini gölgeliyor'], ['diger', 'Son "then accept" terimi yok: örtük discard interneti kesiyor'], ['dir', 'Süzgeç ge-0/0/1\'e output yönünde bağlı'], ['port', 'WEB terimi yanlış portu (80) izinliyor']], correct: v => v.key },
+              why: 'SSH geçiyorsa: sıra ya da yön — terim listesi ve bağlama satırı ayırır. İnternet kesikse: son terim. Yalnız web sunucusu açılmıyorsa: WEB teriminin portu.', hints: ['show configuration firewall', 'Hangi terimin sayacı artıyor?'],
+              steps: v => ['show configuration firewall', { answer: 1, v: v.key }], needs: [0] },
+            { t: 'Tek değişiklikle düzeltin ve commit edin: dört akış beklendiği gibi davransın.', why: 'Süzgeci silip yeniden yazmak yerine yalnız hatalı satırı değiştirin; commit\'ten önce <code>show | compare</code> ile farka bakabilirsiniz.',
+              hints: ['Kök nedene göre tek satır.', 'order: <code>delete … term GECICI</code> · diger: <code>set … term DIGER then accept</code> · dir: <code>delete … filter output</code> + <code>set … filter input LAN-IN</code> · port: 80\'i silip 443'],
+              steps: v => v.fix, check: s => fltOk(s),
+              fb: s => (!has(s, 'firewall family inet filter LAN-IN') ? 'Süzgeç silindi: LAN\'dan sunuculara her şey serbest kaldı.' : has(s, 'interfaces ge-0/0/1 unit 0 family inet filter output') ? 'Süzgeç hâlâ output yönünde de bağlı.' : null) },
+            { t: 'Sayaçlarla doğrulayın.', why: 'Düzeltmeden sonra SSH\'nin SUNUCU-ENGEL sayacında görünmesi, engelin artık çalıştığının kanıtıdır.',
+              hints: ['show firewall filter LAN-IN', 'SUNUCU-ENGEL sayacı artmalı.'], steps: ['show firewall filter LAN-IN'], needs: [2], loo: false, /* 1. görevle aynı komut */
+              check: s => { const c = lastIdx(s, e => e.commit === 'ok'), f = lastIdx(s, e => e.canon && /^show firewall/.test(e.canon)); return c >= 0 && f > c && fltOk(s); } },
+        ],
+        verify: ['show firewall filter LAN-IN', 'show configuration firewall', 'show configuration interfaces ge-0/0/1'],
+        learn: ['Yasak olan geçiyor → sıra ya da yön.', 'İzinli olan geçmiyor → son terim ya da içerik.', 'insert … before ile araya terim.', 'Sayaçlar kanıttır.'],
+        links: { tool: '#/juniper/acl', cli: '#/cli/juniper', wizard: '#/troubleshoot/traffic' }, cert: 'JNCIA-Junos'
     },
     // ═══ modül 7 — DHCP sunucusu (ELS) ════════════════════════════════════════
     {

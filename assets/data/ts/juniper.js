@@ -8,7 +8,7 @@
     root.CG_TS_EXTRA = root.CG_TS_EXTRA || {};
     root.CG_TS_EXTRA['juniper'] = [
         {
-            title: 'SRX: İçeriden Dışarıya Trafik Geçmiyor (Kural / Bölge / Commit / NAT)', severity: 'err', topic: 'traffic', lab: 'jun-07', replaces: 'SRX Uzerinden Trafik Gecmiyor',
+            title: 'SRX: İçeriden Dışarıya Trafik Geçmiyor (Kural / Bölge / Commit / NAT)', severity: 'err', topic: 'traffic', replaces: 'SRX Uzerinden Trafik Gecmiyor',
             symptom: 'LAN\'daki bir kullanıcı (ör. 10.64.10.50) internete çıkamıyor; izin kuralı yazılmış görünüyor.',
             steps: [
                 { code: 'show security match-policies from-zone trust to-zone untrust source-ip 10.64.10.50 destination-ip 203.0.113.80 source-port 1025 destination-port 443 protocol tcp', desc: 'Trafik üretmeden SRX\'in bu akış için seçeceği kuralı gösterir. İzin kuralı (ALLOW-WEB) yerine alttaki bir deny kuralı (DENY-ALL) ya da hiç kural çıkmıyorsa sorun kural sırası/eşleşmesidir. "permit" çıkması yetmez: sonraki adımlar bölgeyi ve NAT\'ı sınar.',
@@ -23,7 +23,7 @@
             ],
         },
         {
-            title: 'SRX: Sunucu Dışarıdan Açılmıyor (Hedef/Statik NAT, Proxy-ARP)', severity: 'err', topic: 'traffic', lab: 'jun-12',
+            title: 'SRX: Sunucu Dışarıdan Açılmıyor (Hedef/Statik NAT, Proxy-ARP)', severity: 'err', topic: 'traffic', 
             symptom: 'NAT kuralı yazıldı ama internetten genel adrese (ör. 203.0.113.10:443) gelen bağlantı sunucuya ulaşmıyor.',
             steps: [
                 { code: 'show security flow session', desc: 'Dışarıdan gelen hiçbir oturum yoksa paket SRX\'e hiç ulaşmıyor: genel adres arayüz adresi değil ve ISP yönlendiricisinin ARP sorusuna cevap veren yok (proxy-ARP).',

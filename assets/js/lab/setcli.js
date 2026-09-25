@@ -1017,6 +1017,23 @@ const CgLabSetCli = (() => {
             return { term: null, action: 'discard', implicit: true };
         }
         const reFilter = t => getIn(t, ['interfaces', 'lo0', 'unit', '0', 'family', 'inet', 'filter', 'input']);
+        // Arayüz birimine (ör. irb.20, ge-0/0/1.0) uygulanmış süzgeç
+        const iflFilter = (t, ifl, dir) => { const [ph, u] = String(ifl).split('.'); return getIn(t, ['interfaces', ph, 'unit', u || '0', 'family', 'inet', 'filter', dir]); };
+        // Transit paket kararı (router/EX L3): giriş süzgeci → rota → çıkış süzgeci. f = { src, dst, dport, proto, in: 'ifl' }
+        function transit(f0, W) {
+            W = W || view();
+            const f = Object.assign({ proto: 'tcp', sport: 51234 }, f0), inIfl = ifOf(W, f.in);
+            if (!inIfl || !inIfl.adminUp) return { stage: 'noarrive' };
+            const fi = iflFilter(W.t, f.in, 'input');
+            if (fi) { const r = fwEval(W.t, fi, f); if (r.action !== 'accept') return { stage: 'filter-in', filter: fi, term: r.term, action: r.action, implicit: !!r.implicit }; }
+            const rt = W.lookup(f.dst);
+            if (!rt) return { stage: 'noroute' };
+            if (rt.nh === 'Discard' || rt.nh === 'Reject') return { stage: 'discard', route: rt };
+            const fo = iflFilter(W.t, rt.via, 'output');
+            if (fo) { const r = fwEval(W.t, fo, f); if (r.action !== 'accept') return { stage: 'filter-out', filter: fo, term: r.term, action: r.action, implicit: !!r.implicit, out: rt.via }; }
+            const ok = hosts.includes(f.dst) && (rt.proto !== 'Static' || hosts.includes(rt.nh));
+            return { stage: ok ? 'ok' : 'nohost', out: rt.via, route: rt };
+        }
         function reAllows(t, pk) { const f = reFilter(t); return !f || fwEval(t, f, pk).action === 'accept'; }
         const ifOf = (W, name) => W.ifls.find(x => x.name === name);
         function abMatch(t, names, ip) {
@@ -1569,9 +1586,16 @@ const CgLabSetCli = (() => {
         // süzgeç sayaçları: lo0'a uygulanmış süzgeçte cihaza yönelik sanal akışlar (lab.sim.re) + OSPF hello'ları
         function fwCounters(W) {
             const f = reFilter(W.t), cnt = {};
+            // arayüz süzgeçleri: lab.sim.flows içindeki transit akışlar (giriş ve çıkış)
+            flows().filter(x => x.in).forEach(x => {
+                const add = (fn, p) => { const r = fwEval(W.t, fn, p); if (r.count) { const c = cnt[fn + ':' + r.count] = cnt[fn + ':' + r.count] || { b: 0, p: 0 }; c.p += p.pkts || 10; c.b += p.bytes || (p.pkts || 10) * 84; } return r; };
+                const fi = iflFilter(W.t, x.in, 'input'); if (fi && add(fi, x).action !== 'accept') return;
+                const rt = W.lookup(x.dst); if (!rt || !rt.via) return;
+                const fo = iflFilter(W.t, rt.via, 'output'); if (fo) add(fo, x);
+            });
             if (!f) return cnt;
-            const flows = (SIM.re || []).concat((SIM.ospf || []).map(nb => ({ src: nb.addr, dst: '224.0.0.5', proto: 'ospf', pkts: 30, bytes: 2400 })));
-            flows.forEach(p => { const r = fwEval(W.t, f, p); if (r.count) { const c = cnt[f + ':' + r.count] = cnt[f + ':' + r.count] || { b: 0, p: 0 }; c.p += p.pkts || 10; c.b += p.bytes || (p.pkts || 10) * 84; } });
+            const reFlows = (SIM.re || []).concat((SIM.ospf || []).map(nb => ({ src: nb.addr, dst: '224.0.0.5', proto: 'ospf', pkts: 30, bytes: 2400 })));
+            reFlows.forEach(p => { const r = fwEval(W.t, f, p); if (r.count) { const c = cnt[f + ':' + r.count] = cnt[f + ':' + r.count] || { b: 0, p: 0 }; c.p += p.pkts || 10; c.b += p.bytes || (p.pkts || 10) * 84; } });
             return cnt;
         }
         function fwShow(only) {
@@ -2191,6 +2215,7 @@ const CgLabSetCli = (() => {
             committed: () => sameCfg(S.cand, active()), commits: () => S.commitN - S.commit0, confirming: () => !!S.confirm,
             decide: (f, which) => decide(f, which === 'cand' ? expandRanges(effective(ROOT, S.cand)) : undefined),
             hostIn: (z, svc) => hostIn(z, svc), rib: () => view().R, zoneOf: ifl => view().zoneOf(ifl),
+            transit: f => transit(f), route: ip => view().lookup(ip), fwEval: (fn, pk) => fwEval(act(), fn, Object.assign({ proto: 'tcp' }, pk)),
             ifl: n => ifOf(view(), n), hostname: () => host(),
             // yeni modüller için okuma yardımcıları (aktif yapılandırmadan)
             rawVal: p => getIn(effective(ROOT, active()), typeof p === 'string' ? p.split(' ') : p),
