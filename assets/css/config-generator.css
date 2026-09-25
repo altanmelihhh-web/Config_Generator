@@ -1397,7 +1397,7 @@
 #config-generator-root .cg-ar-tbl tr.is-run { background: rgba(96, 165, 250, .1); }
 #config-generator-root .cg-ar-tbl tr.is-ok .cg-ar-ok { color: #16a34a; }
 #config-generator-root .cg-ar-tbl tr.is-bad { background: rgba(220, 38, 38, .07); }
-#config-generator-root .cg-ar-tbl tr.is-bad .cg-ar-ok, #config-generator-root .cg-ar-tbl tr.is-bad .cg-ar-res { color: #dc2626; font-weight: 600; }
+#config-generator-root .cg-ar-tbl tr.is-bad .cg-ar-ok { color: #dc2626; font-weight: 600; }
 #config-generator-root .cg-ar-logd summary { cursor: pointer; padding: 8px 14px; font-size: .82rem; color: var(--text-secondary, #6b7280); border-top: 1px solid var(--border-color, #e5e7eb); }
 #config-generator-root .cg-ar-log { margin: 0; background: #0d1117; color: #c9d1d9; padding: 10px 14px; font-size: .74rem; white-space: pre-wrap; max-height: 220px; overflow: auto; border-radius: 0; }
 #config-generator-root .cg-ar-done { margin-top: 14px; border-radius: 12px; padding: 14px 16px; border: 1px solid; }
@@ -1413,3 +1413,12 @@
 @media (max-width: 560px) { #config-generator-root .cg-ar-topo { grid-template-columns: 1fr 1.2fr 1fr; gap: 6px; padding: 10px 6px; } #config-generator-root .cg-ar-node small, #config-generator-root .cg-ar-bh small { display: none; } #config-generator-root .cg-ar-node, #config-generator-root .cg-ar-mem { font-size: .68rem; padding: 6px; } }
 @media (prefers-reduced-motion: reduce) { #config-generator-root .cg-ar-pkt { transition: none !important; } }
 #config-generator-root .cg-ar-tbl tr.cg-ar-empty td { color: var(--text-secondary, #6b7280); text-align: center; padding: 18px; white-space: normal; }
+#config-generator-root .cg-ar-mem.is-down { border-color: #7f1d1d; opacity: .7; }
+#config-generator-root .cg-ar-mem.is-down i { color: #ef4444; }
+#config-generator-root .cg-ar-mem.is-down .cg-ar-hits { color: #f87171; }
+#config-generator-root .cg-ar-tbl td.cg-ar-res, #config-generator-root .cg-ar-tbl td:nth-child(4) { white-space: normal; min-width: 160px; }
+#config-generator-root .cg-ar-chip { display: inline-block; margin: 1px 4px 1px 0; padding: 1px 7px; border-radius: 6px; background: var(--bg-tertiary, #f3f4f6); color: var(--text-primary, #111827); font: .74rem ui-monospace, Menlo, monospace; white-space: nowrap; }
+#config-generator-root .cg-ar-chip.is-bad { background: rgba(220, 38, 38, .14); color: #dc2626; font-weight: 600; }
+[data-theme="dark"] #config-generator-root .cg-ar-chip.is-bad { color: #fca5a5; }
+#config-generator-root .cg-ar-view code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#config-generator-root .cg-ar-hc { flex: none; }
