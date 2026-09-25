@@ -81,7 +81,7 @@ const CgLabIos = (() => {
     function newIf(sw, name) {
         return { desc: '', shutdown: !sw && isPhys(name), mode: null, accessVlan: 1, voiceVlan: null, native: 1, allowed: null,
             nonegotiate: false, ip: null, mask: null, portfast: false, bpduguard: false, speed: 'auto', duplex: 'auto', errdis: false, errReason: null, accessIn: null, accessOut: null, nat: null,
-            helpers: [], ps: null, ospf: { hello: null, dead: null, cost: null, pri: 1, net: null, pid: null, area: null }, mtu: 1500 };
+            helpers: [], ps: null, stpCost: null, ospf: { hello: null, dead: null, cost: null, pri: 1, net: null, pid: null, area: null }, mtu: 1500 };
     }
     function baseModel(lab) {
         const sw = lab.kind !== 'router';
@@ -89,7 +89,7 @@ const CgLabIos = (() => {
             sw, hostname: lab.hostname || (sw ? 'Switch' : 'Router'), defHost: sw ? 'Switch' : 'Router',
             enableSecret: null, enablePassword: null, servicePwEnc: false, domainLookup: true, domain: null,
             users: {}, banner: null, rsa: 0, sshVer: null, sshTimeout: 120, sshRetries: 3,
-            ifs: {}, vlans: sw ? { 1: 'default' } : {}, stpMode: 'pvst', portfastDefault: false, bpduguardDefault: false,
+            ifs: {}, vlans: sw ? { 1: 'default' } : {}, stpMode: 'pvst', stpPri: {}, portfastDefault: false, bpduguardDefault: false,
             errRecovery: { bpduguard: false, interval: 300 }, ipRouting: !sw, defaultGw: null, routes: [],
             lines: { con: { pw: null, login: false, logsync: false, timeout: null }, vty: { '0 4': { pw: null, login: 'login', transport: null, timeout: null, acl: null }, '5 15': { pw: null, login: 'login', transport: null, timeout: null, acl: null } } },
             ospf: {}, links: {}, acls: {}, nat: [],
@@ -161,6 +161,9 @@ const CgLabIos = (() => {
             { p: 'show interfaces status err-disabled', sw: 1, run: showErrDis },
             { p: 'show errdisable recovery', sw: 1, run: showErrRec },
             { p: 'show interfaces trunk', sw: 1, run: showIntTrunk },
+            { p: 'show spanning-tree', sw: 1, run: () => stpVlans().map(showStp).join('\n') },
+            { p: 'show spanning-tree vlan (1-4094)$v', sw: 1, run: (a) => M().vlans[a.v] ? showStp(a.v) : 'Spanning tree instance(s) for vlan ' + a.v + ' does not exist.' },
+            { p: 'show spanning-tree root', sw: 1, run: () => showStpRoot() },
             { p: 'show interfaces IFNAME$if switchport', sw: 1, run: (a) => showIfSwitchport(a.if) },
             { p: 'show ip ssh', run: showIpSsh },
             { p: 'show aaa servers', run: showAaaServers },
@@ -278,6 +281,8 @@ const CgLabIos = (() => {
             { p: 'ip nat inside source list WORD$acl interface IFNAME$if', run: (a) => { M().nat = M().nat.filter(x => !(x.type === 'list' && x.acl === a.acl)); M().nat.push({ type: 'list', acl: a.acl, iface: a.if, overload: false }); }, no: (a) => { M().nat = M().nat.filter(x => !(x.type === 'list' && x.acl === a.acl)); } },
             { p: 'ip nat inside source static A.B.C.D$l A.B.C.D$g', run: (a) => natStaticAdd({ type: 'static', local: a.l, global: a.g }), no: (a) => { M().nat = M().nat.filter(x => !(x.type === 'static' && x.local === a.l && x.global === a.g && !x.proto)); } },
             { p: 'ip nat inside source static <tcp|udp>$p A.B.C.D$l (1-65535)$lp A.B.C.D$g (1-65535)$gp', run: (a) => natStaticAdd({ type: 'static', proto: a.p, local: a.l, lport: a.lp, global: a.g, gport: a.gp }), no: (a) => { M().nat = M().nat.filter(x => !(x.type === 'static' && x.proto === a.p && x.local === a.l && x.global === a.g)); } },
+            { p: 'spanning-tree vlan VLIST$l priority !(0-61440)$p', sw: 1, run: (a) => { if (a.p % 4096) return '% Bridge Priority must be in increments of 4096.\n% Allowed values are:\n  0     4096  8192  12288 16384 20480 24576 28672\n  32768 36864 40960 45056 49152 53248 57344 61440'; vlanList(a.l).forEach(v => { M().stpPri[v] = a.p; }); }, no: (a) => vlanList(a.l).forEach(v => { delete M().stpPri[v]; }) },
+            { p: 'spanning-tree vlan VLIST$l root !<primary|secondary>$r', sw: 1, run: (a) => vlanList(a.l).forEach(v => { M().stpPri[v] = a.r === 'secondary' ? 28672 : stpRootPrimary(v); }), no: (a) => vlanList(a.l).forEach(v => { delete M().stpPri[v]; }) },
             { p: 'spanning-tree mode !<pvst|rapid-pvst|mst>$m', sw: 1, run: (a) => { M().stpMode = a.m; }, no: () => { M().stpMode = 'pvst'; } },
             { p: 'spanning-tree portfast default', sw: 1, run: () => { M().portfastDefault = true; return '%Warning: this command enables portfast by default on all interfaces. You\n should now disable portfast explicitly on switched ports leading to hubs,\n switches and bridges as they may create temporary bridging loops.'; }, no: () => { M().portfastDefault = false; } },
             { p: 'spanning-tree portfast bpduguard default', sw: 1, run: () => { M().bpduguardDefault = true; }, no: () => { M().bpduguardDefault = false; } },
@@ -295,6 +300,7 @@ const CgLabIos = (() => {
             { p: 'switchport trunk allowed vlan add VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { if (i.allowed) i.allowed = [...new Set(i.allowed.concat(vlanList(a.l)))].sort((x, y) => x - y); }), neg: false },
             { p: 'switchport trunk allowed vlan remove VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { const all = i.allowed || range('', 1, 4094).map(Number); const rm = vlanList(a.l); i.allowed = all.filter(v => !rm.includes(v)); }), neg: false },
             { p: 'switchport trunk allowed vlan !VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { i.allowed = vlanList(a.l); }), no: () => secsIf().forEach(i => { i.allowed = null; }) },
+            { p: 'spanning-tree cost !(1-200000000)$v', sw: 1, run: (a) => secsIf().forEach(i => { i.stpCost = a.v; }), no: () => secsIf().forEach(i => { i.stpCost = null; }) },
             { p: 'ip ospf hello-interval !(1-65535)$v', run: (a) => secsIf().forEach(i => { i.ospf.hello = a.v; }), no: () => secsIf().forEach(i => { i.ospf.hello = null; }) },
             { p: 'ip ospf dead-interval !(1-65535)$v', run: (a) => secsIf().forEach(i => { i.ospf.dead = a.v; }), no: () => secsIf().forEach(i => { i.ospf.dead = null; }) },
             { p: 'ip ospf cost !(1-65535)$v', run: (a) => secsIf().forEach(i => { i.ospf.cost = a.v; }), no: () => secsIf().forEach(i => { i.ospf.cost = null; }) },
@@ -710,6 +716,9 @@ const CgLabIos = (() => {
                 if (m.portfastDefault) L.push('spanning-tree portfast edge default');
                 if (m.bpduguardDefault) L.push('spanning-tree portfast edge bpduguard default');
                 L.push('spanning-tree mode ' + m.stpMode, 'spanning-tree extend system-id');
+                // IOS aynı önceliği taşıyan VLAN'ları tek satırda gruplar
+                const byPri = {}; Object.entries(m.stpPri).forEach(([v, p]) => { (byPri[p] = byPri[p] || []).push(+v); });
+                Object.entries(byPri).forEach(([p, vs]) => L.push('spanning-tree vlan ' + vlanCompress(vs.sort((a, b) => a - b)) + ' priority ' + p));
                 if (m.errRecovery.bpduguard) L.push('errdisable recovery cause bpduguard');
                 if (m.errRecovery.interval !== 300) L.push('errdisable recovery interval ' + m.errRecovery.interval);
                 L.push('!', 'vlan internal allocation policy ascending', '!');
@@ -733,6 +742,7 @@ const CgLabIos = (() => {
                 if (i.nat) L.push(' ip nat ' + i.nat);
                 i.helpers.forEach(h => L.push(' ip helper-address ' + h));
                 if (i.mtu !== 1500) L.push(' ip mtu ' + i.mtu);
+                if (i.stpCost) L.push(' spanning-tree cost ' + i.stpCost);
                 if (i.ospf.pid) L.push(' ip ospf ' + i.ospf.pid + ' area ' + i.ospf.area);
                 if (i.ospf.net) L.push(' ip ospf network ' + i.ospf.net);
                 if (i.ospf.hello) L.push(' ip ospf hello-interval ' + i.ospf.hello);
@@ -1315,6 +1325,83 @@ const CgLabIos = (() => {
         // RIB: connected + local + static (next-hop bağlı ağda ve arayüz up ise)
         // RIB: connected + local + static. Aynı önekte en düşük AD kazanır (eşitse ECMP);
         // next-hop bağlı bir ağda ve arayüz up değilse rota kurulmaz (yüzen rota böyle devreye girer).
+        // ═══ STP (lab.sim.stp: sanal komşu köprüler) ═══════════════════════════
+        // sim.stp = { me: 'MAC', bridges: { AD: { pri, mac, pris?: { vlan: pri } } }, links: [['self:PORT', 'AD'], ['AD1', 'AD2'], …] }
+        // 802.1D: kök = en düşük (öncelik+VLAN, MAC); kök port = en düşük yol maliyeti, eşitlikte komşu BID;
+        // segmentte designated = daha iyi (kök maliyeti, BID); diğerleri alternate/blocking. 1G = 4, 100M = 19 (kısa yol maliyeti).
+        const STP = () => (S.lab.sim && S.lab.sim.stp) || null;
+        const myMac = () => (STP() && STP().me) || '0050.56b1.00ff';
+        const myPri = v => M().stpPri[v] !== undefined ? M().stpPri[v] : 32768;
+        const macN = m => parseInt(String(m).replace(/\./g, ''), 16);   // 48 bit < 2^53: güvenli
+        const bidCmp = (a, b) => (a.pri - b.pri) || (macN(a.mac) - macN(b.mac));
+        const portCost = n => M().ifs[n].stpCost || (/^Fast/.test(n) ? 19 : /^TenGig/.test(n) ? 2 : 4);
+        const carries = (n, v) => { const i = M().ifs[n]; return i.mode === 'trunk' ? (!i.allowed || i.allowed.includes(v)) && !!M().vlans[v] : (i.accessVlan === v); };
+        function stpPeerPri(b, v) { return (b.pris && b.pris[v] !== undefined ? b.pris[v] : b.pri); }
+        function stpRootPrimary(v) {
+            // root primary: kök önceliği 24576'dan büyükse 24576, değilse kökün 4096 altı (IOS makrosu)
+            const st = STP(); if (!st) return 24576;
+            const others = Object.values(st.bridges).map(b => ({ pri: stpPeerPri(b, v) + v, mac: b.mac })).sort(bidCmp);
+            const r = others[0]; if (!r) return 24576;
+            if (r.pri - v > 24576) return 24576;
+            return Math.max(0, r.pri - v - 4096);
+        }
+        function stpCalc(v) {
+            const st = STP(); if (!st) return null;
+            const me = { id: 'self', pri: myPri(v) + v, mac: myMac() };
+            const nodes = { self: me }; Object.entries(st.bridges).forEach(([k, b]) => { nodes[k] = { id: k, pri: stpPeerPri(b, v) + v, mac: b.mac }; });
+            // kenarlar: bizim portlar yalnız up + VLAN'ı taşıyorsa ve err-disable değilse
+            const edges = [];
+            st.links.forEach(([a, b]) => {
+                if (a.startsWith('self:')) { const n = a.slice(5); if (M().ifs[n] && ifUp(n) && carries(n, v) && !M().ifs[n].errdis) edges.push({ a: 'self', b, port: n }); }
+                else edges.push({ a, b });
+            });
+            const root = Object.values(nodes).sort(bidCmp)[0];
+            // Dijkstra: giriş portunun maliyeti (bize girişte bizim port maliyeti, komşularda 4)
+            const dist = { [root.id]: 0 }, done = new Set();
+            while (true) {
+                const u = Object.keys(dist).filter(k => !done.has(k)).sort((x, y) => dist[x] - dist[y])[0]; if (u === undefined) break; done.add(u);
+                edges.forEach(e => { [[e.a, e.b], [e.b, e.a]].forEach(([x, y]) => { if (x !== u) return; const c = dist[u] + (y === 'self' ? portCost(e.port) : 4); if (dist[y] === undefined || c < dist[y]) dist[y] = c; }); });
+            }
+            const my = edges.filter(e => e.a === 'self'), ports = {};
+            let rootPort = null;
+            if (root.id !== 'self') {
+                const c = my.filter(e => dist[e.b] !== undefined).map(e => ({ e, cost: dist[e.b] + portCost(e.port) }));
+                c.sort((x, y) => x.cost - y.cost || bidCmp(nodes[x.e.b], nodes[y.e.b]) || ifCmp(x.e.port, y.e.port));
+                if (c[0]) rootPort = c[0].e.port;
+            }
+            const myCost = root.id === 'self' ? 0 : dist.self;
+            my.forEach(e => {
+                if (e.port === rootPort) { ports[e.port] = 'Root'; return; }
+                const nb = nodes[e.b], better = myCost < dist[e.b] || (myCost === dist[e.b] && bidCmp(me, nb) < 0);
+                ports[e.port] = better ? 'Desg' : 'Altn';
+            });
+            return { v, me, root, rootPort, cost: myCost, ports, peers: my.map(e => e.b) };
+        }
+        const stpVlans = () => Object.keys(M().vlans).map(Number).filter(v => Object.keys(M().ifs).some(n => isPhys(n) && ifUp(n) && carries(n, v))).sort((a, b) => a - b);
+        function showStp(v) {
+            const c = stpCalc(v), L = ['', 'VLAN' + String(v).padStart(4, '0'), '  Spanning tree enabled protocol ' + (M().stpMode === 'rapid-pvst' ? 'rstp' : 'ieee')];
+            const me = c ? c.me : { pri: myPri(v) + v, mac: myMac() }, root = c ? c.root : me, isRoot = root === me || root.id === 'self';
+            L.push('  Root ID    Priority    ' + root.pri, '             Address     ' + root.mac);
+            if (isRoot) L.push('             This bridge is the root');
+            else L.push('             Cost        ' + c.cost, '             Port        ' + ifNums(c.rootPort).slice(-1)[0] + ' (' + c.rootPort + ')');
+            L.push('             Hello Time   2 sec  Max Age 20 sec  Forward Delay 15 sec', '',
+                '  Bridge ID  Priority    ' + me.pri + '  (priority ' + (me.pri - v) + ' sys-id-ext ' + v + ')', '             Address     ' + me.mac,
+                '             Hello Time   2 sec  Max Age 20 sec  Forward Delay 15 sec', '             Aging Time  ' + (M().macAging || 300) + ' sec', '',
+                'Interface           Role Sts Cost      Prio.Nbr Type', '------------------- ---- --- --------- -------- --------------------------------');
+            Object.keys(M().ifs).filter(n => isPhys(n) && ifUp(n) && carries(n, v) && !M().ifs[n].errdis).sort(ifCmp).forEach(n => {
+                const role = (c && c.ports[n]) || 'Desg', i = M().ifs[n];
+                L.push(pad(ifShort(n), 20) + pad(role, 5) + pad(role === 'Altn' ? 'BLK' : 'FWD', 4) + pad(portCost(n), 10) + pad('128.' + ifNums(n).slice(-1)[0], 9) + 'P2p' + (i.portfast || (M().portfastDefault && i.mode === 'access') ? ' Edge' : ''));
+            });
+            log({ stpshow: v });
+            return L.join('\n');
+        }
+        function showStpRoot() {
+            const L = ['', '                                        Root    Hello Max Fwd', 'Vlan                   Root ID          Cost    Time  Age Dly  Root Port', '---------------- -------------------- --------- ----- --- ---  ------------'];
+            stpVlans().forEach(v => { const c = stpCalc(v), me = { pri: myPri(v) + v, mac: myMac() }, r = c ? c.root : me;
+                L.push(pad('VLAN' + String(v).padStart(4, '0'), 17) + pad(r.pri + ' ' + r.mac, 21) + padL(c ? c.cost : 0, 9) + padL(2, 6) + padL(20, 4) + padL(15, 4) + '  ' + (c && c.rootPort ? ifShort(c.rootPort) : '')); });
+            log({ stpshow: 'root' });
+            return L.join('\n');
+        }
         // ═══ OSPF (lab.sim.ospf: sanal komşular) ═══════════════════════════════
         // Komşu: { ifn, ip, rid, area, hello, dead, mtu, pri, net, routes: [{ net, len, cost, ia?, e2? }] }
         // Komşuluk kuralları: arayüz up + OSPF'te + pasif değil + aynı alt ağ + aynı alan + aynı hello/dead;
@@ -1565,7 +1652,7 @@ const CgLabIos = (() => {
         const UNSUP = ['snmp-server', 'ntp', 'logging host', 'logging trap', 'clock timezone', 'cdp', 'lldp', 'ip dhcp snooping', 'ip arp inspection',
             'router eigrp', 'router bgp', 'router rip', 'standby', 'channel-group', 'crypto isakmp', 'crypto ipsec', 'crypto map', 'ipv6', 'vtp', 'monitor session',
             'ip ospf authentication', 'ip ospf message-digest-key', 'area', 'encapsulation', 'show cdp', 'show lldp', 'show ip ospf database', 'show ip protocols',
-            'show etherchannel', 'show spanning-tree', 'show standby', 'show interfaces counters', 'show arp', 'show ip dhcp snooping', 'debug', 'traceroute',
+            'show etherchannel', 'show spanning-tree summary', 'show spanning-tree blockedports', 'show spanning-tree detail', 'show spanning-tree interface', 'show standby', 'spanning-tree port-priority', 'spanning-tree uplinkfast', 'spanning-tree backbonefast', 'spanning-tree loopguard', 'spanning-tree guard', 'show interfaces counters', 'show arp', 'show ip dhcp snooping', 'debug', 'traceroute',
             'clear counters', 'clear arp-cache', 'clear logging', 'clear line', 'clear ip ospf', 'clear ip route', 'clear access-list', 'clear spanning-tree', 'clear port-security'];
         function unsupported(raw) {
             const t = C.tokenize(raw.replace(/^\s*(no|do)\s+/i, '')).map(x => x.t.toLowerCase());
@@ -1689,6 +1776,7 @@ const CgLabIos = (() => {
             mode: () => S.mode,
             run: (n) => ({ up: ifUp(n) }),
             rib, lookup, forward: f => forward(f, false), acl: n => M().acls[n] || null,
+            stp: v => stpCalc(v), stpPri: v => myPri(v),
             ospfNbrs: () => ospfNbrs(), ospfIf: n => ospfIf(n), ospfPassive: n => { const o = ospfIf(n); return !!o && ospfPassive(n, o.pid); },
             dhcpLeases: () => dhcpLeases(), psec: n => psecEval(n), macRows: () => macRows(), flash: () => Object.keys(S.flash), archives: () => S.archives.map(a => a.name),
             aaaAuth: (list, u, p) => aaaAuth(M().authn[list] || [], u, p),

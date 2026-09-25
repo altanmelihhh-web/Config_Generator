@@ -21,6 +21,8 @@
     // OSPF: çekirdek R2 (sanal komşu); pri ve rota maliyeti varyantla değişir
     const ospfCore = (pri, cost) => ({ ifn: 'GigabitEthernet0/0', ip: '10.64.12.2', rid: '10.240.255.2', pri, routes: [{ net: '10.128.20.0', len: 24, cost }, { net: '0.0.0.0', len: 0, cost: 1, e2: true }] });
     const ospfFixed = s => s.ospfNbrs().some(n => n.state === 'FULL') && s.rib().some(r => r.ospf && r.net === '10.128.20.0') && s.ospfPassive('GigabitEthernet0/1') && s.model.ifs['GigabitEthernet0/0'].mtu === 1500 && !s.model.ifs['GigabitEthernet0/0'].ospf.hello && !s.model.ospf['1'].nets.some(x => x.n === '10.64.21.0' || +x.a !== 0);
+    // STP üçgeni: bu switch (…0010) Gi0/1→DSW2, Gi0/2→ASW; DSW2–ASW arası bağlı. ASW en düşük MAC (…0005).
+    const stpTri = (dsw2Mac, aswPri) => ({ me: '0050.56b1.0010', bridges: { DSW2: { pri: 32768, mac: dsw2Mac }, ASW: { pri: aswPri, mac: '0050.56b1.0005' } }, links: [['self:GigabitEthernet0/1', 'DSW2'], ['self:GigabitEthernet0/2', 'ASW'], ['DSW2', 'ASW']] });
     const mtMacs = prn => { const m = {}; for (let p = 1; p <= 10; p++) m['GigabitEthernet0/' + p] = [p === prn ? '0050.56a1.0c05' : p === 10 ? '0050.56a1.0a10' : '0050.56a1.04' + String(p).padStart(2, '0')]; m['GigabitEthernet0/24'] = ['0050.56a1.0d01@10', '0050.56a1.0d02@10', '0050.56a1.0d03@10', '0050.56a1.0e01@20', '0050.56a1.0e02@20']; return m; };
 
     const LABS = [
@@ -921,6 +923,46 @@
         verify: ['show ip ospf neighbor', 'show ip ospf interface brief', 'show ip ospf interface g0/0', 'show ip route ospf'],
         learn: ['Brief listesinde yok → network ifadesi.', '"No Hellos (Passive interface)" → pasif.', 'Area / Hello / Dead karşı tarafla aynı olmalı.', 'EXSTART/EXCHANGE → MTU.'],
         links: { tool: '#/cisco-ios/ospf', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/routing' }, cert: 'CCNA 3.4 · ENARSI 1.x'
+    },
+    // ═══ Y3-B: STP kök köprü ═══
+    {
+        id: 'ios-13', vendor: 'cisco-ios', level: 3, title: 'Spanning Tree: kök köprüyü doğru yere taşımak', minutes: 20, kind: 'switch', pre: ['ios-14'],
+        up: ['GigabitEthernet0/1', 'GigabitEthernet0/2', 'GigabitEthernet0/5'],
+        start: ['hostname DSW1', 'vlan 10', 'name KULLANICI', 'vlan 20', 'name SES', 'exit', 'interface g0/1', 'description DSW2', 'switchport mode trunk', 'interface g0/2', 'description ASW-KAT3', 'switchport mode trunk', 'interface g0/5', 'switchport mode access', 'switchport access vlan 10', 'spanning-tree portfast'],
+        variants: [
+            { key: 'a', blk: 'none', expPri: '24576', sim: { stp: stpTri('0050.56b1.0020', 32768) } },
+            { key: 'b', blk: 'g0/1', expPri: '24576', sim: { stp: stpTri('0050.56b1.0008', 32768) } },
+            { key: 'c', blk: 'none', expPri: '20480', sim: { stp: stpTri('0050.56b1.0020', 24576) } },
+        ],
+        story: 'Dağıtım katmanı DSW1 ve DSW2 yeni kuruldu. Ancak kat 3\'teki <b>en eski</b> erişim switch\'i ASW, kimse ayar yapmadığı için VLAN\'ların <b>kök köprüsü</b> olmuş: trafik gereksiz yere eski switch üzerinden dolaşıyor. DSW1\'i VLAN 10 ve 20 için kök yapın ve hızlı yakınsama için Rapid PVST+\'a geçin. <small>Her turda komşuların MAC\'i ve önceliği farklı — "Yeni tur".</small>',
+        lesson: L('Spanning Tree döngüleri önlemek için bir <b>kök köprü</b> seçer ve kökten uzak, gereksiz yolları bloklar. Kök = en düşük <b>Bridge ID</b>: önce öncelik (varsayılan 32768 + VLAN no), eşitse en düşük MAC. Ayar yapılmazsa genelde en eski (en düşük MAC\'li) switch kök olur. Her switch köke en ucuz yolu <b>kök port</b> yapar (1G maliyeti 4); her segmentte köke daha yakın olan taraf <b>designated</b>, diğeri <b>alternate/blocking</b> olur.',
+            'Kök, trafiğin aktığı ağacın merkezidir. Kök yanlış yerde (eski, yavaş bir erişim switch\'i) olursa tüm VLAN trafiği o switch\'ten geçer, darboğaz ve gereksiz blok oluşur. Kökü tasarımla belirlemek (dağıtım/çekirdek) CCNA\'nın temel kurallarındandır. <code>root primary</code> önceliği 24576\'ya, mevcut kök daha düşükse kökün 4096 altına çeker.',
+            'show spanning-tree vlan 10\nshow spanning-tree root\n!\nspanning-tree mode rapid-pvst\nspanning-tree vlan 10,20 root primary\n! ya da elle: spanning-tree vlan 10,20 priority 24576',
+            ['Önceliği 4096\'nın katı olmayan bir değer yapmak (reddedilir).', 'Önceliği 0 yapıp yedek dağıtım switch\'ine yer bırakmamak.', 'Kökü değiştirip hangi portun bloklandığını kontrol etmemek.']),
+        goals: ['Kök köprüyü ve kök portu okumak', 'Bloklu portu bulmak', 'root primary / priority', 'Rapid PVST+'],
+        tasks: [
+            { t: 'VLAN 10\'un ağacına bakın: kök köprü kim?', ask: { choices: [['asw', 'ASW (eski kat switch\'i, en düşük MAC)'], ['dsw1', 'DSW1 (bu switch)'], ['dsw2', 'DSW2']], correct: 'asw' },
+              why: '"Root ID" bölümündeki adres bu switch\'in kendi adresi (Bridge ID) değilse kök başkasıdır; "Port" satırı köke giden kök portu gösterir. Açıklaması ASW olan port kök yönüdür.', hints: ['show spanning-tree vlan 10', 'Root ID Address ≠ Bridge ID Address; Port satırı hangi arayüz?'],
+              steps: ['show spanning-tree vlan 10', { answer: 0, v: 'asw' }], from: 'priv' },
+            { t: 'Bu switch\'te bloklu (Altn BLK) port var mı?', ask: { choices: [['g0/1', 'Gi0/1 (DSW2 yönü)'], ['g0/2', 'Gi0/2 (ASW yönü)'], ['none', 'Bu switch\'te bloklu port yok']], correct: v => v.blk },
+              why: 'DSW1–DSW2 bağlantısında ikisi de köke aynı uzaklıktaysa (4), Bridge ID\'si düşük olan designated olur; diğer uçtaki port bloklanır. Blok bu switch\'te değilse karşı taraftadır.', hints: ['Role/Sts sütunları', 'Altn BLK arayın'],
+              steps: v => ['show spanning-tree vlan 10', { answer: 1, v: v.blk }], from: 'priv', needs: [0] },
+            { t: 'DSW1\'i VLAN 10 ve 20 için kök yapın (<code>root primary</code>).', why: 'Makro, önceliği mevcut köke göre hesaplar: kök 24576\'dan büyükse 24576, değilse kökün 4096 altı. Sonuç running-config\'e <code>priority</code> olarak yazılır.',
+              hints: ['spanning-tree vlan … root primary', '<code>spanning-tree vlan 10,20 root primary</code>'], steps: ['spanning-tree vlan 10,20 root primary'],
+              check: s => [10, 20].every(v => s.stp(v) && s.stp(v).root.id === 'self'),
+              fb: s => { if ([10, 20].some(v => s.stpPri(v) === 0)) return 'Çalışır ama öncelik 0 en düşük değerdir: DSW2\'yi yedek kök yapmak için alan kalmaz. root primary ya da 24576 tercih edin.'; if (s.stp(10) && s.stp(10).root.id === 'self' && !(s.stp(20) && s.stp(20).root.id === 'self')) return 'VLAN 20 de dahil olmalı.'; return null; } },
+            { t: 'Makro önceliği kaç yaptı?', ask: { choices: [['24576', '24576'], ['20480', '20480'], ['32768', '32768'], ['0', '0']], correct: v => v.expPri },
+              why: 'Kök önceliği 24576\'dan büyükse makro 24576 yazar; biri eski switch\'e zaten 24576 verdiyse makro bir adım (4096) aşağı iner: 20480.', hints: ['show running-config | include spanning-tree vlan', 'Ya da Bridge ID satırındaki "priority".'],
+              steps: v => ['show running-config | include spanning-tree vlan', { answer: 3, v: v.expPri }], from: 'priv', needs: [2] },
+            { t: 'Hızlı yakınsama: Rapid PVST+\'a geçin ve sonucu görün.', why: 'Klasik PVST+ bir bağlantı değişiminde 30–50 sn bekler; Rapid PVST+ (802.1w) saniyeler içinde yakınsar. Çıktıda protokol "rstp" olur.',
+              hints: ['spanning-tree mode', '<code>spanning-tree mode rapid-pvst</code> → <code>do show spanning-tree vlan 10</code>'], steps: ['spanning-tree mode rapid-pvst', 'do show spanning-tree vlan 10'],
+              check: s => s.model.stpMode === 'rapid-pvst' && s.ev.after(/^spanning-tree mode rapid-pvst$/, /show spanning-tree( vlan 10)?$/) },
+            { t: 'Kaydedin.', why: 'Kök ayarı kaydedilmezse reload sonrası eski switch yeniden kök olur.', hints: ['write', '<code>wr</code>'], steps: ['write memory'], from: 'priv', needs: [2, 4],
+              check: s => s.saved() && [10, 20].every(v => s.stp(v).root.id === 'self') && s.model.stpMode === 'rapid-pvst' },
+        ],
+        verify: ['show spanning-tree vlan 10', 'show spanning-tree root', 'show running-config | include spanning-tree'],
+        learn: ['Kök = en düşük öncelik, eşitse en düşük MAC.', 'Öncelik 4096\'nın katı; VLAN no eklenir (sys-id-ext).', 'root primary: 24576 ya da kökün 4096 altı.', 'Kök port köke en ucuz yol; segmentte köke uzak olan bloklar.', 'Rapid PVST+ hızlı yakınsar.'],
+        links: { tool: '#/cisco-ios/stp', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/l2' }, cert: 'CCNA 2.5'
     },
     // ═══ Serbest terminal ══════════════════════════════════════════════════
     { id: 'ios-sandbox-sw', vendor: 'cisco-ios', level: null, sandbox: true, title: 'Serbest terminal — Switch', kind: 'switch', up: P(1, 4),
