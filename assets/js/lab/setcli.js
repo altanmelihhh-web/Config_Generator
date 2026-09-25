@@ -88,6 +88,16 @@ const CgLabSetCli = (() => {
         prefix: s => { const p = pfx(s); return p ? p.ip + '/' + p.len : null; },
         host: s => { const p = pfx(s); return p ? p.ip + '/' + p.len : null; },
         jif: s => (/^(ge|xe|et)-\d{1,2}\/\d{1,2}\/\d{1,2}$|^(lo0|irb|vlan|st0|fxp0|em0|ae\d{1,2})$/.test(s) ? s : null),
+        jifx: s => (VT.jif(s) || VT.jifl(s)),
+        mac: s => (/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(s) ? s.toLowerCase() : null),
+        area: s => (/^\d{1,10}$/.test(s) && +s <= 4294967295 ? n2ip(+s) : isIp(s) ? s : null),
+        vrid: s => (/^\d{1,3}$/.test(s) && +s <= 255 ? String(+s) : null),
+        prio: s => (/^\d{1,3}$/.test(s) && +s >= 1 && +s <= 254 ? String(+s) : null),
+        cnt: s => (/^\d{1,3}$/.test(s) && +s >= 1 && +s <= 128 ? String(+s) : null),
+        maclim: s => (/^\d{1,6}$/.test(s) && +s >= 1 && +s <= 131071 ? String(+s) : null),
+        secs: s => (/^\d{1,5}$/.test(s) && +s >= 1 && +s <= 65535 ? String(+s) : null),
+        jport: s => (/^(ssh|telnet|http|https|snmp|ntp|domain|bgp|ftp|smtp|syslog|tacacs|radius|bootps|bootpc|ldp)$/.test(s) ? s : portsOk(s.replace(/-/g, '-')) && !s.includes(',') ? s : null),
+        file: s => (/^[\w./\-]{1,200}$/.test(s) && !/\.\./.test(s) ? s : null),
         jifl: s => (/^((ge|xe|et)-\d{1,2}\/\d{1,2}\/\d{1,2}|lo0|irb|vlan|st0|ae\d{1,2})\.\d{1,5}$/.test(s) && +s.split('.').pop() <= 16385 ? s : null),
         unit: s => (/^\d{1,5}$/.test(s) && +s <= 16385 ? String(+s) : null),
         vid: s => (/^\d{1,4}$/.test(s) && +s >= 1 && +s <= 4094 ? String(+s) : null),
@@ -103,7 +113,7 @@ const CgLabSetCli = (() => {
         if (Array.isArray(ty)) { const r = pick(s, ty); return r.ok || null; }
         const f = VT[ty]; return f ? f(String(s)) : null;
     };
-    const VLABEL = { word: '<değer>', name: '<ad>', str: '<metin>', ip: '<A.B.C.D>', prefix: '<A.B.C.D/uz>', host: '<A.B.C.D[/uz]>', jif: '<arayüz>', jifl: '<arayüz.birim>', unit: '<0-16385>', vid: '<1-4094>', pref: '<tercih>', port: '<1-65535>', ports: '<port[-port]>', metric: '<0-65535>', adist: '<10-240>', pif: '<ethernetX/Y>', paddr: '<ad|IP/uz>' };
+    const VLABEL = { jifx: '<arayüz[.birim]>', mac: '<xx:xx:xx:xx:xx:xx>', area: '<alan-kimliği>', vrid: '<0-255>', prio: '<1-254>', cnt: '<1-128>', maclim: '<1-131071>', secs: '<saniye>', jport: '<port|ad>', file: '<dosya>', word: '<değer>', name: '<ad>', str: '<metin>', ip: '<A.B.C.D>', prefix: '<A.B.C.D/uz>', host: '<A.B.C.D[/uz]>', jif: '<arayüz>', jifl: '<arayüz.birim>', unit: '<0-16385>', vid: '<1-4094>', pref: '<tercih>', port: '<1-65535>', ports: '<port[-port]>', metric: '<0-65535>', adist: '<10-240>', pif: '<ethernetX/Y>', paddr: '<ad|IP/uz>' };
 
     // ── Şema kurucuları
     //  K: kapsayıcı · L: adlı liste (örnekler) · V: değer · F: bayrak · KV: ad+değer eşlemesi · PW: parola istemi
@@ -116,6 +126,8 @@ const CgLabSetCli = (() => {
     const F = (d, o) => Object.assign({ t: 'f', d: d || '' }, o || {});
     const KV = (key, v, d) => ({ t: 'kv', key, v, d: d || '' });
     const PW = (d) => ({ t: 'pw', d: d || '' });
+    // KB: çıplak değerli kapsayıcı — "interface-mac-limit { 1; packet-action shutdown; }" (değer '_' yaprağında)
+    const KB = (bare, bd, c, d, o) => K(Object.assign({ _: V(bare, bd) }, c), d, Object.assign({ bare }, o || {}));
 
     // ── Ağaç: Map (kapsayıcı/örnek) · dizi (çok değerli) · string (değer) · true (bayrak)
     const clone = n => n instanceof Map ? new Map([...n].map(([k, v]) => [k, clone(v)])) : Array.isArray(n) ? n.slice() : n;
@@ -133,7 +145,7 @@ const CgLabSetCli = (() => {
         for (let i = 0; i < path.length; i++) {
             const ch = s.c[path[i]];
             if (!ch) return null;
-            if (ch.t === 'l') { i++; }
+            if (ch.t === 'l') { i++; if (ch.x && i < path.length && ch.x[path[i]]) { s = ch.x[path[i]]; i++; continue; } }
             s = ch;
         }
         return s;
@@ -149,16 +161,32 @@ const CgLabSetCli = (() => {
         while (i < toks.length) {
             const tk = toks[i];
             if (tk.sym) return { err: 'invalid', at: i };
-            const keys = Object.keys(sch.c).filter(k => !allow || allow(k, sch, path));
+            const keys = Object.keys(sch.c).filter(k => k !== '_' && (!allow || allow(k, sch, path)));
             const r = pick(tk.t, keys);
             if (!r.ok) {
                 if (r.err !== 'amb' && sch.u && pick(tk.t, sch.u).ok) return { err: 'unsupported', at: i, word: pick(tk.t, sch.u).ok };
                 return { err: r.err === 'amb' ? 'amb' : 'invalid', at: i, hits: r.hits, sch };
             }
             const kw = r.ok, ch = sch.c[kw];
-            if (ch.t === 'c') { path.push(kw); sch = ch; i++; end = 'c'; last = 'node'; continue; }
+            if (ch.t === 'c') {
+                path.push(kw); sch = ch; i++; end = 'c'; last = 'node';
+                // çıplak değerli kapsayıcı (ör. interface-mac-limit 1 packet-action …): ilk belirteç alt anahtar değilse değer
+                if (ch.bare && i < toks.length && !toks[i].sym && !pick(toks[i].t, Object.keys(ch.c).filter(k => k !== '_')).ok) {
+                    const bv = vcheck(ch.bare, toks[i].t); if (bv === null) return { err: 'value', at: i, sch: ch.c._ };
+                    leaves.push({ kw: '_', sch: ch.c._, at: path.slice(), vals: [bv] }); i++; last = 'leaf';
+                }
+                continue;
+            }
             if (ch.t === 'l') {
                 path.push(kw); i++; last = 'node';
+                // listenin ek anahtar kelimeli alt listesi (ör. interfaces interface-range <ad>)
+                if (ch.x && i < toks.length && !toks[i].sym && ch.x[toks[i].t]) {
+                    const xl = ch.x[toks[i].t]; path.push(toks[i].t); i++;
+                    if (i >= toks.length) { end = 'list'; sch = xl; if (help) return { ok: true, path, sch: xl, end, leaves, need: { kind: 'inst', sch: xl } }; break; }
+                    const xv = vcheck(xl.key, toks[i].t);
+                    if (xv === null || toks[i].sym) return { err: 'value', at: i, sch: xl };
+                    path.push(xv); sch = xl; i++; end = 'inst'; continue;
+                }
                 if (i >= toks.length) { end = 'list'; sch = ch; if (help) return { ok: true, path, sch: ch, end, leaves, need: { kind: 'inst', sch: ch } }; break; }
                 const nv = vcheck(ch.key, toks[i].t);
                 if (nv === null || toks[i].sym) return { err: 'value', at: i, sch: ch };
@@ -204,7 +232,10 @@ const CgLabSetCli = (() => {
             const ch = s.c[path[i]];
             if (ch.grp) for (const k of [...n.keys()]) if (k !== path[i] && s.c[k] && s.c[k].grp === ch.grp) n.delete(k);
             n = kids(n, path[i]);
-            if (ch.t === 'l') { i++; if (i < path.length) n = kids(n, path[i]); }
+            if (ch.t === 'l') {
+                i++; if (i < path.length) n = kids(n, path[i]);
+                if (ch.x && i < path.length && ch.x[path[i]]) { s = ch.x[path[i]]; i++; if (i < path.length) n = kids(n, path[i]); continue; }
+            }
             s = ch;
         }
         return n;
@@ -217,7 +248,7 @@ const CgLabSetCli = (() => {
             if (ch.t === 'f') n.set(lf.kw, true);
             else if (ch.t === 'v') {
                 if (ch.multi) { const a = Array.isArray(n.get(lf.kw)) ? n.get(lf.kw) : []; lf.vals.forEach(v => { if (!a.includes(v)) a.push(v); }); n.set(lf.kw, a); }
-                else n.set(lf.kw, lf.vals[lf.vals.length - 1]);
+                else n.set(lf.kw, ch.enc9 && !/^\$9\$/.test(lf.vals[lf.vals.length - 1]) ? '$9$' + C.fakeHash(lf.vals[lf.vals.length - 1] + '#9', 22) : lf.vals[lf.vals.length - 1]);
             } else if (ch.t === 'kv') kids(n, lf.kw).set(lf.name, lf.vals[0]);
         }
     }
@@ -227,18 +258,24 @@ const CgLabSetCli = (() => {
         for (let i = 0; i < path.length; i++) {
             const ch = s.c && s.c[path[i]];
             if (!ch) { r.push('?'); break; }
-            if (ch.t === 'l') { r.push('lk'); i++; if (i < path.length) r.push('inst'); s = ch; }
+            if (ch.t === 'l') {
+                r.push('lk'); i++;
+                if (ch.x && i < path.length && ch.x[path[i]]) { r.push('lk'); s = ch.x[path[i]]; i++; if (i < path.length) r.push('inst'); continue; }
+                if (i < path.length) r.push('inst'); s = ch;
+            }
             else if (ch.t === 'c') { r.push('c'); s = ch; }
             else { r.push('leaf'); break; }
         }
         return r;
     }
     // Bir yolun "içeriği" için ifade listesi / set satırları (yol liste adıyla bitebilir: show interfaces)
+    const ia0 = cfg => cfg.ia;
     function stmtsAt(root, cfg, path, style) {
         const ro = roles(root, path), node = path.length ? getIn(cfg.t, path) : cfg.t;
         if (node === undefined) return [];
         if (ro[ro.length - 1] === 'lk') {
             const par = schAt(root, path.slice(0, -1)), kw = path[path.length - 1];
+            if (par && par.t === 'l' && par.x && par.x[kw]) { const r = []; for (const [rn, ri] of node) r.push(...instStmts(root, par.x[kw], kw, rn, ri, path, ia0(cfg), style)); return r; }
             const st = stmts(root, par, new Map([[kw, node]]), path.slice(0, -1), cfg.ia, style);
             return par.c[kw].wrap || style.wrapAll ? (st[0] ? st[0].kids : []) : st;
         }
@@ -248,6 +285,7 @@ const CgLabSetCli = (() => {
     function setLinesAt(root, cfg, path, style) {
         const ro = roles(root, path), node = path.length ? getIn(cfg.t, path) : cfg.t;
         if (node === undefined) return [];
+        if (ro[ro.length - 1] === 'lk') { const par = schAt(root, path.slice(0, -1)), kw = path[path.length - 1]; if (par && par.t === 'l' && par.x && par.x[kw]) { const r = []; for (const [rn, ri] of node) { const q = path.concat([rn]); if (!ri.size) r.push('set ' + q.join(' ')); else setLines(root, par.x[kw], ri, q, cfg.ia, style, r); } return r; } }
         if (ro[ro.length - 1] === 'lk' || !(node instanceof Map)) { const par = schAt(root, path.slice(0, -1)); return setLines(root, par, new Map([[path[path.length - 1], node]]), path.slice(0, -1), cfg.ia, style); }
         return setLines(root, schAt(root, path), node, path, cfg.ia, style);
     }
@@ -286,6 +324,8 @@ const CgLabSetCli = (() => {
 
     // Kapsayıcı çocukları şema sırasıyla (Junos/PAN-OS gösterimi kanonik sıradadır); liste örnekleri eklenme sırasıyla
     const natCmp = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: true });
+    // liste örnekleri: ek anahtar kelimeli (x) örnekler önce, sonra (sort ise) doğal sıra
+    const sortInst = (ch, v) => { const a = [...v]; if (ch.sort) a.sort((p, q) => natCmp(p[0], q[0])); if (ch.x) a.sort((p, q) => (ch.x[q[0]] ? 1 : 0) - (ch.x[p[0]] ? 1 : 0)); return a; };
     const ordered = (sch, node) => (sch && sch.c ? Object.keys(sch.c).filter(k => node.has(k)).map(k => [k, node.get(k)]) : [...node]);
     // ── Gösterim: ifade ağacı (render + diff aynı yapıdan)
     // stmt: {id, text, kids|null, ia, key}
@@ -298,10 +338,14 @@ const CgLabSetCli = (() => {
             if (ch.t === 'c') out.push({ id: k, text: k, kids: stmts(root, ch, v, p, ia, style), ia: iaHere, key: p.join(' ') });
             else if (ch.t === 'l') {
                 const insts = [];
-                for (const [nm, inst] of (ch.sort ? [...v].sort((a, b) => natCmp(a[0], b[0])) : v)) insts.push(...instStmts(root, ch, k, nm, inst, p, ia, style));
+                for (const [nm, inst] of sortInst(ch, v)) {
+                    if (ch.x && ch.x[nm]) { for (const [rn, ri] of inst) insts.push(...instStmts(root, ch.x[nm], k + ' ' + nm, rn, ri, p.concat([nm]), ia, style)); continue; }
+                    insts.push(...instStmts(root, ch, k, nm, inst, p, ia, style));
+                }
                 if (ch.wrap || style.wrapAll) out.push({ id: k, text: k, kids: insts.map(s => Object.assign(s, { text: s.text.slice(k.length + 1), id: s.id.slice(k.length + 1) })), ia: iaHere, key: p.join(' ') });
                 else out.push(...insts);
-            } else if (ch.t === 'v') {
+            } else if (ch.t === 'v' && k === '_') out.push({ id: '_', text: qv(Array.isArray(v) ? v[0] : v) + ';', kids: null, ia: iaHere, key: p.join(' ') });
+            else if (ch.t === 'v') {
                 const sec = ch.secret && style.secret ? ' ' + style.secret : '';
                 if (ch.multi && Array.isArray(v)) {
                     if (ch.multi === 'each' && !style.brackAll) v.forEach(x => out.push({ id: k + ' ' + x, text: k + ' ' + qv(x) + ';', kids: null, ia: ia.has(p.concat([x]).join(' ')), key: p.concat([x]).join(' ') }));
@@ -367,7 +411,11 @@ const CgLabSetCli = (() => {
             const ch = sch.c[k]; if (!ch) continue;
             const p = pre.concat([k]);
             if (ch.t === 'c') { if (!v.size) out.push('set ' + p.join(' ')); else setLines(root, ch, v, p, ia, style, out); }
-            else if (ch.t === 'l') for (const [nm, inst] of (ch.sort ? [...v].sort((a, b) => natCmp(a[0], b[0])) : v)) { const q = p.concat([nm]); if (!inst.size) out.push('set ' + q.join(' ')); else setLines(root, ch, inst, q, ia, style, out); }
+            else if (ch.t === 'l') for (const [nm, inst] of sortInst(ch, v)) {
+                if (ch.x && ch.x[nm]) { for (const [rn, ri] of inst) { const q = p.concat([nm, rn]); if (!ri.size) out.push('set ' + q.join(' ')); else setLines(root, ch.x[nm], ri, q, ia, style, out); } continue; }
+                const q = p.concat([nm]); if (!inst.size) out.push('set ' + q.join(' ')); else setLines(root, ch, inst, q, ia, style, out);
+            }
+            else if (ch.t === 'v' && k === '_') out.push('set ' + pre.join(' ') + ' ' + Q(Array.isArray(v) ? v[0] : v));
             else if (ch.t === 'v') {
                 if (Array.isArray(v)) { if (style.brackSet && v.length > 1) out.push('set ' + p.join(' ') + ' [ ' + v.map(Q).join(' ') + ' ]'); else v.forEach(x => out.push('set ' + p.join(' ') + ' ' + Q(x))); }
                 else out.push('set ' + p.join(' ') + ' ' + (ch.secret ? '"' + v + '"' : Q(v)));
@@ -377,6 +425,32 @@ const CgLabSetCli = (() => {
         return out;
     }
     // Pasif (inactive) yolları çıkarılmış etkin ağaç
+    // interface-range yapılandırmasını üye arayüzlere yay (üyenin kendi ayarı önceliklidir)
+    function deepMerge(a, b) {
+        if (!(b instanceof Map)) return a;
+        for (const [k, v] of b) { const x = a.get(k); if (x instanceof Map && v instanceof Map) a.set(k, deepMerge(x, v)); else if (Array.isArray(x) && Array.isArray(v)) a.set(k, [...new Set(x.concat(v))]); else a.set(k, clone(v)); }
+        return a;
+    }
+    function rangeMembers(ro) {
+        const mem = [];
+        for (const [a, ao] of (ro.get('member-range') || new Map())) {
+            const b = (ao instanceof Map && ao.get('to')) || a, ma = /^(\w+-\d+\/\d+\/)(\d+)$/.exec(a), mb = /^(\w+-\d+\/\d+\/)(\d+)$/.exec(b);
+            if (ma && mb && ma[1] === mb[1] && +mb[2] >= +ma[2]) for (let k = +ma[2]; k <= +mb[2]; k++) mem.push(ma[1] + k); else mem.push(a);
+        }
+        (ro.get('member') || []).forEach(m => { if (!mem.includes(m)) mem.push(m); });
+        return mem;
+    }
+    function expandRanges(t) {
+        const ifs = t.get('interfaces');
+        if (!(ifs instanceof Map) || !ifs.has('interface-range')) return t;
+        const t2 = new Map(t), n = new Map(ifs);
+        n.delete('interface-range'); t2.set('interfaces', n);
+        for (const [, ro] of ifs.get('interface-range')) {
+            const base = new Map([...ro].filter(([k]) => k !== 'member-range' && k !== 'member'));
+            rangeMembers(ro).forEach(m => n.set(m, deepMerge(clone(base), n.get(m))));
+        }
+        return t2;
+    }
     function effective(root, cfg) {
         if (!cfg.ia.size) return cfg.t;
         const t = clone(cfg.t);
@@ -402,8 +476,9 @@ const CgLabSetCli = (() => {
     // ── ? satırları: [işaret, kelime, açıklama]
     function schemaRows(sch, st, allow, path) {
         const rows = [];
+        if (sch.bare) rows.push([' ', VLABEL[sch.bare] || '<değer>', (sch.c._ && sch.c._.d) || '']);
         for (const [k, ch] of Object.entries(sch.c)) {
-            if (allow && !allow(k, sch, path)) continue;
+            if (k === '_' || (allow && !allow(k, sch, path))) continue;
             rows.push([ch.t === 'c' || ch.t === 'l' ? '>' : ch.t === 'v' && ch.multi ? '+' : ' ', k, ch.d || '']);
         }
         return rows.sort((a, b) => a[1].localeCompare(b[1]));
@@ -443,49 +518,111 @@ const CgLabSetCli = (() => {
     };
     const JAPPS = { 'junos-http': ['tcp', 80], 'junos-https': ['tcp', 443], 'junos-ssh': ['tcp', 22], 'junos-dns-udp': ['udp', 53], 'junos-dns-tcp': ['tcp', 53], 'junos-ntp': ['udp', 123], 'junos-ping': ['icmp', 0], 'junos-smtp': ['tcp', 25], 'junos-rdp': ['tcp', 3389] };
     const HISVC = ['all', 'ping', 'ssh', 'https', 'http', 'ike', 'ntp', 'dhcp', 'dns', 'snmp', 'traceroute', 'netconf'];
+    // SSH algoritma listeleri (Junos CLI başvuru: ssh (System Services), key-exchange, macs, ciphers)
+    const SSH_CIPHERS = ['3des-cbc', 'aes128-cbc', 'aes192-cbc', 'aes256-cbc', 'aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'aes128-gcm@openssh.com', 'aes256-gcm@openssh.com', 'arcfour', 'arcfour128', 'arcfour256', 'blowfish-cbc', 'cast128-cbc', 'chacha20-poly1305@openssh.com'];
+    const SSH_MACS = ['hmac-md5', 'hmac-md5-96', 'hmac-md5-etm@openssh.com', 'hmac-md5-96-etm@openssh.com', 'hmac-sha1', 'hmac-sha1-96', 'hmac-sha1-etm@openssh.com', 'hmac-sha1-96-etm@openssh.com', 'hmac-sha2-256', 'hmac-sha2-512', 'hmac-sha2-256-etm@openssh.com', 'hmac-sha2-512-etm@openssh.com', 'umac-64@openssh.com', 'umac-64-etm@openssh.com', 'umac-128@openssh.com', 'umac-128-etm@openssh.com'];
+    const SSH_KEX = ['curve25519-sha256', 'dh-group1-sha1', 'dh-group14-sha1', 'ecdh-sha2-nistp256', 'ecdh-sha2-nistp384', 'ecdh-sha2-nistp521', 'group-exchange-sha1', 'group-exchange-sha2'];
+    // Zayıf sayılan algoritmalar (CBC/RC4/3DES/Blowfish, MD5/SHA-1 MAC, SHA-1 DH)
+    const SSH_WEAK = { ciphers: SSH_CIPHERS.filter(c => /cbc|arcfour|blowfish|cast/.test(c)), macs: SSH_MACS.filter(m => /md5|sha1|umac-64/.test(m)), 'key-exchange': SSH_KEX.filter(k => /sha1/.test(k)) };
+    const LOGIN_PERMS = ['admin', 'clear', 'configure', 'control', 'firewall', 'interface', 'maintenance', 'network', 'reset', 'routing', 'security', 'shell', 'system', 'trace', 'view', 'view-configuration', 'all'];
+    const STP_PRIO = ['0', '4k', '8k', '12k', '16k', '20k', '24k', '28k', '32k', '36k', '40k', '44k', '48k', '52k', '56k', '60k'];
+    const JPORTS = { ssh: 22, telnet: 23, http: 80, https: 443, snmp: 161, ntp: 123, domain: 53, bgp: 179, ftp: 21, smtp: 25, syslog: 514, tacacs: 49, radius: 1812, bootps: 67, bootpc: 68, ldp: 646 };
     function junosSchema(plat) {
         const vlanRef = st => [...(getIn(st.cand.t, ['vlans']) || new Map()).keys()];
         const zoneRef = st => [...(getIn(st.cand.t, ['security', 'zones', 'security-zone']) || new Map()).keys()];
         const abRef = st => ['any', 'any-ipv4'].concat([...(getIn(st.cand.t, ['security', 'address-book', 'global', 'address']) || new Map()).keys()]);
         const appRef = st => ['any'].concat(Object.keys(JAPPS), [...(getIn(st.cand.t, ['applications', 'application']) || new Map()).keys()]);
-        const iflRef = st => { const r = []; for (const [n, i] of (getIn(st.cand.t, ['interfaces']) || new Map())) for (const u of (i.get('unit') || new Map()).keys()) r.push(n + '.' + u); return r; };
-        const ifRef = st => [...(getIn(st.cand.t, ['interfaces']) || new Map()).keys()];
+        const iflRef = st => { const r = []; for (const [n, i] of (getIn(st.cand.t, ['interfaces']) || new Map())) if (n !== 'interface-range') for (const u of (i.get('unit') || new Map()).keys()) r.push(n + '.' + u); return r; };
+        const ifRef = st => ['interface-range'].concat([...(getIn(st.cand.t, ['interfaces']) || new Map()).keys()].filter(n => n !== 'interface-range'));
+        const classRef = st => ['super-user', 'operator', 'read-only', 'unauthorized'].concat([...(getIn(st.cand.t, ['system', 'login', 'class']) || new Map()).keys()]);
+        const filterRef = st => [...(getIn(st.cand.t, ['firewall', 'family', 'inet', 'filter']) || new Map()).keys()];
         const pwc = () => ({ 'encrypted-password': V('str', 'Şifrelenmiş parola (hash)', { secret: true }), 'plain-text-password': PW('Parolayı açık metin olarak girin (istem ile)') });
+        const aaaSrv = (tac) => Object.assign({ secret: V('str', 'Paylaşılan gizli anahtar', { secret: true, enc9: true }), port: V('port', tac ? 'TCP portu (varsayılan 49)' : 'UDP portu (varsayılan 1812)'), timeout: V('secs', 'Yanıt bekleme süresi (sn)'), 'source-address': V('ip', 'İstekler için kaynak adres') },
+            tac ? { 'single-connection': F('Tek TCP bağlantısı üzerinden çoklu istek') } : { retry: V('cnt', 'Yeniden deneme sayısı') });
+        const ethOpts = (d) => K({ 'auto-negotiation': F('Otomatik anlaşma (varsayılan)', { grp: 'an' }), 'no-auto-negotiation': F('Otomatik anlaşmayı kapat', { grp: 'an' }), '802.3ad': V('jif', 'Üyesi olacağı toplu arayüz (aeN)') }, d, { u: ['flow-control', 'no-flow-control', 'loopback', 'mdi-mode', 'redundant-parent'] });
+        const unitSch = L('unit', {
+            description: V('str', 'Açıklama'),
+            disable: F('Birimi kapat'),
+            family: K({
+                inet: K({
+                    address: L('prefix', {
+                        'vrrp-group': L('vrid', { 'virtual-address': V('ip', 'Sanal (ağ geçidi) adres', { multi: 'brack' }), priority: V('prio', 'Öncelik (varsayılan 100)'), preempt: F('Yüksek öncelik geri gelince yeniden master ol', { grp: 'pre' }), 'no-preempt': F('Geri alma yapma', { grp: 'pre' }), 'accept-data': F('Sanal adrese gelen ping/yönetim paketlerini kabul et') }, 'VRRP grubu', { u: ['track', 'advertise-interval', 'authentication-type', 'authentication-key', 'fast-interval'] }),
+                        primary: F('Birincil adres'), preferred: F('Tercihli adres'),
+                    }, 'IPv4 adresi/önek uzunluğu'),
+                    filter: K({ input: V('name', 'Gelen yönde uygulanacak süzgeç', { ref: filterRef }), output: V('name', 'Giden yönde uygulanacak süzgeç', { ref: filterRef }) }, 'Güvenlik süzgeci (firewall filter)', { u: ['input-list', 'output-list'] }),
+                }, 'IPv4', { pres: true, u: ['mtu', 'dhcp', 'sampling', 'rpf-check', 'targeted-broadcast'] }),
+                'ethernet-switching': K({
+                    'interface-mode': V(['access', 'trunk'], 'Port modu'),
+                    vlan: K({ members: V('word', 'VLAN adı(ları)', { multi: 'brack', ref: vlanRef }) }, 'VLAN üyeliği'),
+                    'recovery-timeout': V('secs', 'Port güvenliği kapatmasından otomatik kurtarma (sn)'),
+                }, 'Katman 2 anahtarlama', { pres: true, u: ['native-vlan-id', 'storm-control', 'filter'] }),
+            }, 'Protokol ailesi', { u: ['inet6', 'mpls', 'iso'] }),
+        }, 'Mantıksal birim', { ref: st => ['0'], sort: true });
+        const physC = {
+            description: V('str', 'Açıklama'),
+            disable: F('Arayüzü yönetsel olarak kapat'),
+            mtu: V('metric', 'Çerçeve boyutu (MTU)'),
+            speed: V(['10m', '100m', '1g', '10g'], 'Bağlantı hızı'),
+            'link-mode': V(['automatic', 'full-duplex', 'half-duplex'], 'Dupleks modu'),
+            'ether-options': ethOpts('Ethernet seçenekleri (EX/SRX)'),
+            unit: unitSch,
+        };
+        if (plat === 'mx') { delete physC['ether-options']; physC['gigether-options'] = ethOpts('Gigabit Ethernet seçenekleri (MX)'); }
+        const intfSch = L('jif', Object.assign({}, physC, {
+            'aggregated-ether-options': K({ lacp: K({ active: F('LACP etkin mod (PDU gönderir)', { grp: 'la' }), passive: F('LACP pasif mod (yalnız yanıt verir)', { grp: 'la' }), periodic: V(['fast', 'slow'], 'LACPDU aralığı') }, 'LACP', { pres: true }), 'minimum-links': V('cnt', 'Toplu arayüzün up kalması için en az üye') }, 'Toplu arayüz (aeN) seçenekleri', { u: ['link-speed', 'load-balance'] }),
+        }), 'Arayüzler', { wrap: true, ref: ifRef, sort: true });
+        intfSch.x = { 'interface-range': L('name', Object.assign({ 'member-range': L('jif', { to: V('jif', 'Aralığın son arayüzü') }, 'Arayüz aralığı: <ilk> to <son>', { compact: true }), member: V('jif', 'Tek üye arayüz', { multi: 'each' }) }, physC), 'Toplu arayüz yapılandırması (interface-range)') };
         const root = K({
             system: K({
                 'host-name': V('word', 'Cihaz adı'),
                 'time-zone': V('word', 'Saat dilimi (ör. Europe/Istanbul)'),
                 'root-authentication': K(pwc(), 'root kullanıcısının kimlik doğrulaması'),
+                'authentication-order': V(['radius', 'tacplus', 'password'], 'Kimlik doğrulama yöntem sırası', { multi: 'brack' }),
+                'radius-server': L('ip', aaaSrv(false), 'RADIUS sunucusu', { sort: true }),
+                'tacplus-server': L('ip', aaaSrv(true), 'TACACS+ sunucusu', { sort: true }),
+                accounting: K({ events: V(['login', 'change-log', 'interactive-commands'], 'Kaydedilecek olaylar', { multi: 'brack' }), destination: K({ tacplus: K({}, 'TACACS+ sunucularına', { pres: true }), radius: K({}, 'RADIUS sunucularına', { pres: true }) }, 'Hedef') }, 'Hesap kaydı (accounting)'),
                 login: K({
+                    class: L('name', { permissions: V(LOGIN_PERMS, 'İzin bayrakları', { multi: 'brack' }), 'idle-timeout': V('metric', 'Boşta kalma zaman aşımı (dk)'), 'allow-commands': V('str', 'İzinli komut deseni (regex)'), 'deny-commands': V('str', 'Yasak komut deseni (regex)') }, 'Özel yetki sınıfı', { ref: st => [...(getIn(st.cand.t, ['system', 'login', 'class']) || new Map()).keys()] }),
                     user: L('name', {
-                        class: V(['super-user', 'operator', 'read-only', 'unauthorized'], 'Yetki sınıfı'),
+                        class: V('name', 'Yetki sınıfı', { ref: classRef }),
                         'full-name': V('str', 'Tam ad'),
-                        authentication: K(pwc(), 'Kimlik doğrulama yöntemleri'),
-                    }, 'Yerel kullanıcı hesabı', { ref: st => [...(getIn(st.cand.t, ['system', 'login', 'user']) || new Map()).keys()] }),
-                    message: V('str', 'Oturum açma iletisi'),
-                }, 'Kullanıcılar ve sınıflar', { u: ['class', 'retry-options', 'password', 'announcement'] }),
+                        authentication: K(pwc(), 'Kimlik doğrulama yöntemleri', { u: ['ssh-rsa', 'ssh-ecdsa', 'ssh-ed25519'] }),
+                    }, 'Yerel kullanıcı hesabı (remote = uzak kullanıcılar için şablon)', { ref: st => ['remote'].concat([...(getIn(st.cand.t, ['system', 'login', 'user']) || new Map()).keys()]) }),
+                    message: V('str', 'Oturum açma iletisi (banner)'),
+                    'retry-options': K({ 'tries-before-disconnect': V(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'], 'Bağlantı kesilmeden önce hatalı deneme sayısı'), 'backoff-threshold': V(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'], 'Gecikme başlamadan önceki hatalı deneme'), 'lockout-period': V('metric', 'Hesap kilitleme süresi (dk)') }, 'Hatalı giriş denemesi seçenekleri'),
+                }, 'Kullanıcılar ve sınıflar', { u: ['password', 'announcement', 'deny-sources'] }),
                 services: K({
-                    ssh: K({ 'root-login': V(['allow', 'deny', 'deny-password'], 'root ile SSH girişine izin'), 'connection-limit': V('metric', 'Eşzamanlı bağlantı sınırı') }, 'SSH hizmeti', { pres: true }),
+                    ssh: K({
+                        'root-login': V(['allow', 'deny', 'deny-password'], 'root ile SSH girişine izin'),
+                        'protocol-version': V(['v2'], 'SSH protokol sürümü', { multi: 'brack' }),
+                        ciphers: V(SSH_CIPHERS, 'İzinli şifreleme algoritmaları', { multi: 'brack' }),
+                        macs: V(SSH_MACS, 'İzinli MAC algoritmaları', { multi: 'brack' }),
+                        'key-exchange': V(SSH_KEX, 'İzinli anahtar değişimi (KEX) yöntemleri', { multi: 'brack' }),
+                        'client-alive-interval': V('secs', 'İstemci canlılık iletisi aralığı (sn)'),
+                        'client-alive-count-max': V('metric', 'Yanıtsız canlılık iletisi sınırı'),
+                        'max-sessions-per-connection': V('secs', 'Bağlantı başına en çok oturum'),
+                        'connection-limit': V('metric', 'Eşzamanlı bağlantı sınırı'),
+                        'rate-limit': V('metric', 'Dakikada en çok yeni bağlantı'),
+                    }, 'SSH hizmeti', { pres: true, u: ['hostkey-algorithm', 'authentication-order', 'log-key-changes', 'fingerprint-hash', 'sftp-server', 'no-tcp-forwarding'] }),
+                    telnet: K({ 'connection-limit': V('metric', 'Eşzamanlı bağlantı sınırı') }, 'Telnet hizmeti (şifresiz!)', { pres: true }),
+                    ftp: K({}, 'FTP hizmeti (şifresiz!)', { pres: true }),
                     netconf: K({ ssh: K({}, 'NETCONF over SSH', { pres: true }) }, 'NETCONF hizmeti', { pres: true }),
-                }, 'Sistem hizmetleri', { u: ['web-management', 'telnet', 'ftp', 'dhcp-local-server', 'dns', 'rest', 'outbound-ssh'] }),
+                    'web-management': K({
+                        http: K({ port: V('port', 'HTTP portu'), interface: V('jifl', 'Yalnız bu arayüzlerde dinle', { multi: 'brack', ref: iflRef }) }, 'J-Web HTTP (şifresiz)', { pres: true }),
+                        https: K({ port: V('port', 'HTTPS portu'), interface: V('jifl', 'Yalnız bu arayüzlerde dinle', { multi: 'brack', ref: iflRef }), 'system-generated-certificate': F('Cihazın ürettiği sertifika') }, 'J-Web HTTPS', { pres: true, u: ['local-certificate', 'pki-local-certificate'] }),
+                    }, 'J-Web web yönetimi', { pres: true, u: ['session', 'management-url'] }),
+                    'dhcp-local-server': K({ group: L('name', { interface: L('jifl', {}, 'Bu gruptaki DHCP arayüzü', { ref: iflRef }) }, 'DHCP sunucu grubu') }, 'DHCP sunucusu (ELS / MX / SRX)', { u: ['pool-match-order', 'overrides', 'dhcpv6'] }),
+                }, 'Sistem hizmetleri', { u: ['dns', 'rest', 'outbound-ssh', 'extension-service', 'dhcp', 'finger', 'xnm-clear-text'] }),
                 'name-server': L('ip', {}, 'DNS sunucusu', { wrap: true }),
                 ntp: K({ server: L('ip', { prefer: F('Tercih edilen sunucu') }, 'NTP sunucusu') }, 'Zaman eşitleme', { u: ['boot-server', 'authentication-key', 'source-address'] }),
-            }, 'Sistem ayarları', { u: ['syslog', 'archival', 'ports', 'license', 'domain-name', 'location', 'radius-server', 'tacplus-server', 'authentication-order', 'max-configurations-on-flash', 'commit'] }),
-            interfaces: L('jif', {
-                description: V('str', 'Açıklama'),
-                disable: F('Arayüzü yönetsel olarak kapat'),
-                unit: L('unit', {
-                    description: V('str', 'Açıklama'),
-                    disable: F('Birimi kapat'),
-                    family: K({
-                        inet: K({ address: V('prefix', 'IPv4 adresi/önek uzunluğu', { multi: 'each' }) }, 'IPv4', { pres: true, u: ['filter', 'mtu', 'dhcp'] }),
-                        'ethernet-switching': K({
-                            'interface-mode': V(['access', 'trunk'], 'Port modu'),
-                            vlan: K({ members: V('word', 'VLAN adı(ları)', { multi: 'brack', ref: vlanRef }) }, 'VLAN üyeliği'),
-                        }, 'Katman 2 anahtarlama', { pres: true, u: ['native-vlan-id', 'storm-control', 'filter'] }),
-                    }, 'Protokol ailesi', { u: ['inet6', 'mpls', 'iso'] }),
-                }, 'Mantıksal birim', { ref: st => ['0'], sort: true }),
-            }, 'Arayüzler', { wrap: true, ref: ifRef, sort: true }),
+                archival: K({ configuration: K({
+                    'transfer-on-commit': F('Her commit sonrası yapılandırmayı aktar', { grp: 'tx' }),
+                    'transfer-interval': V('metric', 'Belirli aralıkla aktar (dk)', { grp: 'tx' }),
+                    'archive-sites': L('word', { password: V('str', 'Arşiv sunucusu parolası', { secret: true, enc9: true }) }, 'Arşiv hedefi (scp://kullanıcı@sunucu:/dizin, ftp://…)', { wrap: true, compact: true }),
+                }, 'Yapılandırma arşivi') }, 'Otomatik arşivleme'),
+            }, 'Sistem ayarları', { u: ['syslog', 'ports', 'license', 'domain-name', 'location', 'max-configurations-on-flash', 'commit', 'processes', 'scripts', 'static-host-mapping', 'internet-options'] }),
+            chassis: K({ 'aggregated-devices': K({ ethernet: K({ 'device-count': V('cnt', 'Oluşturulacak aeN arayüzü sayısı') }, 'Ethernet toplu arayüzleri') }, 'Toplu arayüz sayısı', { u: ['sonet'] }) }, 'Kasa ayarları', { u: ['alarm', 'fpc', 'cluster', 'redundancy', 'fabric', 'network-services', 'auto-image-upgrade'] }),
+            interfaces: intfSch,
             'routing-options': K({
                 static: K({
                     route: L('prefix', {
@@ -497,14 +634,52 @@ const CgLabSetCli = (() => {
                 }, 'Statik rotalar', { u: ['defaults', 'rib-group'] }),
                 'router-id': V('ip', 'Yönlendirici kimliği'),
             }, 'Yönlendirme seçenekleri', { u: ['autonomous-system', 'rib', 'forwarding-table', 'aggregate', 'generate'] }),
-        }, '', { u: ['protocols', 'firewall', 'policy-options', 'class-of-service', 'chassis', 'snmp', 'groups', 'access', 'forwarding-options', 'routing-instances', 'services', 'event-options', 'poe', 'switch-options', 'protocols', 'apply-groups', 'version'] });
+            protocols: K({
+                ospf: K({
+                    area: L('area', { interface: L('jifl', { passive: F('Komşuluk kurma, yalnız ağı duyur'), metric: V('metric', 'Arayüz maliyeti'), 'hello-interval': V('secs', 'Hello aralığı (varsayılan 10 sn)'), 'dead-interval': V('secs', 'Ölü aralığı (varsayılan 40 sn)'), 'interface-type': V(['p2p', 'nbma', 'p2mp'], 'Ağ tipi') }, 'OSPF\'e katılan arayüz', { ref: iflRef, u: ['authentication', 'bfd-liveness-detection', 'priority', 'retransmit-interval', 'ldp-synchronization'] }) }, 'OSPF alanı', { u: ['stub', 'nssa', 'area-range', 'virtual-link'] }),
+                    'reference-bandwidth': V('word', 'Maliyet hesabı için referans bant genişliği (ör. 10g)'),
+                }, 'OSPFv2', { pres: true, u: ['export', 'import', 'traceoptions', 'overload', 'graceful-restart', 'external-preference', 'preference', 'rib-group'] }),
+            }, 'Yönlendirme ve L2 protokolleri', { u: ['bgp', 'isis', 'mpls', 'ldp', 'lldp', 'lldp-med', 'igmp-snooping', 'mstp', 'vstp', 'stp', 'layer2-control', 'pim', 'sflow', 'router-advertisement', 'oam', 'bfd', 'vrrp', 'ospf3', 'rip', 'dot1x'] }),
+            firewall: K({ family: K({ inet: K({
+                filter: L('name', { term: L('name', {
+                    from: K({
+                        'source-address': L('prefix', { except: F('Bu öneki hariç tut') }, 'Kaynak önek(ler)', { wrap: true, compact: true }),
+                        'destination-address': L('prefix', { except: F('Bu öneki hariç tut') }, 'Hedef önek(ler)', { wrap: true, compact: true }),
+                        protocol: V(['tcp', 'udp', 'icmp', 'ospf', 'vrrp', 'gre', 'esp', 'igmp', 'pim'], 'IP protokolü', { multi: 'brack' }),
+                        'destination-port': V('jport', 'Hedef port (ad ya da numara)', { multi: 'brack' }),
+                        'source-port': V('jport', 'Kaynak port', { multi: 'brack' }),
+                    }, 'Eşleşme koşulları', { u: ['prefix-list', 'source-prefix-list', 'destination-prefix-list', 'tcp-flags', 'tcp-established', 'tcp-initial', 'icmp-type', 'port', 'address', 'fragment-flags', 'ttl'] }),
+                    then: K({ count: V('name', 'Sayaç adı'), log: F('Önbellek logu'), syslog: F('Syslog\'a yaz'), accept: F('Kabul et', { grp: 'fa' }), discard: F('Sessizce at', { grp: 'fa' }), reject: F('ICMP ile reddet', { grp: 'fa' }) }, 'Eylem', { u: ['policer', 'next', 'routing-instance', 'forwarding-class', 'loss-priority', 'sample'] }),
+                }, 'Süzgeç terimi (sırayla değerlendirilir)', { ref: st => { const r = []; for (const [, f] of (getIn(st.cand.t, ['firewall', 'family', 'inet', 'filter']) || new Map())) for (const t of (f.get('term') || new Map()).keys()) r.push(t); return r; } }) }, 'IPv4 süzgeci', { ref: filterRef, u: ['interface-specific'] }),
+            }, 'IPv4', { u: ['prefix-action'] }) }, 'Aile', { u: ['inet6', 'ethernet-switching', 'any', 'mpls'] }) }, 'Güvenlik süzgeçleri (firewall filter)', { u: ['policer', 'filter'] }),
+            access: K({ 'address-assignment': K({ pool: L('name', { family: K({ inet: K({
+                network: V('prefix', 'Havuzun ağı (arayüz alt ağıyla aynı)'),
+                range: L('name', { low: V('ip', 'Aralığın ilk adresi'), high: V('ip', 'Aralığın son adresi') }, 'Dağıtılacak adres aralığı'),
+                'dhcp-attributes': K({ router: L('ip', {}, 'Varsayılan ağ geçidi', { wrap: true }), 'name-server': L('ip', {}, 'DNS sunucusu', { wrap: true }), 'maximum-lease-time': V('pref', 'Kira süresi (sn)'), 'domain-name': V('word', 'Alan adı') }, 'İstemciye verilecek seçenekler', { u: ['option', 'server-identifier', 'boot-file', 'boot-server', 'wins-server'] }),
+            }, 'IPv4 havuzu') }, 'Aile', { u: ['inet6'] }) }, 'Adres havuzu') }, 'Adres atama havuzları', { u: ['neighbor-discovery-router-advertisement'] }) }, 'Erişim / adres atama', { u: ['radius-server', 'profile', 'address-pool'] }),
+        }, '', { u: ['policy-options', 'class-of-service', 'snmp', 'groups', 'forwarding-options', 'routing-instances', 'services', 'event-options', 'poe', 'apply-groups', 'version', 'ethernet-switching-options', 'virtual-chassis'] });
         if (plat !== 'mx') {
-            root.c.vlans = L('name', { 'vlan-id': V('vid', 'VLAN etiketi'), 'l3-interface': V('jifl', 'VLAN\'ın yönlendirme arayüzü (irb.N)'), description: V('str', 'Açıklama') }, 'VLAN tanımları', { wrap: true, ref: vlanRef });
-            root.c.interfaces.c.unit.c.family.c.inet.u.push('dhcp-client');
+            root.c.vlans = L('name', { 'vlan-id': V('vid', 'VLAN etiketi'), 'l3-interface': V('jifl', 'VLAN\'ın yönlendirme arayüzü (irb.N)'), description: V('str', 'Açıklama'),
+                'switch-options': K({ interface: L('jifl', { 'static-mac': V('mac', 'Bu porta sabitlenen MAC adresi', { multi: 'each' }) }, 'VLAN\'daki arayüz', { ref: iflRef }) }, 'VLAN düzeyi anahtarlama seçenekleri (ELS)', { u: ['interface-mac-limit', 'mac-table-size', 'mac-statistics', 'no-mac-learning'] }) }, 'VLAN tanımları', { wrap: true, ref: vlanRef });
+            unitSch.c.family.c.inet.u.push('dhcp-client');
+        }
+        if (plat === 'ex') {
+            root.c['switch-options'] = K({ interface: L('jifx', {
+                'interface-mac-limit': KB('maclim', 'Öğrenilecek en çok MAC sayısı', { 'packet-action': V(['drop', 'drop-and-log', 'log', 'none', 'shutdown'], 'Sınır aşılınca eylem') }, 'Port başına MAC sınırı (port güvenliği)'),
+                'persistent-learning': F('Öğrenilen MAC\'leri kalıcı yap (sticky)'),
+            }, 'Port güvenliği uygulanan arayüz', { ref: iflRef, u: ['mac-move-limit', 'no-mac-learning'] }) }, 'Anahtarlama seçenekleri (ELS)', { u: ['mac-table-size', 'mac-move-limit', 'voip', 'service-id', 'mac-notification'] });
+            root.c.protocols.c.rstp = K({
+                'bridge-priority': V(STP_PRIO, 'Köprü önceliği (düşük olan kök olur; 4k adımlı)'),
+                interface: L('jif', { edge: F('Kenar port (uç cihaz; hemen iletime geçer)'), cost: V('metric', 'Port maliyeti'), priority: V(['0', '16', '32', '48', '64', '80', '96', '112', '128', '144', '160', '176', '192', '208', '224', '240'], 'Port önceliği'), mode: V(['point-to-point', 'shared'], 'Bağlantı tipi') }, 'RSTP arayüz ayarı', { ref: ifRef, u: ['disable', 'no-root-port'] }),
+                'bpdu-block-on-edge': F('Kenar porta BPDU gelirse portu engelle (BPDU koruması)'),
+            }, 'Hızlı Kapsayan Ağaç (RSTP, ELS varsayılanı)', { pres: true, u: ['max-age', 'hello-time', 'forward-delay', 'system-identifier', 'extended-system-id'] });
+            root.c.protocols.c['l2-learning'] = K({ 'global-mac-table-aging-time': V('pref', 'MAC tablosu yaşlanma süresi (sn, varsayılan 300)') }, 'L2 öğrenme (ELS)', { u: ['global-mac-limit', 'global-mac-move', 'global-no-mac-learning'] });
+            root.c.protocols.u = root.c.protocols.u.filter(x => x !== 'layer2-control');
         }
         if (plat === 'srx') {
             const hit = () => K({ 'system-services': K(Object.fromEntries(HISVC.map(x => [x, F(x === 'all' ? 'Tüm hizmetler' : x + ' hizmetine izin')])), 'Cihaza yönelik hizmetler (ping, ssh …)'),
                 protocols: K(Object.fromEntries(['all', 'ospf', 'bgp', 'bfd', 'vrrp'].map(x => [x, F(x + ' protokolüne izin')])), 'Cihaza yönelik yönlendirme protokolleri') }, 'Cihazın kendisine gelen trafiğe izin (host-inbound)');
+            const zfrom = () => K({ zone: V('word', 'Kaynak bölge', { multi: 'brack', ref: zoneRef }) }, 'Paketin geldiği bölge', { u: ['interface', 'routing-instance'] });
             root.c.security = K({
                 zones: K({
                     'security-zone': L('name', {
@@ -537,7 +712,7 @@ const CgLabSetCli = (() => {
                 nat: K({
                     source: K({
                         'rule-set': L('name', {
-                            from: K({ zone: V('word', 'Kaynak bölge', { multi: 'brack', ref: zoneRef }) }, 'Paketin geldiği bölge', { u: ['interface', 'routing-instance'] }),
+                            from: zfrom(),
                             to: K({ zone: V('word', 'Hedef bölge', { multi: 'brack', ref: zoneRef }) }, 'Paketin gittiği bölge', { u: ['interface', 'routing-instance'] }),
                             rule: L('name', {
                                 match: K({ 'source-address': V('prefix', 'Kaynak önek', { multi: 'brack' }), 'destination-address': V('prefix', 'Hedef önek', { multi: 'brack' }) }, 'Eşleşme', { u: ['destination-port', 'protocol', 'application', 'source-address-name'] }),
@@ -545,7 +720,27 @@ const CgLabSetCli = (() => {
                             }, 'NAT kuralı'),
                         }, 'NAT kural kümesi'),
                     }, 'Kaynak NAT', { u: ['pool', 'address-persistent', 'interface'] }),
-                }, 'NAT', { u: ['destination', 'static', 'proxy-arp'] }),
+                    destination: K({
+                        pool: L('name', { address: L('prefix', { port: V('port', 'Gerçek sunucu portu') }, 'Gerçek (iç) sunucu adresi', { compact: true }) }, 'Hedef NAT havuzu', { ref: st => [...(getIn(st.cand.t, ['security', 'nat', 'destination', 'pool']) || new Map()).keys()] }),
+                        'rule-set': L('name', {
+                            from: zfrom(),
+                            rule: L('name', {
+                                match: K({ 'destination-address': V('prefix', 'Genel (NAT öncesi) hedef adres'), 'destination-port': V('port', 'Genel hedef port', { multi: 'brack' }), 'source-address': V('prefix', 'Kaynak önek', { multi: 'brack' }) }, 'Eşleşme', { u: ['protocol', 'application', 'destination-address-name', 'source-address-name'] }),
+                                then: K({ 'destination-nat': K({ pool: KB('name', 'Havuz adı', {}, 'Bu havuzdaki adrese çevir', { grp: 'dn' }), off: F('Çevirme yapma', { grp: 'dn' }) }, 'Hedef NAT eylemi') }, 'Eylem'),
+                            }, 'Hedef NAT kuralı'),
+                        }, 'Hedef NAT kural kümesi'),
+                    }, 'Hedef NAT (port yönlendirme)'),
+                    static: K({
+                        'rule-set': L('name', {
+                            from: zfrom(),
+                            rule: L('name', {
+                                match: K({ 'destination-address': V('prefix', 'Genel adres (dışarıdan görünen)') }, 'Eşleşme', { u: ['destination-port', 'source-address'] }),
+                                then: K({ 'static-nat': K({ prefix: KB('prefix', 'Gerçek (iç) önek', {}, 'Bire bir eşlenen iç önek') }, 'Statik NAT eylemi', { u: ['inet', 'prefix-name'] }) }, 'Eylem'),
+                            }, 'Statik NAT kuralı'),
+                        }, 'Statik NAT kural kümesi'),
+                    }, 'Statik (bire bir) NAT'),
+                    'proxy-arp': K({ interface: L('jifl', { address: L('prefix', { to: V('ip', 'Aralığın son adresi') }, 'Bu arayüzde ARP\'a yanıt verilecek adres', { wrap: true, compact: true }) }, 'Proxy ARP arayüzü', { ref: iflRef }) }, 'Arayüz adresi olmayan genel IP\'ler için ARP yanıtı'),
+                }, 'NAT', { u: ['proxy-ndp', 'natv6v4', 'traceoptions'] }),
             }, 'Güvenlik (SRX)', { u: ['screen', 'ike', 'ipsec', 'flow', 'log', 'alg', 'idp', 'utm', 'application-tracking', 'ssh-known-hosts', 'pki'] });
             root.c.applications = K({ application: L('name', { protocol: V(['tcp', 'udp', 'icmp'], 'IP protokolü'), 'destination-port': V('ports', 'Hedef port(lar)') }, 'Özel uygulama tanımı', { ref: st => [...(getIn(st.cand.t, ['applications', 'application']) || new Map()).keys()] }) }, 'Uygulama nesneleri', { u: ['application-set'] });
         }
@@ -555,7 +750,8 @@ const CgLabSetCli = (() => {
     function junosSession(lab, opts) {
         const plat = lab.platform || (lab.kind === 'switch' ? 'ex' : lab.kind === 'firewall' ? 'srx' : 'mx');
         const P = JPLAT[plat], ROOT = junosSchema(plat), USER = lab.user || 'lab';
-        const S = { ev: [], mode: 'op', edit: [], editStack: [], pending: null, answers: {}, loggedOut: false, confirm: null, commitN: 0 };
+        const S = { ev: [], mode: 'op', edit: [], editStack: [], pending: null, answers: {}, loggedOut: false, confirm: null, commitN: 0,
+            errdown: new Map(), gone: new Set(), linkFail: new Set(), macCleared: false, files: {}, rescue: null, archived: [] };
         S.variant = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
         const SIM = Object.assign({}, lab.sim || {}, (S.variant && S.variant.sim) || {});
         const hosts = (lab.hosts || []).concat(SIM.hosts || []);
@@ -566,7 +762,7 @@ const CgLabSetCli = (() => {
         const ST = { get cand() { return S.cand; } };
         const log = o => S.ev.push(o);
         const active = () => S.hist[0].cfg;
-        const act = () => effective(ROOT, active());
+        const act = () => expandRanges(effective(ROOT, active()));
         const host = () => (getIn(act(), ['system', 'host-name']) || lab.hostname || '');
         const allow = null;
 
@@ -590,7 +786,7 @@ const CgLabSetCli = (() => {
 
         // ── commit doğrulaması
         function validate(cfg) {
-            const t = effective(ROOT, cfg), mand = [], co = [];
+            const t = expandRanges(effective(ROOT, cfg)), mand = [], co = [];
             const sys = t.get('system');
             if (!sys || !(sys.get('root-authentication') instanceof Map) || !sys.get('root-authentication').get('encrypted-password')) mand.push(['[edit]', "'system'", "Missing mandatory statement: 'root-authentication'"]);
             for (const [u, o] of (getIn(t, ['system', 'login', 'user']) || new Map())) if (!o.get('class')) mand.push(['[edit system login]', "'user " + u + "'", "Missing mandatory statement: 'class'"]);
@@ -636,6 +832,23 @@ const CgLabSetCli = (() => {
                 }
             }
             for (const [v, vo] of vl) { const l3 = vo.get('l3-interface'); if (l3 && !ifls.has(l3)) co.push(['[edit vlans ' + v + ']', "'l3-interface " + l3 + "'", '# [Simülatör] ' + l3 + ' arayüzü (interfaces irb unit …) tanımlı değil']); }
+            // özel sınıf, süzgeç, NAT havuzu, DHCP aralığı, VRRP, arşiv referansları
+            const classes = getIn(t, ['system', 'login', 'class']) || new Map();
+            for (const [u, o] of (getIn(t, ['system', 'login', 'user']) || new Map())) { const c = o.get('class'); if (c && !['super-user', 'operator', 'read-only', 'unauthorized'].includes(c) && !classes.has(c)) co.push(['[edit system login user ' + u + ']', "'class " + c + "'", "# [Simülatör] '" + c + "' adlı sınıf (system login class) tanımlı değil"]); }
+            const filters = getIn(t, ['firewall', 'family', 'inet', 'filter']) || new Map();
+            for (const [n, i] of (t.get('interfaces') || new Map())) for (const [u, uo] of (i.get('unit') || new Map())) ['input', 'output'].forEach(d => { const f = getIn(uo, ['family', 'inet', 'filter', d]); if (f && !filters.has(f)) co.push(['[edit interfaces ' + n + ' unit ' + u + ' family inet]', "'filter'", "Referenced filter '" + f + "' is not defined"]); });
+            for (const [rs, r] of (getIn(t, ['security', 'nat', 'destination', 'rule-set']) || new Map())) for (const [rn, ru] of (r.get('rule') || new Map())) { const pn = getIn(ru, ['then', 'destination-nat', 'pool', '_']); if (pn && !getIn(t, ['security', 'nat', 'destination', 'pool', pn])) co.push(['[edit security nat destination rule-set ' + rs + ' rule ' + rn + ' then destination-nat]', "'pool " + pn + "'", "# [Simülatör] '" + pn + "' adlı hedef NAT havuzu tanımlı değil"]); }
+            for (const [pn, po] of (getIn(t, ['access', 'address-assignment', 'pool']) || new Map())) {
+                const net = pfx(getIn(po, ['family', 'inet', 'network']) || '');
+                for (const [rn, r] of (getIn(po, ['family', 'inet', 'range']) || new Map())) { const lo = r.get('low'), hi = r.get('high'); if (!lo || !hi) mand.push(['[edit access address-assignment pool ' + pn + ' family inet]', "'range " + rn + "'", "Missing mandatory statement: '" + (lo ? 'high' : 'low') + "'"]); else if (!net || !inNet(lo, net) || !inNet(hi, net) || ip2n(lo) > ip2n(hi)) co.push(['[edit access address-assignment pool ' + pn + ' family inet]', "'range " + rn + "'", '# [Simülatör] Aralık (' + lo + ' – ' + hi + ') havuzun ağı (network) içinde ve küçükten büyüğe olmalı']); }
+            }
+            for (const [n, i] of (t.get('interfaces') || new Map())) for (const [u, uo] of (i.get('unit') || new Map())) for (const [a, ao] of (getIn(uo, ['family', 'inet', 'address']) || new Map())) for (const [g, go] of ((ao instanceof Map && ao.get('vrrp-group')) || new Map())) {
+                const vips = go.get('virtual-address'), p0 = pfx(a);
+                if (!vips) mand.push(['[edit interfaces ' + n + ' unit ' + u + ' family inet address ' + a + ']', "'vrrp-group " + g + "'", "Missing mandatory statement: 'virtual-address'"]);
+                else vips.forEach(v => { if (!inNet(v, p0)) co.push(['[edit interfaces ' + n + ' unit ' + u + ' family inet address ' + a + ' vrrp-group ' + g + ']', "'virtual-address " + v + "'", '# [Simülatör] Sanal adres arayüzün alt ağında olmalı']); });
+            }
+            const arc = getIn(t, ['system', 'archival', 'configuration']);
+            if (arc instanceof Map && (arc.has('transfer-on-commit') || arc.has('transfer-interval')) && !(arc.get('archive-sites') instanceof Map)) co.push(['[edit system archival configuration]', "'archive-sites'", '# [Simülatör] Aktarım için en az bir archive-sites hedefi gerekir']);
             return { mand, co };
         }
         function fmtErr(v, check) {
@@ -653,7 +866,7 @@ const CgLabSetCli = (() => {
                 log({ raw, canon: 'commit check', commit: 'check-ok', confirmed: wasConf });
                 return 'configuration check succeeds';
             }
-            const wasConf = !!S.confirm;
+            const wasConf = !!S.confirm, prevW = view();
             S.commitN++;
             S.hist.unshift({ cfg: cfgClone(S.cand), meta: { by: USER, via: 'cli', n: S.commitN, comment: o.comment || null, confirmed: o.confirmed || null } });
             if (S.hist.length > 50) S.hist.length = 50;
@@ -662,6 +875,7 @@ const CgLabSetCli = (() => {
             else S.confirm = null;
             L2.push('commit complete');
             log({ raw, canon: 'commit' + (o.confirmed ? ' confirmed ' + o.confirmed : '') + (o.andQuit ? ' and-quit' : ''), commit: o.confirmed ? 'confirmed' : 'ok', confirmedPrev: wasConf && !o.confirmed });
+            L2.push(...events(prevW));
             if (o.andQuit) { S.mode = 'op'; S.edit = []; S.editStack = []; L2.push('Exiting configuration mode'); return L2.join('\n'); }
             return L2.join('\n');
         }
@@ -681,11 +895,23 @@ const CgLabSetCli = (() => {
         function view(cfgTree) {
             const t = cfgTree || act();
             const ifs = t.get('interfaces') || new Map(), ifls = [];
-            const physUp = n => { const o = ifs.get(n); if (o && o.has('disable')) return false; if (/^(lo0|irb|st0)$/.test(n)) return true; return up.has(n); };
-            for (const [n, o] of ifs) for (const [u, uo] of (o.get('unit') || new Map())) {
-                const addrs = getIn(uo, ['family', 'inet', 'address']) || [], es = getIn(uo, ['family', 'ethernet-switching']);
-                ifls.push({ name: n + '.' + u, phys: n, unit: u, addrs, inet: getIn(uo, ['family', 'inet']) instanceof Map, eth: es instanceof Map, mode: es instanceof Map ? (es.get('interface-mode') || 'access') : null, members: es instanceof Map ? (getIn(es, ['vlan', 'members']) || []) : [], adminUp: physUp(n) && !uo.has('disable') });
+            const lag = lagState(t);
+            const physUp = n => {
+                const o = ifs.get(n); if (o && o.has('disable')) return false;
+                if (S.errdown.has(n)) return false;
+                if (/^ae\d+$/.test(n)) return !!(lag[n] && lag[n].up);
+                if (/^(lo0|irb|st0)$/.test(n)) return true;
+                if (!up.has(n)) return false;
+                return !speedMismatch(o, n);
+            };
+            for (const [n, o] of ifs) {
+                if (lag.memberOf[n]) continue; // aeN üyesi: kendi birimi yok, ae üzerinden çalışır
+                for (const [u, uo] of (o.get('unit') || new Map())) {
+                    const am = getIn(uo, ['family', 'inet', 'address']), es = getIn(uo, ['family', 'ethernet-switching']);
+                    ifls.push({ name: n + '.' + u, phys: n, unit: u, addrs: am instanceof Map ? [...am.keys()] : [], inet: getIn(uo, ['family', 'inet']) instanceof Map, eth: es instanceof Map, mode: es instanceof Map ? (es.get('interface-mode') || 'access') : null, members: es instanceof Map ? (getIn(es, ['vlan', 'members']) || []) : [], adminUp: physUp(n) && !uo.has('disable') });
+                }
             }
+            ifls.sort((a, b) => natCmp(a.name, b.name));
             // irb: VLAN'ında bağlantısı açık bir üye port varsa up
             const vlans = t.get('vlans') || new Map();
             ifls.forEach(x => {
@@ -706,13 +932,92 @@ const CgLabSetCli = (() => {
                 if (nhs.length) R.push({ pfx: netStr(pfx(rp)), proto: 'Static', pref, nh: nhs[0].nh, via: nhs[0].c.via, more: nhs.slice(1).map(x => ({ nh: x.nh, via: x.c.via })) });
                 for (const [q, qo] of (ro.get('qualified-next-hop') || new Map())) { const c = conn(q); if (c) R.push({ pfx: netStr(pfx(rp)), proto: 'Static', pref: +(qo.get('preference') || pref), nh: q, via: c.via }); }
             }
+            // OSPF: sabit sanal komşular (lab.sim.ospf) — komşuluk koşulları modelden
+            const nbrs = ospfNbrs(t, ifls);
+            nbrs.filter(nb => nb.state === 'Full').forEach(nb => (nb.routes || []).forEach(rt => R.push({ pfx: netStr(pfx(rt.pfx)), proto: 'OSPF', pref: 10, nh: nb.addr, via: nb.ifl, metric: (nb.cost || 1) + (rt.metric || 0) })));
             const by = {};
             R.forEach(r => { (by[r.pfx] = by[r.pfx] || []).push(r); });
-            Object.values(by).forEach(list => { list.sort((a, b) => a.pref - b.pref); list[0].active = true; });
+            Object.values(by).forEach(list => { list.sort((a, b) => a.pref - b.pref || (a.metric || 0) - (b.metric || 0)); list[0].active = true; });
             const keysSorted = Object.keys(by).sort((a, b) => { const x = pfx(a), y = pfx(b); return ip2n(x.ip) - ip2n(y.ip) || x.len - y.len; });
             const lookup = ip => { let best = null; for (const k of keysSorted) { const p = pfx(k); if (inNet(ip, p) && (!best || p.len > pfx(best.pfx).len)) best = by[k].find(r => r.active); } return best; };
-            return { t, ifls, zones, zoneOf, R, by, keys: keysSorted, lookup, conn, vlans, physUp };
+            return { t, ifls, zones, zoneOf, R, by, keys: keysSorted, lookup, conn, vlans, physUp, nbrs, lag };
         }
+        // Hız/dupleks: karşı uç sabit hızdaysa (lab.sim.forced) ve bizde farklı sabit hız varsa bağlantı kurulmaz
+        function speedMismatch(o, n) {
+            const peer = (SIM.forced || {})[n]; if (!peer || !(o instanceof Map)) return false;
+            const noAn = !!getIn(o, [plat === 'mx' ? 'gigether-options' : 'ether-options', 'no-auto-negotiation']);
+            return noAn && o.get('speed') && o.get('speed') !== peer;
+        }
+        function linkInfo(o, n) {
+            const peer = (SIM.forced || {})[n], an = !(o instanceof Map && getIn(o, [plat === 'mx' ? 'gigether-options' : 'ether-options', 'no-auto-negotiation']));
+            const sp = (o instanceof Map && !an && o.get('speed')) || peer || '1g';
+            const lm = o instanceof Map ? o.get('link-mode') : null;
+            const duplex = an ? (peer ? 'Half-duplex' : 'Full-duplex') : lm === 'half-duplex' ? 'Half-duplex' : 'Full-duplex';
+            return { an, speed: ({ '10m': '10mbps', '100m': '100mbps', '1g': '1000mbps', '10g': '10Gbps' })[sp] || sp, duplex, mtu: (o instanceof Map && o.get('mtu')) || '1514' };
+        }
+        const aeExists = (t, n) => +n.slice(2) < +(getIn(t, ['chassis', 'aggregated-devices', 'ethernet', 'device-count']) || 0);
+        // ── LACP / aeN (lab.sim.lacp: { ae0: { peer: 'active'|'passive'|'none' } })
+        function lagState(t) {
+            const ifs = t.get('interfaces') || new Map(), cnt = +(getIn(t, ['chassis', 'aggregated-devices', 'ethernet', 'device-count']) || 0);
+            const res = { memberOf: {} }, opt = plat === 'mx' ? 'gigether-options' : 'ether-options';
+            for (const [n, o] of ifs) { const a = getIn(o, [opt, '802.3ad']); if (a) { res.memberOf[n] = a; (res[a] = res[a] || { members: [] }).members.push(n); } }
+            Object.keys(res).filter(k => /^ae\d+$/.test(k)).forEach(a => {
+                const ao = ifs.get(a), exists = +a.slice(2) < cnt && ao instanceof Map, lacp = getIn(ao || new Map(), ['aggregated-ether-options', 'lacp']);
+                const mine = lacp instanceof Map ? (lacp.has('passive') ? 'passive' : 'active') : 'none', peer = ((SIM.lacp || {})[a] || {}).peer || 'active';
+                const R0 = res[a]; R0.exists = exists; R0.mine = mine; R0.peer = peer; R0.ports = {};
+                R0.members.forEach(m => {
+                    const mo = ifs.get(m), phys = !(mo && mo.has('disable')) && up.has(m) && !S.errdown.has(m) && !S.linkFail.has(m);
+                    let st;
+                    if (!exists || !phys) st = 'down';
+                    else if (mine === 'none') st = peer === 'none' ? 'static' : 'nopeer';
+                    else if (peer === 'none') st = 'defaulted';
+                    else if (mine === 'passive' && peer === 'passive') st = 'defaulted';
+                    else st = 'cd';
+                    R0.ports[m] = st;
+                });
+                const good = R0.members.filter(m => ['cd', 'static', 'nopeer'].includes(R0.ports[m])).length;
+                R0.up = exists && good >= +((ao && getIn(ao, ['aggregated-ether-options', 'minimum-links'])) || 1);
+            });
+            return res;
+        }
+        // ── OSPF sanal komşular: { ifl, addr, rid, area, hello, dead, pri, routes:[{pfx, metric}] }
+        function ospfNbrs(t, ifls) {
+            const ospf = getIn(t, ['protocols', 'ospf']);
+            return (SIM.ospf || []).map(nb => {
+                const x = ifls.find(i => i.name === nb.ifl); let area = null, io = null;
+                if (ospf instanceof Map) for (const [a, ao] of (ospf.get('area') || new Map())) { const i = getIn(ao, ['interface', nb.ifl]); if (i !== undefined) { area = a; io = i instanceof Map ? i : new Map(); } }
+                const hello = +((io && io.get('hello-interval')) || 10), dead = +((io && io.get('dead-interval')) || hello * 4);
+                let why = null;
+                if (!io) why = 'noospf'; else if (!x || !x.adminUp) why = 'down'; else if (io.has('passive')) why = 'passive';
+                else if (area !== (nb.area || '0.0.0.0')) why = 'area'; else if (hello !== (nb.hello || 10) || dead !== (nb.dead || (nb.hello || 10) * 4)) why = 'timers';
+                else if (!reAllows(t, { src: nb.addr, dst: '224.0.0.5', proto: 'ospf' })) why = 'filter';
+                return Object.assign({}, nb, { state: why ? null : 'Full', why, area: area || nb.area || '0.0.0.0', cost: +((io && io.get('metric')) || 1) });
+            });
+        }
+        // ── firewall filter değerlendirici
+        const portMatch = (spec, p) => { if (JPORTS[spec] !== undefined) return JPORTS[spec] === p; const [a, b] = String(spec).split('-').map(Number); return p >= a && p <= (b || a); };
+        function pfxListMatch(m, ip) {
+            if (!(m instanceof Map)) return true;
+            let best = null;
+            for (const [k, o] of m) { const p = pfx(k); if (p && inNet(ip, p) && (!best || p.len > best.p.len)) best = { p, ex: o instanceof Map && o.has('except') }; }
+            return !!best && !best.ex;
+        }
+        function fwEval(t, fname, pk) {
+            const f = getIn(t, ['firewall', 'family', 'inet', 'filter', fname]);
+            if (!(f instanceof Map)) return { action: 'accept', term: null, nofilter: true };
+            for (const [tn, to] of (f.get('term') || new Map())) {
+                const fr = (to instanceof Map && to.get('from')) || new Map();
+                if (!pfxListMatch(fr.get('source-address'), pk.src)) continue;
+                if (pk.dst && !pfxListMatch(fr.get('destination-address'), pk.dst)) continue;
+                const pr = fr.get('protocol'); if (pr && !pr.includes(pk.proto)) continue;
+                const dp = fr.get('destination-port'); if (dp && !(pk.dport && dp.some(x => portMatch(x, pk.dport)))) continue;
+                const th = (to instanceof Map && to.get('then')) || new Map();
+                return { term: tn, action: th.has('discard') ? 'discard' : th.has('reject') ? 'reject' : 'accept', count: th.get('count') || null };
+            }
+            return { term: null, action: 'discard', implicit: true };
+        }
+        const reFilter = t => getIn(t, ['interfaces', 'lo0', 'unit', '0', 'family', 'inet', 'filter', 'input']);
+        function reAllows(t, pk) { const f = reFilter(t); return !f || fwEval(t, f, pk).action === 'accept'; }
         const ifOf = (W, name) => W.ifls.find(x => x.name === name);
         function abMatch(t, names, ip) {
             const ab = getIn(t, ['security', 'address-book', 'global', 'address']) || new Map();
@@ -751,6 +1056,50 @@ const CgLabSetCli = (() => {
             }
             return null;
         }
+        // ── SRX NAT: statik (bire bir), hedef (DNAT), proxy-arp
+        function matchStatic(t, zin, dst) {
+            for (const [rs, r] of (getIn(t, ['security', 'nat', 'static', 'rule-set']) || new Map())) {
+                if (!(getIn(r, ['from', 'zone']) || []).includes(zin)) continue;
+                for (const [rn, ru] of (r.get('rule') || new Map())) {
+                    const md = pfx(getIn(ru, ['match', 'destination-address']) || ''), mp = pfx(getIn(ru, ['then', 'static-nat', 'prefix', '_']) || '');
+                    if (md && mp && inNet(dst, md)) return { rs, rule: rn, ip: n2ip(C.netOf(mp.ip, mp.len) + (ip2n(dst) - C.netOf(md.ip, md.len))) };
+                }
+            }
+            return null;
+        }
+        function matchStaticRev(t, zout, src) {
+            for (const [rs, r] of (getIn(t, ['security', 'nat', 'static', 'rule-set']) || new Map())) {
+                if (!(getIn(r, ['from', 'zone']) || []).includes(zout)) continue;
+                for (const [rn, ru] of (r.get('rule') || new Map())) {
+                    const md = pfx(getIn(ru, ['match', 'destination-address']) || ''), mp = pfx(getIn(ru, ['then', 'static-nat', 'prefix', '_']) || '');
+                    if (md && mp && inNet(src, mp)) return { rs, rule: rn, ip: n2ip(C.netOf(md.ip, md.len) + (ip2n(src) - C.netOf(mp.ip, mp.len))) };
+                }
+            }
+            return null;
+        }
+        function matchDnat(t, zin, f) {
+            for (const [rs, r] of (getIn(t, ['security', 'nat', 'destination', 'rule-set']) || new Map())) {
+                if (!(getIn(r, ['from', 'zone']) || []).includes(zin)) continue;
+                for (const [rn, ru] of (r.get('rule') || new Map())) {
+                    const md = pfx(getIn(ru, ['match', 'destination-address']) || ''); if (!md || !inNet(f.dst, md)) continue;
+                    const dp = getIn(ru, ['match', 'destination-port']); if (dp && !dp.includes(String(f.dport))) continue;
+                    const sa = getIn(ru, ['match', 'source-address']); if (sa && !sa.some(x => inNet(f.src, pfx(x)))) continue;
+                    if (getIn(ru, ['then', 'destination-nat', 'off'])) return { rs, rule: rn, off: true };
+                    const pn = getIn(ru, ['then', 'destination-nat', 'pool', '_']), po = getIn(t, ['security', 'nat', 'destination', 'pool', pn || '', 'address']);
+                    if (!(po instanceof Map) || !po.size) return null;
+                    const [pa, pao] = [...po][0];
+                    return { rs, rule: rn, pool: pn, ip: pfx(pa).ip, port: pao instanceof Map && pao.get('port') ? +pao.get('port') : null };
+                }
+            }
+            return null;
+        }
+        function proxyArp(t, ifl, ip) {
+            const m = getIn(t, ['security', 'nat', 'proxy-arp', 'interface', ifl, 'address']);
+            if (!(m instanceof Map)) return false;
+            for (const [a, ao] of m) { const p = pfx(a), to = ao instanceof Map ? ao.get('to') : null; if (to ? ip2n(ip) >= ip2n(p.ip) && ip2n(ip) <= ip2n(to) : inNet(ip, p)) return true; }
+            return false;
+        }
+        // SRX akış sırası (sadeleştirilmiş): giriş bölgesi → statik/hedef NAT → rota (NAT sonrası hedef) → policy (NAT sonrası hedef) → kaynak NAT / ters statik NAT
         function decide(f0, cfgTree) {
             const f = Object.assign({ proto: 'tcp', sport: 51234, dport: 443 }, f0);
             const W = view(cfgTree);
@@ -758,17 +1107,147 @@ const CgLabSetCli = (() => {
             if (!rin || !rin.via) return { stage: 'noarrive', f };
             const inIfl = rin.via, zin = plat === 'srx' ? W.zoneOf(inIfl) : 'none';
             if (!zin) return { stage: 'nozone', f, ifl: inIfl };
-            const r = W.lookup(f.dst);
-            if (!r || !r.via) return { stage: 'noroute', f, zin, inIfl };
+            let dst = f.dst, dport = f.dport, dnat = null;
+            if (plat === 'srx') {
+                const st = matchStatic(W.t, zin, f.dst);
+                if (st) dnat = { kind: 'static', rs: st.rs, rule: st.rule, ip: st.ip, port: f.dport };
+                else { const dn = matchDnat(W.t, zin, f); if (dn && !dn.off) dnat = { kind: 'destination', rs: dn.rs, rule: dn.rule, pool: dn.pool, ip: dn.ip, port: dn.port || f.dport }; }
+                if (dnat) {
+                    dst = dnat.ip; dport = dnat.port;
+                    const own = W.ifls.some(x => x.addrs.some(a => pfx(a).ip === f.dst)), x = ifOf(W, inIfl);
+                    if (!own && x && x.addrs.some(a => inNet(f.dst, pfx(a))) && !proxyArp(W.t, inIfl, f.dst)) return { stage: 'noarp', f, zin, inIfl, dnat };
+                }
+            }
+            const r = W.lookup(dst);
+            if (!r || !r.via) return { stage: 'noroute', f, zin, inIfl, dnat };
             const outIfl = r.via, zout = plat === 'srx' ? W.zoneOf(outIfl) : 'none';
-            if (!zout) return { stage: 'nozone', f, ifl: outIfl, zin, inIfl };
+            if (!zout) return { stage: 'nozone', f, ifl: outIfl, zin, inIfl, dnat };
             if (plat !== 'srx') return { stage: 'allowed', f, inIfl, outIfl };
-            const pol = matchPolicy(W.t, zin, zout, f);
-            if (!pol || pol.action !== 'permit') return { stage: 'denied', f, zin, zout, inIfl, outIfl, policy: pol ? pol.name : null };
-            const nat = matchSnat(W.t, zin, zout, f);
-            const natIp = nat && nat.iface && !nat.off ? (ifOf(W, outIfl) && ifOf(W, outIfl).addrs[0] ? pfx(ifOf(W, outIfl).addrs[0]).ip : null) : null;
-            if (isPriv(f.src) && !isPriv(f.dst) && !natIp) return { stage: 'nonat', f, zin, zout, inIfl, outIfl, policy: pol.name, app: pol.app };
-            return { stage: 'allowed', f, zin, zout, inIfl, outIfl, policy: pol.name, app: pol.app, nat, natIp };
+            const f2 = Object.assign({}, f, { dst, dport });
+            const pol = matchPolicy(W.t, zin, zout, f2);
+            if (!pol || pol.action !== 'permit') return { stage: 'denied', f, zin, zout, inIfl, outIfl, policy: pol ? pol.name : null, dnat };
+            const rev = dnat ? null : matchStaticRev(W.t, zout, f.src);
+            const nat = rev ? null : matchSnat(W.t, zin, zout, f2);
+            const natIp = rev ? rev.ip : nat && nat.iface && !nat.off ? (ifOf(W, outIfl) && ifOf(W, outIfl).addrs[0] ? pfx(ifOf(W, outIfl).addrs[0]).ip : null) : null;
+            if (isPriv(f.src) && !isPriv(dst) && !natIp) return { stage: 'nonat', f, zin, zout, inIfl, outIfl, policy: pol.name, app: pol.app };
+            return { stage: 'allowed', f, zin, zout, inIfl, outIfl, policy: pol.name, app: pol.app, nat, natIp, rev, dnat };
+        }
+        // ── L2: MAC tablosu, port güvenliği (ELS switch-options), olaylar
+        function macsOn(port, vlan) { const L2 = (SIM.macs || {})[port]; const list = L2 ? L2.slice() : [macOf(port + (vlan || ''))]; return S.gone.has(port) ? list.slice(0, 1) : list; }
+        function psec(t, phys) {
+            const m = getIn(t, ['switch-options', 'interface']) || new Map(), o = m.get(phys + '.0') || m.get(phys);
+            if (!(o instanceof Map)) return null;
+            const lim = getIn(o, ['interface-mac-limit', '_']);
+            return { limit: lim ? +lim : null, action: getIn(o, ['interface-mac-limit', 'packet-action']) || 'drop', persist: o.has('persistent-learning') };
+        }
+        function macRows(W) {
+            const rows = [], t = W.t, stat = new Set();
+            for (const [, vo] of W.vlans) for (const [, io] of (getIn(vo, ['switch-options', 'interface']) || new Map())) ((io instanceof Map && io.get('static-mac')) || []).forEach(m => stat.add(m));
+            W.ifls.filter(x => x.eth && x.adminUp && x.mode === 'access' && x.members.length && W.vlans.has(x.members[0])).forEach(x => {
+                const vl = x.members[0], ps = psec(t, x.phys);
+                let macs = macsOn(x.phys, vl);
+                if (ps && ps.limit !== null && !['none', 'log'].includes(ps.action)) macs = macs.slice(0, ps.limit);
+                macs.forEach(m => { if (!stat.has(m) && !(S.macCleared && !(ps && ps.persist))) rows.push({ vlan: vl, mac: m, flags: ps && ps.persist ? 'P' : 'D', ifl: x.name }); });
+            });
+            for (const [vn, vo] of W.vlans) for (const [ifl, io] of (getIn(vo, ['switch-options', 'interface']) || new Map())) ((io instanceof Map && io.get('static-mac')) || []).forEach(m => rows.push({ vlan: vn, mac: m, flags: 'S', ifl }));
+            (SIM.trunkMacs || []).forEach(e => { const x = W.ifls.find(i => i.phys === e.port && i.adminUp && i.members.includes(e.vlan)); if (x && !S.macCleared) rows.push({ vlan: e.vlan, mac: e.mac, flags: 'D', ifl: x.name }); });
+            return rows;
+        }
+        const rstpEdge = (t, n) => !!getIn(t, ['protocols', 'rstp', 'interface', n, 'edge']);
+        function stpState(W) {
+            const rs = getIn(W.t, ['protocols', 'rstp']);
+            if (!(rs instanceof Map)) return null;
+            const pv = rs.get('bridge-priority') || '32k', prio = pv === '0' ? 0 : parseInt(pv, 10) * 1024;
+            const me = { prio, mac: macOf(host() + '-bridge') };
+            const cmp = (a, b) => a.prio - b.prio || (a.mac < b.mac ? -1 : a.mac > b.mac ? 1 : 0);
+            const nbs = (SIM.stp || []).filter(b => W.ifls.some(i => i.phys === b.port && i.adminUp));
+            let root = me, rootPort = null;
+            nbs.forEach(b => { const br = b.root || b; if (cmp(br, root) < 0) { root = br; rootPort = b.port; } });
+            const ports = [];
+            [...new Set(W.ifls.filter(x => x.eth).map(x => x.phys))].sort(natCmp).forEach(p => {
+                const x = W.ifls.find(i => i.phys === p), nb = nbs.find(b => b.port === p), edge = rstpEdge(W.t, p) && (!(SIM.bpdu || []).includes(p) || S.gone.has(p));
+                if (S.errdown.get(p) === 'bpdu') { ports.push({ port: p, state: 'BLK', role: 'DIS', note: '(Bpdu-Incon)', edge: false, desig: me }); return; }
+                if (!x.adminUp) return;
+                if (p === rootPort) ports.push({ port: p, state: 'FWD', role: 'ROOT', edge: false, desig: nb });
+                else if (nb && cmp(nb, me) < 0) ports.push({ port: p, state: 'BLK', role: 'ALT', edge: false, desig: nb });
+                else ports.push({ port: p, state: 'FWD', role: 'DESG', edge, desig: me });
+            });
+            return { me, root, rootPort, ports, isRoot: root === me, pv };
+        }
+        const bid = b => b.prio + '.' + b.mac;
+        function vrrpState(W) {
+            const L2 = [];
+            W.ifls.filter(x => x.inet).forEach(x => {
+                const am = getIn(W.t, ['interfaces', x.phys, 'unit', x.unit, 'family', 'inet', 'address']);
+                if (!(am instanceof Map)) return;
+                for (const [a, ao] of am) for (const [g, go] of ((ao instanceof Map && ao.get('vrrp-group')) || new Map())) {
+                    const prio = +(go.get('priority') || 100), peer = ((SIM.vrrp || {})[x.name]) || null, ip = pfx(a).ip;
+                    let st;
+                    if (!x.adminUp) st = 'init';
+                    else if (!peer) st = 'master';
+                    else st = prio > peer.prio || (prio === peer.prio && ip2n(ip) > ip2n(peer.addr)) ? 'master' : 'backup';
+                    L2.push({ ifl: x.name, group: g, prio, ip, vips: go.get('virtual-address') || [], state: st, peer, accept: go.has('accept-data') });
+                }
+            });
+            return L2;
+        }
+        function dhcpBind(W) {
+            const t = W.t, grp = getIn(t, ['system', 'services', 'dhcp-local-server', 'group']) || new Map(), pools = getIn(t, ['access', 'address-assignment', 'pool']) || new Map();
+            const out = [], used = new Set(W.ifls.flatMap(x => x.addrs.map(a => pfx(a).ip)).concat(SIM.dhcpUsed || []));
+            (SIM.dhcp || []).forEach(c => {
+                const x = W.ifls.find(i => i.name === c.ifl);
+                if (!x || !x.adminUp || !x.addrs.length) return;
+                if (![...grp.values()].some(g => (g.get('interface') || new Map()).has(c.ifl))) return;
+                const p0 = pfx(x.addrs[0]); let pool = null;
+                for (const [pn, po] of pools) { const net = getIn(po, ['family', 'inet', 'network']); if (net && netStr(pfx(net)) === netStr(p0)) { pool = [pn, po]; break; } }
+                if (!pool) return;
+                let ip = null;
+                for (const [, r] of (getIn(pool[1], ['family', 'inet', 'range']) || new Map())) {
+                    const lo = r.get('low'), hi = r.get('high'); if (!lo || !hi) continue;
+                    for (let n = ip2n(lo); n <= ip2n(hi) && !ip; n++) { const a = n2ip(n); if (!used.has(a) && inNet(a, p0) && a !== n2ip(C.netOf(p0.ip, p0.len)) && a !== bcast(p0)) ip = a; }
+                    if (ip) break;
+                }
+                if (!ip) return;
+                used.add(ip);
+                out.push({ ip, mac: c.mac, ifl: c.ifl, pool: pool[0], lease: +(getIn(pool[1], ['family', 'inet', 'dhcp-attributes', 'maximum-lease-time']) || 86400) });
+            });
+            return out;
+        }
+        // commit sonrası olaylar (port güvenliği, BPDU, OSPF/LACP/VRRP durum değişimi, arşiv aktarımı)
+        function events(prevW, quiet) {
+            const t = act(), L2 = [];
+            const E = (k, msg, o) => { L2.push('# [Simülatör] Olay: ' + msg); log(Object.assign({ event: k }, o || {})); };
+            for (const [n, o] of (t.get('interfaces') || new Map())) {
+                if (S.errdown.has(n) || !up.has(n) || !(o instanceof Map) || o.has('disable')) continue;
+                const es = getIn(o, ['unit', '0', 'family', 'ethernet-switching']); if (!(es instanceof Map)) continue;
+                const vl = (getIn(es, ['vlan', 'members']) || [])[0], ps = psec(t, n), macs = macsOn(n, vl);
+                if (ps && ps.limit !== null && macs.length > ps.limit) {
+                    if (ps.action === 'shutdown') { S.errdown.set(n, 'mac-limit'); E('maclimit', n + '.0 üzerinde ' + macs.length + '. MAC adresi (' + macs[ps.limit] + ') görüldü, sınır ' + ps.limit + ' → packet-action shutdown: port kapatıldı.', { port: n }); }
+                    else if (ps.action !== 'none') E('maclimit-drop', n + '.0: MAC sınırı (' + ps.limit + ') aşıldı; yeni kaynak MAC\'li çerçeveler ' + (ps.action === 'log' ? 'loglanıyor (iletiliyor)' : 'düşürülüyor') + '.', { port: n });
+                }
+                if ((SIM.bpdu || []).includes(n) && !S.gone.has(n) && getIn(t, ['protocols', 'rstp']) instanceof Map) {
+                    if (rstpEdge(t, n) && getIn(t, ['protocols', 'rstp', 'bpdu-block-on-edge'])) { S.errdown.set(n, 'bpdu'); E('bpdu', n + ' kenar portuna BPDU geldi → bpdu-block-on-edge portu engelledi (BPDU Error: Detected).', { port: n }); }
+                    else if (rstpEdge(t, n)) E('bpdu-edge', n + ' kenar portuna BPDU geldi: port kenar (edge) özelliğini kaybetti, STP hesabına katıldı (koruma yok).', { port: n });
+                }
+            }
+            const W = view();
+            if (prevW) {
+                W.nbrs.forEach(nb => { const o = prevW.nbrs.find(x => x.rid === nb.rid && x.ifl === nb.ifl); const was = o && o.state; if (was !== nb.state) E(nb.state ? 'ospf-up' : 'ospf-down', 'RPD_OSPF_NBR' + (nb.state ? 'UP' : 'DOWN') + ': OSPF komşusu ' + nb.addr + ' (' + nb.ifl + ', alan ' + nb.area + ') ' + (nb.state ? '→ Full' : 'Full → Down'), { rid: nb.rid }); });
+                Object.keys(W.lag).filter(k => /^ae\d+$/.test(k)).forEach(a => { const was = prevW.lag[a] && prevW.lag[a].up; if (!!was !== !!W.lag[a].up) E(W.lag[a].up ? 'lag-up' : 'lag-down', a + ' toplu arayüzü ' + (W.lag[a].up ? 'up' : 'down') + ' (' + W.lag[a].members.map(m => m + ':' + W.lag[a].ports[m]).join(', ') + ')', { ae: a }); });
+                const pv = vrrpState(prevW), nv = vrrpState(W);
+                nv.forEach(v => { const o = pv.find(x => x.ifl === v.ifl && x.group === v.group); if (!o || o.state !== v.state) E('vrrp', 'VRRP ' + v.ifl + ' grup ' + v.group + ': ' + (o ? o.state : 'init') + ' → ' + v.state, { state: v.state }); });
+            }
+            const arc = getIn(t, ['system', 'archival', 'configuration']);
+            if (!quiet && arc instanceof Map && arc.has('transfer-on-commit') && arc.get('archive-sites') instanceof Map) {
+                const ts = SIMCLK(S.commitN).replace(/[-: ]/g, '').replace(/^(\d{8})(\d{6})$/, '$1_$2');
+                for (const site of arc.get('archive-sites').keys()) { const fn = host() + '_' + ts + '_juniper.conf.gz'; S.archived.push({ site, fn }); E('archive', 'yapılandırma arşivlendi → ' + site + ' (' + fn + ')', { site }); }
+            }
+            return quiet ? [] : L2;
+        }
+        function clearErr(kind, port) {
+            const ks = port ? [port] : [...S.errdown.keys()].filter(p => S.errdown.get(p) === kind);
+            ks.forEach(p => { if (S.errdown.get(p) === kind) { S.errdown.delete(p); S.gone.add(p); log({ event: 'recover', port: p, kind }); } });
+            return '';
         }
         function hostIn(zone, svc, cfgTree) {
             const t = cfgTree || act(), z = getIn(t, ['security', 'zones', 'security-zone', zone]);
@@ -786,9 +1265,11 @@ const CgLabSetCli = (() => {
             const L2 = ['Interface               Admin Link Proto    Local                 Remote'];
             const names = physPorts().concat([...ifs.keys()].filter(n => !/^ge-0\/0\/\d+$/.test(n) || +n.split('/')[2] >= P.ports));
             names.filter(n => !only || n === only || n.startsWith(only + '.')).forEach(n => {
-                const o = ifs.get(n), adm = !(o && o.has('disable')), lk = adm && (/^(lo0|irb|st0)$/.test(n) || up.has(n));
+                const o = ifs.get(n), adm = !(o && o.has('disable')), lk = adm && W.physUp(n);
                 if (!o && !physPorts().includes(n)) return;
+                if (/^ae\d+$/.test(n) && !aeExists(W.t, n)) return;
                 L2.push(pad(n, 24) + pad(adm ? 'up' : 'down', 6) + (lk ? 'up' : 'down'));
+                if (W.lag.memberOf[n]) L2.push(pad(n + '.0', 24) + pad(adm ? 'up' : 'down', 6) + pad(lk ? 'up' : 'down', 5) + 'aenet    --> ' + W.lag.memberOf[n] + '.0');
                 W.ifls.filter(x => x.phys === n).forEach(x => {
                     const a = x.adminUp ? 'up' : 'down', uo = getIn(W.t, ['interfaces', n, 'unit', x.unit]), aa = uo && uo.has('disable') ? 'down' : 'up';
                     const base = pad(x.name, 24) + pad(aa, 6) + pad(a, 5);
@@ -802,9 +1283,16 @@ const CgLabSetCli = (() => {
         function ifDetail(n) {
             const W = view(), o = getIn(W.t, ['interfaces', n]);
             if (!physPorts().includes(n) && !(o instanceof Map)) return null;
-            const adm = !(o && o.has('disable')), lk = adm && (/^(lo0|irb|st0)$/.test(n) || up.has(n));
+            if (/^ae\d+$/.test(n) && !aeExists(W.t, n)) return null;
+            const adm = !(o && o.has('disable')), lk = adm && W.physUp(n);
             const L2 = ['Physical interface: ' + n + ', ' + (adm ? 'Enabled' : 'Administratively down') + ', Physical link is ' + (lk ? 'Up' : 'Down')];
             if (o && o.get('description')) L2.push('  Description: ' + o.get('description'));
+            if (/^(ge|xe|et)-/.test(n)) {
+                const li = linkInfo(o, n);
+                L2.push('  Link-level type: Ethernet, MTU: ' + li.mtu + ', LAN-PHY mode, Link-mode: ' + (lk ? li.duplex : 'Auto') + ', Speed: ' + (lk ? li.speed : 'Auto') + ', BPDU Error: ' + (S.errdown.get(n) === 'bpdu' ? 'Detected' : 'None') + ', Loop Detect PDU Error: None, Ethernet-Switching Error: None, MAC-REWRITE Error: None, Loopback: Disabled, Source filtering: Disabled, Flow control: Enabled, Auto-negotiation: ' + (li.an ? 'Enabled' : 'Disabled') + ', Remote fault: Online');
+                if (S.errdown.get(n) === 'mac-limit') L2.push('  # [Simülatör] Port, MAC sınırı (interface-mac-limit … packet-action shutdown) nedeniyle kapatıldı; clear ethernet-switching recovery-timeout ile açılır.');
+                if (W.lag.memberOf[n]) L2.push('  # [Simülatör] Bu port ' + W.lag.memberOf[n] + ' toplu arayüzünün üyesi (LACP durumu: show lacp interfaces).');
+            }
             L2.push('  Current address: ' + macOf(n) + ', Hardware address: ' + macOf(n));
             W.ifls.filter(x => x.phys === n).forEach(x => {
                 L2.push('', '  Logical interface ' + x.name, '    Flags: ' + (x.adminUp ? 'Up' : 'Down') + ' SNMP-Traps 0x4000 Encapsulation: ENET2');
@@ -825,7 +1313,7 @@ const CgLabSetCli = (() => {
             for (let i = 0; i < args.length; i++) {
                 const a = args[i].t;
                 if (a === 'exact') exact = true;
-                else if ('protocol'.startsWith(a) && a.length > 1 && args[i + 1]) { const r = pick(args[i + 1].t, ['static', 'direct', 'local']); if (!r.ok) return { err: i + 1 }; proto = r.ok; i++; }
+                else if ('protocol'.startsWith(a) && a.length > 1 && args[i + 1]) { const r = pick(args[i + 1].t, ['static', 'direct', 'local', 'ospf']); if (!r.ok) return { err: i + 1 }; proto = r.ok; i++; }
                 else if (pfx(a)) target = a;
                 else if (a === 'terse' || a === 'extensive' || a === 'detail') continue;
                 else return { err: i };
@@ -842,7 +1330,7 @@ const CgLabSetCli = (() => {
             keys.forEach(k => {
                 let list = W.by[k]; if (proto) list = list.filter(r => r.proto.toLowerCase() === proto); if (!list.length) return;
                 list.forEach((r, i) => {
-                    const head = (i === 0 ? pad(k, 19) : ' '.repeat(19)) + (r.active ? '*' : ' ') + '[' + r.proto + '/' + r.pref + '] 00:21:37';
+                    const head = (i === 0 ? pad(k, 19) : ' '.repeat(19)) + (r.active ? '*' : ' ') + '[' + r.proto + '/' + r.pref + '] 00:21:37' + (r.metric !== undefined ? ', metric ' + r.metric : '');
                     rows.push(head);
                     if (r.local) rows.push(' '.repeat(23) + 'Local via ' + r.via);
                     else if (r.nh === 'Discard' || r.nh === 'Reject') rows.push(' '.repeat(23) + r.nh);
@@ -862,12 +1350,24 @@ const CgLabSetCli = (() => {
             });
             return L2.join('\n');
         }
-        function ethTable() {
-            const W = view(), rows = [];
-            W.ifls.filter(x => x.eth && x.adminUp && x.mode === 'access' && x.members.length && W.vlans.has(x.members[0])).forEach(x => rows.push('   ' + pad(x.members[0], 20) + pad(macOf(x.name + x.members[0]), 20) + pad('D', 12) + pad('-', 7) + pad(x.name, 23) + pad('0', 10) + '0'));
-            return ['', 'MAC flags (S - static MAC, D - dynamic MAC, L - locally learned, P - Persistent static', '           SE - statistics enabled, NM - non configured MAC, R - remote PE MAC, O - ovsdb MAC)', '', '',
-                'Ethernet switching table : ' + rows.length + ' entries, ' + rows.length + ' learned', 'Routing instance : default-switch',
-                '   Vlan                MAC                 MAC         Age    Logical                NH        RTR', '   name                address             flags              interface              Index     ID'].concat(rows).join('\n');
+        function ethTable(args) {
+            const W = view(); let rows = macRows(W), filt = null;
+            for (let i = 0; i < (args || []).length; i++) {
+                const k = pick(args[i].t, ['interface', 'vlan-name', 'persistent-mac', 'brief', 'extensive']);
+                if (!k.ok) return { err: i };
+                if (k.ok === 'persistent-mac') { rows = rows.filter(r => r.flags === 'P'); continue; }
+                if (['brief', 'extensive'].includes(k.ok)) continue;
+                if (!args[i + 1]) return { err: i + 1 };
+                const v = args[++i].t;
+                filt = true;
+                rows = rows.filter(r => k.ok === 'interface' ? r.ifl === v || r.ifl.replace(/\.\d+$/, '') === v : r.vlan === v);
+            }
+            const note = S.macCleared ? ['# [Simülatör] Dinamik girdiler temizlendi; trafik geldikçe yeniden öğrenilecek (bir sonraki gösterimde).'] : [];
+            if (S.macCleared) S.macCleared = false;
+            const text = ['', 'MAC flags (S - static MAC, D - dynamic MAC, L - locally learned, P - Persistent static', '           SE - statistics enabled, NM - non configured MAC, R - remote PE MAC, O - ovsdb MAC)', '', '',
+                'Ethernet switching table : ' + rows.length + ' entries, ' + rows.filter(r => r.flags !== 'S').length + ' learned', 'Routing instance : default-switch',
+                '   Vlan                MAC                 MAC         Age    Logical                NH        RTR', '   name                address             flags              interface              Index     ID'].concat(rows.map(r => '   ' + pad(r.vlan, 20) + pad(r.mac, 20) + pad(r.flags, 12) + pad('-', 7) + pad(r.ifl, 23) + pad('0', 10) + '0'), note).join('\n');
+            return filt === null && !(args || []).length ? text : { text };
         }
         function secZones(name, detail) {
             const W = view(), L2 = [];
@@ -943,11 +1443,11 @@ const CgLabSetCli = (() => {
                 if (F2['destination-prefix'] && !inNet(f.dst, pfx(F2['destination-prefix']))) return;
                 if (F2['destination-port'] && +F2['destination-port'] !== f.dport) return;
                 if (F2.nat && !d.natIp) return;
-                const back = d.natIp || f.src, bport = d.natIp ? 10000 + (id % 5000) : f.sport, ok = d.stage === 'allowed';
+                const back = d.natIp || f.src, bport = d.natIp && !d.rev ? 10000 + (id % 5000) : f.sport, ok = d.stage === 'allowed';
                 const idx = polIndex(act())[d.zin + '>' + d.zout + '>' + d.policy];
                 rows.push('Session ID: ' + id + ', Policy name: ' + d.policy + '/' + idx + ', Timeout: ' + (ok ? 1796 : 2) + ', Valid',
                     '  In: ' + f.src + '/' + f.sport + ' --> ' + f.dst + '/' + f.dport + ';' + f.proto + ', Conn Tag: 0x0, If: ' + d.inIfl + ', Pkts: ' + (ok ? 6 : 3) + ', Bytes: ' + (ok ? 1082 : 180) + ', ',
-                    '  Out: ' + f.dst + '/' + f.dport + ' --> ' + back + '/' + bport + ';' + f.proto + ', Conn Tag: 0x0, If: ' + d.outIfl + ', Pkts: ' + (ok ? 5 : 0) + ', Bytes: ' + (ok ? 3920 : 0) + ', ');
+                    '  Out: ' + (d.dnat ? d.dnat.ip + '/' + d.dnat.port : f.dst + '/' + f.dport) + ' --> ' + back + '/' + bport + ';' + f.proto + ', Conn Tag: 0x0, If: ' + d.outIfl + ', Pkts: ' + (ok ? 5 : 0) + ', Bytes: ' + (ok ? 3920 : 0) + ', ');
             });
             const n = rows.length / 3;
             if (F2.summary) return { text: ['Unicast-sessions: ' + n, 'Multicast-sessions: 0', 'Services-offload-sessions: 0', 'Failed-sessions: 0', 'Sessions-in-use: ' + n, '  Valid sessions: ' + n, '  Pending sessions: 0', '  Invalidated sessions: 0', 'Maximum-sessions: 524288'].join('\n') };
@@ -1002,9 +1502,164 @@ const CgLabSetCli = (() => {
             return { text: L2.join('\n') };
         }
 
+        // ── Yeni operasyonel çıktılar (EX anahtarlama, OSPF, LACP/VRRP, süzgeç, DHCP, dosya/arşiv)
+        const HOME = '/var/home/' + USER + '/';
+        const absPath = f => (f.startsWith('/') ? f : HOME + f);
+        function sysConns() {
+            const t = act(), svc = getIn(t, ['system', 'services']) || new Map(), P2 = [];
+            if (svc.has('ftp')) P2.push(21);
+            if (svc.has('ssh')) P2.push(22);
+            if (svc.has('telnet')) P2.push(23);
+            const wm = svc.get('web-management');
+            if (wm instanceof Map && wm.has('http')) P2.push(+(getIn(wm, ['http', 'port']) || 80));
+            if (wm instanceof Map && wm.has('https')) P2.push(+(getIn(wm, ['https', 'port']) || 443));
+            if (getIn(svc, ['netconf', 'ssh']) !== undefined) P2.push(830);
+            const L2 = ['Active Internet connections (including servers)', 'Proto Recv-Q Send-Q  Local Address                                 Foreign Address                               (state)'];
+            P2.sort((a, b) => a - b).forEach(p => L2.push('tcp4       0      0  ' + pad('*.' + p, 46) + pad('*.*', 46) + 'LISTEN'));
+            L2.push('# [Simülatör] Yalnız yönetim hizmetlerinin dinleyen TCP soketleri gösterilir.');
+            return L2.join('\n');
+        }
+        function routerId(W) { const r = getIn(W.t, ['routing-options', 'router-id']); if (r) return r; const lo = W.ifls.find(x => x.phys === 'lo0' && x.addrs.length); if (lo) return pfx(lo.addrs[0]).ip; const f = W.ifls.find(x => x.addrs.length); return f ? pfx(f.addrs[0]).ip : '0.0.0.0'; }
+        function ospfNeighbor() {
+            const W = view(), L2 = ['Address          Interface              State           ID               Pri  Dead'];
+            W.nbrs.filter(n => n.state).forEach((n, i) => L2.push(pad(n.addr, 17) + pad(n.ifl, 23) + pad(n.state, 16) + pad(n.rid, 17) + pad(String(n.pri || 128), 5) + String((n.dead || 40) - 4 - i)));
+            return L2.join('\n');
+        }
+        function ospfInterface() {
+            const W = view(), ospf = getIn(W.t, ['protocols', 'ospf']), rid = routerId(W), L2 = ['Interface           State   Area            DR ID           BDR ID          Nbrs'];
+            if (!(ospf instanceof Map)) return '';
+            for (const [a, ao] of (ospf.get('area') || new Map())) for (const [ifl, io] of (ao.get('interface') || new Map())) {
+                const x = ifOf(W, ifl), nb = W.nbrs.filter(n => n.ifl === ifl && n.state);
+                if (!x || !x.adminUp) { L2.push(pad(ifl, 20) + pad('Down', 8) + pad(a, 16) + pad('0.0.0.0', 16) + pad('0.0.0.0', 16) + '0'); continue; }
+                const pas = io instanceof Map && io.has('passive');
+                const other = nb[0] ? nb[0].rid : null, meDR = !other || ip2n(rid) > ip2n(other);
+                L2.push(pad(ifl, 20) + pad(pas ? 'DRother' : meDR ? 'DR' : 'BDR', 8) + pad(a, 16) + pad(pas ? '0.0.0.0' : meDR ? rid : other, 16) + pad(pas || !other ? '0.0.0.0' : meDR ? other : rid, 16) + String(nb.length).padStart(4));
+            }
+            return L2.join('\n');
+        }
+        function lacpShow(only) {
+            const W = view(), L2 = [], ae = Object.keys(W.lag).filter(k => /^ae\d+$/.test(k) && (!only || k === only));
+            if (only && !ae.length) return 'error: device ' + only + ' not found';
+            const yn = b => (b ? 'Yes' : 'No');
+            ae.forEach(a => {
+                const G = W.lag[a];
+                if (!G.exists) { L2.push('# [Simülatör] ' + a + ' oluşturulmamış: chassis aggregated-devices ethernet device-count değeri ' + a + ' için yetersiz.'); return; }
+                if (G.mine === 'none') { L2.push('warning: lacp subsystem not running - not needed by configuration.'); return; }
+                const per = (getIn(W.t, ['interfaces', a, 'aggregated-ether-options', 'lacp', 'periodic']) || 'fast') === 'fast' ? 'Fast' : 'Slow';
+                L2.push('Aggregated interface: ' + a, '    LACP state:       Role   Exp   Def  Dist  Col  Syn  Aggr  Timeout  Activity');
+                G.members.forEach(m => {
+                    const st = G.ports[m], ok = st === 'cd', def = st === 'defaulted';
+                    L2.push('      ' + pad(m, 13) + pad('Actor', 7) + pad('No', 6) + pad(yn(def), 5) + pad(yn(ok), 5) + pad(yn(ok), 5) + pad(yn(ok), 6) + pad('Yes', 7) + pad(per, 9) + (G.mine === 'passive' ? 'Passive' : 'Active'));
+                    L2.push('      ' + pad(m, 13) + pad('Partner', 7) + pad('No', 6) + pad(yn(def || st === 'down'), 5) + pad(yn(ok), 5) + pad(yn(ok), 5) + pad(yn(ok), 6) + pad(yn(!def && st !== 'down'), 7) + pad(per, 9) + (def || st === 'down' ? 'Passive' : G.peer === 'passive' ? 'Passive' : 'Active'));
+                });
+                L2.push('    LACP protocol:        Receive State  Transmit State          Mux State');
+                G.members.forEach(m => { const st = G.ports[m]; L2.push('      ' + pad(m, 25) + pad(st === 'cd' ? 'Current' : st === 'down' ? 'Port disabled' : 'Defaulted', 15) + pad(st === 'down' ? 'No periodic' : per + ' periodic', 24) + (st === 'cd' ? 'Collecting distributing' : st === 'down' ? 'Detached' : 'Waiting')); });
+            });
+            return L2.join('\n');
+        }
+        function vrrpShow() {
+            const W = view(), L2 = ['Interface     State       Group   VR state VR Mode   Timer    Type   Address'];
+            vrrpState(W).forEach(v => {
+                L2.push(pad(v.ifl, 14) + pad(ifOf(W, v.ifl).adminUp ? 'up' : 'down', 12) + pad(v.group, 4).padStart(5) + '   ' + pad(v.state, 9) + pad('Active', 10) + pad(v.state === 'master' ? 'A  0.715' : v.state === 'backup' ? 'D  3.140' : 'N  0.000', 9) + pad('lcl', 7) + v.ip);
+                v.vips.forEach(ip => L2.push(' '.repeat(69) + pad('vip', 7) + ip));
+                if (v.state === 'backup' && v.peer) L2.push(' '.repeat(69) + pad('mas', 7) + v.peer.addr);
+            });
+            return L2.join('\n');
+        }
+        // süzgeç sayaçları: lo0'a uygulanmış süzgeçte cihaza yönelik sanal akışlar (lab.sim.re) + OSPF hello'ları
+        function fwCounters(W) {
+            const f = reFilter(W.t), cnt = {};
+            if (!f) return cnt;
+            const flows = (SIM.re || []).concat((SIM.ospf || []).map(nb => ({ src: nb.addr, dst: '224.0.0.5', proto: 'ospf', pkts: 30, bytes: 2400 })));
+            flows.forEach(p => { const r = fwEval(W.t, f, p); if (r.count) { const c = cnt[f + ':' + r.count] = cnt[f + ':' + r.count] || { b: 0, p: 0 }; c.p += p.pkts || 10; c.b += p.bytes || (p.pkts || 10) * 84; } });
+            return cnt;
+        }
+        function fwShow(only) {
+            const W = view(), filt = getIn(W.t, ['firewall', 'family', 'inet', 'filter']) || new Map(), cnt = fwCounters(W), L2 = [];
+            if (only && !filt.has(only)) return '# [Simülatör] \'' + only + '\' adlı süzgeç tanımlı değil.';
+            for (const [fn, fo] of filt) {
+                if (only && fn !== only) continue;
+                const names = []; for (const [, to] of (fo.get('term') || new Map())) { const c = getIn(to, ['then', 'count']); if (c && !names.includes(c)) names.push(c); }
+                L2.push('', 'Filter: ' + fn);
+                if (names.length) { L2.push('Counters:', 'Name                                                Bytes              Packets'); names.forEach(n => { const c = cnt[fn + ':' + n] || { b: 0, p: 0 }; L2.push(pad(n, 45) + String(c.b).padStart(14) + String(c.p).padStart(21)); }); }
+            }
+            return L2.join('\n');
+        }
+        function dhcpShow() {
+            const L2 = ['', 'IP address        Session Id  Hardware address   Expires     State      Interface'];
+            dhcpBind(view()).forEach((b, i) => L2.push(pad(b.ip, 18) + pad(String(3 + i), 12) + pad(b.mac, 19) + pad(String(b.lease - 37 - i * 11), 12) + pad('BOUND', 11) + b.ifl));
+            return L2.join('\n');
+        }
+        function stpBridge() {
+            const W = view(), st = stpState(W);
+            if (!st) return '# [Simülatör] Bu cihazda kapsayan ağaç protokolü (protocols rstp) yapılandırılmamış.';
+            const L2 = ['STP bridge parameters', 'Routing instance name               : GLOBAL', 'Context ID                          : 0', 'Enabled protocol                    : RSTP',
+                '  Root ID                           : ' + bid(st.root)];
+            if (!st.isRoot) L2.push('  Root cost                         : 20000', '  Root port                         : ' + st.rootPort);
+            L2.push('  Hello time                        : 2 seconds', '  Maximum age                       : 20 seconds', '  Forward delay                     : 15 seconds', '  Message age                       : ' + (st.isRoot ? 0 : 1),
+                '  Number of topology changes        : ' + (1 + S.commitN - S.commit0), '  Local parameters', '    Bridge ID                       : ' + bid(st.me), '    Extended system ID              : 0');
+            return L2.join('\n');
+        }
+        function stpIf() {
+            const W = view(), st = stpState(W);
+            if (!st) return '# [Simülatör] Bu cihazda kapsayan ağaç protokolü (protocols rstp) yapılandırılmamış.';
+            const L2 = ['', 'Spanning tree interface parameters for instance 0', '', 'Interface                  Port ID    Designated         Designated                               Port    State  Role', '                                       port ID           bridge ID                                Cost'];
+            st.ports.forEach((p, i) => L2.push(pad(p.port, 27) + pad('128:' + (i + 1), 11) + pad('128:' + (i + 1), 19) + pad(bid(p.desig), 41) + pad('20000', 8) + pad(p.state, 7) + p.role + (p.note ? ' ' + p.note : '')));
+            return L2.join('\n');
+        }
+        function ethIfShow() {
+            const W = view(), r = ['Routing Instance Name : default-switch', 'Logical Interface flags (DL - disable learning, AD - packet action drop,', '                         LH - MAC limit hit, DN - interface down )', '', 'Logical         Vlan                     TAG     MAC         STP         Logical           Tagging', 'interface       members                          limit       state       interface flags'];
+            W.ifls.filter(x => x.eth).forEach(x => {
+                const ps = psec(W.t, x.phys), lim = ps && ps.limit !== null ? String(ps.limit) : '65535', hit = ps && ps.limit !== null && macsOn(x.phys, x.members[0]).length > ps.limit;
+                const fl = [x.adminUp ? null : 'DN', hit ? 'LH' : null, hit && ps && /drop/.test(ps.action) ? 'AD' : null].filter(Boolean).join(',');
+                r.push(pad(x.name, 16) + (fl ? ' '.repeat(61) + fl : ''));
+                x.members.forEach(m => r.push(' '.repeat(16) + pad(m, 25) + pad((W.vlans.get(m) && W.vlans.get(m).get('vlan-id')) || '-', 8) + pad(lim, 12) + pad(x.adminUp ? 'Forwarding' : 'Discarding', 12) + pad('', 18) + (x.mode === 'trunk' ? 'tagged' : 'untagged')));
+            });
+            return r.join('\n');
+        }
+        function natStaticShow() {
+            const t = act(), L2 = []; let n = 0;
+            for (const [rs, r] of (getIn(t, ['security', 'nat', 'static', 'rule-set']) || new Map())) for (const [rn, ru] of (r.get('rule') || new Map())) {
+                n++;
+                const md = pfx(getIn(ru, ['match', 'destination-address']) || '0.0.0.0/0'), mp = pfx(getIn(ru, ['then', 'static-nat', 'prefix', '_']) || '0.0.0.0/32');
+                const hits = flows().filter(f => { const d = decide(f); return (d.dnat && d.dnat.kind === 'static' && d.dnat.rule === rn) || (d.rev && d.rev.rule === rn); }).length * 6;
+                L2.push('', 'Static NAT rule: ' + pad(rn, 23) + 'Rule-set: ' + rs, '  Rule-Id                    : ' + n, '  Rule position              : ' + n, '  From zone                  : ' + (getIn(r, ['from', 'zone']) || []).join(', '),
+                    '  Destination addresses      : ' + md.ip, '  Host addresses             : ' + (mp ? mp.ip : '-'), '  Netmask                    : ' + md.len, '  Host routing-instance      : N/A', '  Translation hits           : ' + hits);
+            }
+            return ['Total static-nat rules: ' + n, 'Total referenced IPv4/IPv6 ip-prefixes: ' + n + '/0'].concat(L2, ['# [Simülatör] Alanlar gerçek çıktıdan kısaltılmıştır.']).join('\n');
+        }
+        function natDestShow() {
+            const t = act(), L2 = []; let n = 0;
+            for (const [rs, r] of (getIn(t, ['security', 'nat', 'destination', 'rule-set']) || new Map())) for (const [rn, ru] of (r.get('rule') || new Map())) {
+                n++;
+                const md = pfx(getIn(ru, ['match', 'destination-address']) || '0.0.0.0/0'), dp = getIn(ru, ['match', 'destination-port']), pool = getIn(ru, ['then', 'destination-nat', 'pool', '_']);
+                const hits = flows().filter(f => { const d = decide(f); return d.dnat && d.dnat.kind === 'destination' && d.dnat.rule === rn; }).length * 6;
+                L2.push('', 'Destination NAT rule: ' + pad(rn, 23) + 'Rule-set: ' + rs, '  Rule-Id                    : ' + n, '  Rule position              : ' + n, '  From zone                  : ' + (getIn(r, ['from', 'zone']) || []).join(', '),
+                    '    Destination addresses    : ' + pad(n2ip(C.netOf(md.ip, md.len)), 16) + '- ' + bcast(md), '  Destination port           : ' + (dp ? dp.join(', ') : '0'), '  Action                     : ' + (pool || 'off'), '  Translation hits           : ' + hits);
+            }
+            return ['Total destination-nat rules: ' + n, 'Total referenced IPv4/IPv6 ip-prefixes: ' + n + '/0'].concat(L2, ['# [Simülatör] Alanlar gerçek çıktıdan kısaltılmıştır.']).join('\n');
+        }
+        function fileNames() {
+            const F2 = Object.keys(S.files);
+            F2.push('/config/juniper.conf.gz'); for (let i = 1; i < Math.min(S.hist.length, 4); i++) F2.push('/config/juniper.conf.' + i + '.gz');
+            for (let i = 4; i < S.hist.length; i++) F2.push('/var/db/config/juniper.conf.' + i + '.gz');
+            if (S.rescue) F2.push('/config/rescue.conf.gz');
+            return F2;
+        }
+        function fileList(dir) {
+            const d = dir ? absPath(dir).replace(/\/?$/, '/') : HOME;
+            const names = fileNames().filter(f => f.startsWith(d) && !f.slice(d.length).includes('/')).map(f => f.slice(d.length)).sort();
+            return '\n' + d + ':\n' + names.join('\n');
+        }
+        function fileShow(f) {
+            const p = absPath(f);
+            if (S.files[p]) return { text: S.files[p].text };
+            if (fileNames().includes(p)) return { text: '# [Simülatör] ' + p + ' sıkıştırılmış (gzip) bir yapılandırma dosyası; içeriği için show system rollback / show configuration kullanın.' };
+            return { text: '# [Simülatör] Dosya bulunamadı: ' + p, errk: 'value' };
+        }
         // ── Operasyonel komut ağacı
         const UNSUP = '# [Simülatör] Bu komut gerçek cihazda var ama bu lab sürümünde desteklenmiyor.';
-        const KNOWN_SHOW = ['chassis', 'log', 'bgp', 'ospf', 'lldp', 'ntp', 'snmp', 'lacp', 'spanning-tree', 'firewall', 'arp', 'isis', 'bfd', 'mpls', 'ldp', 'vrrp', 'virtual-chassis', 'poe', 'services', 'dhcp', 'pfe', 'ipv6', 'cli', 'host', 'policy-options', 'class-of-service', 'task', 'krt'];
+        const KNOWN_SHOW = ['chassis', 'log', 'bgp', 'lldp', 'ntp', 'snmp', 'arp', 'isis', 'bfd', 'mpls', 'ldp', 'virtual-chassis', 'poe', 'services', 'pfe', 'ipv6', 'cli', 'host', 'policy-options', 'class-of-service', 'task', 'krt', 'dot1x', 'igmp', 'pim', 'mld'];
         const OP = { c: {
             show: { d: 'Bilgi göster', c: {
                 version: { d: 'Yazılım sürümü ve model', run: () => showVersion() },
@@ -1013,7 +1668,13 @@ const CgLabSetCli = (() => {
                     runArgs: (a) => { const n = a[0].t.replace(/\.\d+$/, ''); if (!VT.jif(n)) return { err: 0 }; if (a[1] && !(pick(a[1].t, ['terse', 'extensive', 'detail']).ok)) return { err: 1 }; if (a[1] && pick(a[1].t, ['terse']).ok === 'terse') { if (!physPorts().includes(n) && !getIn(act(), ['interfaces', n])) return { text: 'error: device ' + n + ' not found' }; return { text: ifTerse(n) }; } const d = ifDetail(n); return d ? { text: d } : { text: 'error: device ' + n + ' not found' }; } },
                 route: { d: 'Yönlendirme tablosu', run: () => showRoute([]).text, args: [['<önek>', 'Hedef IP ya da önek'], ['exact', 'Tam önek'], ['protocol', 'static | direct | local']], runArgs: a => showRoute(a) },
                 vlans: { d: 'VLAN\'lar ve üye arayüzler', run: () => showVlans(), only: ['ex', 'srx'] },
-                'ethernet-switching': { d: 'Katman 2 anahtarlama', only: ['ex', 'srx'], c: { table: { d: 'MAC adres tablosu', run: () => ethTable() }, interface: { d: 'Anahtarlama arayüzleri', run: () => { const W = view(), r = ['Routing Instance Name : default-switch', 'Logical Interface flags (DL - disable learning, AD - packet action drop,', '                         LH - MAC limit hit, DN - interface down )', '', 'Logical         Vlan                     TAG     MAC         STP         Logical           Tagging', 'interface       members                          limit       state       interface flags']; W.ifls.filter(x => x.eth).forEach(x => { r.push(pad(x.name, 16) + (x.adminUp ? '' : '                                                             DN')); x.members.forEach(m => r.push(' '.repeat(16) + pad(m, 25) + pad((W.vlans.get(m) && W.vlans.get(m).get('vlan-id')) || '-', 8) + pad('65535', 12) + pad(x.adminUp ? 'Forwarding' : 'Discarding', 12) + pad('', 18) + (x.mode === 'trunk' ? 'tagged' : 'untagged'))); }); return r.join('\n'); } } } },
+                'spanning-tree': { d: 'Kapsayan ağaç (RSTP)', only: ['ex'], c: { bridge: { d: 'Köprü ve kök köprü bilgisi', run: () => stpBridge() }, interface: { d: 'Port rolleri ve durumları', run: () => stpIf() } }, known: ['statistics', 'mstp', 'stp-buffer'] },
+                ospf: { d: 'OSPF', c: { neighbor: { d: 'OSPF komşuları', run: () => ospfNeighbor() }, interface: { d: 'OSPF arayüzleri', run: () => ospfInterface() } }, known: ['database', 'route', 'statistics', 'overview', 'log', 'io-statistics'] },
+                lacp: { d: 'LACP', c: { interfaces: { d: 'LACP durumu (aeN üyeleri)', run: () => lacpShow(null), args: [['<aeN>', 'Toplu arayüz']], runArgs: a => (VT.jif(a[0].t) && /^ae/.test(a[0].t) && a.length === 1 ? { text: lacpShow(a[0].t) } : { err: 0 }) } }, known: ['statistics', 'timeouts'] },
+                vrrp: { d: 'VRRP grupları', run: () => vrrpShow(), args: [['summary', 'Özet'], ['brief', 'Kısa'], ['detail', 'Ayrıntı']], runArgs: a => (a.length === 1 && pick(a[0].t, ['summary', 'brief', 'detail']).ok ? { text: vrrpShow() } : { err: 0 }) },
+                firewall: { d: 'Süzgeç sayaçları', run: () => fwShow(null), args: [['filter', 'Süzgeç adı']], runArgs: a => (pick(a[0].t, ['filter']).ok && a[1] ? { text: fwShow(a[1].t) } : { err: a[1] ? 0 : 1 }), known: ['log', 'counter', 'prefix-action-stats', 'policer', 'templates-in-use'] },
+                dhcp: { d: 'DHCP', c: { server: { d: 'DHCP sunucusu', c: { binding: { d: 'Kiralanan adresler', run: () => dhcpShow() } }, known: ['statistics', 'interface'] } }, known: ['relay', 'client', 'statistics'] },
+                'ethernet-switching': { d: 'Katman 2 anahtarlama', only: ['ex', 'srx'], c: { table: { d: 'MAC adres tablosu', run: () => ethTable(), args: [['interface', 'Arayüze göre süz'], ['vlan-name', 'VLAN adına göre süz'], ['persistent-mac', 'Kalıcı öğrenilen MAC\'ler']], runArgs: a => ethTable(a) }, interface: { d: 'Anahtarlama arayüzleri', run: () => ethIfShow() } } },
                 security: { d: 'Güvenlik (SRX)', only: ['srx'], c: {
                     zones: { d: 'Güvenlik bölgeleri', run: () => secZones(), args: [['<bölge>', 'Bölge adı'], ['detail', 'Ayrıntılı']], runArgs: a => { const det = a.some(x => x.t === 'detail'); const nm = a.find(x => x.t !== 'detail'); if (nm && !view().zones.has(nm.t) && nm.t !== 'junos-host') return { text: '' }; return { text: secZones(nm ? nm.t : null, det) }; } },
                     policies: { d: 'Güvenlik kuralları', run: () => secPolicies(), args: [['from-zone', 'Kaynak bölge'], ['to-zone', 'Hedef bölge'], ['detail', 'Ayrıntılı'], ['hit-count', 'Kural isabet sayıları']],
@@ -1021,18 +1682,32 @@ const CgLabSetCli = (() => {
                     'match-policies': { d: 'Bir akışın hangi kurala eşleştiğini göster (teşhis)', args: [['from-zone', '<bölge>'], ['to-zone', '<bölge>'], ['source-ip', '<A.B.C.D>'], ['destination-ip', '<A.B.C.D>'], ['source-port', '<port>'], ['destination-port', '<port>'], ['protocol', 'tcp | udp | icmp | <sayı>']],
                         runArgs: a => { const r = matchPolicies(a); if (r.miss) return { text: '# [Simülatör] Eksik parametre: ' + r.miss + ' (from-zone, to-zone, source-ip, destination-ip, source-port, destination-port, protocol gerekli)', errk: 'incomplete' }; if (r.bad) return { text: '# [Simülatör] Geçersiz IP ya da protokol değeri.', errk: 'value' }; return r; } },
                     flow: { d: 'Akış tablosu', c: { session: { d: 'Oturumlar', run: () => flowSessions([]).text, args: [['source-prefix', '<önek>'], ['destination-prefix', '<önek>'], ['destination-port', '<port>'], ['summary', 'Özet'], ['nat', 'Yalnız NAT\'lı oturumlar']], runArgs: a => flowSessions(a) }, status: { d: 'Akış durumu', run: () => UNSUP, unsup: true } } },
-                    nat: { d: 'NAT', c: { source: { d: 'Kaynak NAT', c: { rule: { d: 'Kurallar', c: { all: { d: 'Tüm kurallar', run: () => natRules() } } }, summary: { d: 'Özet', run: () => natSummary() }, pool: { d: 'Havuzlar', run: () => UNSUP, unsup: true } } }, destination: { d: 'Hedef NAT', run: () => UNSUP, unsup: true }, static: { d: 'Statik NAT', run: () => UNSUP, unsup: true } } },
+                    nat: { d: 'NAT', c: { source: { d: 'Kaynak NAT', c: { rule: { d: 'Kurallar', c: { all: { d: 'Tüm kurallar', run: () => natRules() } } }, summary: { d: 'Özet', run: () => natSummary() }, pool: { d: 'Havuzlar', run: () => UNSUP, unsup: true } } }, destination: { d: 'Hedef NAT', c: { rule: { d: 'Kurallar', c: { all: { d: 'Tüm kurallar', run: () => natDestShow() } } }, pool: { d: 'Havuzlar', run: () => UNSUP, unsup: true } } }, static: { d: 'Statik NAT', c: { rule: { d: 'Kurallar', c: { all: { d: 'Tüm kurallar', run: () => natStaticShow() } } } } } } },
                 }, known: ['ike', 'ipsec', 'screen', 'alg', 'log', 'idp', 'utm', 'monitoring', 'application-tracking', 'address-book'] },
                 configuration: { d: 'Aktif (commit edilmiş) yapılandırma', cfgShow: true },
-                system: { d: 'Sistem', c: { commit: { d: 'Commit geçmişi', run: () => sysCommit() }, uptime: { d: 'Çalışma süresi', run: () => 'Current time: ' + SIMCLK(S.commitN + 5) + ' UTC\nSystem booted: ' + SIMCLK(0) + ' UTC (00:45:12 ago)\nLast configured: ' + SIMCLK(S.hist[0].meta.n) + ' UTC by ' + S.hist[0].meta.by + '\n# [Simülatör] Süreler temsilîdir.' }, alarms: { d: 'Sistem alarmları', run: () => '1 alarms currently active\nAlarm time               Class  Description\n' + SIMCLK(1) + ' UTC  Minor  Rescue configuration is not set' } },
-                    known: ['storage', 'processes', 'users', 'license', 'core-dumps', 'connections', 'statistics', 'rollback', 'software', 'information', 'buffers', 'memory', 'boot-messages'] },
+                system: { d: 'Sistem', c: { commit: { d: 'Commit geçmişi', run: () => sysCommit() }, connections: { d: 'TCP/UDP bağlantılar ve dinleyen hizmetler', run: () => sysConns() }, uptime: { d: 'Çalışma süresi', run: () => 'Current time: ' + SIMCLK(S.commitN + 5) + ' UTC\nSystem booted: ' + SIMCLK(0) + ' UTC (00:45:12 ago)\nLast configured: ' + SIMCLK(S.hist[0].meta.n) + ' UTC by ' + S.hist[0].meta.by + '\n# [Simülatör] Süreler temsilîdir.' }, alarms: { d: 'Sistem alarmları', run: () => (S.rescue ? 'No alarms currently active' : '1 alarms currently active\nAlarm time               Class  Description\n' + SIMCLK(1) + ' UTC  Minor  Rescue configuration is not set') } },
+                    known: ['storage', 'processes', 'users', 'license', 'core-dumps', 'statistics', 'rollback', 'software', 'information', 'buffers', 'memory', 'boot-messages', 'services', 'login'] },
             }, known: KNOWN_SHOW },
             configure: { d: 'Yapılandırma moduna geç', run: () => enterCfg(), c: { exclusive: { d: 'Yapılandırmayı kilitleyerek gir', run: () => enterCfg() }, private: { d: 'Özel candidate kopyası ile gir', run: () => enterCfg() } } },
             ping: { d: 'ICMP erişilebilirlik testi', args: [['<A.B.C.D>', 'Hedef'], ['count', 'Paket sayısı'], ['rapid', 'Hızlı mod'], ['source', 'Kaynak adres']], runArgs: a => ping(a) },
             exit: { d: 'CLI\'dan çık', run: () => { S.loggedOut = true; return '\n[Simülatör] Oturum kapatıldı. Yeniden bağlanmak için Enter.'; } },
             quit: { d: 'CLI\'dan çık', run: () => { S.loggedOut = true; return '\n[Simülatör] Oturum kapatıldı. Yeniden bağlanmak için Enter.'; } },
+            clear: { d: 'Tablo / hata durumu temizle', c: {
+                'ethernet-switching': { d: 'L2 anahtarlama', only: ['ex'], c: {
+                    table: { d: 'MAC tablosundaki dinamik girdileri temizle', run: () => { S.macCleared = true; return ''; }, args: [['interface', '<arayüz>'], ['persistent-learning', 'Kalıcı öğrenilenleri de']], runArgs: a => { const k = pick(a[0].t, ['interface', 'persistent-learning', 'vlan-name']); if (!k.ok) return { err: 0 }; if (k.ok !== 'persistent-learning' && !a[1]) return { err: 1 }; S.macCleared = true; return { text: '' }; } },
+                    'recovery-timeout': { d: 'Port güvenliği nedeniyle kapanan portları aç', run: () => clearErr('mac-limit', null), args: [['interface', '<arayüz>']], runArgs: a => (pick(a[0].t, ['interface']).ok && a[1] && VT.jifx(a[1].t) ? { text: clearErr('mac-limit', a[1].t.replace(/\.\d+$/, '')) } : { err: a[1] ? 1 : 0 }) } }, known: ['statistics', 'mac-move-buffer', 'bpdu-error'] },
+                error: { d: 'Hata durumları', only: ['ex'], c: { bpdu: { d: 'BPDU hatası', c: { interface: { d: 'BPDU nedeniyle engellenen portu aç', args: [['<arayüz>', 'ör. ge-0/0/3']], runArgs: a => (VT.jifx(a[0].t) && a.length === 1 ? { text: clearErr('bpdu', a[0].t.replace(/\.\d+$/, '')) } : { err: 0 }) } } } }, known: ['loop-detect', 'mac-rewrite'] },
+            }, known: ['arp', 'bgp', 'ospf', 'interfaces', 'log', 'security', 'system', 'dhcp', 'lacp', 'vrrp', 'spanning-tree', 'route', 'ipv6', 'lldp', 'firewall', 'error'] },
+            request: { d: 'Sistem işlemleri', c: {
+                system: { d: 'Sistem', c: { configuration: { d: 'Yapılandırma', c: { rescue: { d: 'Kurtarma (rescue) yapılandırması', c: { save: { d: 'Aktif yapılandırmayı rescue olarak kaydet', run: () => { S.rescue = cfgClone(active()); return ''; } }, delete: { d: 'Rescue yapılandırmasını sil', run: () => { S.rescue = null; return ''; } } } } } } },
+                    known: ['reboot', 'halt', 'power-off', 'software', 'zeroize', 'snapshot', 'storage', 'license', 'autorecovery', 'services', 'logout', 'set-encryption-key', 'root-password'] },
+            }, known: ['chassis', 'security', 'support', 'message', 'interface', 'dhcp', 'ipsec', 'routing-engine', 'virtual-chassis', 'pki', 'shell'] },
+            file: { d: 'Dosya işlemleri', c: {
+                list: { d: 'Dosyaları listele', run: () => fileList(null), args: [['<dizin>', 'ör. /var/tmp/ ya da /config/']], runArgs: a => (a.length === 1 && VT.file(a[0].t) ? { text: fileList(a[0].t) } : { err: 0 }) },
+                show: { d: 'Dosya içeriğini göster', args: [['<dosya>', 'Dosya yolu']], runArgs: a => (a.length === 1 && VT.file(a[0].t) ? fileShow(a[0].t) : { err: 0 }) },
+            }, known: ['copy', 'delete', 'rename', 'compare', 'archive', 'checksum', 'link', 'make-directory', 'delete-directory'] },
             set: { d: 'CLI ayarları (set cli …)', c: { cli: { d: 'CLI ortamı', unsupAll: true }, date: { d: 'Tarih', unsupAll: true }, chassis: { d: 'Kasa', unsupAll: true } } },
-        }, known: ['request', 'clear', 'monitor', 'file', 'start', 'restart', 'test', 'op', 'save', 'traceroute', 'telnet', 'ssh', 'help', 'load', 'mtrace', 'show-bgp'] };
+        }, known: ['monitor', 'start', 'restart', 'test', 'op', 'save', 'traceroute', 'telnet', 'ssh', 'help', 'load', 'mtrace', 'show-bgp'] };
 
         // Op ağacında yürü: {node, words, args, argStart} | {err, at, hits}
         function opWalk(toks, forHelp) {
@@ -1145,7 +1820,7 @@ const CgLabSetCli = (() => {
 
         // ── Yapılandırma modu
         const CFG_VERBS = ['set', 'delete', 'deactivate', 'activate', 'edit', 'show', 'top', 'up', 'exit', 'quit', 'commit', 'rollback', 'run', 'insert', 'status', 'annotate', 'copy', 'rename', 'load', 'save', 'replace', 'wildcard', 'protect', 'unprotect', 'help', 'update'];
-        const CFG_UNSUP = ['status', 'annotate', 'copy', 'rename', 'load', 'save', 'replace', 'wildcard', 'protect', 'unprotect', 'help', 'update'];
+        const CFG_UNSUP = ['status', 'annotate', 'copy', 'rename', 'replace', 'wildcard', 'protect', 'unprotect', 'help', 'update'];
         const VERB_H = { set: 'Bir ifade ekle/değiştir', delete: 'Bir ifadeyi sil', deactivate: 'İfadeyi pasif yap (yapılandırmada kalır, uygulanmaz)', activate: 'Pasif ifadeyi etkinleştir', edit: 'Hiyerarşide bir seviyeye in', show: 'Candidate yapılandırmayı göster', top: 'En üst seviyeye çık', up: 'Bir seviye yukarı çık', exit: 'Bir önceki seviyeye / yapılandırma modundan çık', quit: 'exit ile aynı', commit: 'Candidate\'i aktif yap', rollback: 'Önceki bir sürümü candidate\'e yükle', run: 'Operasyonel komut çalıştır', insert: 'Sıralı listede öğenin yerini değiştir', status: 'Yapılandırmayı düzenleyen kullanıcılar', annotate: 'İfadeye yorum ekle', copy: 'İfadeyi kopyala', rename: 'İfadeyi yeniden adlandır', load: 'Dosyadan yükle', save: 'Dosyaya kaydet', replace: 'Desen ile değiştir', wildcard: 'Joker karakterli işlem', protect: 'Koru', unprotect: 'Korumayı kaldır', help: 'Yardım', update: 'Özel kopyayı güncelle' };
         function cfgErr(raw, line, toks, r, off) {
             // parse hatasını Junos biçiminde döndür
@@ -1233,7 +1908,10 @@ const CgLabSetCli = (() => {
             if (v === 'rollback') {
                 let n = 0;
                 if (rest[0]) {
-                    if (pick(rest[0].t, ['rescue']).ok) { log({ raw, err: 'unsupported' }); return cfgOut(UNSUP); }
+                    if (pick(rest[0].t, ['rescue']).ok) {
+                        if (!S.rescue) { log({ raw, err: 'value' }); return cfgOut('# [Simülatör] Rescue yapılandırması yok (request system configuration rescue save ile oluşturulur).'); }
+                        S.cand = cfgClone(S.rescue); log({ raw, canon: 'rollback rescue', rollback: 'rescue' }); return cfgOut('load complete');
+                    }
                     if (!/^\d+$/.test(rest[0].t) || +rest[0].t > 49) { log({ raw, err: 'invalid' }); return cfgOut(caret(rest[0].o, 'syntax error.')); }
                     n = +rest[0].t;
                 }
@@ -1253,6 +1931,26 @@ const CgLabSetCli = (() => {
                 if (out.err) { log({ raw, err: 'value' }); return cfgOut('# [Simülatör] istenen rollback sürümü yok.'); }
                 log({ raw, canon: 'show' + (path.length ? ' ' + path.join(' ') : '') + sp.pipes.map(p => ' | ' + p.k + (p.a ? ' ' + p.a : '') + (p.rb !== undefined && p.rb !== null ? ' rollback ' + p.rb : '')).join('') });
                 return cfgOut(pipeFilter(out.text, sp.pipes));
+            }
+            if (v === 'save') {
+                if (!rest[0]) { log({ raw, err: 'incomplete' }); return cfgOut(caret(line.length + 1, 'missing argument.')); }
+                if (!VT.file(rest[0].t) || rest.length > 1) { log({ raw, err: 'invalid' }); return cfgOut(caret(rest[rest[0] && VT.file(rest[0].t) ? 1 : 0].o, 'syntax error.')); }
+                const fn = absPath(rest[0].t), txt = cfgText(S.cand, S.edit, [], S.edit.length > 0).text;
+                S.files[fn] = { text: txt, cfg: S.edit.length ? null : cfgClone(S.cand) };
+                log({ raw, canon: 'save ' + rest[0].t, saved: fn });
+                return cfgOut("Wrote " + txt.split('\n').length + " lines of configuration to '" + rest[0].t + "'");
+            }
+            if (v === 'load') {
+                const k = rest[0] ? pick(rest[0].t, ['override', 'merge', 'replace', 'set', 'patch', 'update', 'factory-default']) : { err: 'none' };
+                if (!rest[0]) { log({ raw, err: 'incomplete' }); return cfgOut(caret(line.length + 1, 'missing argument.')); }
+                if (!k.ok) { log({ raw, err: k.err === 'amb' ? 'amb' : 'invalid' }); return cfgOut(caret(rest[0].o, 'syntax error.')); }
+                if (!['override', 'merge'].includes(k.ok)) { log({ raw, err: 'unsupported' }); return cfgOut(UNSUP); }
+                if (!rest[1]) { log({ raw, err: 'incomplete' }); return cfgOut(caret(line.length + 1, 'missing argument.')); }
+                const F2 = S.files[absPath(rest[1].t)];
+                if (!F2 || !F2.cfg) { log({ raw, err: 'value' }); return cfgOut('# [Simülatör] ' + absPath(rest[1].t) + ' bulunamadı ya da en üst seviyeden kaydedilmemiş (file list ile bakın).'); }
+                if (k.ok === 'override') S.cand = cfgClone(F2.cfg); else S.cand = { t: deepMerge(clone(S.cand.t), clone(F2.cfg.t)), ia: new Set([...S.cand.ia, ...F2.cfg.ia]) };
+                log({ raw, canon: 'load ' + k.ok + ' ' + rest[1].t, load: k.ok });
+                return cfgOut('load complete');
             }
             if (v === 'insert') {
                 const bi = rest.findIndex(x => ['before', 'after'].includes(x.t));
@@ -1320,7 +2018,7 @@ const CgLabSetCli = (() => {
                 // yaprakları yolları ile birlikte yaz (son yaprağa kadar)
                 const out = [];
                 let cur = [];
-                r.leaves.forEach(l => { const extra = l.at.slice(cur.length); out.push(...extra); cur = l.at; out.push(l.kw); if (l.sch.t === 'kv' && l.name) out.push(l.name); if (l.vals.length) out.push(...(l.vals.length > 1 ? ['[', ...l.vals, ']'] : l.vals)); });
+                r.leaves.forEach(l => { const extra = l.at.slice(cur.length); out.push(...extra); cur = l.at; if (l.kw !== '_') out.push(l.kw); if (l.sch.t === 'kv' && l.name) out.push(l.name); if (l.vals.length) out.push(...(l.vals.length > 1 ? ['[', ...l.vals, ']'] : l.vals)); });
                 const tail = r.path.slice(cur.length);
                 return (r.leaves[0].at.length ? '' : '') + out.concat(tail).join(' ');
             }
@@ -1473,12 +2171,14 @@ const CgLabSetCli = (() => {
         const baseCfg = (lab.bare ? [] : ['set system root-authentication encrypted-password "$6$lAbS1mUl$' + fakeHash('lab-root', 43) + '"']).concat(lab.hostname ? ['set system host-name ' + lab.hostname] : []);
         boot(baseCfg.concat(lab.start || [], (S.variant && S.variant.start) || []), true);
         S.hist.length = 1;
+        (S.variant && S.variant.linkFail || lab.linkFail || []).forEach(p => S.linkFail.add(p));
+        events(null, true);
         if (S.variant && S.variant.pending) boot(S.variant.pending, false);
         if (lab.pending) boot(lab.pending, false);
         S.commit0 = S.commitN; S.ev = []; S.mode = 'op';
 
         const E = evApi(S);
-        const val = (path, which) => { const t = which === 'cand' ? effective(ROOT, S.cand) : act(); return getIn(t, typeof path === 'string' ? path.split(' ') : path); };
+        const val = (path, which) => { const t = which === 'cand' ? expandRanges(effective(ROOT, S.cand)) : act(); return getIn(t, typeof path === 'string' ? path.split(' ') : path); };
         return {
             vendor: 'juniper',
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
@@ -1489,9 +2189,16 @@ const CgLabSetCli = (() => {
             mode: () => S.mode, editPath: () => S.edit.join(' '),
             val, has: (p, w) => val(p, w) !== undefined,
             committed: () => sameCfg(S.cand, active()), commits: () => S.commitN - S.commit0, confirming: () => !!S.confirm,
-            decide: (f, which) => decide(f, which === 'cand' ? effective(ROOT, S.cand) : undefined),
+            decide: (f, which) => decide(f, which === 'cand' ? expandRanges(effective(ROOT, S.cand)) : undefined),
             hostIn: (z, svc) => hostIn(z, svc), rib: () => view().R, zoneOf: ifl => view().zoneOf(ifl),
             ifl: n => ifOf(view(), n), hostname: () => host(),
+            // yeni modüller için okuma yardımcıları (aktif yapılandırmadan)
+            rawVal: p => getIn(effective(ROOT, active()), typeof p === 'string' ? p.split(' ') : p),
+            matchPol: (fz, tz, f) => { const m = matchPolicy(act(), fz, tz, Object.assign({ proto: 'tcp', sport: 51234 }, f)); return m ? { name: m.name, action: m.action } : null; },
+            dhcp: () => dhcpBind(view()), stp: () => stpState(view()), ospf: () => view().nbrs, lag: a => view().lag[a] || null, vrrp: () => vrrpState(view()),
+            fw: (f, pk) => fwEval(act(), f, Object.assign({ proto: 'tcp' }, pk)), fwCount: () => fwCounters(view()), macs: () => macRows(view()),
+            link: n => { const W = view(), o = getIn(W.t, ['interfaces', n]), li = linkInfo(o, n); return { up: !(o instanceof Map && o.has('disable')) && W.physUp(n), duplex: li.duplex, speed: li.speed, an: li.an }; },
+            errdown: p => S.errdown.get(p) || null, archived: () => S.archived.slice(), rescue: () => !!S.rescue, files: () => Object.keys(S.files),
             _expire: () => { if (S.confirm) S.confirm.until = 0; },
             showRun: () => cfgText(active(), [], [], false).text + '\n' + setLines(ROOT, ROOT, S.cand.t, [], S.cand.ia, {}).join('\n'),
         };

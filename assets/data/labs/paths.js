@@ -29,10 +29,10 @@
           modules: SWRT('cisco-ios', { 1: ['ios-00', 'ios-01', 'ios-02'], 2: ['ios-35a'], 3: ['ios-03'], 4: ['ios-35b'], 5: ['ios-35c'], 6: ['ios-31'], 7: ['ios-30'], 8: ['ios-10'], 9: ['ios-04'],
               10: ['ios-34'], 11: ['ios-11m'], 12: ['ios-14', 'ios-13'], 13: ['ios-16', 'ios-17', 'ios-18'], 14: ['ios-32', 'ios-33'], 15: ['ios-05'], 16: ['ios-15', 'ios-22'], 17: ['ios-40', 'ios-43', 'ios-47'] }) },
         { id: 'huawei-swrt', vendor: 'huawei', title: 'Huawei Switch & Router: sıfırdan üretime', desc: 'VRP ile aynı yolu Huawei S/AR cihazlarında yürüyün.',
-          modules: SWRT('huawei', { 1: ['hua-01'], 3: ['hua-02'], 8: ['hua-03'], 13: ['hua-06'], 14: ['hua-07'], 17: ['hua-40', 'hua-42'] }) },
+          modules: SWRT('huawei', { 1: ['hua-01', 'hua-04'], 2: ['hua-05'], 3: ['hua-02'], 4: ['hua-08'], 5: ['hua-09'], 6: ['hua-10'], 7: ['hua-11'], 8: ['hua-03'], 9: ['hua-12'], 10: ['hua-13'], 11: ['hua-14'], 12: ['hua-15'], 13: ['hua-06'], 14: ['hua-07'], 15: ['hua-16'], 16: ['hua-17'], 17: ['hua-40', 'hua-42'] }) },
         { id: 'dell-swrt', vendor: 'dell', title: 'Dell OS10 Switch: sıfırdan üretime', desc: 'OS10 ile veri merkezi erişim switch\'ini adım adım kurun.',
-          modules: SWRT('dell', { 1: ['dell-01'], 3: ['dell-02'], 8: ['dell-03'], 13: ['dell-04'], 17: ['dell-40'] }) },
+          modules: SWRT('dell', { 1: ['dell-01', 'dell-05'], 2: ['dell-06'], 3: ['dell-02'], 4: ['dell-07'], 7: ['dell-08'], 8: ['dell-03'], 9: ['dell-09'], 10: ['dell-10'], 11: ['dell-11'], 12: ['dell-12'], 13: ['dell-04', 'dell-13'], 14: ['dell-14'], 15: ['dell-15'], 16: ['dell-16'], 17: ['dell-40'] }) },
         { id: 'juniper-swrt', vendor: 'juniper', title: 'Juniper Junos: sıfırdan üretime', desc: 'Candidate/commit mantığıyla EX switch ve SRX/MX router.',
-          modules: SWRT('juniper', { 1: ['jun-01'], 3: ['jun-02'], 8: ['jun-04'], 9: ['jun-03'], 13: ['jun-05'], 6: ['jun-06'], 17: ['jun-07'] }) },
+          modules: SWRT('juniper', { 1: ['jun-01', 'jun-02'], 2: ['jun-08'], 3: ['jun-09'], 4: ['jun-10'], 5: ['jun-11'], 6: ['jun-06', 'jun-12'], 7: ['jun-13'], 8: ['jun-04'], 9: ['jun-03', 'jun-14'], 10: ['jun-15'], 11: ['jun-16'], 12: ['jun-17'], 13: ['jun-05', 'jun-18'], 14: ['jun-19'], 15: ['jun-20'], 16: ['jun-21'], 17: ['jun-07', 'jun-22'] }) },
     ];
 })();
