@@ -61,10 +61,19 @@ const CgLabIos = (() => {
         bpduguard: 'BPDU gelirse portu err-disable yap', range: 'Arayüz aralığı', 'ip': 'IP ayarları', default: 'Varsayılan', errdisable: 'err-disable ayarları', recovery: 'Otomatik kurtarma',
         cause: 'Kurtarma nedeni', include: 'Eşleşen satırlar', exclude: 'Eşleşmeyen satırlar', begin: 'Eşleşmeden itibaren', section: 'Eşleşen bölümler', 'time-out': 'Zaman aşımı', 'authentication-retries': 'Deneme sayısı',
         'extend': 'Genişletilmiş sistem kimliği', 'access-list': 'Numaralı erişim listesi', 'access-lists': 'Erişim listeleri', 'access-group': 'Arayüze ACL uygula', standard: 'Standart ACL (yalnız kaynak)', extended: 'Genişletilmiş ACL',
+        aaa: 'AAA (kimlik doğrulama, yetkilendirme, kayıt)', 'new-model': 'AAA\'yı etkinleştir', authentication: 'Kimlik doğrulama', authorization: 'Yetkilendirme', accounting: 'Kayıt (accounting)', group: 'Sunucu grubu', 'tacacs+': 'TACACS+ sunucuları', radius: 'RADIUS', tacacs: 'TACACS+', server: 'Sunucu', address: 'Adres', ipv4: 'IPv4 adresi', test: 'Test', algorithm: 'Algoritma listesi', encryption: 'Şifreleme', kex: 'Anahtar değişimi', hostkey: 'Sunucu anahtarı', http: 'HTTP (web) sunucusu', 'secure-server': 'HTTPS sunucusu', dh: 'Diffie-Hellman',
         permit: 'İzin ver', deny: 'Engelle', remark: 'Açıklama satırı', nat: 'NAT', inside: 'İç (NAT inside)', outside: 'Dış (NAT outside)', source: 'Kaynak', list: 'ACL ile', overload: 'PAT (port çevirme)', static: 'Statik', translations: 'Çeviri tablosu', statistics: 'İstatistik', translation: 'Çeviri', connected: 'Bağlı ağlar',
         errdisable: 'err-disable', 'err-disabled': 'err-disable portlar', clear: 'Temizle', in: 'Giriş yönü', out: 'Çıkış yönü', 'rapid-pvst': 'Rapid PVST+', pvst: 'PVST+', mst: 'MST', trunk_: '', users: 'Oturumlar', clock: 'Saat', length: 'Sayfa uzunluğu'
     };
     const VARH = { 'A.B.C.D': 'IP adresi / maske', WORD: 'Kelime', LINE: 'Metin', IFNAME: 'Arayüz (ör. GigabitEthernet0/1, g0/1)', VLIST: 'VLAN listesi (ör. 10,20-30)', HOP: 'Next-hop IP adresi veya arayüz' };
+
+    // ── SSH algoritmaları (IOS-XE 16/17 adları; varsayılan listede zayıf CBC/SHA1 bulunur)
+    const SSH_ALG = {
+        encryption: { all: ['aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'aes128-gcm', 'aes256-gcm', 'aes128-cbc', 'aes192-cbc', 'aes256-cbc', '3des-cbc'], def: ['aes128-ctr', 'aes192-ctr', 'aes256-ctr', 'aes128-cbc', '3des-cbc', 'aes192-cbc', 'aes256-cbc'], weak: /cbc/ },
+        mac: { all: ['hmac-sha2-256', 'hmac-sha2-512', 'hmac-sha1', 'hmac-sha1-96', 'hmac-sha2-256-etm@openssh.com', 'hmac-sha2-512-etm@openssh.com'], def: ['hmac-sha2-256', 'hmac-sha2-512', 'hmac-sha1', 'hmac-sha1-96'], weak: /sha1/ },
+        kex: { all: ['diffie-hellman-group-exchange-sha1', 'diffie-hellman-group14-sha1', 'diffie-hellman-group14-sha256', 'diffie-hellman-group16-sha512', 'ecdh-sha2-nistp256', 'ecdh-sha2-nistp384', 'ecdh-sha2-nistp521'], def: ['diffie-hellman-group-exchange-sha1', 'diffie-hellman-group14-sha1'], weak: /sha1/ },
+        hostkey: { all: ['rsa-sha2-512', 'rsa-sha2-256', 'ssh-rsa'], def: ['rsa-sha2-512', 'rsa-sha2-256', 'ssh-rsa'], weak: /^ssh-rsa$/ },
+    };
 
     // ── Varsayılan cihaz modeli
     function newIf(sw, name) {
@@ -80,7 +89,9 @@ const CgLabIos = (() => {
             ifs: {}, vlans: sw ? { 1: 'default' } : {}, stpMode: 'pvst', portfastDefault: false, bpduguardDefault: false,
             errRecovery: { bpduguard: false, interval: 300 }, ipRouting: !sw, defaultGw: null, routes: [],
             lines: { con: { pw: null, login: false, logsync: false, timeout: null }, vty: { '0 4': { pw: null, login: 'login', transport: null, timeout: null, acl: null }, '5 15': { pw: null, login: 'login', transport: null, timeout: null, acl: null } } },
-            ospf: {}, links: {}, acls: {}, nat: []
+            ospf: {}, links: {}, acls: {}, nat: [],
+            aaaNew: false, tacacs: {}, radius: {}, sgroups: {}, authn: {}, authz: {}, acct: {}, tacSrc: null, radSrc: null,
+            http: false, https: false, httpAuth: null, sshAlg: {}, sshDhMin: null
         };
         for (const n of lab.ifaces || (sw ? range('GigabitEthernet0/', 1, 24) : range('GigabitEthernet0/', 0, 2))) m.ifs[n] = newIf(sw, n);
         if (sw) m.ifs.Vlan1 = newIf(sw, 'Vlan1');
@@ -142,6 +153,9 @@ const CgLabIos = (() => {
             { p: 'show interfaces trunk', sw: 1, run: showIntTrunk },
             { p: 'show interfaces IFNAME$if switchport', sw: 1, run: (a) => showIfSwitchport(a.if) },
             { p: 'show ip ssh', run: showIpSsh },
+            { p: 'show aaa servers', run: showAaaServers },
+            { p: 'show ip http server status', run: () => ['HTTP server status: ' + (M().http ? 'Enabled' : 'Disabled'), 'HTTP server port: 80', 'HTTP server active supplementary listener ports: ', 'HTTP server authentication method: ' + (M().httpAuth || 'enable'), 'HTTP secure server capability: Present', 'HTTP secure server status: ' + (M().https ? 'Enabled' : 'Disabled'), 'HTTP secure server port: 443'].join('\n') },
+            { p: 'test aaa group WORD$g WORD$u LINE$r', run: (a) => testAaa(a) },
             { p: 'show access-lists', run: () => showAcls() },
             { p: 'show access-lists WORD$n', run: (a) => showAcls(a.n) },
             { p: 'show ip access-lists', run: () => showAcls() },
@@ -203,6 +217,21 @@ const CgLabIos = (() => {
             { p: 'line console (0-0)', run: () => { S.mode = 'line'; S.ctx = ['con']; }, neg: false },
             { p: 'line vty (0-15)$a (0-15)$b', run: (a) => vtyEnter(a.a, a.b), neg: false },
             { p: 'router ospf (1-65535)$pid', run: (a) => { M().ospf[a.pid] = M().ospf[a.pid] || { rid: null, nets: [], passive: [], passiveDefault: false, dio: false }; S.mode = 'router'; S.ctx = [String(a.pid)]; }, no: (a) => { delete M().ospf[a.pid]; } },
+            { p: 'aaa new-model', run: () => { M().aaaNew = true; }, no: () => { M().aaaNew = false; } },
+            { p: 'tacacs server WORD$n', run: (a) => { M().tacacs[a.n] = M().tacacs[a.n] || { addr: null, key: null, port: 49, timeout: 5 }; S.mode = 'tacsrv'; S.ctx = [a.n]; }, no: (a) => { delete M().tacacs[a.n]; } },
+            { p: 'radius server WORD$n', run: (a) => { M().radius[a.n] = M().radius[a.n] || { addr: null, key: null, auth: 1812, acct: 1813, timeout: 5 }; S.mode = 'radsrv'; S.ctx = [a.n]; }, no: (a) => { delete M().radius[a.n]; } },
+            { p: 'aaa group server <tacacs+|radius>$t WORD$g', aaa: 1, run: (a) => { const x = M().sgroups[a.g]; if (x && x.type !== a.t) return '% [Simülatör] ' + a.g + ' başka tipte bir grup olarak tanımlı.'; M().sgroups[a.g] = x || { type: a.t, servers: [] }; S.mode = a.t === 'tacacs+' ? 'sgtac' : 'sgrad'; S.ctx = [a.g]; }, no: (a) => { delete M().sgroups[a.g]; } },
+            { p: 'aaa authentication login <default|WORD>$l LINE$m', aaa: 1, run: (a) => aaaList('authn', a), no: (a) => { delete M().authn[a.l]; } },
+            { p: 'aaa authentication login <default|WORD>$l', aaa: 1, noOnly: 1, no: (a) => { delete M().authn[a.l]; } },
+            { p: 'aaa authorization exec <default|WORD>$l LINE$m', aaa: 1, run: (a) => aaaList('authz', a), no: (a) => { delete M().authz[a.l]; } },
+            { p: 'aaa accounting exec <default|WORD>$l start-stop LINE$m', aaa: 1, run: (a) => aaaList('acct', a), no: (a) => { delete M().acct[a.l]; } },
+            { p: 'ip tacacs source-interface IFNAME$i', run: (a) => { M().tacSrc = a.i; }, no: () => { M().tacSrc = null; } },
+            { p: 'ip radius source-interface IFNAME$i', run: (a) => { M().radSrc = a.i; }, no: () => { M().radSrc = null; } },
+            { p: 'ip http server', run: () => { M().http = true; }, no: () => { M().http = false; } },
+            { p: 'ip http secure-server', run: () => { M().https = true; }, no: () => { M().https = false; } },
+            { p: 'ip http authentication !<local|enable|aaa>$a', run: (a) => { M().httpAuth = a.a; }, no: () => { M().httpAuth = null; } },
+            { p: 'ip ssh server algorithm <encryption|mac|kex|hostkey>$t !LINE$v', run: (a) => sshAlgSet(a), no: (a) => { delete M().sshAlg[a.t]; } },
+            { p: 'ip ssh dh min size !<1024|2048|4096>$n', run: (a) => { M().sshDhMin = +a.n; }, no: () => { M().sshDhMin = null; } },
             { p: 'access-list (1-99)$n <permit|deny|remark>$a LINE$r', run: (a) => aclNumAdd(a, 'standard'), no: null, neg: false },
             { p: 'access-list (100-199)$n <permit|deny|remark>$a LINE$r', run: (a) => aclNumAdd(a, 'extended'), neg: false },
             { p: 'access-list (1-199)$n', noOnly: 1, no: (a) => { delete M().acls[String(a.n)]; } },
@@ -243,6 +272,7 @@ const CgLabIos = (() => {
         const LINEC = [
             { p: 'password !LINE$pw', run: (a) => lineSet(l => { l.pw = { pw: a.pw, t7: M().servicePwEnc }; }), no: () => lineSet(l => { l.pw = null; }) },
             { p: 'login local', run: () => lineSet(l => { l.login = 'local'; }), no: () => lineSet(l => { l.login = false; }) },
+            { p: 'login authentication <default|WORD>$l', run: (a) => { if (!M().aaaNew) return { err: 'invalid', col: 6 }; lineSet(l => { l.authList = a.l; }); if (a.l !== 'default' && !M().authn[a.l]) return 'AAA: Warning: authentication list "' + a.l + '" is not defined for LOGIN.'; }, no: () => lineSet(l => { delete l.authList; }) },
             { p: 'login', run: () => { lineSet(l => { l.login = 'login'; }); if (S.ctx[0] === 'con' ? !M().lines.con.pw : !lineObj(S.ctx[0]).pw) return '% Login disabled on line ' + (S.ctx[0] === 'con' ? 0 : +S.ctx[0].split(' ')[0] + 1) + ', until \'password\' is set'; }, no: () => lineSet(l => { l.login = false; }) },
             { p: 'transport input <ssh|telnet>$a <ssh|telnet>$b', vty: 1, run: (a) => lineSet(l => { l.transport = a.a === a.b ? a.a : 'telnet ssh'; }), neg: false },
             { p: 'transport input !<ssh|telnet|all|none>$t', vty: 1, run: (a) => lineSet(l => { l.transport = a.t; }), no: () => lineSet(l => { l.transport = null; }) },
@@ -258,6 +288,41 @@ const CgLabIos = (() => {
             { p: 'passive-interface IFNAME$i', run: (a) => { const o = osp(); if (!o.passive.includes(a.i)) o.passive.push(a.i); }, no: (a) => { const o = osp(); o.passive = o.passive.filter(x => x !== a.i); if (o.passiveDefault && !o.passive.includes('!' + a.i)) o.passive.push('!' + a.i); } },
             { p: 'default-information originate', run: () => { osp().dio = true; }, no: () => { osp().dio = false; } },
         ].concat(COMMON));
+        const TACSRV = X([
+            { p: 'address ipv4 A.B.C.D$ip', run: (a) => { M().tacacs[S.ctx[0]].addr = a.ip; }, no: () => { M().tacacs[S.ctx[0]].addr = null; } },
+            { p: 'key !LINE$k', run: (a) => { M().tacacs[S.ctx[0]].key = a.k.replace(/^[07] /, ''); }, no: () => { M().tacacs[S.ctx[0]].key = null; } },
+            { p: 'port (1-65535)$p', run: (a) => { M().tacacs[S.ctx[0]].port = a.p; }, neg: false },
+            { p: 'timeout (1-1000)$t', run: (a) => { M().tacacs[S.ctx[0]].timeout = a.t; }, neg: false },
+        ].concat(COMMON));
+        const RADSRV = X([
+            { p: 'address ipv4 A.B.C.D$ip auth-port (0-65535)$a acct-port (0-65535)$c', run: (a) => Object.assign(M().radius[S.ctx[0]], { addr: a.ip, auth: a.a, acct: a.c }), neg: false },
+            { p: 'address ipv4 A.B.C.D$ip', run: (a) => { M().radius[S.ctx[0]].addr = a.ip; }, no: () => { M().radius[S.ctx[0]].addr = null; } },
+            { p: 'key !LINE$k', run: (a) => { M().radius[S.ctx[0]].key = a.k.replace(/^[07] /, ''); }, no: () => { M().radius[S.ctx[0]].key = null; } },
+            { p: 'timeout (1-1000)$t', run: (a) => { M().radius[S.ctx[0]].timeout = a.t; }, neg: false },
+        ].concat(COMMON));
+        const SG = X([
+            { p: 'server name WORD$s', run: (a) => { const g = M().sgroups[S.ctx[0]], pool = g.type === 'tacacs+' ? M().tacacs : M().radius; if (!pool[a.s]) return '% [Simülatör] "' + a.s + '" adlı ' + (g.type === 'tacacs+' ? 'tacacs' : 'radius') + ' sunucusu tanımlı değil.'; if (!g.servers.includes(a.s)) g.servers.push(a.s); }, no: (a) => { const g = M().sgroups[S.ctx[0]]; g.servers = g.servers.filter(x => x !== a.s); } },
+        ].concat(COMMON));
+        // AAA yöntem listesi: group <tacacs+|radius|ad> | local | local-case | enable | line | none | if-authenticated
+        function aaaList(kind, a) {
+            const t = a.m.trim().split(/\s+/), out = [];
+            for (let i = 0; i < t.length; i++) {
+                const w = t[i];
+                if (w === 'group') { const g = t[++i]; if (!g) return '% Incomplete command.'; if (g !== 'tacacs+' && g !== 'radius' && !M().sgroups[g]) return '% [Simülatör] "' + g + '" adlı sunucu grubu yok (aaa group server ile tanımlayın).'; out.push('group ' + g); continue; }
+                const ok = kind === 'authn' ? ['local', 'local-case', 'enable', 'line', 'none'] : kind === 'authz' ? ['local', 'if-authenticated', 'none'] : [];
+                if (!ok.includes(w)) return { err: 'invalid', col: ('aaa ' + (kind === 'authn' ? 'authentication login ' : kind === 'authz' ? 'authorization exec ' : 'accounting exec ') + a.l + ' ' + (kind === 'acct' ? 'start-stop ' : '')).length + t.slice(0, i).join(' ').length + (i ? 1 : 0) };
+                out.push(w);
+            }
+            if (out.length > 4) return '% [Simülatör] En fazla 4 yöntem.';
+            M()[kind][a.l] = out;
+        }
+        function sshAlgSet(a) {
+            const A = SSH_ALG[a.t], v = a.v.trim().split(/\s+/);
+            const bad = v.findIndex(x => !A.all.includes(x));
+            if (bad >= 0) return { err: 'invalid', col: ('ip ssh server algorithm ' + a.t + ' ').length + v.slice(0, bad).join(' ').length + (bad ? 1 : 0) };
+            M().sshAlg[a.t] = [...new Set(v)];
+        }
+        const sshList = t => M().sshAlg[t] || SSH_ALG[t].def;
         const NACL = t => X([
             { p: '(1-2147483647)$seq <permit|deny|remark>$a LINE$r', run: (a) => aclEntryAdd(S.ctx[0], t, a.seq, [a.a].concat(a.r.trim().split(/\s+/)), String(a.seq).length + 1), no: null, neg: false },
             { p: '<permit|deny|remark>$a LINE$r', run: (a) => aclEntryAdd(S.ctx[0], t, undefined, [a.a].concat(a.r.trim().split(/\s+/)), 0), neg: false },
@@ -268,8 +333,8 @@ const CgLabIos = (() => {
         function aclNumAdd(a, type) { return aclEntryAdd(String(a.n), type, undefined, [a.a].concat(a.r.trim().split(/\s+/)), ('access-list ' + a.n + ' ').length); }
         function natStaticAdd(r) { if (M().nat.some(x => x.type === 'static' && x.global === r.global && (x.gport || 0) === (r.gport || 0))) return '% similar static entry (' + r.local + ' -> ' + r.global + ') already exists'; M().nat.push(r); }
         const osp = () => M().ospf[S.ctx[0]];
-        const MODES = { config: CONFIG, if: IFMODE, range: IFMODE, vlan: VLANMODE, line: LINEMODE, router: ROUTERMODE, snacl: SNACL, enacl: ENACL };
-        const PROMPT = { user: '>', priv: '#', config: '(config)#', if: '(config-if)#', range: '(config-if-range)#', vlan: '(config-vlan)#', line: '(config-line)#', router: '(config-router)#', snacl: '(config-std-nacl)#', enacl: '(config-ext-nacl)#' };
+        const MODES = { config: CONFIG, if: IFMODE, range: IFMODE, vlan: VLANMODE, line: LINEMODE, router: ROUTERMODE, snacl: SNACL, enacl: ENACL, tacsrv: TACSRV, radsrv: RADSRV, sgtac: SG, sgrad: SG };
+        const PROMPT = { user: '>', priv: '#', config: '(config)#', if: '(config-if)#', range: '(config-if-range)#', vlan: '(config-vlan)#', line: '(config-line)#', router: '(config-router)#', snacl: '(config-std-nacl)#', enacl: '(config-ext-nacl)#', tacsrv: '(config-server-tacacs)#', radsrv: '(config-radius-server)#', sgtac: '(config-sg-tacacs+)#', sgrad: '(config-sg-radius)#' };
 
         // Cihaz türüne / arayüze göre komut süzgeci
         function avail(list, noForm) {
@@ -277,6 +342,7 @@ const CgLabIos = (() => {
                 if (c.sw && !M().sw) return false;
                 if (noForm ? (c.neg === false || !c.no) : c.noOnly) return false;
                 if (c.vty && S.ctx[0] === 'con') return false;
+                if (c.aaa && !M().aaaNew) return false;   // IOS: aaa new-model olmadan bu komutlar yoktur
                 if (c.phys && (S.mode === 'if' || S.mode === 'range') && S.ctx.some(n => !isPhys(n))) return false;
                 return true;
             });
@@ -304,6 +370,23 @@ const CgLabIos = (() => {
             S.loggedOut = false;
             const con = M().lines.con;
             const b = M().banner ? M().banner + '\n' : '';
+            if (M().aaaNew) {
+                const list = M().authn[con.authList || 'default'];
+                if (!list) return b;   // aaa new-model + tanımsız default: konsolda doğrulama yok
+                let tries = 0;
+                const ask = { prompt: 'Username: ', fn: (u) => {
+                    S.pending = { prompt: 'Password: ', secret: true, fn: (p) => {
+                        const r = aaaAuth(list, u, p);
+                        log({ login: { user: u, ok: r.ok, via: r.via } });
+                        if (r.ok) { if ((r.priv || 15) >= 15) S.mode = 'priv'; return ''; }
+                        if (++tries >= 3) { S.loggedOut = true; return '% Authentication failed\n\n' + M().hostname + ' con0 is now available\n\nPress RETURN to get started.\n'; }
+                        S.pending = ask; return '% Authentication failed\n';
+                    } };
+                    return '';
+                } };
+                S.pending = ask;
+                return b + '\nUser Access Verification\n';
+            }
             if (con.login === 'login' && con.pw) {
                 let tries = 0;
                 const ask = { prompt: 'Password: ', secret: true, fn: (x) => {
@@ -485,7 +568,14 @@ const CgLabIos = (() => {
             if (m.enablePassword) L.push('enable password ' + pwShow(m.enablePassword));
             if (m.enableSecret || m.enablePassword) L.push('!');
             for (const [u, x] of Object.entries(m.users)) L.push('username ' + u + (x.priv !== 1 ? ' privilege ' + x.priv : '') + ' secret 9 ' + type9(x.secret));
-            L.push('no aaa new-model');
+            if (m.aaaNew) {
+                L.push('aaa new-model', '!');
+                for (const [g, x] of Object.entries(m.sgroups)) { L.push('aaa group server ' + x.type + ' ' + g); x.servers.forEach(n => L.push(' server name ' + n)); }
+                for (const [l, v] of Object.entries(m.authn)) L.push('aaa authentication login ' + l + ' ' + v.join(' '));
+                for (const [l, v] of Object.entries(m.authz)) L.push('aaa authorization exec ' + l + ' ' + v.join(' '));
+                for (const [l, v] of Object.entries(m.acct)) L.push('aaa accounting exec ' + l + ' start-stop ' + v.join(' '));
+                L.push('!', 'aaa session-id common');
+            } else L.push('no aaa new-model');
             if (m.sw) L.push('system mtu routing 1500');
             if (!m.domainLookup) L.push('no ip domain-lookup');
             if (m.domain) L.push('ip domain name ' + m.domain);
@@ -532,7 +622,11 @@ const CgLabIos = (() => {
                 if (o.dio) L.push(' default-information originate');
                 L.push('!');
             }
-            L.push('ip forward-protocol nd', 'no ip http server', 'no ip http secure-server', '!');
+            L.push('ip forward-protocol nd', m.http ? 'ip http server' : 'no ip http server');
+            if (m.httpAuth) L.push('ip http authentication ' + m.httpAuth);
+            L.push(m.https ? 'ip http secure-server' : 'no ip http secure-server', '!');
+            if (m.tacSrc) L.push('ip tacacs source-interface ' + m.tacSrc);
+            if (m.radSrc) L.push('ip radius source-interface ' + m.radSrc);
             m.nat.forEach(x => L.push(x.type === 'list' ? 'ip nat inside source list ' + x.acl + ' interface ' + x.iface + ' overload' : 'ip nat inside source static ' + (x.proto ? x.proto + ' ' + x.local + ' ' + x.lport + ' ' + x.global + ' ' + x.gport : x.local + ' ' + x.global)));
             for (const [n, a] of Object.entries(m.acls)) {
                 if (/^\d+$/.test(n)) a.entries.forEach(e => L.push('access-list ' + n + ' ' + aceTxt(e, a.type)));
@@ -542,23 +636,30 @@ const CgLabIos = (() => {
             if (m.defaultGw) L.push('ip default-gateway ' + m.defaultGw);
             m.routes.forEach(r => L.push('ip route ' + r.net + ' ' + r.mask + ' ' + r.nh + (r.ad !== 1 ? ' ' + r.ad : '')));
             if (m.sshVer) L.push('ip ssh version ' + m.sshVer);
+            if (m.sshDhMin) L.push('ip ssh dh min size ' + m.sshDhMin);
+            ['encryption', 'mac', 'kex', 'hostkey'].forEach(t => { if (m.sshAlg[t]) L.push('ip ssh server algorithm ' + t + ' ' + m.sshAlg[t].join(' ')); });
             if (m.sshTimeout !== 120) L.push('ip ssh time-out ' + m.sshTimeout);
             if (m.sshRetries !== 3) L.push('ip ssh authentication-retries ' + m.sshRetries);
             L.push('!');
             if (m.banner !== null) L.push('banner motd ^C' + m.banner + '^C');
+            for (const [n, x] of Object.entries(m.tacacs)) { L.push('tacacs server ' + n); if (x.addr) L.push(' address ipv4 ' + x.addr); if (x.key) L.push(' key 7 ' + type7(x.key)); if (x.timeout !== 5) L.push(' timeout ' + x.timeout); }
+            for (const [n, x] of Object.entries(m.radius)) { L.push('radius server ' + n); if (x.addr) L.push(' address ipv4 ' + x.addr + ' auth-port ' + x.auth + ' acct-port ' + x.acct); if (x.key) L.push(' key 7 ' + type7(x.key)); }
+            if (Object.keys(m.tacacs).length || Object.keys(m.radius).length) L.push('!');
             L.push('!', 'line con 0');
             const con = m.lines.con;
             if (con.timeout) L.push(' exec-timeout ' + con.timeout);
             if (con.pw) L.push(' password ' + pwShow(con.pw));
             if (con.logsync) L.push(' logging synchronous');
-            if (con.login) L.push(con.login === 'local' ? ' login local' : ' login');
+            if (con.authList) L.push(' login authentication ' + con.authList);
+            else if (con.login) L.push(con.login === 'local' ? ' login local' : ' login');
             for (const k of Object.keys(m.lines.vty).sort((a, b) => +a.split(' ')[0] - +b.split(' ')[0])) {
                 const l = m.lines.vty[k];
                 L.push('line vty ' + k);
                 if (l.acl) L.push(' access-class ' + l.acl);
                 if (l.timeout) L.push(' exec-timeout ' + l.timeout);
                 if (l.pw) L.push(' password ' + pwShow(l.pw));
-                if (l.login) L.push(l.login === 'local' ? ' login local' : ' login');
+                if (l.authList) L.push(' login authentication ' + l.authList);
+                else if (l.login) L.push(l.login === 'local' ? ' login local' : ' login');
                 if (l.transport) L.push(' transport input ' + l.transport);
             }
             L.push('!', 'end');
@@ -830,10 +931,64 @@ const CgLabIos = (() => {
             }
             return out.join('\n');
         }
+        // AAA sunucu benzetimi: lab.sim.aaa = { '<ip>': { users: {u: p}, key } } — sunucuya rota + lab.hosts + doğru anahtar gerekir
+        function aaaServerReply(proto, name) {
+            const sv = (proto === 'tacacs' ? M().tacacs : M().radius)[name];
+            if (!sv || !sv.addr) return { none: true };
+            const info = ((S.lab.sim && S.lab.sim.aaa) || {})[sv.addr];
+            const r = lookup(sv.addr), hosts = S.lab.hosts || [];
+            if (!info || !r || !hosts.includes(sv.addr) || (r.nh && isIp(r.nh) && !hosts.includes(r.nh) && r.c !== 'C')) return { none: true, why: 'unreachable' };
+            if (!sv.key || sv.key !== info.key) return { none: true, why: 'key' };
+            return { info };
+        }
+        function groupServers(g) {
+            if (g === 'tacacs+') return Object.keys(M().tacacs).map(n => ['tacacs', n]);
+            if (g === 'radius') return Object.keys(M().radius).map(n => ['radius', n]);
+            const x = M().sgroups[g]; return x ? x.servers.map(n => [x.type === 'tacacs+' ? 'tacacs' : 'radius', n]) : [];
+        }
+        // Yöntem listesini IOS anlamıyla yürüt: sunucu YANIT VERİRSE (kabul/red) sonuç kesindir; yanıt yoksa sıradaki yönteme geçilir
+        function aaaAuth(list, u, p) {
+            for (const m of list) {
+                if (m.startsWith('group ')) {
+                    for (const [proto, n] of groupServers(m.slice(6))) {
+                        const r = aaaServerReply(proto, n);
+                        if (r.none) continue;
+                        const ok = r.info.users && r.info.users[u] === p;
+                        return { ok, via: proto + ':' + n, final: true };
+                    }
+                    continue;
+                }
+                if (m === 'local' || m === 'local-case') { const x = M().users[u]; return { ok: !!x && x.secret === p, via: 'local', priv: x && x.priv }; }
+                if (m === 'enable') return { ok: p === (M().enableSecret || (M().enablePassword && M().enablePassword.pw)), via: 'enable' };
+                if (m === 'none') return { ok: true, via: 'none' };
+                if (m === 'line') return { ok: !!M().lines.con.pw && M().lines.con.pw.pw === p, via: 'line' };
+            }
+            return { ok: false, via: 'nomethod' };
+        }
+        function testAaa(a) {
+            const pw = a.r.trim().split(/\s+/)[0];
+            if (!M().aaaNew) return '% AAA is not enabled';
+            if (a.g !== 'tacacs+' && a.g !== 'radius' && !M().sgroups[a.g]) return '% [Simülatör] "' + a.g + '" adlı sunucu grubu yok.';
+            for (const [proto, n] of groupServers(a.g)) {
+                const r = aaaServerReply(proto, n);
+                if (r.none) continue;
+                const ok = r.info.users && r.info.users[a.u] === pw;
+                log({ aaatest: { group: a.g, user: a.u, ok, server: n } });
+                return ok ? 'Sending password\nUser was successfully authenticated.' : 'Sending password\nUser authentication request was rejected by server.';
+            }
+            log({ aaatest: { group: a.g, user: a.u, ok: false, noresp: true } });
+            return 'Sending password\n% [Simülatör] Gruptaki hiçbir sunucudan yanıt alınamadı (rota, sunucu adresi ya da paylaşılan anahtar). Gerçek cihazda zaman aşımından sonra "User rejected" görülür.';
+        }
+        function showAaaServers() {
+            const L = []; let id = 1;
+            for (const [n, s] of Object.entries(M().radius)) { const r = aaaServerReply('radius', n); L.push('RADIUS: id ' + id++ + ', priority 1, host ' + (s.addr || '0.0.0.0') + ', auth-port ' + s.auth + ', acct-port ' + s.acct + ', hostname ' + n, '     State: current ' + (r.none ? 'DEAD' : 'UP') + ', duration 1800s, previous duration 0s', '     Dead: total time ' + (r.none ? 60 : 0) + 's, count ' + (r.none ? 1 : 0)); }
+            for (const [n, s] of Object.entries(M().tacacs)) { const r = aaaServerReply('tacacs', n); L.push('TACACS+: id ' + id++ + ', priority 1, host ' + (s.addr || '0.0.0.0') + ', port ' + s.port + ', hostname ' + n, '     State: current ' + (r.none ? 'DEAD' : 'UP') + ', duration 1800s, previous duration 0s', '     Dead: total time ' + (r.none ? 60 : 0) + 's, count ' + (r.none ? 1 : 0)); }
+            return L.length ? L.join('\n') : '';
+        }
         function showIpSsh() {
             const m = M();
             if (!m.rsa) return 'SSH Disabled - version 1.99\n%Please create RSA keys to enable SSH (and of atleast 768 bits for SSH v2).\nAuthentication methods:publickey,keyboard-interactive,password\nAuthentication timeout: ' + m.sshTimeout + ' secs; Authentication retries: ' + m.sshRetries;
-            return 'SSH Enabled - version ' + (m.sshVer === 2 ? '2.0' : m.sshVer === 1 ? '1.5' : '1.99') + '\nAuthentication methods:publickey,keyboard-interactive,password\nAuthentication timeout: ' + m.sshTimeout + ' secs; Authentication retries: ' + m.sshRetries + '\nMinimum expected Diffie Hellman key size : 2048 bits\nIOS Keys in SECSH format(ssh-rsa, base64 encoded): ' + m.hostname + '.' + (m.domain || '') + '\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ' + fakeHash(m.hostname + m.rsa, 40) + '...';
+            return 'SSH Enabled - version ' + (m.sshVer === 2 ? '2.0' : m.sshVer === 1 ? '1.5' : '1.99') + '\nAuthentication methods:publickey,keyboard-interactive,password\nAuthentication Publickey Algorithms:' + sshList('hostkey').join(',') + '\nHostkey Algorithms:' + sshList('hostkey').join(',') + '\nEncryption Algorithms:' + sshList('encryption').join(',') + '\nMAC Algorithms:' + sshList('mac').join(',') + '\nKEX Algorithms:' + sshList('kex').join(',') + '\nAuthentication timeout: ' + m.sshTimeout + ' secs; Authentication retries: ' + m.sshRetries + '\nMinimum expected Diffie Hellman key size : ' + (m.sshDhMin || 2048) + ' bits\nIOS Keys in SECSH format(ssh-rsa, base64 encoded): ' + m.hostname + '.' + (m.domain || '') + '\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ' + fakeHash(m.hostname + m.rsa, 40) + '...';
         }
         // RIB: connected + local + static (next-hop bağlı ağda ve arayüz up ise)
         // RIB: connected + local + static. Aynı önekte en düşük AD kazanır (eşitse ECMP);
@@ -960,7 +1115,7 @@ const CgLabIos = (() => {
                 return (M().domainLookup ? 'Translating "' + raw.trim() + '"...domain server (255.255.255.255)\n' : '') + '% Unknown command or computer name, or unable to find computer address';
             return ' '.repeat(pl + (r.col || 0)) + '^\n% Invalid input detected at \'^\' marker.';
         }
-        const UNSUP = ['aaa', 'snmp-server', 'ntp', 'logging host', 'logging trap', 'clock timezone', 'cdp', 'lldp', 'ip dhcp',
+        const UNSUP = ['snmp-server', 'ntp', 'logging host', 'logging trap', 'clock timezone', 'cdp', 'lldp', 'ip dhcp',
             'router eigrp', 'router bgp', 'router rip', 'standby', 'channel-group', 'crypto isakmp', 'crypto ipsec', 'crypto map', 'ipv6', 'vtp', 'monitor session', 'archive',
             'switchport port-security', 'ip helper-address', 'ip ospf', 'encapsulation', 'show cdp', 'show lldp', 'show ip ospf',
             'show etherchannel', 'show spanning-tree', 'show port-security', 'show ip dhcp', 'show standby', 'show interfaces counters', 'show mac address-table', 'show arp', 'debug', 'traceroute', 'clear'];
@@ -1086,6 +1241,7 @@ const CgLabIos = (() => {
             mode: () => S.mode,
             run: (n) => ({ up: ifUp(n) }),
             rib, lookup, forward: f => forward(f, false), acl: n => M().acls[n] || null,
+            aaaAuth: (list, u, p) => aaaAuth(M().authn[list] || [], u, p),
             aclTest: (n, f) => aclEval(n, Object.assign({ sport: 50000, proto: 'tcp', n: 0 }, f), false),
             showRun: runBody,
         };
