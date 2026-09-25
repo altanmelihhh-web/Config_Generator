@@ -39,7 +39,13 @@ const CgLabFgt = (() => {
             hostname: { t: 'str', max: 35, d: 'Cihaz adı' }, timezone: { t: 'str', d: 'Saat dilimi' },
             admintimeout: { t: 'int', min: 1, max: 480, def: 5, d: 'Yönetici oturum zaman aşımı (dk)' },
             'admin-sport': { t: 'int', min: 1, max: 65535, def: 443, d: 'HTTPS yönetim portu' },
-            'admin-ssh-port': { t: 'int', min: 1, max: 65535, def: 22, d: 'SSH yönetim portu' } } },
+            'admin-ssh-port': { t: 'int', min: 1, max: 65535, def: 22, d: 'SSH yönetim portu' },
+            'admin-https-redirect': { t: 'enum', v: ED, def: 'enable', d: 'HTTP yönetim isteklerini HTTPS\'e yönlendir' },
+            'admin-https-ssl-versions': { t: 'menum', v: ['tlsv1-1', 'tlsv1-2', 'tlsv1-3'], def: ['tlsv1-2', 'tlsv1-3'], d: 'Yönetim HTTPS için izinli TLS sürümleri' },
+            'strong-crypto': { t: 'enum', v: ED, def: 'enable', d: 'Yalnız güçlü şifreleme (HTTPS/SSH yönetimi)' },
+            'admin-lockout-threshold': { t: 'int', min: 1, max: 10, def: 3, d: 'Kilitlenmeden önceki hatalı giriş sayısı' },
+            'admin-lockout-duration': { t: 'int', min: 1, max: 2147483647, def: 60, d: 'Kilit süresi (sn)' },
+            'pre-login-banner': { t: 'enum', v: ED, def: 'disable', d: 'Giriş öncesi uyarı afişi' } } },
         'system ha': { single: true, attrs: {
             'group-name': { t: 'str', max: 32, d: 'Küme adı (iki üyede aynı)' },
             mode: { t: 'enum', v: ['standalone', 'a-p', 'a-a'], def: 'standalone', d: 'HA modu' },
@@ -58,12 +64,17 @@ const CgLabFgt = (() => {
             type: { t: 'ro', def: 'physical', d: 'Arayüz tipi' },
             alias: { t: 'str', max: 25, d: 'Takma ad' }, description: { t: 'str', max: 255, d: 'Açıklama' },
             role: { t: 'enum', v: ['lan', 'wan', 'dmz', 'undefined'], def: 'undefined', d: 'Arayüz rolü' },
+            interface: { t: 'ref', ds: 'physIntf', when: o => o.type === 'vlan', d: 'Üst (fiziksel) arayüz' },
+            vlanid: { t: 'int', min: 1, max: 4094, when: o => o.type === 'vlan', d: 'VLAN kimliği (802.1Q etiketi)' },
             'snmp-index': { t: 'ro', d: 'SNMP indeksi' } } },
         'system admin': { key: 'name', req: ['accprofile'], attrs: {
             accprofile: { t: 'ref', ds: 'accprofile', d: 'Yetki profili' }, password: { t: 'secret', d: 'Parola' },
             trusthost1: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Güvenilir yönetim ağı 1' },
             trusthost2: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Güvenilir yönetim ağı 2' },
-            trusthost3: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Güvenilir yönetim ağı 3' } } },
+            trusthost3: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Güvenilir yönetim ağı 3' },
+            'remote-auth': { t: 'enum', v: ED, def: 'disable', d: 'Kimlik doğrulama uzak sunucuda (RADIUS/LDAP)' },
+            'remote-group': { t: 'ref', ds: 'ugroups', when: o => o['remote-auth'] === 'enable', d: 'Uzak sunucu grubunu içeren kullanıcı grubu' },
+            wildcard: { t: 'enum', v: ED, def: 'disable', when: o => o['remote-auth'] === 'enable', d: 'Gruptaki herhangi bir kullanıcı bu hesapla girebilir' } } },
         'firewall address': { key: 'name', attrs: {
             type: { t: 'enum', v: ['ipmask', 'iprange', 'fqdn'], def: 'ipmask', d: 'Adres tipi' },
             subnet: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', when: o => (o.type || 'ipmask') === 'ipmask', d: 'Alt ağ' },
@@ -101,6 +112,12 @@ const CgLabFgt = (() => {
             schedule: { t: 'ref', ds: 'sched', d: 'Zamanlama' }, service: { t: 'refs', ds: 'svc', d: 'Servis' },
             groups: { t: 'refs', ds: 'ugroups', d: 'Kimlik doğrulamalı kural: kullanıcı grupları' },
             'utm-status': { t: 'enum', v: ED, def: 'disable', d: 'Güvenlik profilleri' },
+            'inspection-mode': { t: 'enum', v: ['flow', 'proxy'], def: 'flow', when: o => o['utm-status'] === 'enable', d: 'İnceleme modu' },
+            'ssl-ssh-profile': { t: 'ref', ds: 'sslProf', def: 'no-inspection', when: o => o['utm-status'] === 'enable', d: 'SSL/SSH inceleme profili' },
+            'av-profile': { t: 'ref', ds: 'avProf', when: o => o['utm-status'] === 'enable', d: 'Antivirüs profili' },
+            'webfilter-profile': { t: 'ref', ds: 'wfProf', when: o => o['utm-status'] === 'enable', d: 'Web filtre profili' },
+            'application-list': { t: 'ref', ds: 'appList', when: o => o['utm-status'] === 'enable', d: 'Uygulama kontrolü listesi' },
+            'ips-sensor': { t: 'ref', ds: 'ipsSens', when: o => o['utm-status'] === 'enable', d: 'IPS sensörü' },
             logtraffic: { t: 'enum', v: ['all', 'utm', 'disable'], def: 'utm', d: 'Trafik logu' },
             nat: { t: 'enum', v: ED, def: 'disable', d: 'Kaynak NAT' },
             ippool: { t: 'enum', v: ED, def: 'disable', when: o => o.nat === 'enable', d: 'IP havuzu kullan' },
@@ -147,6 +164,44 @@ const CgLabFgt = (() => {
         'vpn ssl settings authentication-rule': { key: 'id', num: true, parent: 'vpn ssl settings', sub: 'authentication-rule', req: ['portal'], attrs: {
             groups: { t: 'refs', ds: 'ugroups', d: 'Kullanıcı grupları' },
             portal: { t: 'ref', ds: 'portal', d: 'Portal' } } },
+        'system zone': { key: 'name', attrs: {
+            interface: { t: 'refs', ds: 'zoneMember', d: 'Üye arayüzler' },
+            intrazone: { t: 'enum', v: ['allow', 'deny'], def: 'deny', d: 'Zone içi (üyeler arası) trafik' },
+            description: { t: 'str', max: 127, d: 'Açıklama' } } },
+        'system dhcp server': { key: 'id', num: true, children: ['ip-range'], req: ['interface', 'netmask'], attrs: {
+            status: { t: 'enum', v: ED, def: 'enable', d: 'Durum' },
+            'lease-time': { t: 'int', min: 300, max: 8640000, def: 604800, d: 'Kira süresi (sn)' },
+            'dns-service': { t: 'enum', v: ['local', 'default', 'specify'], def: 'specify', d: 'İstemciye verilecek DNS kaynağı' },
+            'dns-server1': { t: 'ip', def: '0.0.0.0', when: o => (o['dns-service'] || 'specify') === 'specify', d: 'DNS sunucusu 1' },
+            'default-gateway': { t: 'ip', def: '0.0.0.0', d: 'İstemciye verilecek ağ geçidi' },
+            netmask: { t: 'ip', def: '0.0.0.0', d: 'Alt ağ maskesi' },
+            interface: { t: 'ref', ds: 'intf', d: 'DHCP sunucusunun çalıştığı arayüz' } } },
+        'system dhcp server ip-range': { key: 'id', num: true, parent: 'system dhcp server', sub: 'ip-range', req: ['start-ip', 'end-ip'], attrs: {
+            'start-ip': { t: 'ip', def: '0.0.0.0', d: 'Aralık başı' }, 'end-ip': { t: 'ip', def: '0.0.0.0', d: 'Aralık sonu' } } },
+        'system ntp': { single: true, children: ['ntpserver'], attrs: {
+            ntpsync: { t: 'enum', v: ED, def: 'enable', d: 'NTP ile saat eşitle' },
+            type: { t: 'enum', v: ['fortiguard', 'custom'], def: 'fortiguard', d: 'NTP sunucu kaynağı' },
+            syncinterval: { t: 'int', min: 1, max: 1440, def: 60, d: 'Eşitleme aralığı (dk)' } } },
+        'system ntp ntpserver': { key: 'id', num: true, parent: 'system ntp', sub: 'ntpserver', req: ['server'], attrs: {
+            server: { t: 'str', max: 63, d: 'NTP sunucu adresi' } } },
+        'user radius': { key: 'name', req: ['server', 'secret'], attrs: {
+            server: { t: 'str', max: 63, d: 'RADIUS sunucu adresi' }, secret: { t: 'secret', d: 'Paylaşılan anahtar' },
+            'auth-type': { t: 'enum', v: ['auto', 'ms_chap_v2', 'ms_chap', 'chap', 'pap'], def: 'auto', d: 'Kimlik doğrulama yöntemi' } } },
+        'user ldap': { key: 'name', req: ['server', 'dn'], attrs: {
+            server: { t: 'str', max: 63, d: 'LDAP sunucu adresi' }, cnid: { t: 'str', max: 20, def: 'cn', d: 'Kullanıcı adı özniteliği' },
+            dn: { t: 'str', max: 511, d: 'Arama kökü (distinguished name)' },
+            type: { t: 'enum', v: ['simple', 'anonymous', 'regular'], def: 'simple', d: 'Bağlanma (bind) tipi' },
+            username: { t: 'str', max: 511, when: o => o.type === 'regular', d: 'Bind kullanıcısı' },
+            password: { t: 'secret', when: o => o.type === 'regular', d: 'Bind parolası' },
+            secure: { t: 'enum', v: ['disable', 'starttls', 'ldaps'], def: 'disable', d: 'Şifreli bağlantı' },
+            port: { t: 'int', min: 1, max: 65535, def: 389, d: 'Port' } } },
+        'log syslogd setting': { single: true, attrs: {
+            status: { t: 'enum', v: ED, def: 'disable', d: 'Syslog\'a gönder' },
+            server: { t: 'str', max: 127, when: o => o.status === 'enable', d: 'Syslog sunucusu' },
+            mode: { t: 'enum', v: ['udp', 'legacy-reliable', 'reliable'], def: 'udp', when: o => o.status === 'enable', d: 'Taşıma (UDP / güvenilir TCP)' },
+            port: { t: 'int', min: 1, max: 65535, def: 514, when: o => o.status === 'enable', d: 'Port' },
+            facility: { t: 'enum', v: ['kernel', 'user', 'mail', 'daemon', 'auth', 'syslog', 'local0', 'local1', 'local2', 'local3', 'local4', 'local5', 'local6', 'local7'], def: 'local7', when: o => o.status === 'enable', d: 'Syslog facility' },
+            format: { t: 'enum', v: ['default', 'csv', 'cef', 'rfc5424'], def: 'default', when: o => o.status === 'enable', d: 'Log biçimi' } } },
         'router static': { key: 'seq-num', num: true, attrs: {
             status: { t: 'enum', v: ED, def: 'enable', d: 'Durum' },
             dst: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Hedef ağ' },
@@ -189,10 +244,15 @@ const CgLabFgt = (() => {
         // ── datasource
         const DS = {
             intf: () => M().t['system interface'].o.concat(M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
-            intfAny: () => ['any'].concat(M().t['system interface'].o, M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
+            // Politika arayüzü: zone'a üye arayüzler doğrudan seçilemez, zone seçilir
+            intfAny: () => ['any'].concat(M().t['system interface'].o.filter(n => !zoneOf(n)), M().t['system zone'].o, M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
+            zoneMember: () => M().t['system interface'].o.filter(n => !zoneOf(n) || (S.ctx && S.ctx.path === 'system zone' && zoneOf(n) === S.ctx.key)),
+            sslProf: () => ['certificate-inspection', 'deep-inspection', 'no-inspection', 'custom-deep-inspection'],
+            avProf: () => ['default', 'wifi-default'], wfProf: () => ['default', 'monitor-all', 'wifi-default'],
+            appList: () => ['default', 'block-high-risk', 'wifi-default'], ipsSens: () => ['default', 'all_default', 'all_default_pass', 'high_security', 'protect_client', 'protect_http_server', 'wifi-default'],
             physIntf: () => M().t['system interface'].o,
             p1: () => M().t['vpn ipsec phase1-interface'].o,
-            users: () => M().t['user local'].o, ugroups: () => M().t['user group'].o, portal: () => M().t['vpn ssl web portal'].o,
+            users: () => M().t['user local'].o.concat(M().t['user radius'].o, M().t['user ldap'].o), ugroups: () => M().t['user group'].o, portal: () => M().t['vpn ssl web portal'].o,
             addr: () => M().t['firewall address'].o.concat(M().t['firewall addrgrp'].o),
             addrVip: () => M().t['firewall address'].o.concat(M().t['firewall addrgrp'].o, M().t['firewall vip'].o),
             addrgrpMember: () => M().t['firewall address'].o.filter(n => n !== 'none').concat(M().t['firewall addrgrp'].o),
@@ -203,6 +263,13 @@ const CgLabFgt = (() => {
             ippool: () => M().t['firewall ippool'].o,
         };
 
+        // Tablo erişimi: anahtarlı bir üst nesnenin alt tablosu üst taslakta tutulur (edit N → config ip-range)
+        function tbl(c) {
+            const sc = SCHEMA[c.path];
+            if (sc.parent && !SCHEMA[sc.parent].single && c.parent && c.parent.draft) { const k = '_sub_' + sc.sub; return c.parent.draft[k] || (c.parent.draft[k] = { o: [], v: {} }); }
+            return M().t[c.path];
+        }
+        const zoneOf = n => M().t['system zone'].o.find(z => (M().t['system zone'].v[z].interface || []).includes(n));
         // ── değer ayrıştırma: {ok, v} | {err:'value'|'ds', at}
         function parseVal(a, toks, ctxObj) {
             const T = a.t, vals = toks.map(x => x.t);
@@ -263,8 +330,20 @@ const CgLabFgt = (() => {
                 let v = o[k];
                 if (v === undefined || v === null) { if (!full || a.def === undefined) { if (full && (a.t === 'str') && !a.when) L.push(ind + 'set ' + k + ' ' + qt('')); continue; } v = a.def; }
                 if (!full && a.def !== undefined && String(v) === String(a.def) && k !== 'vdom' && k !== 'type') continue;
+                if (k === 'type' && v === 'vlan') continue;
                 if (Array.isArray(v) && !v.length) continue;
                 L.push(ind + 'set ' + k + ' ' + fmtVal(a, v));
+            }
+            return L;
+        }
+        function subLines(p, o, full, ind) {
+            const L = [];
+            for (const sub of SCHEMA[p].children || []) {
+                const cp = childPath(p, sub), cs = SCHEMA[cp], ct = o['_sub_' + sub];
+                if (!ct || !ct.o.length) continue;
+                L.push(ind + 'config ' + sub);
+                for (const k of ct.o) L.push(ind + '    edit ' + (cs.num ? k : qt(k)), ...objLines(cp, ct.v[k], full, ind + '        '), ind + '    next');
+                L.push(ind + 'end');
             }
             return L;
         }
@@ -287,6 +366,7 @@ const CgLabFgt = (() => {
                 if (!o || (o._builtin && key === undefined && !full)) continue;
                 L.push('    edit ' + (sc.num ? k : qt(k)));
                 L.push(...objLines(p, o, full, '        '));
+                L.push(...subLines(p, o, full, '        '));
                 L.push('    next');
             }
             L.push('end');
@@ -307,7 +387,7 @@ const CgLabFgt = (() => {
 
         // ── yönlendirme tablosu
         const isTun = n => !!M().t['vpn ipsec phase1-interface'].v[n];
-        const ifUp = n => { if (isTun(n)) return tun(n).p1up; const i = M().t['system interface'].v[n]; return !!i && (i.status || 'up') === 'up' && !!M().links[n]; };
+        const ifUp = n => { if (isTun(n)) return tun(n).p1up; const i = M().t['system interface'].v[n]; if (i && i.type === 'vlan') return (i.status || 'up') === 'up' && !!i.interface && ifUp(i.interface); return !!i && (i.status || 'up') === 'up' && !!M().links[n]; };
         // ── IPsec tünel durumu: yapılandırma + lab'daki sabit karşı uç (lab.peer / varyant.peer)
         const PEER = Object.assign({}, lab.peer || {}, (S.variant && S.variant.peer) || {});
         const norm = v => { if (!v) return '0.0.0.0 0.0.0.0'; const m = String(v).match(/^([\d.]+)\/(\d+)$/); return m ? n2ip(netOf(m[1], +m[2])) + ' ' + lenMask(+m[2]) : v; };
@@ -641,10 +721,13 @@ const CgLabFgt = (() => {
             if (rt.bh) return Object.assign(r, { stage: 'blackhole', out: 'Null' });
             r.out = rt.dev; r.gw = rt.c === 'C' ? r.dst : rt.gw;
             const pf = Object.assign({}, f, { dport: r.dport });
+            // Aynı zone'un iki üyesi arası: intrazone allow ise kural aranmaz
+            const zi = zoneOf(f.in);
+            if (zi && zi === zoneOf(r.out) && (M().t['system zone'].v[zi].intrazone || 'deny') === 'allow') { r.policy = 'intrazone'; r.action = 'accept'; r.stage = 'allowed'; r.zone = zi; return r; }
             for (const k of M().t['firewall policy'].o) {
                 const p = M().t['firewall policy'].v[k];
                 if ((p.status || 'enable') !== 'enable') continue;
-                const hasIf = (list, n) => (list || []).includes('any') || (list || []).includes(n);
+                const hasIf = (list, n) => (list || []).includes('any') || (list || []).includes(n) || (!!zoneOf(n) && (list || []).includes(zoneOf(n)));
                 if (!hasIf(p.srcintf, f.in) || !hasIf(p.dstintf, r.out)) continue;
                 if (!(p.srcaddr || []).some(a => addrMatch(a, f.src))) continue;
                 const dOk = r.vip ? (p.dstaddr || []).includes(r.vip) : (p.dstaddr || []).some(a => addrMatch(a, r.dst));
@@ -655,7 +738,8 @@ const CgLabFgt = (() => {
                 if (r.action === 'accept' && p.nat === 'enable') {
                     const pool = p.ippool === 'enable' && (p.poolname || [])[0] && M().t['firewall ippool'].v[(p.poolname || [])[0]];
                     r.snat = pool ? pool.startip : ifIp(r.out);
-                    r.sport2 = 60000 + (ip2n(f.src) + f.sport) % 5000;
+                    // one-to-one havuz port çevirmez; overload/arayüz NAT kaynak portu değiştirir
+                    r.sport2 = pool && pool.type === 'one-to-one' ? f.sport : 60000 + (ip2n(f.src) + f.sport) % 5000;
                 }
                 break;
             }
@@ -884,6 +968,10 @@ const CgLabFgt = (() => {
             ip: { arp: { list: 'arplist' } },
         };
         DIAG.debug.application = { ike: 'appike', sslvpn: 'appssl' };
+        DIAG.test = { authserver: { radius: 'tradius', ldap: 'tldap' } };
+        DIAG.sys.ntp = { status: 'ntpst' };
+        DIAG.log = { test: 'logtest' };
+        DIAG.firewall = { iprope: { lookup: 'iplookup' } };
         S.dbg.apps = {}; S.ikeFilter = null;
         // ── IPsec çıktıları
         const p1s = () => M().t['vpn ipsec phase1-interface'].o;
@@ -943,6 +1031,99 @@ const CgLabFgt = (() => {
                 return L.join('\n');
             }).join('\n');
         }
+        // ── Kimlik doğrulama testi (lab.sim.radius / lab.sim.ldap: sanal sunucu)
+        function authTest(kind, a, line) {
+            const tb = M().t[kind === 'radius' ? 'user radius' : 'user ldap'], name = a[0] && a[0].t;
+            if (!name || !tb.v[name]) return '# [Simülatör] "' + (name || '') + '" adlı ' + kind.toUpperCase() + ' sunucusu tanımlı değil (config user ' + kind + ').';
+            const o = tb.v[name], sv = SIM[kind] || {}, args = a.slice(1).map(x => x.t);
+            let method = 'ldap', user, pw;
+            if (kind === 'radius') { if (args.length < 3 || !['pap', 'chap', 'mschap', 'mschap2'].includes(args[0])) return 'command parse error before \'' + (args[0] || '') + '\''; [method, user, pw] = args; }
+            else { if (args.length < 2) return 'command parse error before \'\''; [user, pw] = args; }
+            const reachOk = o.server === sv.ip && reach(sv.ip).ok;
+            if (!reachOk) { log({ authtest: kind, result: 'timeout' }); return '# [Simülatör] ' + o.server + ' adresindeki sunucudan yanıt yok (adres ya da yol yanlış); gerçek cihazda test zaman aşımıyla biter.'; }
+            let good = !!sv.users && sv.users[user] === pw;
+            if (kind === 'radius') good = good && o.secret === sv.secret;
+            else good = good && o.dn === sv.dn && ((o.type || 'simple') !== 'regular' || (o.username === (sv.bind || {}).user && o.password === (sv.bind || {}).pw));
+            log({ authtest: kind, result: good ? 'ok' : 'fail', user });
+            if (kind === 'radius') return good ? 'authenticate \'' + user + '\' against \'' + method + '\' succeeded, server=primary assigned_rad_session_id=1790336450 session_timeout=0 secs idle_timeout=0 secs!' + (sv.groups && sv.groups[user] ? '\nGroup membership(s) - ' + sv.groups[user] : '')
+                : 'authenticate \'' + user + '\' against \'' + method + '\' failed, assigned_rad_session_id=1790336451 session_timeout=0 secs idle_timeout=0 secs!';
+            return good ? 'authenticate \'' + user + '\' against \'' + name + '\' succeeded!' + (sv.groups && sv.groups[user] ? '\nGroup membership(s) - ' + sv.groups[user] : '') : 'authenticate \'' + user + '\' against \'' + name + '\' failed!';
+        }
+        function ntpStatus() {
+            const n = M().t['system ntp'], custom = n.type === 'custom', ns = M().t['system ntp ntpserver'], srvs = custom ? ns.o.map(k => ns.v[k].server) : ['ntp1.fortiguard.com'];
+            const ok = x => (SIM.ntp || []).includes(x) && (!isIp(x) || reach(x).ok), sync = (n.ntpsync || 'enable') === 'enable' && srvs.some(ok);
+            log({ ntpst: sync });
+            return ['synchronized: ' + (sync ? 'yes' : 'no') + ', ntpsync: ' + ((n.ntpsync || 'enable') === 'enable' ? 'enabled' : 'disabled') + ', server-mode: disabled', '']
+                .concat(srvs.map((x, i) => 'ipv4 server(' + x + ') ' + x + ' -- ' + (ok(x) ? 'reachable' + (sync && i === srvs.findIndex(ok) ? ' selected' : '') : 'unreachable')), ['# [Simülatör] Sunucu satırları sadeleştirildi (gerçek çıktıda stratum/offset alanları da vardır).']).join('\n');
+        }
+        function logTest() {
+            const sl = M().t['log syslogd setting'], dests = ['disk/bellek'].concat(sl.status === 'enable' && sl.server ? ['syslog ' + sl.server + ':' + (sl.port || 514) + '/' + (sl.mode || 'udp')] : []);
+            log({ logtest: sl.status === 'enable' && sl.server ? sl.server : null });
+            return '# [Simülatör] Örnek olay, trafik ve güvenlik logları üretildi → ' + dests.join(', ') + (sl.status === 'enable' && sl.server && !reach(isIp(sl.server) ? sl.server : '0.0.0.0').ok ? '\n# [Simülatör] Uyarı: syslog sunucusuna yol yok; iletiler cihazdan çıkamaz.' : '');
+        }
+        // ── DHCP kiraları (lab.sim.dhcp: [{ mac, intf, host }])
+        function dhcpLeases() {
+            const out = [], used = {}, T = M().t['system dhcp server'];
+            (SIM.dhcp || []).forEach(c => {
+                const sk = T.o.find(k => T.v[k].interface === c.intf && (T.v[k].status || 'enable') === 'enable'), o = sk && T.v[sk], I = M().t['system interface'].v[c.intf];
+                if (!o || !I || !I.ip || !ifUp(c.intf)) return out.push(Object.assign({}, c, { reason: 'nosrv' }));
+                const [iip, im] = I.ip.split(' '), len = maskLen(im), rg = o['_sub_ip-range'];
+                let ip = null;
+                for (const rk of (rg ? rg.o : [])) {
+                    const r = rg.v[rk]; if (!sameNet(r['start-ip'], iip, len) || !sameNet(r['end-ip'], iip, len)) continue;
+                    for (let n = ip2n(r['start-ip']); n <= ip2n(r['end-ip']); n++) { const x = n2ip(n); if (x !== iip && !used[x]) { ip = x; break; } }
+                    if (ip) break;
+                }
+                if (!ip) return out.push(Object.assign({}, c, { reason: rg && rg.o.length ? 'range' : 'norange' }));
+                used[ip] = true; out.push(Object.assign({}, c, { ip, server: sk, gw: o['default-gateway'] || null, mask: o.netmask }));
+            });
+            return out;
+        }
+        function leaseList() {
+            const L = [], ls = dhcpLeases().filter(x => x.ip);
+            [...new Set(ls.map(x => x.intf))].forEach(n => { L.push(n, '  IP                MAC-Address         Hostname            SERVER-ID  Expiry');
+                ls.filter(x => x.intf === n).forEach(x => L.push('  ' + pad(x.ip, 18) + pad(x.mac.toLowerCase(), 20) + pad(x.host || '', 20) + pad(x.server, 11) + 'Fri Oct  2 10:12:44 2026')); });
+            log({ leaselist: ls.length });
+            return L.join('\n');
+        }
+        // ── Yedekleme / geri yükleme / revizyonlar
+        S.tftp = {}; S.revs = [];
+        const snap = () => JSON.parse(JSON.stringify(M()));
+        function backupCmd(t, line) {
+            const w = t.slice(2).map(x => x.t);
+            if (w[0] !== 'config') { log({ raw: line, err: 'invalid' }); return perr(t[2] || null); }
+            if (w[1] === 'tftp') {
+                if (!w[2] || !w[3] || !isIp(w[3])) { log({ raw: line, err: 'value' }); return 'command parse error before \'' + (w[3] || '') + '\''; }
+                const ok = reach(w[3]).ok && ((lab.hosts || []).includes(w[3]));
+                if (ok) S.tftp[w[2]] = snap();
+                log({ raw: line, canon: 'execute backup config tftp ' + w[2] + ' ' + w[3], backup: ok ? 'tftp' : 'fail' });
+                return 'Please wait...\n\nConnect to tftp server ' + w[3] + ' ...\n' + (ok ? '#\nSend config file to tftp server OK.' : '# [Simülatör] TFTP sunucusuna ulaşılamadı: yedek alınamadı.');
+            }
+            if (w[1] === 'flash') {
+                const cmt = w.slice(2).join(' ').replace(/^"|"$/g, '');
+                S.revs.push({ id: S.revs.length + 1, time: '2026-09-25 10:' + String(12 + S.revs.length).padStart(2, '0') + ':03', comment: cmt, m: snap() });
+                log({ raw: line, canon: 'execute backup config flash', backup: 'flash' });
+                return 'Please wait...\n\nConfig file backup to flash OK.';
+            }
+            log({ raw: line, err: 'invalid' }); return perr(t[3] || null);
+        }
+        function restoreCmd(t, line) {
+            const w = t.slice(2).map(x => x.t);
+            if (w[0] !== 'config' || !['tftp', 'flash'].includes(w[1])) { log({ raw: line, err: 'invalid' }); return perr(t[3] || t[2] || null); }
+            const src = w[1] === 'tftp' ? (isIp(w[3] || '') && reach(w[3]).ok && S.tftp[w[2]]) : (S.revs.find(r => String(r.id) === w[2]) || {}).m;
+            if (!src) { log({ raw: line, err: 'value' }); return w[1] === 'tftp' ? 'Please wait...\n\nConnect to tftp server ' + (w[3] || '') + ' ...\n# [Simülatör] Dosya bulunamadı ya da sunucuya ulaşılamadı.' : 'Invalid revision id.'; }
+            log({ raw: line, canon: 'execute restore config ' + w[1] });
+            S.pending = { prompt: 'This operation will overwrite the current setting and could possibly reboot the system!\nDo you want to continue? (y/n)', fn: x => {
+                if (!/^y/i.test(x)) return '';
+                S.m = JSON.parse(JSON.stringify(src)); S.ctx = null; log({ restored: w[1] });
+                return 'Please wait...\n\nGet config file OK.\nFile check OK.\n# [Simülatör] Cihaz yeniden başladı; geri yüklenen yapılandırma etkin.';
+            } };
+            return '';
+        }
+        function revList() {
+            log({ revlist: S.revs.length });
+            return ['ID  TIME                ADMIN   FIRMWARE VERSION                      COMMENT'].concat(S.revs.map(r => pad(r.id, 4) + pad(r.time, 20) + pad('admin', 8) + pad('v7.4 (eğitim simülatörü)', 38) + r.comment)).join('\n');
+        }
         function diagCmd(t, line) {
             let node = DIAG, i = 1, words = ['diagnose'];
             while (node && typeof node === 'object') {
@@ -969,6 +1150,19 @@ const CgLabFgt = (() => {
                     if (!Object.keys(S.sessFilter).length) { log({ raw: line, canon, warn: 'sclear-all' }); return '# [Simülatör] UYARI: filtre yokken bu komut TÜM oturumları siler (tüm kullanıcılar kopar). Simülatörde engellendi; önce "diagnose sys session filter …".'; }
                     log({ raw: line, canon, cleared: Object.assign({}, S.sessFilter) });
                     return '';
+                }
+                case 'tradius': return ok(authTest('radius', a, line));
+                case 'tldap': return ok(authTest('ldap', a, line));
+                case 'ntpst': return ok(ntpStatus());
+                case 'logtest': return ok(logTest());
+                case 'iplookup': {
+                    // diagnose firewall iprope lookup <src> <sport> <dst> <dport> <proto> <srcintf>
+                    const v = a.map(x => x.t);
+                    if (v.length < 6 || !isIp(v[0]) || !isIp(v[2]) || !/^\d+$/.test(v[1]) || !/^\d+$/.test(v[3]) || !['tcp', 'udp', 'icmp'].includes(v[4].toLowerCase()) || !M().t['system interface'].v[v[5]]) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (v.find((x, k) => (k === 0 || k === 2) ? !isIp(x) : false) || v[v.length - 1] || '') + '\''; }
+                    const d = decide({ src: v[0], sport: +v[1], dst: v[2], dport: +v[3], proto: v[4].toLowerCase(), in: v[5], reply: 'ok', arrives: true });
+                    log({ raw: line, canon, lookup: d.policy });
+                    if (d.stage === 'noroute' || d.stage === 'noarrive') return '# [Simülatör] Hedefe rota yok ya da giriş arayüzü kapalı: kural araması yapılmadı.';
+                    return '<src [' + v[0] + '-' + v[1] + '] dst [' + v[2] + '-' + v[3] + '] proto ' + v[4].toLowerCase() + ' dev ' + v[5] + '> matches policy id: ' + (d.policy === 'intrazone' ? '0 (intrazone)' : d.policy);
                 }
                 case 'mem': return ok(memInfo());
                 case 'conserve': return ok(conserve());
@@ -1130,8 +1324,12 @@ const CgLabFgt = (() => {
                 return perr(t[1] || null);
             }
             if (v.ok === 'execute') {
-                const ex = t[1] ? pick(t[1].t, ['ping', 'ping-options', 'traceroute', 'telnet', 'ha']) : { err: 'none' };
-                if (!ex.ok) { log({ raw: line, err: t[1] ? 'unsupported' : 'incomplete' }); return t[1] ? '# [Simülatör] Bu sürümde execute ping, ping-options, traceroute, telnet ve ha destekleniyor.' : perr(null); }
+                const ex = t[1] ? pick(t[1].t, ['ping', 'ping-options', 'traceroute', 'telnet', 'ha', 'backup', 'restore', 'revision', 'dhcp']) : { err: 'none' };
+                if (!ex.ok) { log({ raw: line, err: t[1] ? 'unsupported' : 'incomplete' }); return t[1] ? '# [Simülatör] Bu sürümde execute ping, ping-options, traceroute, telnet, ha, backup, restore, revision ve dhcp destekleniyor.' : perr(null); }
+                if (ex.ok === 'backup') return backupCmd(t, line);
+                if (ex.ok === 'restore') return restoreCmd(t, line);
+                if (ex.ok === 'revision') { if (!t[2] || t[2].t !== 'list' || !t[3] || t[3].t !== 'config') { log({ raw: line, err: 'invalid' }); return perr(t[2] || null); } log({ raw: line, canon: 'execute revision list config' }); return revList(); }
+                if (ex.ok === 'dhcp') { if (!t[2] || !'lease-list'.startsWith(t[2].t) || t[2].t.length < 2) { log({ raw: line, err: 'invalid' }); return perr(t[2] || null); } log({ raw: line, canon: 'execute dhcp lease-list' }); return leaseList(); }
                 if (ex.ok === 'ping' || ex.ok === 'traceroute') {
                     if (!t[2] || !isIp(t[2].t) || t.length > 3) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (t[2] ? t[2].t : '') + '\''; }
                     log({ raw: line, canon: 'execute ' + ex.ok + ' ' + t[2].t });
@@ -1162,7 +1360,7 @@ const CgLabFgt = (() => {
             if (v.ok === 'exit') { log({ raw: line, canon: 'exit' }); S.loggedOut = true; return '\n[Simülatör] Oturum kapatıldı. Yeniden bağlanmak için Enter.\n'; }
         }
         function tableCmd(t, line) {
-            const c = S.ctx, sc = SCHEMA[c.path], tb = M().t[c.path];
+            const c = S.ctx, sc = SCHEMA[c.path], tb = tbl(c);
             const verbs = ['edit', 'delete', 'show', 'get', 'end', 'abort'].concat(sc.move ? ['move'] : []);
             const v = pick(t[0].t, verbs);
             if (!v.ok) { log({ raw: line, err: 'invalid' }); return perr(t[0]); }
@@ -1180,18 +1378,18 @@ const CgLabFgt = (() => {
                     if (k === '0') k = String(tb.o.reduce((a, x) => Math.max(a, +x), 0) + 1);
                 } else if (!k.length || k.length > 79) { log({ raw: line, err: 'invalid' }); return 'value parse error before \'' + k + '\''; }
                 if (!tb.v[k]) {
-                    if (sc.fixed) { log({ raw: line, err: 'unsupported' }); return '# [Simülatör] Bu lab\'da yalnız mevcut arayüzler düzenlenebilir: ' + tb.o.join(', '); }
+                    if (sc.fixed && c.path !== 'system interface') { log({ raw: line, err: 'unsupported' }); return '# [Simülatör] Bu lab\'da yalnız mevcut nesneler düzenlenebilir: ' + tb.o.join(', '); }
                     msg = 'new entry \'' + k + '\' added';
                 }
                 if (tb.v[k] && tb.v[k]._builtin) { log({ raw: line, err: 'unsupported' }); return '# [Simülatör] "' + k + '" hazır (predefined) bir nesnedir; değiştirmeyin.'; }
-                S.ctx = { path: c.path, key: k, isNew: !tb.v[k], draft: JSON.parse(JSON.stringify(tb.v[k] || {})), parent: c.parent };
+                S.ctx = { path: c.path, key: k, isNew: !tb.v[k], draft: JSON.parse(JSON.stringify(tb.v[k] || (c.path === 'system interface' ? { type: 'vlan' } : {}))), parent: c.parent };
                 log({ raw: line, canon: 'edit ' + k, path: c.path });
                 return msg;
             }
             if (v.ok === 'delete') {
                 const k = t[1] && t[1].t;
                 if (!k || !tb.v[k]) { log({ raw: line, err: 'invalid' }); return 'entry not found in datasource'; }
-                if (sc.fixed || tb.v[k]._builtin) { log({ raw: line, err: 'unsupported' }); return '# [Simülatör] Bu nesne silinemez.'; }
+                if ((sc.fixed && tb.v[k].type !== 'vlan') || tb.v[k]._builtin) { log({ raw: line, err: 'unsupported' }); return '# [Simülatör] Bu nesne silinemez.'; }
                 const users = usedBy(c.path, k);
                 if (users.length) { log({ raw: line, err: 'inuse' }); return '# [Simülatör] "' + k + '" silinemez: kullanılıyor → ' + users.join(', ') + '\n# Önce o nesnelerden kaldırın (FortiOS kullanımdaki nesneyi silmez).'; }
                 tb.o = tb.o.filter(x => x !== k); delete tb.v[k];
@@ -1210,7 +1408,7 @@ const CgLabFgt = (() => {
         }
         function usedBy(p, k) {
             const out = [], map = { 'firewall address': ['addr', 'addrVip', 'addrgrpMember'], 'firewall addrgrp': ['addr', 'addrVip', 'addrgrpMember'], 'firewall vip': ['addrVip'],
-                'firewall service custom': ['svc', 'svcgrpMember'], 'firewall service group': ['svc', 'svcgrpMember'], 'firewall ippool': ['ippool'], 'vpn ipsec phase1-interface': ['p1', 'intf', 'intfAny'], 'user local': ['users'], 'user group': ['ugroups'], 'vpn ssl web portal': ['portal'] }[p] || [];
+                'firewall service custom': ['svc', 'svcgrpMember'], 'firewall service group': ['svc', 'svcgrpMember'], 'firewall ippool': ['ippool'], 'vpn ipsec phase1-interface': ['p1', 'intf', 'intfAny'], 'user local': ['users'], 'user radius': ['users'], 'user ldap': ['users'], 'system interface': ['zoneMember'], 'system zone': ['intfAny'], 'user group': ['ugroups'], 'vpn ssl web portal': ['portal'] }[p] || [];
             for (const q of ALLP) {
                 const sc = SCHEMA[q]; if (sc.single) continue;
                 for (const key of M().t[q].o) {
@@ -1229,9 +1427,10 @@ const CgLabFgt = (() => {
             if (c.single) { M().t[c.path] = c.draft; return null; }
             const miss = (sc.req || []).filter(k => { const v = c.draft[k]; return v === undefined || (Array.isArray(v) && !v.length); });
             if (c.path === 'router static' && c.draft.blackhole !== 'enable' && !c.draft.device) miss.push('device');
+            if (c.path === 'system interface' && c.draft.type === 'vlan') ['vdom', 'interface', 'vlanid'].forEach(k => { if (c.draft[k] === undefined && !miss.includes(k)) miss.push(k); });
             if (miss.length) return miss.map(k => 'node_check_object fail! for ' + k + '\nAttribute \'' + k + '\' MUST be set.').join('\n');
             if (c.path === 'firewall vip' && c.draft.portforward === 'enable' && !c.draft.extport) return 'node_check_object fail! for extport\nAttribute \'extport\' MUST be set.';
-            const tb = M().t[c.path];
+            const tb = tbl(c);
             if (!tb.v[c.key]) tb.o.push(c.key);
             tb.v[c.key] = c.draft;
             return null;
@@ -1260,7 +1459,7 @@ const CgLabFgt = (() => {
                 const full = t[1] && 'full-configuration'.startsWith(t[1].t.toLowerCase());
                 log({ raw: line, canon: 'show ' + (full ? 'full-configuration ' : '') + c.path + (c.key !== undefined ? ' ' + c.key : '') });
                 if (c.single) return ['config ' + c.path].concat(objLines(c.path, c.draft, full, '    '), ['end']).join('\n');
-                return ['config ' + c.path, '    edit ' + (sc.num ? c.key : qt(c.key))].concat(objLines(c.path, c.draft, full, '        '), ['    next', 'end']).join('\n');
+                return ['config ' + c.path, '    edit ' + (sc.num ? c.key : qt(c.key))].concat(objLines(c.path, c.draft, full, '        '), subLines(c.path, c.draft, full, '        '), ['    next', 'end']).join('\n');
             }
             if (v.ok === 'get') { log({ raw: line, canon: 'get', path: c.path }); return getObj(c.path, Object.assign({ [sc.key]: c.key }, c.draft)); }
             // set / unset / append / unselect
@@ -1341,7 +1540,7 @@ const CgLabFgt = (() => {
             }
             if (c && c.key === undefined && !c.single && (v.ok === 'edit' || v.ok === 'delete')) {
                 const sc = SCHEMA[c.path];
-                return M().t[c.path].o.filter(k => !M().t[c.path].v[k]._builtin).map(k => [k, '']).concat(v.ok === 'edit' && !sc.fixed ? [[sc.num ? '<0>' : '<yeni ad>', sc.num ? 'Sıradaki boş ID ile yeni kayıt' : 'Yeni kayıt']] : []);
+                return tbl(c).o.filter(k => !tbl(c).v[k]._builtin).map(k => [k, '']).concat(v.ok === 'edit' && !sc.fixed ? [[sc.num ? '<0>' : '<yeni ad>', sc.num ? 'Sıradaki boş ID ile yeni kayıt' : 'Yeni kayıt']] : []);
             }
             if (c && (v.ok === 'show' || v.ok === 'get')) return [['<Enter>', '']].concat(v.ok === 'show' && done.length === 1 ? [['full-configuration', 'Varsayılanlar dahil']] : []);
             return [];
@@ -1398,7 +1597,8 @@ const CgLabFgt = (() => {
             variant: () => S.variant, decide: f => decide(Object.assign({ sport: 50000, proto: 'tcp', reply: 'ok', arrives: true }, f)),
             get model() { return S.m; }, ev: E, mode: () => (S.ctx ? (S.ctx.key !== undefined ? 'edit' : 'config') : 'root'),
             obj, keys: p => M().t[p].o.filter(k => !M().t[p].v[k]._builtin), order: p => M().t[p].o.slice(),
-            rib, ifUp, saved: () => !S.ctx,
+            rib, ifUp, saved: () => !S.ctx, dhcpLeases: () => dhcpLeases(), zoneOf: n => zoneOf(n), revs: () => S.revs.map(r => r.comment), tftp: () => Object.keys(S.tftp),
+            sub: (p, k, sub) => { const o = M().t[p].v[k]; const ct = o && o['_sub_' + sub]; return ct ? ct.o.map(x => ct.v[x]) : []; },
             showRun: () => PATHS.map(p => showPath(p, undefined, false)).join('\n'),
         };
     }

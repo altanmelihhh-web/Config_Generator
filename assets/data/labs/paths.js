@@ -24,10 +24,33 @@
         M(16, 'Yedeklilik: LACP ve FHRP', 'Link toplama ve ağ geçidi yedekliliği (HSRP/VRRP).', ids[16]),
         M(17, 'Ara sınav: arıza kayıtları', 'Öğrendiklerinizi gerçek arıza senaryolarında birleştirin.', ids[17]),
     ];
+    // Güvenlik duvarı yolu (FortiGate Administrator müfredat sırası)
+    const FW = ids => [
+        M(1, 'CLI temelleri ve ilk kurulum', 'config/edit/set/next/end akışı, arayüzler ve yönetim erişimi.', ids[1]),
+        M(2, 'Yönetim erişimini sertleştirme', 'WAN\'da yönetimi kapatmak, trusthost, güçlü şifreleme, giriş kilidi.', ids[2]),
+        M(3, 'Sistem servisleri', 'DNS, NTP ve DHCP sunucusu.', ids[3]),
+        M(4, 'VLAN ve zone', 'Tek porttan çok segment; arayüzleri kural için gruplamak.', ids[4]),
+        M(5, 'Adres ve servis nesneleri', 'Kuralların yapı taşları: adres, servis, gruplar.', ids[5]),
+        M(6, 'Güvenlik kuralları ve kural sırası', 'İlk kural, örtük deny, gölgelenen kural ve move.', ids[6]),
+        M(7, 'Bağlantı kontrolleri', 'ping, ARP, telnet ve kaynak adres seçimi.', ids[7]),
+        M(8, 'Yönlendirme ve yedek hat', 'Statik rota, mesafe/öncelik, yük devri.', ids[8]),
+        M(9, 'NAT: IP havuzu ve VIP', 'Sabit çıkış adresi ve sunucu yayınlama.', ids[9]),
+        M(10, 'Kimlik doğrulama', 'RADIUS/LDAP ile merkezi yönetici ve kullanıcı doğrulama.', ids[10]),
+        M(11, 'Güvenlik profilleri', 'SSL denetimi, web filtre, uygulama kontrolü, IPS, antivirüs.', ids[11]),
+        M(12, 'Log ve izleme', 'Trafik logu, syslog/SIEM ve sağlık kontrolü.', ids[12]),
+        M(13, 'Site-to-site IPsec', 'Route-based tünel kurulumu ve adım adım teşhis.', ids[13]),
+        M(14, 'SSL-VPN', 'Uzaktan erişim kurulumu ve kullanıcı sorunları.', ids[14]),
+        M(15, 'Yedekleme ve geri dönüş', 'TFTP yedeği, revizyon ve restore.', ids[15]),
+        M(16, 'Yüksek erişilebilirlik (HA)', 'Aktif-pasif küme, kontrollü failover ve sorun giderme.', ids[16]),
+        M(17, 'Teşhis ve arıza', 'debug flow, sniffer, performans, crashlog.', ids[17]),
+    ];
     root.CG_LAB_PATHS = [
         { id: 'cisco-swrt', vendor: 'cisco-ios', title: 'Cisco Switch & Router: sıfırdan üretime', desc: 'Kurulumdan yedekliliğe, bir kampüs switch\'i ve şube router\'ını adım adım üretime hazırlayın.',
           modules: SWRT('cisco-ios', { 1: ['ios-00', 'ios-01', 'ios-02'], 2: ['ios-35a'], 3: ['ios-03'], 4: ['ios-35b'], 5: ['ios-35c'], 6: ['ios-31'], 7: ['ios-30'], 8: ['ios-10'], 9: ['ios-04'],
               10: ['ios-34'], 11: ['ios-11m'], 12: ['ios-14', 'ios-13'], 13: ['ios-16', 'ios-17', 'ios-18'], 14: ['ios-32', 'ios-33'], 15: ['ios-05'], 16: ['ios-15', 'ios-22'], 17: ['ios-40', 'ios-43', 'ios-47', 'ios-45', 'ios-46', 'ios-44'] }) },
+        { id: 'fortigate-fw', vendor: 'fortigate', title: 'FortiGate: sıfırdan üretime', desc: 'Yeni bir FortiGate\'i kurulumdan HA\'ya ve arıza teşhisine adım adım üretime hazırlayın.',
+          modules: FW({ 1: ['fgt-00', 'fgt-01'], 2: ['fgt-17'], 3: ['fgt-02'], 4: ['fgt-13'], 5: ['fgt-03'], 6: ['fgt-04', 'fgt-05'], 7: ['fgt-26'], 8: ['fgt-06'], 9: ['fgt-07', 'fgt-08'],
+              10: ['fgt-09'], 11: ['fgt-10'], 12: ['fgt-14', 'fgt-20'], 13: ['fgt-11', 'fgt-23'], 14: ['fgt-12', 'fgt-24'], 15: ['fgt-18'], 16: ['fgt-25', 'fgt-27'], 17: ['fgt-15', 'fgt-16', 'fgt-21', 'fgt-22'] }) },
         { id: 'huawei-swrt', vendor: 'huawei', title: 'Huawei Switch & Router: sıfırdan üretime', desc: 'VRP ile aynı yolu Huawei S/AR cihazlarında yürüyün.',
           modules: SWRT('huawei', { 1: ['hua-01', 'hua-04'], 2: ['hua-05'], 3: ['hua-02'], 4: ['hua-08'], 5: ['hua-09'], 6: ['hua-10'], 7: ['hua-11'], 8: ['hua-03'], 9: ['hua-12'], 10: ['hua-13'], 11: ['hua-14'], 12: ['hua-15'], 13: ['hua-06'], 14: ['hua-07'], 15: ['hua-16'], 16: ['hua-17'], 17: ['hua-40', 'hua-42'] }) },
         { id: 'dell-swrt', vendor: 'dell', title: 'Dell OS10 Switch: sıfırdan üretime', desc: 'OS10 ile veri merkezi erişim switch\'ini adım adım kurun.',
