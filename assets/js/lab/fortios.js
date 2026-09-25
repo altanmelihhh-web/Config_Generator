@@ -968,6 +968,7 @@ const CgLabFgt = (() => {
             ip: { arp: { list: 'arplist' } },
         };
         DIAG.debug.application = { ike: 'appike', sslvpn: 'appssl' };
+        DIAG.vpn.ike.log = { filter: 'ikelf2' };   // FortiOS 7.4.1+: diagnose vpn ike log filter …
         DIAG.test = { authserver: { radius: 'tradius', ldap: 'tldap' } };
         DIAG.sys.ntp = { status: 'ntpst' };
         DIAG.log = { test: 'logtest' };
@@ -1190,11 +1191,16 @@ const CgLabFgt = (() => {
                 case 'hahist': return ok(haHistory());
                 case 'ikegw': { const nm = a[0] && 'name'.startsWith(a[0].t) && a[1] ? a[1].t : null; if (nm && !M().t['vpn ipsec phase1-interface'].v[nm]) { log({ raw: line, err: 'invalid' }); return perr(a[1]); } return ok(ikeGw(nm)); }
                 case 'tunlist': { const nm = a[0] && 'name'.startsWith(a[0].t) && a[1] ? a[1].t : null; if (nm && !M().t['vpn ipsec phase1-interface'].v[nm]) { log({ raw: line, err: 'invalid' }); return perr(a[1]); } return ok(tunList(nm)); }
-                case 'ikelf': {
+                case 'ikelf2': {
                     if (a[0] && a[0].t === 'clear') { S.ikeFilter = null; return ok(''); }
-                    if (a[0] && /^dst-addr4$/.test(a[0].t) && a[1] && isIp(a[1].t)) { S.ikeFilter = a[1].t; return ok(''); }
-                    if (!a.length) return ok('vd: any\nname: any\ninterface: any\nIPv4 dst: ' + (S.ikeFilter || 'any'));
+                    if (a[0] && /^rem-addr4$/.test(a[0].t) && a[1] && isIp(a[1].t)) { S.ikeFilter = a[1].t; return ok(''); }
+                    if (!a.length) return ok('vd: any\nname: any\ninterface: any\nIPv4 rem-addr: ' + (S.ikeFilter || 'any'));
                     log({ raw: line, err: 'invalid' }); return perr(a[0]);
+                }
+                case 'ikelf': {
+                    // 7.2 ve öncesi sözdizimi; bu lab 7.4 görünümünde
+                    log({ raw: line, err: 'unsupported' });
+                    return '# [Simülatör] "log-filter" FortiOS 7.2 ve öncesi sözdizimidir. 7.4.1 ve sonrası: diagnose vpn ike log filter rem-addr4 <karşı uç IP> (temizlemek: diagnose vpn ike log filter clear).';
                 }
                 case 'appike': case 'appssl': {
                     const lv = a[0] ? a[0].t : null;

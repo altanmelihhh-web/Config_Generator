@@ -336,7 +336,7 @@
             'config firewall policy', 'edit 1', 'append service HTTPS', 'end', 'diagnose debug flow trace start 10', 'diagnose debug disable'],
         verify: ['diagnose debug flow filter', 'diagnose debug info', 'show firewall policy 1'],
         learn: ['Sıra: reset → filter → show function-name → trace start → enable.', 'policy 0 = eşleşen kural yok (örtük deny).', '"find a route" satırı rotanın bulunduğunu gösterir.', 'Allowed + SNAT satırları kural ve NAT\'ın çalıştığını kanıtlar.', 'İş bitince debug disable/reset.'],
-        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/3' }, cert: 'NSE 4 · M15'
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/100' }, cert: 'NSE 4 · M15'
     },
     {
         id: 'fgt-16', vendor: 'fortigate', level: 5, title: 'Sniffer ile trafiği okumak: nerede kesiliyor?', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-15'],
@@ -371,7 +371,7 @@
         solution: v => ["diagnose sniffer packet any 'host 10.64.10.60' 4 20", { answer: 1, v: v.key }, { answer: 2, v: ({ noarrive: 'client', drop: 'flow', noreply: 'upstream', rst: 'server' })[v.key] }],
         verify: ["diagnose sniffer packet any 'host 10.64.10.60' 4 20", 'diagnose debug flow trace start 10'],
         learn: ['Seviye 4: arayüz + yön (in/out) gösterir; her zaman adet sınırı verin.', 'Hiç paket yok → sorun FortiGate öncesi.', 'Yalnız in → FortiGate düşürüyor (debug flow ile nedenini bulun).', 'in + out, dönüş yok → karşı taraf/dönüş yolu.', 'rst ack → sunucu portu reddediyor.'],
-        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/9' }, cert: 'NSE 4 · M15'
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/101' }, cert: 'NSE 4 · M15'
     },
     {
         id: 'fgt-20', vendor: 'fortigate', level: 1, title: 'Sağlık kontrolü turu: ilk 5 dakika', minutes: 15, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-00'], ordered: true,
@@ -405,7 +405,7 @@
         solution: ['get system status', 'get system performance status', { answer: 2, v: '97' }, 'diagnose sys top', { answer: 4, v: 'newcli' }, 'diagnose hardware sysinfo conserve', 'diagnose sys session stat', { answer: 6, v: 'off' }],
         verify: ['get system status', 'get system performance status', 'diagnose sys top'],
         learn: ['İlk kontroller: get system status → performance status → sys top → conserve → session stat.', 'idle düşük = CPU yoğun; uptime kısa = yeniden başlama.', 'Boşta cihazda sys top\'ta newcli görmek normaldir.', 'Conserve mode yavaşlığın sık nedenidir.'],
-        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/2' }, cert: 'NSE 4 · M15'
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/103' }, cert: 'NSE 4 · M15'
     },
     {
         id: 'fgt-21', vendor: 'fortigate', level: 5, title: '"Cihaz yavaş" — suçluyu bulun', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-20'],
@@ -440,7 +440,7 @@
             [{ answer: 3, v: ({ cpu: 'ipsengine', mem: 'wad', sess: '10.64.10.77' })[v.key] }, { answer: 4, v: ({ cpu: 'ips', mem: 'conserve', sess: 'host' })[v.key] }]),
         verify: ['get system performance status', 'diagnose sys top', 'diagnose hardware sysinfo conserve', 'get system session list'],
         learn: ['Özet (performance status) → ayrıntı (sys top / conserve / session list).', 'CPU yavaşlığı: süreç; bellek: conserve + bellek sütunu; oturum: kaynak IP.', 'Reboot nedeni silmez, kanıtı siler.'],
-        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/2' }, cert: 'NSE 4 · M15'
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/102' }, cert: 'NSE 4 · M15'
     },
     {
         id: 'fgt-22', vendor: 'fortigate', level: 5, title: 'Çöktü mü, hata var mı? crashlog ve config-error-log', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-20'],
@@ -542,7 +542,7 @@
             'diagnose vpn tunnel list name TO-B', { answer: 6, v: 'wan' }],
         verify: ['get vpn ipsec tunnel summary', 'diagnose vpn tunnel list name TO-B', 'get router info routing-table all'],
         learn: ['Faz 1: IKE sürümü, öneri, DH, PSK iki uçta aynı.', 'Faz 2 seçicileri karşı ucun aynası.', 'Route-based: rota tünel arayüzüne; tünel düşerse blackhole sızıntıyı önler.', 'İki yönlü kural, NAT kapalı.', 'Doğrulama: tunnel summary 1/1 + debug flow "encrypted".', 'Dış başlık iki WAN adresidir; iç paket şifreli taşınır.'],
-        links: { tool: '#/fortigate/ipsec', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/0' }, cert: 'NSE 4 · M11'
+        links: { tool: '#/fortigate/ipsec', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/106' }, cert: 'NSE 4 · M11'
     },
     {
         id: 'fgt-23', vendor: 'fortigate', level: 5, title: 'IPsec adım adım teşhis: faz 1 → faz 2 → trafik', minutes: 30, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-11', 'fgt-15'],
@@ -560,8 +560,8 @@
         story: '<b>Arıza kaydı:</b> "Merkez–şube VPN\'i üzerinden 10.64.10.50, 10.128.10.20:443\'e ulaşamıyor." Karşı ucun (198.51.100.2) doğru ayarları: IKEv2, faz 1/2 <code>aes256-sha256</code> (şube değiştirmiş olabilir), DH 14, PSK <code>Lab-Psk-2026</code>, seçiciler 10.64.10.0/24 ↔ 10.128.10.0/24. Zinciri sırayla yürüyün: <b>faz 1 up mı → faz 2 up mı → trafik geçiyor mu</b>. <small>Her turda farklı bir arıza — "Yeni tur".</small>',
         lesson: L('IPsec arızası üç katmanda aranır: faz 1 (IKE SA kurulamıyor), faz 2 (seçici ya da öneri uyuşmuyor) ve trafik (tünel up ama rota, kural ya da NAT yanlış). <code>get vpn ipsec tunnel summary</code> katmanı, <code>diagnose vpn ike gateway list</code> faz 1 durumunu, IKE debug (<code>diagnose debug application ike -1</code>) pazarlık hatasını, <code>debug flow</code> ise trafik kararını gösterir.',
             'Katmanı atlayıp "tüneli silip yeniden kurmak" hem doğru ayarları riske atar hem kök nedeni gizler. IKE mesajları nettir: "no SA proposal chosen" öneri uyuşmazlığı, TS_UNACCEPTABLE seçici uyuşmazlığıdır; PSK hatasını IKEv1 "probable pre-shared secret mismatch", IKEv2 AUTHENTICATION_FAILED olarak bildirir. Karşı uç başka bir ekipteyse bu satır, tartışmayı kanıtla bitirir.',
-            'get vpn ipsec tunnel summary\ndiagnose vpn ike gateway list name TO-B\ndiagnose debug reset\ndiagnose vpn ike log-filter dst-addr4 198.51.100.2\ndiagnose debug application ike -1\ndiagnose debug enable\n# pazarlık okunur, sorun düzeltilir\ndiagnose debug disable\ndiagnose debug reset',
-            ['IKE debug\'ı log-filter olmadan açmak: tüm tünellerin pazarlığı birbirine karışır.', 'Karşı ucun ayarını sormadan kendi tarafınızı "düzeltmek" ve çalışan diğer tünelleri bozmak.', 'Tünel up diye sorunun VPN\'de olmadığını sanmak: rota, kural ve NAT hâlâ şüphelidir.']),
+            'get vpn ipsec tunnel summary\ndiagnose vpn ike gateway list name TO-B\ndiagnose debug reset\ndiagnose vpn ike log filter rem-addr4 198.51.100.2\ndiagnose debug application ike -1\ndiagnose debug enable\n# pazarlık okunur, sorun düzeltilir\ndiagnose debug disable\ndiagnose debug reset',
+            ['IKE debug\'ı log filtresi olmadan açmak: tüm tünellerin pazarlığı birbirine karışır.', 'Karşı ucun ayarını sormadan kendi tarafınızı "düzeltmek" ve çalışan diğer tünelleri bozmak.', 'Tünel up diye sorunun VPN\'de olmadığını sanmak: rota, kural ve NAT hâlâ şüphelidir.']),
         goals: ['Tünel özetinden katmanı belirlemek', 'Doğru aracı seçmek (IKE debug / tunnel list / debug flow)', 'Kök nedeni bulup en az değişiklikle düzeltmek', 'Debug\'ı kapatmak'],
         tasks: [
             { t: 'Tünelin genel durumuna bakın.', why: 'selectors(total,up): 1/1 = her şey kurulu; 1/0 = faz 2 yok ya da faz 1 de yok. Faz 1\'i <code>diagnose vpn ike gateway list</code> ile ayırt edersiniz.',
@@ -570,9 +570,9 @@
               why: 'Özet 1/0 ise <code>diagnose vpn ike gateway list</code> faz 1\'i gösterir: "IKE SA … established 1/1" ise sorun faz 2\'de, "0/0" ise faz 1\'de.',
               hints: ['selectors 1/1 mi 1/0 mı?', '1/0 ise: diagnose vpn ike gateway list → IKE SA established?'] },
             { t: 'Bu katmana uygun ayrıntı aracıyla nedeni görün.',
-              why: 'Faz 1/2 sorunu → <code>diagnose vpn ike log-filter dst-addr4 &lt;peer&gt;</code> + <code>diagnose debug application ike -1</code> + <code>diagnose debug enable</code> ("no SA proposal chosen", "pre-shared secret mismatch", "TS_UNACCEPTABLE"). Tünel up ama trafik yok → <code>debug flow</code> (rota/kural/seçici).',
-              hints: ['Tünel kurulamıyorsa IKE debug; kuruluysa debug flow.', 'IKE: log-filter + application ike -1 + enable · trafik: flow filter + trace + enable'],
-              steps: v => ['p1down', 'p2down'].includes(({ proposal: 'p1down', psk: 'p1down', selector: 'p2down' })[v.key]) ? ['diagnose debug reset', 'diagnose vpn ike log-filter dst-addr4 198.51.100.2', 'diagnose debug application ike -1', 'diagnose debug enable'] : ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable'],
+              why: 'Faz 1/2 sorunu → <code>diagnose vpn ike log filter rem-addr4 &lt;peer&gt;</code> + <code>diagnose debug application ike -1</code> + <code>diagnose debug enable</code> ("no SA proposal chosen", "pre-shared secret mismatch", "TS_UNACCEPTABLE"). Tünel up ama trafik yok → <code>debug flow</code> (rota/kural/seçici).',
+              hints: ['Tünel kurulamıyorsa IKE debug; kuruluysa debug flow.', 'IKE: log filter + application ike -1 + enable · trafik: flow filter + trace + enable'],
+              steps: v => ['p1down', 'p2down'].includes(({ proposal: 'p1down', psk: 'p1down', selector: 'p2down' })[v.key]) ? ['diagnose debug reset', 'diagnose vpn ike log filter rem-addr4 198.51.100.2', 'diagnose debug application ike -1', 'diagnose debug enable'] : ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable'],
               check: s => { const k = s.variant().key; return ['proposal', 'psk', 'selector'].includes(k) ? s.ev.list().some(e => e.ikedebug) : s.ev.list().some(e => e.trace && /^10\.64\.10\.50>/.test(e.flow)); } },
             { t: 'Kök neden hangisi?', ask: { choices: [['proposal', 'Faz 1 önerisi karşı uçla uyuşmuyor ("no SA proposal chosen")'], ['psk', 'Ön paylaşımlı anahtar farklı ("pre-shared secret mismatch")'], ['selector', 'Faz 2 seçicileri uyuşmuyor ("TS_UNACCEPTABLE")'], ['noroute', 'Şube ağına tünel rotası yok (paket WAN\'a gidiyor)'], ['nopolicy', 'Tünele giden kural yok (policy 0)'], ['nat', 'Kuralda NAT açık, kaynak seçiciye uymuyor']], correct: v => v.key },
               why: 'Debug satırındaki anahtar ifade kök nedeni söyler; debug flow\'da ise "via port1" (rota), "policy 0" (kural) ya da "no matching IPsec selector" (NAT/seçici) satırı.', hints: ['Debug çıktısındaki son anlamlı satır.', 'Trafik izinde rota hangi arayüzü gösteriyor?'] },
@@ -590,8 +590,8 @@
               check: s => { const L = s.ev.list(), i = L.map(e => !!(e.canon && e.canon === 'diagnose debug enable')).lastIndexOf(true); return i >= 0 && L.slice(i + 1).some(e => e.canon && /^diagnose debug (disable|reset)$/.test(e.canon)); } },
         ],
         verify: ['get vpn ipsec tunnel summary', 'diagnose vpn ike gateway list name TO-B', 'diagnose vpn tunnel list name TO-B'],
-        learn: ['Sıra: tunnel summary → ike gateway list → IKE debug (faz 1/2) ya da debug flow (trafik).', '"no SA proposal chosen" = öneri; "pre-shared secret mismatch" = PSK; TS_UNACCEPTABLE = seçici.', 'Tünel up ama trafik yok: rota, kural, NAT.', 'IKE debug\'da log-filter ile yalnız ilgili karşı ucu izleyin.'],
-        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/0', tool: '#/fortigate/ipsec' }, cert: 'NSE 4 · M11'
+        learn: ['Sıra: tunnel summary → ike gateway list → IKE debug (faz 1/2) ya da debug flow (trafik).', '"no SA proposal chosen" = öneri; "pre-shared secret mismatch" = PSK; TS_UNACCEPTABLE = seçici.', 'Tünel up ama trafik yok: rota, kural, NAT.', 'IKE debug\'da log filter ile yalnız ilgili karşı ucu izleyin.'],
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/105', tool: '#/fortigate/ipsec' }, cert: 'NSE 4 · M11'
     },
     // ═══ Faz C2b: HA ve bağlantı kontrolleri ═════════════════════════════
     {
@@ -637,7 +637,7 @@
         ],
         verify: ['get system ha status', 'diagnose sys ha checksum cluster', 'diagnose sys ha history read'],
         learn: ['Küme şartı: group-name, mod, parola, firmware aynı + heartbeat.', 'override kapalı: uptime öncelikten önce gelir (sürpriz birincil).', 'override açık: öncelik belirleyicidir.', 'checksum cluster ile senkron kontrolü.', 'execute ha manage ile ikincile geçiş; failover set/unset ile kontrollü test.'],
-        links: { tool: '#/fortigate/ha', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/4' }, cert: 'NSE 4 · M14'
+        links: { tool: '#/fortigate/ha', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/109' }, cert: 'NSE 4 · M14'
     },
     {
         id: 'fgt-27', vendor: 'fortigate', level: 5, title: 'HA sorun giderme: küme neden sağlıksız?', minutes: 20, kind: 'firewall', hostname: 'FGT-A-1', pre: ['fgt-25'],
@@ -673,7 +673,7 @@
         ],
         verify: ['get system ha status', 'diagnose sys ha checksum cluster', 'show system ha'],
         learn: ['Üye listede yok → kurulum (heartbeat / grup / parola / mod).', 'Üye var, out-of-sync → execute ha synchronize start.', 'Checksum ile doğrulayın.'],
-        links: { tool: '#/fortigate/ha', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/4' }, cert: 'NSE 4 · M14'
+        links: { tool: '#/fortigate/ha', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/108' }, cert: 'NSE 4 · M14'
     },
     {
         id: 'fgt-26', vendor: 'fortigate', level: 2, title: 'Bağlantı kontrolleri: ping, ARP, telnet, kaynak seçimi', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-20'], ordered: true,
@@ -709,7 +709,7 @@
         ],
         verify: ['execute ping 203.0.113.1', 'diagnose ip arp list', 'execute telnet 172.24.50.10 443', 'execute ping-options view-settings'],
         learn: ['ping → ağ geçidi; başarısızsa WAN/ISP.', 'diagnose ip arp list: incomplete = L2 sorunu.', 'telnet: refused = port kapalı, timeout = erişim yok.', 'FortiGate kaynaklı test forward kuralına tabi değildir.', 'VPN testinde ping-options source ile LAN kaynağı; sonra reset.'],
-        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/9' }, cert: 'NSE 4 · M15'
+        links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/110' }, cert: 'NSE 4 · M15'
     },
     // ═══ Faz C2c: SSL-VPN ═══════════════════════════════════════════════
     {
@@ -762,7 +762,7 @@
         ],
         verify: ['get vpn ssl monitor', 'show vpn ssl settings', 'show vpn ssl web portal full-access'],
         learn: ['Yetki gruba verilir: user local → user group.', 'Portal: havuz + split tunnel.', 'authentication-rule iç içe config: grup → portal.', 'ssl.root kuralı + groups olmadan giriş reddedilir.', 'get vpn ssl monitor ile doğrulama.', 'Split tunnel: yalnız tanımlı ağlar tünele girer, gerisi kullanıcının kendi hattından çıkar.'],
-        links: { tool: '#/fortigate/sslvpn', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/1' }, cert: 'NSE 4 · M10 (7.4)'
+        links: { tool: '#/fortigate/sslvpn', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/107' }, cert: 'NSE 4 · M10 (7.4)'
     },
     {
         id: 'fgt-24', vendor: 'fortigate', level: 5, title: 'SSL-VPN kullanıcısı bağlanamıyor: debug ile teşhis', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-12', 'fgt-15'],
@@ -804,7 +804,7 @@
         ],
         verify: ['get vpn ssl monitor', 'diagnose vpn ssl list', 'show vpn ssl settings'],
         learn: ['Belirti: monitor · neden: debug application sslvpn -1.', 'fnbam_auth return 1 = parola.', 'Grup/authentication-rule, portal tünel modu, ssl.root kuralı, havuz sırayla kontrol edilir.', 'Debug\'ı kapatmayı unutmayın.'],
-        links: { tool: '#/fortigate/sslvpn', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/1' }, cert: 'NSE 4 · M10 (7.4)'
+        links: { tool: '#/fortigate/sslvpn', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/107' }, cert: 'NSE 4 · M10 (7.4)'
     },
     { id: 'fgt-sandbox', vendor: 'fortigate', level: null, sandbox: true, title: 'Serbest terminal — FortiGate', kind: 'firewall', hostname: 'FGT', up: ['port1', 'port2'], hosts: ['203.0.113.1'],
       start: IF('port1', '203.0.113.2 255.255.255.0', ['set role wan']),

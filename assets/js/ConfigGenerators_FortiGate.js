@@ -2,6 +2,48 @@
 
 const FortiGate = {};
 
+// ── Lab bulgularından türetilen girdi uyarıları (CLI Lab fgt-01/04/06/08/11/12/15/23/24/25/27) ──
+// Önekler: ⛔ engel (cihaz reddeder / çalışmaz) · ⚠ risk ya da sık hata · ℹ bilgi. Yardımcılar _fgW* önekli.
+const _fgWIsIp = ip => /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/.test(String(ip || '').trim());
+const _fgWN = ip => String(ip || '').trim().split('.').reduce((a, o) => a * 256 + (+o), 0);
+// Nokta-ondalık maske → önek uzunluğu (geçersizse -1)
+function _fgWMaskLen(m) {
+    if (!_fgWIsIp(m)) return -1;
+    const b = _fgWN(m).toString(2).padStart(32, '0');
+    return /^1*0*$/.test(b) ? b.indexOf('0') === -1 ? 32 : b.indexOf('0') : -1;
+}
+// "A.B.C.D M.M.M.M" ya da "A.B.C.D/NN" → { ip, len } (geçersizse null)
+function _fgWNet(s) {
+    const t = String(s || '').trim().split(/\s+/);
+    if (t.length === 1) { const m = t[0].match(/^([\d.]+)\/(\d{1,2})$/); return m && _fgWIsIp(m[1]) && +m[2] <= 32 ? { ip: m[1], len: +m[2] } : null; }
+    if (t.length === 2 && _fgWIsIp(t[0])) { const l = _fgWMaskLen(t[1]); return l >= 0 ? { ip: t[0], len: l } : null; }
+    return null;
+}
+const _fgWBase = (ip, len) => len === 0 ? 0 : Math.floor(_fgWN(ip) / 2 ** (32 - len)) * 2 ** (32 - len);
+const _fgWIn = (ip, net) => !!net && _fgWIsIp(ip) && _fgWBase(ip, net.len) === _fgWBase(net.ip, net.len);
+const _fgWOverlap = (a, b) => !!a && !!b && _fgWBase(a.ip, Math.min(a.len, b.len)) === _fgWBase(b.ip, Math.min(a.len, b.len));
+const _fgWHostBits = n => !!n && _fgWN(n.ip) !== _fgWBase(n.ip, n.len);
+const _fgWPrivate = ip => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(String(ip || '').trim());
+// Arayüz IP'si alt ağın ağ ya da yayın adresi mi? (/31-/32 hariç)
+function _fgWNetOrBcast(ip, len) {
+    if (!_fgWIsIp(ip) || len < 0 || len > 30) return false;
+    const n = _fgWN(ip), b = _fgWBase(ip, len);
+    return n === b || n === b + 2 ** (32 - len) - 1;
+}
+// allowaccess denetimi (fgt-01): WAN'da şifresiz yönetim, her yerde telnet, tanınmayan anahtar sözcük
+const _FGW_ACCESS = ['ping', 'https', 'ssh', 'http', 'snmp', 'fgfm', 'telnet', 'radius-acct', 'probe-response', 'fabric', 'ftm', 'speed-test'];
+function _fgWAccess(label, list, isWan, w) {
+    const a = String(list || '').trim().split(/[\s,]+/).filter(Boolean).map(x => x.toLowerCase());
+    const unk = a.filter(x => _FGW_ACCESS.indexOf(x) === -1);
+    if (unk.length) w.push('⚠ ' + label + ': tanınmayan allowaccess değeri (' + unk.join(', ') + '); cihaz "value parse error" ile reddedebilir. FortiOS 7.4 değerleri: ' + _FGW_ACCESS.join(' ') + '.');
+    if (a.indexOf('telnet') !== -1) w.push('⚠ ' + label + ': telnet parolayı düz metin taşır; yönetim için yalnız ssh/https kullanın (fgt-01).');
+    if (isWan && a.indexOf('http') !== -1) w.push('⚠ ' + label + ': http, yönetim arayüzünü internete şifresiz açar; kaldırın (fgt-01).');
+    if (isWan && (a.indexOf('https') !== -1 || a.indexOf('ssh') !== -1)) w.push('⚠ ' + label + ': yönetim internete açık. Yönetimi VPN\'e/iç arayüze alın ya da yöneticilere trusted host verin (Admin aracı).');
+    return a;
+}
+// Virgül / boşluk ayrımlı liste (arayüz adları)
+const _fgWList = s => String(s || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+
 // ── FortiGate: Interface ───────────────────────────────────────────────────────
 FortiGate.interface = {
     label: 'Interface',
@@ -30,7 +72,7 @@ FortiGate.interface = {
                     fields: [
                         { name: 'lan_port', why: "İç ağa bakan port. Bu porta verdiğin IP, LAN istemcilerinin default gateway'i olur.",   label: 'Interface Adı',          type: 'text',   required: true, placeholder: 'port2',             hint: 'LAN portunu belirtin (ör: port2, internal)' },
                         { name: 'lan_alias', why: 'Kural listesinde <code>internal</code> yerine <code>LAN</code> görmek, özellikle çok portlu cihazlarda yanlış kural yazmayı önler.',  label: 'Alias',                  type: 'text',   required: true, placeholder: 'LAN',               hint: 'İnsan okunabilir kısa ad' },
-                        { name: 'lan_ip', why: "Bu adres iç ağın gateway'idir; DHCP dağıtıyorsan istemcilere bu IP'yi vereceksin. Mevcut ağdaki bir IP ile çakışmamasına dikkat et.",     label: 'IP Adresi',              type: 'text', validate: 'ip',   required: true, placeholder: '192.168.1.1',        hint: 'LAN tarafındaki gateway IP' },
+                        { name: 'lan_ip', why: "Bu adres iç ağın gateway'idir; DHCP dağıtıyorsan istemcilere bu IP'yi vereceksin. Mevcut ağdaki bir IP ile çakışmamasına dikkat et.",     label: 'IP Adresi',              type: 'text', validate: 'ip',   required: true, placeholder: '10.64.10.1',        hint: 'LAN tarafındaki gateway IP' },
                         { name: 'lan_mask', why: 'Ağ büyüklüğünü belirler. <code>255.255.255.0</code> = 254 kullanılabilir adres. Sonradan büyütmek istemci yeniden adreslemesi gerektirir.',   label: 'Subnet Mask',            type: 'text', validate: 'subnet',   required: true, placeholder: '255.255.255.0',      hint: 'Nokta-ondalık subnet maskı' },
                         { name: 'lan_access', why: "İç tarafta <code>https ssh</code> açmak normaldir; yönetim buradan yapılır. <code>ping</code>'i açık bırakmak sorun gidermeyi kolaylaştırır.", label: 'İzin Verilen Servisler', type: 'text',   required: true, placeholder: 'ping https ssh',     hint: 'Boşlukla ayrılmış servis adları' }
                     ]
@@ -67,7 +109,16 @@ function cgFgIfaceGen(data) {
     c += '    next\n';
     c += 'end\n\n';
     c += '# Doğrulama:\n# get system interface\n# diagnose ip address list\n';
-    return c;
+    const w = [];
+    const wl = _fgWMaskLen(data.wan_mask), ll = _fgWMaskLen(data.lan_mask);
+    if (String(data.wan_port || '').trim() && String(data.wan_port).trim() === String(data.lan_port || '').trim()) w.push('⛔ WAN ve LAN aynı arayüz (' + String(data.wan_port).trim() + '): ikinci edit bloğu ilkinin IP\'sini ezer.');
+    if (_fgWIsIp(data.wan_ip) && _fgWIsIp(data.lan_ip) && wl >= 0 && ll >= 0 && _fgWOverlap({ ip: data.wan_ip, len: wl }, { ip: data.lan_ip, len: ll }))
+        w.push('⛔ WAN ve LAN alt ağları çakışıyor: FortiOS iki arayüzde örtüşen alt ağı reddeder (allow-subnet-overlap kapalıyken).');
+    if (_fgWNetOrBcast(data.wan_ip, wl)) w.push('⛔ WAN IP\'si alt ağın ağ ya da yayın adresi; arayüz adresi olamaz.');
+    if (_fgWNetOrBcast(data.lan_ip, ll)) w.push('⛔ LAN IP\'si alt ağın ağ ya da yayın adresi; arayüz adresi olamaz.');
+    _fgWAccess('WAN allowaccess', data.wan_access, true, w);
+    _fgWAccess('LAN allowaccess', data.lan_access, false, w);
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: Address Object ─────────────────────────────────────────────────
@@ -168,11 +219,11 @@ FortiGate.policy = {
                     title: 'Kaynak & Hedef',
                     icon: 'fas fa-exchange-alt',
                     fields: [
-                        { name: 'srcintf', why: 'Trafiğin <b>girdiği</b> interface. Yanlış yön seçmek kuralın hiç eşleşmemesine yol açar — en sık yapılan hatalardan biri.', label: 'Kaynak Interface', type: 'text',   required: true, placeholder: 'port2',            hint: 'Trafiğin geldiği arayüz' },
-                        { name: 'dstintf', why: 'Trafiğin <b>çıktığı</b> interface. VPN trafiği için tünel arayüzünü seçmelisin, fiziksel portu değil.', label: 'Hedef Interface',  type: 'text',   required: true, placeholder: 'port1',            hint: 'Trafiğin çıktığı arayüz' },
-                        { name: 'srcaddr', why: 'Önceden tanımlı adres nesnesi olmalı. <code>all</code> seçmek kuralı tüm kaynaklara açar — gerçekten gerekli mi düşün.', label: 'Kaynak Adres',     type: 'text',   required: true, placeholder: 'LAN_SUBNET',       hint: 'Address Object adı veya "all"' },
-                        { name: 'dstaddr', why: 'Hedef adres. <code>all</code> + <code>ALL</code> servis kombinasyonu, kural listesindeki en tehlikeli satırdır.', label: 'Hedef Adres',      type: 'text',   required: true, placeholder: 'WEB_SERVERS',              hint: 'Address Object adı veya "all"' },
-                        { name: 'service', why: 'Port/protokol kısıtı. <code>ALL</code> yerine yalnızca gereken servisi seçmek, ihlal anında yanal hareketi sınırlar.', label: 'Servis',           type: 'text',   required: true, placeholder: 'HTTPS',              hint: 'Servis nesnesi: ALL, HTTP, HTTPS vb.' }
+                        { name: 'srcintf', why: 'Trafiğin <b>girdiği</b> interface. Yanlış yön seçmek kuralın hiç eşleşmemesine yol açar — en sık yapılan hatalardan biri.', label: 'Kaynak Interface', type: 'text',   required: true, placeholder: 'port2',            hint: 'Trafiğin geldiği arayüz (birden çok: virgülle)' },
+                        { name: 'dstintf', why: 'Trafiğin <b>çıktığı</b> interface. VPN trafiği için tünel arayüzünü seçmelisin, fiziksel portu değil.', label: 'Hedef Interface',  type: 'text',   required: true, placeholder: 'port1',            hint: 'Trafiğin çıktığı arayüz (birden çok: virgülle)' },
+                        { name: 'srcaddr', why: 'Önceden tanımlı adres nesnesi olmalı. <code>all</code> seçmek kuralı tüm kaynaklara açar — gerçekten gerekli mi düşün.', label: 'Kaynak Adres',     type: 'text',   required: true, placeholder: 'LAN_SUBNET',       hint: 'Address Object adı veya "all" (birden çok: virgülle)' },
+                        { name: 'dstaddr', why: 'Hedef adres. <code>all</code> + <code>ALL</code> servis kombinasyonu, kural listesindeki en tehlikeli satırdır.', label: 'Hedef Adres',      type: 'text',   required: true, placeholder: 'WEB_SERVERS',              hint: 'Address Object / VIP adı veya "all" (birden çok: virgülle)' },
+                        { name: 'service', why: 'Port/protokol kısıtı. <code>ALL</code> yerine yalnızca gereken servisi seçmek, ihlal anında yanal hareketi sınırlar.', label: 'Servis',           type: 'text',   required: true, placeholder: 'HTTPS',              hint: 'Servis nesnesi: ALL, HTTP, HTTPS vb. (birden çok: virgülle)' }
                     ]
                 },
                 {
@@ -213,21 +264,46 @@ FortiGate.policy = {
     }
 };
 function cgFgPolicyGen(data) {
-    const rid = cgEsc(data.rule_id || ''), rname = cgEsc(data.rule_name || '');
+    const rid = cgEsc(String(data.rule_id || '').trim()), rname = cgEsc(data.rule_name || '');
+    const act = data.action === 'deny' ? 'deny' : 'accept';
+    // Çok değerli alanlar: her ad ayrı tırnak ("HTTP" "HTTPS"); tek tırnak içinde boşluklu liste tek bir (olmayan) nesne adı olur.
+    const sI = _fgWList(data.srcintf), dI = _fgWList(data.dstintf);
+    const splitN = s => String(s || '').split(/[,\n]+/).map(x => x.trim()).filter(Boolean);
+    const sA = splitN(data.srcaddr), dA = splitN(data.dstaddr), sv = splitN(data.service);
+    const q = a => a.map(x => '"' + cgEsc(x) + '"').join(' ');
+    const w = [];
+    if (rid && !/^\d+$/.test(rid)) w.push('⛔ Kural ID sayı olmalı (edit <sayı>); "' + rid + '" reddedilir.');
+    else if (rid === '0') w.push('ℹ edit 0: FortiOS sıradaki boş kural numarasını kendisi verir.');
+    if (String(data.rule_name || '').length > 35) w.push('⛔ Kural adı en çok 35 karakter olabilir (' + String(data.rule_name).length + ').');
+    const ipLike = x => /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2}|\s+\d{1,3}(\.\d{1,3}){3})?$/.test(x);
+    sA.concat(dA).filter(ipLike).forEach(x => w.push('⛔ Adres alanına IP yazılmış (' + x + '): kural nesne adı bekler; FortiOS "entry not found in datasource" ile reddeder. Önce Address Object oluşturun.'));
+    if (sv.length > 1 && sv.some(x => /\s/.test(x))) w.push('⚠ Servis adında boşluk var (' + sv.filter(x => /\s/.test(x)).join(', ') + '): birden çok servisi virgülle ayırın.');
+    const isAll = a => a.length === 1 && /^all$/i.test(a[0]);
+    if (act === 'accept' && isAll(sA) && isAll(dA) && sv.some(x => /^all$/i.test(x)))
+        w.push('⚠ Kaynak, hedef ve servis all/ALL: kural iki arayüz arasındaki TÜM trafiğe izin verir. Gereken ağ ve servislerle daraltın.');
+    else if (act === 'accept' && sv.some(x => /^all$/i.test(x))) w.push('ℹ Servis ALL: tüm portlar açılır; en az yetki için yalnız gereken servisleri yazın (fgt-15).');
+    if (sI.length && dI.length && sI.join() === dI.join()) w.push('⚠ Kaynak ve hedef arayüz aynı: aynı arayüzden girip çıkan trafik için yazılır; çoğunlukla yanlış yön seçilmiştir.');
+    if ((data.logtraffic || 'all') === 'disable') w.push('⚠ Log kapalı: bu kuralın eşleştiği trafik Forward Traffic logunda görünmez; sorun gidermede ilk bakılan kaynak kaybolur.');
+    const natOn = (data.nat || 'enable') === 'enable';
+    if (act === 'deny' && natOn) w.push('ℹ Eylem deny: NAT anlamsız olduğu için set nat yazılmadı.');
+    if (act === 'accept' && natOn && dA.some(x => /vip/i.test(x))) w.push('⚠ Hedef bir VIP gibi görünüyor ve NAT açık: gelen yayın kuralında nat enable istemci IP\'sini FortiGate adresine çevirir, sunucu gerçek istemciyi göremez (fgt-08).');
+    if (act === 'accept' && natOn && sI.concat(dI).some(x => /vpn|ipsec|tun/i.test(x))) w.push('⚠ Tünel arayüzü ve NAT açık: site-to-site IPsec kuralında NAT kaynak adresi faz 2 seçicisine uymaz, paket "no matching IPsec selector" ile düşer (fgt-23).');
+    if (sI.some(x => /^ssl\.root$/i.test(x)) && !String(data.pol_groups || '').trim() && !String(data.pol_users || '').trim())
+        w.push('⚠ Kaynak arayüz ssl.root ama kullanıcı grubu yok: SSL-VPN kullanıcıları kuralla eşleşmez, giriş reddedilir (fgt-24).');
+    if (act === 'deny') w.push('ℹ Deny kuralı yalnız kendisinden sonra gelen kuralları gölgeler; FortiGate yukarıdan aşağı ilk eşleşeni uygular. Sırayı "move <id> before <id>" ile ayarlayın.');
+    else w.push('ℹ Yeni kural listenin sonuna eklenir; üstte daha geniş bir deny kuralı varsa hiç eşleşmez. Gerekirse "move ' + (rid || '<id>') + ' before <id>" (fgt-15).');
     let c = '# ========================================\n# FortiGate — Security Policy\n# ========================================\n\n';
-    if (data.action === 'accept' && /^all$/i.test(data.srcaddr || '') && /^all$/i.test(data.dstaddr || '') && /^all$/i.test(data.service || ''))
-        c += '# UYARI: kaynak, hedef ve servis "all" — bu kural iki arayüz arasında TÜM trafiğe izin verir.\n';
     c += 'config firewall policy\n    edit ' + rid + '\n';
     c += '        set name "' + rname + '"\n';
-    c += '        set srcintf "' + cgEsc(data.srcintf || '') + '"\n';
-    c += '        set dstintf "' + cgEsc(data.dstintf || '') + '"\n';
-    c += '        set srcaddr "' + cgEsc(data.srcaddr || '') + '"\n';
-    c += '        set dstaddr "' + cgEsc(data.dstaddr || '') + '"\n';
-    c += '        set action ' + cgEsc(data.action || '') + '\n';
+    c += '        set srcintf ' + q(sI) + '\n';
+    c += '        set dstintf ' + q(dI) + '\n';
+    c += '        set srcaddr ' + q(sA) + '\n';
+    c += '        set dstaddr ' + q(dA) + '\n';
+    c += '        set action ' + act + '\n';
     c += '        set schedule "always"\n';
-    c += '        set service "' + cgEsc(data.service || '') + '"\n';
+    c += '        set service ' + q(sv) + '\n';
     c += '        set logtraffic ' + cgEsc(data.logtraffic || 'all') + '\n';
-    if ((data.nat || 'enable') === 'enable') c += '        set nat enable\n';
+    if (act === 'accept' && natOn) c += '        set nat enable\n';
     const pGroups = cgFgQList(data.pol_groups), pUsers = cgFgQList(data.pol_users);
     if (pGroups) c += '        set groups ' + pGroups + '\n';
     if (pUsers) c += '        set users ' + pUsers + '\n';
@@ -235,7 +311,7 @@ function cgFgPolicyGen(data) {
     if (data.pol_disabled) c += '        set status disable\n';
     c += '    next\nend\n\n';
     c += '# Doğrulama:\n# show firewall policy ' + rid + '\n# diagnose firewall iprope show 00100004 ' + rid + '\n';
-    return c;
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: NAT / VIP ──────────────────────────────────────────────────────
@@ -246,7 +322,7 @@ FortiGate.nat = {
             topic: {
                 icon: 'fas fa-random',
                 title: 'NAT / VIP (FortiGate)',
-                desc: 'Destination NAT (VIP) veya Source NAT (IP Pool) konfigürasyonu.<br><code>config firewall vip\n  edit "WEB_VIP"\n    set extintf "port1"\n    set extip 203.0.113.10\n    set mappedip "192.168.1.10"\n  next\nend</code>'
+                desc: 'Destination NAT (VIP) veya Source NAT (IP Pool) konfigürasyonu.<br><code>config firewall vip\n  edit "WEB_VIP"\n    set extintf "port1"\n    set extip 203.0.113.10\n    set mappedip "172.24.50.10"\n  next\nend</code>'
             },
             configTypes: [
                 { id: 'vip',    label: 'VIP (DNAT)',      icon: 'fas fa-arrow-right', desc: 'Dışarıdan içeriye port yönlendirme',    badge: { text: 'En Yaygın', cls: 'recommended' } },
@@ -261,7 +337,7 @@ FortiGate.nat = {
                         { name: 'vip_name', why: "VIP nesnesi tek başına trafiği geçirmez — mutlaka bu VIP'i hedef adres olarak kullanan <b>ayrı bir firewall kuralı</b> (WAN→LAN) gerekir. En sık atlanan adım budur.",       label: 'VIP Adı',              type: 'text',   required: true,  placeholder: 'WEB_VIP',       hint: 'Policy dstaddr kısmında kullanılacak ad' },
                         { name: 'vip_extintf', why: "VIP'in dinleyeceği dış arayüz. Birden fazla WAN varsa yanlış seçim, dışarıdan erişimin hiç çalışmamasına yol açar.",    label: 'External Interface',   type: 'text',   required: true,  placeholder: 'port1',          hint: 'WAN tarafındaki interface' },
                         { name: 'vip_extip', why: "Dışarıdan erişilecek IP. WAN arayüzünün IP'siyle aynı olabilir; farklı bir IP kullanıyorsan ISS'nin o IP'yi yönlendirdiğinden emin ol.",      label: 'External IP',          type: 'text', validate: 'ip',   required: true,  placeholder: '203.0.113.10',   hint: 'Dışarıdan erişilecek genel IP' },
-                        { name: 'vip_mappedip', why: "İç sunucunun gerçek IP'si. Firewall kuralında <b>hedef adres olarak VIP nesnesi</b> yazılır, iç IP değil.",   label: 'Mapped IP (İç Sunucu)',type: 'text', validate: 'ip',   required: true,  placeholder: '192.168.1.10',   hint: 'Yönlendirilecek iç sunucu IP' },
+                        { name: 'vip_mappedip', why: "İç sunucunun gerçek IP'si. Firewall kuralında <b>hedef adres olarak VIP nesnesi</b> yazılır, iç IP değil.",   label: 'Mapped IP (İç Sunucu)',type: 'text', validate: 'ip',   required: true,  placeholder: '172.24.50.10',   hint: 'Yönlendirilecek iç sunucu IP' },
                         { name: 'vip_portfwd', why: 'Kapalıyken tüm portlar yönlendirilir (static NAT). Açıkken yalnızca belirtilen port — güvenlik açısından port yönlendirme her zaman daha dar ve tercih edilir.',    label: 'Port Yönlendirme',     type: 'select', options: [
                             { value: 'disable', label: 'Hayır', selected: true },
                             { value: 'enable',  label: 'Evet' }
@@ -289,6 +365,7 @@ FortiGate.nat = {
 };
 function cgFgNatGen(data) {
     const type = cgEsc(data._cgtype || 'vip');
+    const w = [];
     let c = '# ========================================\n# FortiGate — NAT Configuration\n# ========================================\n\n';
     if (type === 'vip') {
         const name    = cgEsc(data.vip_name || '');
@@ -306,7 +383,18 @@ function cgFgNatGen(data) {
             c += '        set mappedport ' + cgEsc(data.vip_mappedport || '') + '\n';
         }
         c += '    next\nend\n\n';
-        c += '# VIP\'i policy\'de dstaddr olarak kullan!\n';
+        c += '# VIP tek başına trafiği geçirmez: WAN → sunucu yönünde, hedefi bu VIP olan bir kural gerekir\n';
+        c += '# (Security Policy aracı: Hedef Adres = ' + name + ', NAT = Disable).\n';
+        if (_fgWIsIp(data.vip_extip) && String(data.vip_extip).trim() === String(data.vip_mappedip || '').trim()) w.push('⛔ Dış IP ile iç (mapped) IP aynı: çevrilecek bir şey yok.');
+        if (_fgWIsIp(data.vip_extip) && _fgWPrivate(data.vip_extip)) w.push('ℹ Dış IP özel (RFC 1918) bir adres: FortiGate bir modem/NAT arkasındaysa doğru olabilir; aksi hâlde ISS\'nin verdiği genel adresi yazın.');
+        if (_fgWIsIp(data.vip_mappedip) && !_fgWPrivate(data.vip_mappedip)) w.push('ℹ İç (mapped) IP genel bir adres: sunucunun gerçek (iç) adresini yazdığınızdan emin olun.');
+        if (pf !== 'enable') w.push('⚠ Port yönlendirme kapalı: dış IP\'nin TÜM portları sunucuya çevrilir (statik NAT). Yalnız yayınlanacak portu açmak için Port Yönlendirme = Evet (fgt-08).');
+        else {
+            const ep = +String(data.vip_extport || '').trim();
+            const risky = { 22: 'SSH', 23: 'Telnet', 445: 'SMB', 3389: 'RDP', 161: 'SNMP', 3306: 'MySQL', 1433: 'MSSQL' };
+            if (risky[ep]) w.push('⚠ Dış port ' + ep + ' (' + risky[ep] + ') internete açılıyor: yönetim/dosya servislerini doğrudan yayınlamak yerine VPN kullanın.');
+        }
+        w.push('ℹ Kuralda hedef adres VIP nesnesidir (' + (name || 'VIP adı') + '), sunucunun gerçek IP\'si değil; gelen kuralda NAT kapalı olmalı, yoksa sunucu istemci yerine FortiGate\'i görür (fgt-08).');
     } else {
         const name  = cgEsc(data.pool_name || '');
         const start = cgEsc(data.pool_start || '');
@@ -314,10 +402,13 @@ function cgFgNatGen(data) {
         c += 'config firewall ippool\n    edit "' + name + '"\n';
         c += '        set startip ' + start + '\n        set endip ' + end + '\n';
         c += '        set type overload\n    next\nend\n\n';
-        c += '# Policy\'de "set nat enable" + "set ippool ' + name + '" kullan!\n';
+        // Havuz kurala "set ippool enable" + "set poolname" ile bağlanır (FortiOS 7.4 firewall policy)
+        c += '# Kurala bağlamak için (Security Policy):\n#     set nat enable\n#     set ippool enable\n#     set poolname "' + name + '"\n';
+        if (_fgWIsIp(data.pool_start) && _fgWIsIp(data.pool_end) && _fgWN(data.pool_start) > _fgWN(data.pool_end)) w.push('⛔ Başlangıç IP bitiş IP\'sinden büyük: FortiOS havuzu kaydetmez.');
+        w.push('ℹ Havuz adresleri ISS tarafından FortiGate\'e yönlendirilmeli ya da WAN alt ağında olmalı; FortiGate bu adresler için ARP yanıtı verir (arp-reply varsayılan enable).');
     }
-    c += '\n# Doğrulama:\n# show firewall vip\n# show firewall ippool\n# diagnose firewall fqdn list\n';
-    return c;
+    c += '\n# Doğrulama:\n# show firewall vip\n# show firewall ippool\n';
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: IPSec VPN ──────────────────────────────────────────────────────
@@ -364,8 +455,8 @@ FortiGate.ipsec = {
                             { value: 'subnet', label: 'Subnet (IP MASK)', selected: true },
                             { value: 'name',   label: 'Adres nesnesi / grubu' }
                         ]},
-                        { name: 'local_subnet', why: "Bu tarafın şifrelenecek ağı. Trafik seçicileri iki tarafta <b>ayna</b> olmalı: senin local'in karşının remote'u olmalı.",  label: 'Yerel Subnet',     type: 'text', requiredIf: { field: 'p2_sel', in: ['subnet'] }, validate: 'ip_mask', placeholder: '192.168.1.0 255.255.255.0',     hint: 'Nokta-ondalık: IP MASK formatı' },
-                        { name: 'remote_subnet', why: 'Karşı tarafın ağı. Bu subnet için <b>statik rota</b> ve <b>iki yönlü firewall kuralı</b> da gerekir — tünel kurulup trafiğin akmamasının en yaygın sebebi budur.', label: 'Uzak Subnet',      type: 'text', requiredIf: { field: 'p2_sel', in: ['subnet'] }, validate: 'ip_mask', placeholder: '10.0.0.0 255.255.255.0',        hint: 'Karşı tarafın iç ağı' },
+                        { name: 'local_subnet', why: "Bu tarafın şifrelenecek ağı. Trafik seçicileri iki tarafta <b>ayna</b> olmalı: senin local'in karşının remote'u olmalı.",  label: 'Yerel Subnet',     type: 'text', requiredIf: { field: 'p2_sel', in: ['subnet'] }, validate: 'ip_mask', placeholder: '10.64.10.0 255.255.255.0',     hint: 'Nokta-ondalık: IP MASK formatı' },
+                        { name: 'remote_subnet', why: 'Karşı tarafın ağı. Bu subnet için <b>statik rota</b> ve <b>iki yönlü firewall kuralı</b> da gerekir — tünel kurulup trafiğin akmamasının en yaygın sebebi budur.', label: 'Uzak Subnet',      type: 'text', requiredIf: { field: 'p2_sel', in: ['subnet'] }, validate: 'ip_mask', placeholder: '10.128.10.0 255.255.255.0',        hint: 'Karşı tarafın iç ağı' },
                         { name: 'p2_src_name', why: 'Yerel tarafı temsil eden adres nesnesi/grubu. Önceden <code>config firewall address</code> / <code>addrgrp</code> altında tanımlı olmalı.', label: 'Yerel Adres Nesnesi', type: 'text', requiredIf: { field: 'p2_sel', in: ['name'] }, placeholder: 'LAN_NETS', hint: 'src-name' },
                         { name: 'p2_dst_name', why: 'Karşı tarafı temsil eden adres nesnesi/grubu. Karşı cihazdaki yerel seçiciyle aynı ağları içermeli.', label: 'Uzak Adres Nesnesi', type: 'text', requiredIf: { field: 'p2_sel', in: ['name'] }, placeholder: 'REMOTE_NETS', hint: 'dst-name' },
                         { name: 'p2_keylife', why: 'Phase 2 anahtar ömrü (saniye). Varsayılan 43200. İki tarafta farklıysa çoğu cihaz küçüğü kabul eder ama bazı üçüncü taraf cihazlar reddeder — eşit tut.', label: 'Phase 2 Key Life (sn)', type: 'text', min: 120, max: 172800, placeholder: '3600', hint: '120–172800 (keylifeseconds)' },
@@ -379,6 +470,14 @@ FortiGate.ipsec = {
                             { value: 'disable', label: 'Disable' }
                         ]},
                         { name: 'p2_comments', why: 'Karşı kurum/devre bilgisi yazmak, çok tünelli cihazda doğru phase2\'yi bulmayı kolaylaştırır.', label: 'Phase 2 Açıklama', type: 'text', placeholder: 'Merkez-Şube tüneli', hint: 'comments' }
+                    ]
+                },
+                {
+                    // Route-based VPN'de trafiği tünele rota yönlendirir, kural izin verir (CLI Lab fgt-11 / fgt-23)
+                    title: 'Rota & Kurallar (route-based)',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'lan_iface', why: 'Tünel kurulsa da karşı ağa <b>rota</b> ve <b>iki yönlü kural</b> yoksa trafik geçmez (debug flow: "via port1" ya da "policy 0"). Doldurursan tünel rotası, tünel düşünce trafiğin internete şifresiz çıkmaması için blackhole (mesafe 254) ve NAT\'sız iki kural da üretilir.', label: 'LAN Arayüzü', type: 'text', validate: 'iface', placeholder: 'port2', hint: 'Boşsa rota ve kural üretilmez' }
                     ]
                 },
                 {
@@ -423,13 +522,16 @@ function cgFgIpsecGen(data) {
     const p2       = cgEsc(data.p2_name || '');
     const lsub     = cgEsc(data.local_subnet || '');
     const rsub     = cgEsc(data.remote_subnet || '');
+    const lan      = cgEsc(String(data.lan_iface || '').trim());
+    const w = [];
     let c = '# ========================================\n# FortiGate — IPSec VPN Configuration\n# ========================================\n\n';
     c += 'config vpn ipsec phase1-interface\n    edit "' + p1 + '"\n';
     c += '        set interface "' + iface + '"\n';
     c += '        set peertype any\n';
     c += '        set remote-gw ' + gw + '\n';
     c += '        set authmethod psk\n';
-    c += '        set psksecret ' + psk + '\n';
+    // PSK tırnak içinde: boşluklu anahtar tırnaksız yazılırsa ikinci sözcükte "value parse error" verir
+    c += '        set psksecret "' + psk.replace(/"/g, '\\"') + '"\n';
     c += '        set ike-version ' + ikever + '\n';
     c += '        set proposal ' + proposal + '\n';
     c += '        set dhgrp ' + dhgrp + '\n';
@@ -441,8 +543,6 @@ function cgFgIpsecGen(data) {
     c += '    next\nend\n\n';
     const p2sel = data.p2_sel === 'name' ? 'name' : 'subnet';
     const pfsOff = data.p2_pfs === 'disable';
-    if (pfsOff) c += '# UYARI: PFS kapalı — yalnız karşı taraf desteklemiyorsa kullanın.\n';
-    if (data.p2_replay === 'disable') c += '# UYARI: replay tespiti kapalı — tekrar gönderilen ESP paketleri kabul edilir.\n';
     c += 'config vpn ipsec phase2-interface\n    edit "' + p2 + '"\n';
     c += '        set phase1name "' + p1 + '"\n';
     c += '        set proposal ' + proposal + '\n';
@@ -462,9 +562,54 @@ function cgFgIpsecGen(data) {
     }
     if (data.p2_comments) c += '        set comments "' + cgEsc(data.p2_comments) + '"\n';
     c += '    next\nend\n\n';
-    c += '# Tunnel interface routing\'i de ayarla:\n# config router static\n#     edit 0\n#         set dst <remote-net>\n#         set device "' + p1 + '"\n#     next\n# end\n\n';
-    c += '# Doğrulama:\n# get vpn ipsec tunnel summary\n# diagnose vpn ike gateway list\n# diagnose vpn tunnel list\n';
-    return c;
+    const ln = _fgWNet(data.local_subnet), rn = _fgWNet(data.remote_subnet);
+    if (lan) {
+        // Seçici nesneleri: subnet tipinde yerel/uzak ağ için adres nesnesi üretilir; name tipinde mevcut nesneler kullanılır
+        const la = p2sel === 'name' ? cgEsc(data.p2_src_name || '') : p1 + '_LOCAL';
+        const ra = p2sel === 'name' ? cgEsc(data.p2_dst_name || '') : p1 + '_REMOTE';
+        if (p2sel !== 'name') {
+            c += '# Kurallar için yerel/uzak ağ nesneleri\nconfig firewall address\n';
+            c += '    edit "' + la + '"\n        set subnet ' + lsub + '\n    next\n';
+            c += '    edit "' + ra + '"\n        set subnet ' + rsub + '\n    next\nend\n\n';
+            c += '# Karşı ağa tünel rotası + tünel düşünce sızıntıyı önleyen blackhole (mesafe 254)\nconfig router static\n';
+            c += '    edit 0\n        set dst ' + rsub + '\n        set device "' + p1 + '"\n    next\n';
+            c += '    edit 0\n        set dst ' + rsub + '\n        set blackhole enable\n        set distance 254\n    next\nend\n\n';
+        } else {
+            c += '# Karşı ağlar nesne/grup ile verildi: her uzak ağ için tünel rotası ve blackhole ekleyin:\n';
+            c += '# config router static\n#     edit 0\n#         set dst <uzak-ag>\n#         set device "' + p1 + '"\n#     next\n# end\n\n';
+            w.push('ℹ Seçici nesne/grup ile verildi: karşı ağların tünel rotaları otomatik üretilmedi; her uzak ağ için device "' + p1 + '" rotası ve blackhole ekleyin.');
+        }
+        c += '# İki yönlü kural — site-to-site trafikte NAT KAPALI (açık olursa kaynak seçiciye uymaz)\nconfig firewall policy\n';
+        c += '    edit 0\n        set name "' + (p1 + '-OUT').slice(0, 35) + '"\n        set srcintf "' + lan + '"\n        set dstintf "' + p1 + '"\n';
+        c += '        set srcaddr "' + la + '"\n        set dstaddr "' + ra + '"\n        set action accept\n        set schedule "always"\n        set service "ALL"\n        set logtraffic all\n    next\n';
+        c += '    edit 0\n        set name "' + (p1 + '-IN').slice(0, 35) + '"\n        set srcintf "' + p1 + '"\n        set dstintf "' + lan + '"\n';
+        c += '        set srcaddr "' + ra + '"\n        set dstaddr "' + la + '"\n        set action accept\n        set schedule "always"\n        set service "ALL"\n        set logtraffic all\n    next\nend\n\n';
+        w.push('ℹ Kurallarda servis ALL: tünel içinde gereken servislerle daraltabilirsiniz. NAT bilerek yazılmadı (varsayılan disable).');
+    } else {
+        c += '# Route-based VPN: karşı ağa rota ve iki yönlü kural gerekir (LAN Arayüzü alanını doldurursanız üretilir):\n';
+        c += '# config router static\n#     edit 0\n#         set dst <uzak-ag>\n#         set device "' + p1 + '"\n#     next\n# end\n\n';
+        w.push('⚠ Rota ve kural üretilmedi: tünel up olsa da karşı ağa rota ve iki yönlü (NAT\'sız) kural olmadan trafik geçmez (fgt-23). LAN Arayüzü alanını doldurun ya da elle ekleyin.');
+    }
+    c += '# Doğrulama:\n# get vpn ipsec tunnel summary\n# diagnose vpn ike gateway list name ' + p1 + '\n# diagnose vpn tunnel list name ' + p1 + '\n';
+    // ── Girdi uyarıları (fgt-11 / fgt-23)
+    if (String(data.p1_name || '').length > 15) w.push('⛔ Phase 1 adı ' + String(data.p1_name).length + ' karakter: phase1-interface adı bir arayüz adıdır ve en çok 15 karakter olabilir.');
+    if (/\s/.test(String(data.p1_name || '')) || /\s/.test(String(data.p2_name || ''))) w.push('⚠ Faz adında boşluk var: arayüz, rota ve kurallarda tırnak gerektirir; kısa ve boşluksuz ad seçin.');
+    if (String(data.psk || '').length && String(data.psk).length < 12) w.push('⚠ PSK ' + String(data.psk).length + ' karakter: en az 16 karakterlik rastgele bir anahtar önerilir.');
+    if (/\?/.test(String(data.psk || ''))) w.push('⚠ PSK içinde "?" var: FortiOS CLI\'de "?" yazarken yardım menüsünü açar; anahtarı yapıştırırken karakter kaybolabilir.');
+    if (/\s/.test(String(data.psk || ''))) w.push('ℹ PSK boşluk içeriyor: tırnak içinde yazıldı; karşı uçta da birebir aynı olmalı.');
+    if (dhgrp === '5' || dhgrp === '2' || dhgrp === '1') w.push('⚠ DH grubu ' + dhgrp + ' zayıf kabul edilir; en az 14 (tercihen 19/20/21) seçin. İki uçta aynı grup olmalı.');
+    if (/sha1$/.test(proposal)) w.push('⚠ ' + proposal + ': SHA-1 artık önerilmiyor; karşı uç destekliyorsa aes256-sha256 kullanın.');
+    if (ikever === '1') w.push('ℹ IKEv1 seçildi: karşı uç IKEv2 destekliyorsa IKEv2 tercih edin; sürüm iki uçta aynı olmalı ("negotiation timeout").');
+    if (pfsOff) w.push('⚠ PFS kapalı: yalnız karşı taraf desteklemiyorsa kullanın; açık/kapalı iki uçta aynı olmalı, aksi hâlde faz 2 kurulmaz.');
+    if (data.p2_replay === 'disable') w.push('⚠ Replay tespiti kapalı: tekrar gönderilen ESP paketleri kabul edilir.');
+    if (p2sel === 'subnet') {
+        if (ln && rn && ln.len === rn.len && _fgWBase(ln.ip, ln.len) === _fgWBase(rn.ip, rn.len)) w.push('⛔ Yerel ve uzak seçici aynı ağ: iki uçta aynı alt ağ kullanılamaz (NAT\'lı VPN tasarımı gerekir).');
+        else if (_fgWOverlap(ln, rn)) w.push('⚠ Yerel ve uzak seçici çakışıyor: yönlendirme ve seçici eşleşmesi belirsizleşir.');
+        if (_fgWHostBits(ln) || _fgWHostBits(rn)) w.push('⚠ Seçicide host bitleri dolu (ör. 10.64.10.5/24): ağ adresini yazın; karşı uçta aynı biçimde tanımlanmalı.');
+        if (ln && rn) w.push('ℹ Seçiciler karşı ucun aynası olmalı: karşı uçta src-subnet ' + rsub + ', dst-subnet ' + lsub + '; değilse IKEv2\'de TS_UNACCEPTABLE (fgt-23).');
+    }
+    if (_fgWIsIp(data.remote_gw) && _fgWPrivate(data.remote_gw)) w.push('ℹ Uzak gateway özel (RFC 1918) adres: karşı uç NAT arkasındaysa onun GENEL adresini yazın; NAT-T açık kalmalı.');
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: SSL-VPN ────────────────────────────────────────────────────────
@@ -495,7 +640,13 @@ FortiGate.sslvpn = {
                         { name: 'src_addr',     why: 'SSL-VPN portalına bağlanabilecek kaynak adresler. <code>all</code> portalı tüm internete açar; brute-force ve zafiyet taramalarının büyük kısmı buradan gelir. Coğrafi (geography) veya IP adres nesnesiyle daraltın.', label: 'İzinli Kaynak Adres', type: 'text', required: true, placeholder: 'VPN_ALLOWED_SRC', hint: 'Adres nesnesi veya grubu (herkese açmak için all)' },
                         { name: 'server_cert',  why: '<code>Fortinet_Factory</code> self-signed fabrika sertifikasıdır; istemciler sertifika uyarısı alır ve kullanıcıları uyarıyı geçmeye alıştırır — MITM\'e kapı açar. Güvenilir bir CA\'dan alınmış sertifika yükleyin.', label: 'Sunucu Sertifikası', type: 'text', required: true, placeholder: 'SSLVPN_CERT', hint: 'Yüklenmiş sertifika adı (Fortinet_Factory değil)' },
                         { name: 'portal_name', why: 'Portal, kullanıcının hangi kaynaklara ve hangi modda (web/tunnel) erişeceğini belirler. Kullanıcı grubuna atanmazsa erişim olmaz.', label: 'Portal Adı',      type: 'text', required: true, placeholder: 'full-access', hint: 'Web portal şablonu adı' },
-                        { name: 'vpn_group', why: 'Erişim yetkisi kullanıcı grubuna göre verilir. Grubu geniş tutmak, ayrılan çalışanların erişiminin sürmesine yol açar. LDAP/RADIUS entegrasyonu merkezi yönetim sağlar.',   label: 'VPN User Group',  type: 'text', required: true, placeholder: 'VPN_USERS',   hint: 'Kullanıcı grubunun portal erişimini bağlar' }
+                        { name: 'vpn_group', why: 'Erişim yetkisi kullanıcı grubuna göre verilir. Grubu geniş tutmak, ayrılan çalışanların erişiminin sürmesine yol açar. LDAP/RADIUS entegrasyonu merkezi yönetim sağlar.',   label: 'VPN User Group',  type: 'text', required: true, placeholder: 'VPN_USERS',   hint: 'Kullanıcı grubunun portal erişimini bağlar' },
+                        { name: 'lan_iface', why: 'SSL-VPN kullanıcılarının iç ağa erişimi için <code>ssl.root</code> → LAN kuralı gerekir. Bu kural (grup ile) yoksa kullanıcı giriş yapsa bile "permission denied" alır.', label: 'LAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'port2', hint: 'ssl.root kuralının hedef arayüzü' },
+                        { name: 'lan_addr', why: 'Kullanıcıların erişeceği iç ağ nesnesi. Kuralın hedefi ve split tunnel\'da tünele gönderilecek ağ olarak kullanılır; <code>config firewall address</code> altında tanımlı olmalı.', label: 'İç Ağ Nesnesi', type: 'text', required: true, placeholder: 'LAN_NET', hint: 'Adres nesnesi / grubu adı' },
+                        { name: 'split_tunnel', why: 'Split tunnel açıkken yalnız iç ağ trafiği tünele girer; kapalıyken kullanıcının tüm internet trafiği şirketten geçer (bant genişliği, ayrıca ssl.root → WAN kuralı ve NAT gerekir).', label: 'Split Tunnel', type: 'select', options: [
+                            { value: 'enable',  label: 'Açık — yalnız iç ağ tünelden', selected: true },
+                            { value: 'disable', label: 'Kapalı — tüm trafik tünelden' }
+                        ]}
                     ]
                 }
             ],
@@ -513,6 +664,9 @@ function cgFgSslvpnGen(data) {
     const portal = cgEsc(data.portal_name || '');
     const grp    = cgEsc(data.vpn_group || '');
     const srcAddr = cgEsc(data.src_addr || ''), cert = cgEsc(data.server_cert || '');
+    const lan = cgEsc(String(data.lan_iface || '').trim()), lanAddr = cgEsc(String(data.lan_addr || '').trim());
+    const split = data.split_tunnel === 'disable' ? 'disable' : 'enable';
+    const w = [];
     let c = '# ========================================\n# FortiGate — SSL-VPN Configuration\n# ========================================\n\n';
     c += '# 1. Tunnel IP Havuzu\nconfig firewall address\n    edit "' + pool + '"\n        set type iprange\n';
     const parts = range.split('-');
@@ -522,7 +676,10 @@ function cgFgSslvpnGen(data) {
     c += '    next\nend\n\n';
     c += '# 2. SSL-VPN Portal\nconfig vpn ssl web portal\n    edit "' + portal + '"\n';
     c += '        set tunnel-mode enable\n        set web-mode enable\n';
-    c += '        set ip-pools "' + pool + '"\n    next\nend\n\n';
+    c += '        set ip-pools "' + pool + '"\n';
+    c += '        set split-tunneling ' + split + '\n';
+    if (split === 'enable' && lanAddr) c += '        set split-tunneling-routing-address "' + lanAddr + '"\n';
+    c += '    next\nend\n\n';
     c += '# 3. SSL-VPN Ayarları (kimlik doğrulama kuralı dahil)\nconfig vpn ssl settings\n';
     c += '    set servercert "' + cert + '"\n';
     c += '    set tunnel-ip-pools "' + pool + '"\n';
@@ -532,8 +689,24 @@ function cgFgSslvpnGen(data) {
     c += '    set port ' + port + '\n';
     // authentication-rule 'vpn ssl settings' altindadir, portal altinda degil
     c += '    config authentication-rule\n        edit 1\n            set groups "' + grp + '"\n            set portal "' + portal + '"\n        next\n    end\nend\n\n';
-    c += '# Doğrulama:\n# get vpn ssl monitor\n# diagnose vpn ssl list\n# diagnose vpn ssl hw-acceleration-status\n';
-    return c;
+    // ssl.root kuralı: groups ile — kural yoksa ya da grubu kapsamıyorsa giriş reddedilir (fgt-24 nopolicy)
+    c += '# 4. Tünel kullanıcılarının iç ağa erişim kuralı (ssl.root = SSL-VPN tünel arayüzü; NAT kapalı)\nconfig firewall policy\n    edit 0\n';
+    c += '        set name "SSLVPN-TO-LAN"\n        set srcintf "ssl.root"\n        set dstintf "' + lan + '"\n';
+    c += '        set srcaddr "' + pool + '"\n        set dstaddr "' + lanAddr + '"\n        set groups "' + grp + '"\n';
+    c += '        set action accept\n        set schedule "always"\n        set service "ALL"\n        set logtraffic all\n    next\nend\n\n';
+    c += '# Doğrulama:\n# get vpn ssl monitor\n# diagnose vpn ssl list\n# diagnose debug application sslvpn -1\n';
+    // ── Girdi uyarıları (fgt-12 / fgt-24)
+    w.push('ℹ FortiOS 7.4 içindir: SSL-VPN tünel modu 7.6.3 ve sonrasında tüm modellerde kaldırıldı (ayarlar yükseltmede taşınmaz); yeni kurulumlarda IPsec dial-up VPN (FortiClient) değerlendirin.');
+    const pr = String(data.pool_range || '').split('-').map(x => x.trim());
+    if (pr.length !== 2 || !_fgWIsIp(pr[0]) || !_fgWIsIp(pr[1])) w.push('⛔ IP havuzu aralığı "başlangıç-bitiş" biçiminde olmalı; start-ip/end-ip yazılamadı.');
+    else if (_fgWN(pr[0]) > _fgWN(pr[1])) w.push('⛔ Havuzun başlangıç IP\'si bitişten büyük: aralık nesnesi kaydedilmez.');
+    else if (_fgWN(pr[1]) - _fgWN(pr[0]) + 1 < 10) w.push('⚠ Havuzda ' + (_fgWN(pr[1]) - _fgWN(pr[0]) + 1) + ' adres var: eşzamanlı kullanıcı sayısını karşılamalı; dolunca yeni kullanıcı IP alamaz (fgt-24).');
+    if (String(data.ssl_port || '').trim() === '443') w.push('⚠ SSL-VPN portu 443: yönetim HTTPS arayüzü de varsayılan olarak 443\'tedir; aynı arayüzde çakışır. 10443 gibi ayrı bir port ya da admin-sport değişikliği gerekir.');
+    if (/^all$/i.test(String(data.src_addr || '').trim())) w.push('⚠ Kaynak adres all: portal tüm internete açık; kaba kuvvet denemelerini azaltmak için ülke (geography) ya da bilinen adres nesnesiyle daraltın.');
+    if (/^Fortinet_Factory$/i.test(String(data.server_cert || '').trim())) w.push('⚠ Fortinet_Factory kendinden imzalı fabrika sertifikasıdır: istemciler sertifika uyarısı alır; güvenilir bir CA sertifikası yükleyin.');
+    if (split === 'disable') w.push('ℹ Split tunnel kapalı: kullanıcıların internet trafiği de tünelden gelir; ayrıca ssl.root → WAN yönünde NAT açık bir kural gerekir (bu çıktıda yok).');
+    w.push('ℹ Kullanıcılar ' + (grp || 'VPN grubu') + ' grubunda olmalı (Local User & Group aracı); grup authentication-rule ve ssl.root kuralında aynı olmalı, yoksa giriş "permission denied" ile reddedilir (fgt-24).');
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: Security Profiles (UTM) ───────────────────────────────────────
@@ -703,13 +876,18 @@ FortiGate.ha = {
                             { value: 'primary',   label: 'Primary',   selected: true },
                             { value: 'secondary', label: 'Secondary' }
                         ], hint: 'Bu cihazın HA kümesindeki rolü' },
-                        { name: 'grp_name', why: 'HA grup adı iki üyede aynı olmalı. Aynı L2 segmentindeki farklı HA çiftlerinde ise <b>farklı</b> olmalı, aksi halde üyeler birbirini yanlış eşleştirir.',     label: 'HA Grup Adı',       type: 'text',   required: true, placeholder: 'FG-HA-CLUSTER',   hint: 'İki cihazda aynı olmalı' },
+                        { name: 'grp_name', why: 'HA grup adı iki üyede birebir aynı olmalı (büyük/küçük harf dahil); farklıysa küme kurulmaz. Aynı L2 segmentinde birden çok küme varsa ayrıca <code>group-id</code> farklı olmalı: sanal MAC adresleri group-id\'den türetilir.',     label: 'HA Grup Adı',       type: 'text',   required: true, placeholder: 'FG-HA-CLUSTER',   hint: 'İki cihazda aynı olmalı' },
                         { name: 'ha_pass', why: "HA şifresi iki üyede aynı olmalı. Şifresiz HA, aynı ağa takılan başka bir FortiGate'in cluster'a katılmasına açık kapı bırakır.",      label: 'HA Şifresi',        type: 'text',   required: true, placeholder: 'ha-secret123',    hint: 'İki cihazda aynı olmalı' },
-                        { name: 'hb_iface', why: "Heartbeat arayüzü üyeler arasında <b>doğrudan</b> bağlanmalı (switch üzerinden değil). Kopması split-brain'e yol açar; en az iki heartbeat arayüzü önerilir.",     label: 'Heartbeat Interface\'lar', type: 'text', validate: 'iface_range', required: true, placeholder: 'port3 port4', hint: 'Boşlukla ayrılmış arayüz adları' },
-                        { name: 'priority', why: 'Yüksek öncelikli üye primary olur. <code>override</code> kapalıyken primary döndüğünde rolü geri almaz — bu ikinci kesintiyi önler.',     label: 'Öncelik',           type: 'text',   required: true, placeholder: '200',             hint: 'Primary\'de yüksek (ör: 200), Secondary\'de düşük (ör: 100)' },
+                        { name: 'hb_iface', why: "Heartbeat arayüzü üyeler arasında <b>doğrudan</b> bağlanmalı (switch üzerinden değil). Kopması split-brain'e yol açar; en az iki heartbeat arayüzü önerilir.",     label: 'Heartbeat Interface\'lar', type: 'text', validate: 'iface_range', required: true, placeholder: 'port3 port4', hint: 'Boşluk ya da virgülle ayrılmış arayüz adları' },
+                        { name: 'ha_monitor', why: 'İzlenen arayüz düşünce failover tetiklenir. WAN ve LAN arayüzleri izlenmezse hat kopsa bile cihaz birincil kalır. Heartbeat arayüzlerini izlemeyin.', label: 'İzlenen Arayüzler (monitor)', type: 'text', validate: 'iface_range', placeholder: 'port1 port2', hint: 'Boş = izleme yok' },
+                        { name: 'priority', why: '<code>override</code> kapalıyken (varsayılan) birincil seçimi: önce izlenen arayüzlerde daha az arıza, sonra <b>uptime</b> (5 dk\'dan fazla fark), sonra öncelik. Yani önceliği yüksek üye tek başına birincil olmaz; eski birincil geri döndüğünde rolü geri almaz (ikinci kesinti olmaz). override açıkken öncelik uptime\'ın önüne geçer.',     label: 'Öncelik',           type: 'text',   required: true, placeholder: '200',             hint: 'Primary\'de yüksek (ör: 200), Secondary\'de düşük (ör: 100)' },
                         { name: 'session_sync', why: "Açıkken mevcut TCP oturumları failover'da kopmaz. Kapalıysa failover anında tüm bağlantılar yeniden kurulur; kullanıcı kesinti hisseder.", label: 'Session Sync',      type: 'select', options: [
                             { value: 'enable',  label: 'Evet', selected: true },
                             { value: 'disable', label: 'Hayır' }
+                        ]},
+                        { name: 'ha_override', why: 'Açıkken öncelik, uptime\'ın önüne geçer: öncelikli üye her geri geldiğinde yeniden birincil olur (fazladan bir geçiş). Kapalıyken (varsayılan) uptime\'ı uzun olan üye birincil kalır; "önceliği yükselttim ama değişmedi" sürprizinin nedeni budur.', label: 'Override', type: 'select', options: [
+                            { value: 'disable', label: 'Kapalı (varsayılan)', selected: true },
+                            { value: 'enable',  label: 'Açık — öncelik belirleyici' }
                         ]}
                     ]
                 }
@@ -724,25 +902,42 @@ function cgFgHaGen(data) {
     const role        = cgEsc(data.ha_role || 'primary');
     const grpName     = cgEsc(data.grp_name || '');
     const haPass      = cgEsc(data.ha_pass || '');
-    const hbIface     = cgEsc(data.hb_iface || '');
-    const priority    = cgEsc(data.priority || '200');
+    const priority    = cgEsc(String(data.priority || '200').trim());
     const sessionSync = cgEsc(data.session_sync || 'enable');
-    const hbPorts     = hbIface.trim().split(/\s+/);
+    const hbPorts     = _fgWList(data.hb_iface);
+    const mon         = _fgWList(data.ha_monitor);
+    const ovr         = data.ha_override === 'enable';
+    const w = [];
     let c = '# ========================================\n# FortiGate — HA Active-Passive (' + (role === 'primary' ? 'Primary' : 'Secondary') + ')\n# ========================================\n\n';
     c += 'config system ha\n';
     c += '    set mode a-p\n';
     c += '    set group-name "' + grpName + '"\n';
     c += '    set password "' + haPass + '"\n';
-    c += '    set priority ' + priority + '\n';
+    // hbdev tek satırda "<arayüz> <öncelik>" çiftleri: ikinci bir "set hbdev" satırı öncekinin yerine geçer
+    c += '    set hbdev ' + hbPorts.map(p => '"' + cgEsc(p) + '" 50').join(' ') + '\n';
     c += '    set session-pickup ' + sessionSync + '\n';
-    hbPorts.forEach((p, i) => {
-        c += '    set hbdev "' + cgEsc(p) + '" ' + (i * 50) + '\n';
-    });
+    if (mon.length) c += '    set monitor ' + mon.map(p => '"' + cgEsc(p) + '"').join(' ') + '\n';
+    if (ovr) c += '    set override enable\n';
+    c += '    set priority ' + priority + '\n';
     c += 'end\n\n';
-    c += '# NOT: HA konfigürasyonu her iki cihaza ayrı ayrı uygulanır.\n';
+    c += '# NOT: HA konfigürasyonu her iki cihaza ayrı ayrı uygulanır (mod, group-name, parola ve firmware aynı olmalı).\n';
     c += '# Secondary için priority değerini düşük tutun (ör: 100).\n\n';
-    c += '# Doğrulama:\n# get system ha status\n# diagnose sys ha status\n# diagnose sys ha checksum cluster\n';
-    return c;
+    c += '# Doğrulama:\n# get system ha status\n# diagnose sys ha checksum cluster\n# diagnose sys ha history read\n';
+    // ── Girdi uyarıları (fgt-25 / fgt-27)
+    if (!/^\d+$/.test(priority) || +priority > 255) w.push('⛔ Öncelik 0–255 arası tam sayı olmalı.');
+    else if (role === 'secondary' && +priority >= 128) w.push('⚠ Rol Secondary ama öncelik ' + priority + ' (varsayılan 128 ve üstü): birincilden düşük tutun (ör. 100).');
+    else if (role === 'primary' && +priority <= 128) w.push('ℹ Rol Primary ama öncelik ' + priority + ': diğer üyeden yüksek olmalı (ör. 200). Rol seçimi yalnız başlığı değiştirir, birincili öncelik (ve uptime) belirler.');
+    if (String(data.grp_name || '').length > 32) w.push('⛔ HA grup adı en çok 32 karakter olabilir.');
+    if (!hbPorts.length) w.push('⛔ Heartbeat arayüzü yok: küme kurulamaz.');
+    else if (hbPorts.length === 1) w.push('⚠ Tek heartbeat arayüzü: bu bağlantı koparsa iki üye de birincil olur (split-brain). En az iki heartbeat, doğrudan kabloyla önerilir.');
+    const both = mon.filter(p => hbPorts.indexOf(p) !== -1);
+    if (both.length) w.push('⚠ Heartbeat arayüzü izleniyor (' + both.join(', ') + '): heartbeat arayüzleri monitor listesine konmaz.');
+    if (!mon.length) w.push('⚠ İzlenen arayüz yok: WAN ya da LAN kablosu kopsa bile failover olmaz (fgt-25).');
+    if (!ovr) w.push('ℹ override kapalı: seçimde uptime (5 dk üzeri fark) öncelikten önce gelir; önceliği yüksek üye, uptime\'ı kısaysa birincil olmayabilir. Durumu get system ha status → "Primary selected using" satırı söyler (fgt-25).');
+    else w.push('ℹ override açık: öncelikli üye her yeniden başladığında birincilliği geri alır (ek bir failover). İki üyede de override aynı olmalı.');
+    if (sessionSync === 'disable') w.push('⚠ Session pickup kapalı: failover anında tüm oturumlar yeniden kurulur.');
+    w.push('ℹ Aynı L2 segmentinde başka bir FortiGate kümesi varsa group-id farklı olmalı (varsayılan 0); sanal MAC\'ler group-id\'den türetilir.');
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: VLAN Interface ─────────────────────────────────────────────────
@@ -763,7 +958,7 @@ FortiGate.vlanintf = {
                         { name: 'name', why: "VLAN alt arayüzünün adı. FortiOS'ta bu ad kural ve rotalarda kullanılır; sonradan değiştirmek bağlı tüm nesneleri etkiler.",         label: 'VLAN Interface Adı', type: 'text', required: true, placeholder: 'VLAN100',           hint: 'Yeni alt interface adı' },
                         { name: 'vlan_id', why: "802.1Q etiketi (1-4094). Karşı switch portu <b>trunk</b> modda ve bu VLAN'a izin veriyor olmalı, yoksa tag'li trafik sessizce düşer.",      label: 'VLAN ID',            type: 'text', validate: 'vlan', required: true, placeholder: '100',               hint: '1–4094 arası VLAN ID' },
                         { name: 'parent_intf', why: "VLAN alt arayüzünün bağlanacağı fiziksel arayüz. FortiOS'ta ad <code>port1</code> üzerinde <code>VLAN100</code> şeklinde oluşur.",  label: 'Parent Interface',   type: 'text', validate: 'iface', required: true, placeholder: 'port1',             hint: 'Trunk port (ör: port1, internal)' },
-                        { name: 'ip', why: "Alt arayüz IP'si, o VLAN'daki istemcilerin gateway'i olur.",           label: 'IP Adresi',          type: 'text', validate: 'ip', required: true, placeholder: '192.168.100.1',     hint: 'Bu VLAN\'ın gateway IP\'si' },
+                        { name: 'ip', why: "Alt arayüz IP'si, o VLAN'daki istemcilerin gateway'i olur.",           label: 'IP Adresi',          type: 'text', validate: 'ip', required: true, placeholder: '10.64.100.1',     hint: 'Bu VLAN\'ın gateway IP\'si' },
                         { name: 'mask', why: "Subnet maskesi nokta-ondalık verilir. Ağ büyüklüğünü belirler; sonradan büyütmek istemci yeniden adreslemesi gerektirir.",         label: 'Subnet Mask',        type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0',     hint: 'Nokta-ondalık subnet maskı' },
                         { name: 'zone', why: "Zone, birden fazla arayüzü tek isimde gruplar ve kural sayısını azaltır. Zone'a alınan arayüzler arası trafik varsayılan olarak <b>engellidir</b>.",         label: 'Zone Adı',           type: 'text', required: true, placeholder: 'LAN',              hint: 'Arayüzün atanacağı zone' },
                         { name: 'allowaccess', why: 'Bu arayüzden hangi yönetim servislerine erişilebileceği. WAN tarafında <code>https</code>/<code>ssh</code> açmak yönetim arayüzünü internete açar — mümkünse yalnızca <code>ping</code> bırak.',  label: 'İzin Verilen Servisler', type: 'text', optional: true, placeholder: 'ping https', hint: 'Boşlukla ayrılmış: ping https ssh' }
@@ -792,7 +987,13 @@ function cgFgVlanIntfGen(data) {
     c += '        set role lan\n    next\nend\n\n';
     c += 'config system zone\n    edit "' + zone + '"\n        set interface "' + name + '"\n    next\nend\n\n';
     c += '# Doğrulama:\n# get system interface ' + name + '\n# show system zone ' + zone + '\n';
-    return c;
+    const w = [], ml = _fgWMaskLen(data.mask);
+    if (String(data.name || '').length > 15) w.push('⛔ Arayüz adı en çok 15 karakter olabilir (' + String(data.name).length + ').');
+    if (_fgWNetOrBcast(data.ip, ml)) w.push('⛔ IP alt ağın ağ ya da yayın adresi; arayüz adresi olamaz.');
+    _fgWAccess('allowaccess', data.allowaccess, false, w);
+    w.push('ℹ Zone zaten varsa "set interface" üye listesini baştan yazar ve diğer üyeleri çıkarır; mevcut zone\'a eklemek için "append interface" kullanın.');
+    w.push('ℹ Karşı switch portu trunk olmalı ve bu VLAN\'ı (ID ' + (String(data.vlan_id || '').trim() || '?') + ') taşımalı; aynı VLAN ID aynı fiziksel arayüzde iki kez kullanılamaz.');
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: DHCP Server ────────────────────────────────────────────────────
@@ -803,7 +1004,7 @@ FortiGate.dhcp = {
             topic: {
                 icon: 'fas fa-hand-holding-medical',
                 title: 'DHCP Server (FortiGate)',
-                desc: 'Belirtilen arayüzde istemcilere IP dağıtan DHCP sunucusu konfigürasyonu.<br><code>config system dhcp server\n  edit 0\n    set interface "VLAN100"\n    set default-gateway 192.168.100.1\n    ...\n  next\nend</code>'
+                desc: 'Belirtilen arayüzde istemcilere IP dağıtan DHCP sunucusu konfigürasyonu.<br><code>config system dhcp server\n  edit 0\n    set interface "VLAN100"\n    set default-gateway 10.64.100.1\n    ...\n  next\nend</code>'
             },
             sections: [
                 {
@@ -811,12 +1012,12 @@ FortiGate.dhcp = {
                     icon: 'fas fa-cog',
                     fields: [
                         { name: 'interface', why: "DHCP sunucusunun çalışacağı arayüz. Yanlış arayüz seçmek, istemcilerin adres alamamasına ve sorunun DHCP yerine kabloda aranmasına yol açar.", label: 'Interface',          type: 'text', validate: 'iface', required: true,  placeholder: 'VLAN100',         hint: 'DHCP sunucusunun çalışacağı arayüz' },
-                        { name: 'start_ip', why: 'DHCP havuzunun başı. Statik IP verilen sunucular bu aralığın <b>dışında</b> kalmalı, aksi halde IP çakışması yaşanır.',  label: 'Pool Başlangıç IP', type: 'text', validate: 'ip', required: true,  placeholder: '192.168.100.10',  hint: 'Dağıtılacak IP aralığının başlangıcı' },
-                        { name: 'end_ip', why: "Havuzun son adresi. Havuz boyutu eşzamanlı istemci sayısından büyük olmalı; dolduğunda yeni cihazlar sessizce adres alamaz.",    label: 'Pool Bitiş IP',     type: 'text', validate: 'ip', required: true,  placeholder: '192.168.100.200', hint: 'Dağıtılacak IP aralığının sonu' },
-                        { name: 'gateway', why: "İstemcilere dağıtılacak varsayılan ağ geçidi. Genelde FortiGate'in o arayüzdeki IP'sidir.",   label: 'Default Gateway',   type: 'text', validate: 'ip', required: true,  placeholder: '192.168.100.1',   hint: 'İstemcilere verilecek varsayılan gateway' },
+                        { name: 'start_ip', why: 'DHCP havuzunun başı. Statik IP verilen sunucular bu aralığın <b>dışında</b> kalmalı, aksi halde IP çakışması yaşanır.',  label: 'Pool Başlangıç IP', type: 'text', validate: 'ip', required: true,  placeholder: '10.64.100.10',  hint: 'Dağıtılacak IP aralığının başlangıcı' },
+                        { name: 'end_ip', why: "Havuzun son adresi. Havuz boyutu eşzamanlı istemci sayısından büyük olmalı; dolduğunda yeni cihazlar sessizce adres alamaz.",    label: 'Pool Bitiş IP',     type: 'text', validate: 'ip', required: true,  placeholder: '10.64.100.200', hint: 'Dağıtılacak IP aralığının sonu' },
+                        { name: 'gateway', why: "İstemcilere dağıtılacak varsayılan ağ geçidi. Genelde FortiGate'in o arayüzdeki IP'sidir.",   label: 'Default Gateway',   type: 'text', validate: 'ip', required: true,  placeholder: '10.64.100.1',   hint: 'İstemcilere verilecek varsayılan gateway' },
                         { name: 'mask', why: "Subnet maskesi nokta-ondalık verilir. Ağ büyüklüğünü belirler; sonradan büyütmek istemci yeniden adreslemesi gerektirir.",      label: 'Subnet Mask',       type: 'text', validate: 'subnet', required: true,  placeholder: '255.255.255.0',   hint: 'Nokta-ondalık subnet maskı' },
-                        { name: 'dns1', why: 'İç kaynaklara isimle erişim için <b>iç DNS sunucusu</b> verilmelidir. Dış DNS vermek, iç sunucuların bulunamamasına yol açar.',      label: 'DNS Sunucu 1',      type: 'text', validate: 'ip', required: true,  placeholder: '8.8.8.8',         hint: 'Birincil DNS sunucusu' },
-                        { name: 'dns2', why: "Yedek DNS. Tek DNS vermek, o sunucu düştüğünde tüm ağın isim çözümlemesini kaybetmesi demektir.",      label: 'DNS Sunucu 2',      type: 'text', validate: 'ip', optional: true,  placeholder: '8.8.4.4',         hint: 'İkincil DNS sunucusu (opsiyonel)' },
+                        { name: 'dns1', why: 'İç kaynaklara isimle erişim için <b>iç DNS sunucusu</b> verilmelidir. Dış DNS vermek, iç sunucuların bulunamamasına yol açar.',      label: 'DNS Sunucu 1',      type: 'text', validate: 'ip', required: true,  placeholder: '10.64.99.53',         hint: 'Birincil DNS sunucusu' },
+                        { name: 'dns2', why: "Yedek DNS. Tek DNS vermek, o sunucu düştüğünde tüm ağın isim çözümlemesini kaybetmesi demektir.",      label: 'DNS Sunucu 2',      type: 'text', validate: 'ip', optional: true,  placeholder: '10.64.99.54',         hint: 'İkincil DNS sunucusu (opsiyonel)' },
                         { name: 'lease', why: 'Lease süresi kısa olursa DHCP trafiği artar, uzun olursa havuz dolabilir. Misafir ağlarında kısa (ör. 2 saat) tutmak mantıklıdır.',     label: 'Lease Süresi (sn)', type: 'text', required: true,  placeholder: '86400',           hint: 'IP kiralama süresi saniye cinsinden (86400 = 1 gün)' }
                     ]
                 }
@@ -843,8 +1044,21 @@ function cgFgDhcpGen(data) {
     if (dns2) c += '        set dns-server2 ' + dns2 + '\n';
     c += '        set lease-time ' + lease + '\n';
     c += '        config ip-range\n            edit 1\n                set start-ip ' + startIp + '\n                set end-ip ' + endIp + '\n            next\n        end\n    next\nend\n\n';
-    c += '# Doğrulama:\n# show system dhcp server\n# diagnose sys dhcp server list\n';
-    return c;
+    c += '# Doğrulama:\n# show system dhcp server\n# execute dhcp lease-list\n';
+    const w = [], ml = _fgWMaskLen(data.mask), net = _fgWIsIp(data.gateway) && ml >= 0 ? { ip: data.gateway, len: ml } : null;
+    if (net) {
+        if (_fgWIsIp(data.start_ip) && !_fgWIn(data.start_ip, net)) w.push('⛔ Başlangıç IP (' + data.start_ip + ') ağ geçidinin alt ağında değil: istemciler geçide ulaşamaz.');
+        if (_fgWIsIp(data.end_ip) && !_fgWIn(data.end_ip, net)) w.push('⛔ Bitiş IP (' + data.end_ip + ') ağ geçidinin alt ağında değil.');
+        if (_fgWNetOrBcast(data.gateway, ml)) w.push('⛔ Ağ geçidi alt ağın ağ ya da yayın adresi.');
+        if (_fgWNetOrBcast(data.start_ip, ml) || _fgWNetOrBcast(data.end_ip, ml)) w.push('⚠ Aralık alt ağın ağ ya da yayın adresini içeriyor; o adresler istemciye verilemez.');
+    }
+    if (_fgWIsIp(data.start_ip) && _fgWIsIp(data.end_ip) && _fgWN(data.start_ip) > _fgWN(data.end_ip)) w.push('⛔ Başlangıç IP bitiş IP\'sinden büyük: aralık kaydedilmez.');
+    if (_fgWIsIp(data.gateway) && _fgWIsIp(data.start_ip) && _fgWIsIp(data.end_ip) && _fgWN(data.gateway) >= _fgWN(data.start_ip) && _fgWN(data.gateway) <= _fgWN(data.end_ip))
+        w.push('⚠ Ağ geçidi (' + data.gateway + ') dağıtım aralığının içinde: aynı adres bir istemciye verilip çakışabilir. Aralığı geçidin dışına alın.');
+    const lt = String(data.lease || '').trim();
+    if (lt && (!/^\d+$/.test(lt) || (+lt !== 0 && (+lt < 300 || +lt > 8640000)))) w.push('⚠ Kira süresi saniye olarak 300–8640000 arası olmalı (0 = sınırsız); "' + lt + '" reddedilebilir.');
+    w.push('ℹ ' + (String(data.interface || '').trim() || 'Arayüz') + ' arayüzünün IP\'si bu alt ağda olmalı (genelde ağ geçidi adresi); DHCP sunucusu arayüzün ağına göre çalışır.');
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: OSPF ───────────────────────────────────────────────────────────
@@ -1350,10 +1564,10 @@ FortiGate.haaa = {
                     icon: 'fas fa-clone',
                     fields: [
                         { name: 'group_id', why: 'Group ID aynı ağdaki HA çiftlerinde benzersiz olmalı. Çakışma iki ayrı çiftin birbirine karışmasına yol açar.',     label: 'Group ID',          type: 'text',   required: true, placeholder: '1',           hint: '0–255 arası grup numarası' },
-                        { name: 'group_name', why: "HA grup adı iki üyede aynı olmalı. Aynı L2 segmentindeki farklı HA çiftlerinde ise <b>farklı</b> olmalı, aksi halde üyeler yanlış eşleşir.",   label: 'Group Adı',         type: 'text',   required: true, placeholder: 'FG-HA',       hint: 'Küme adı — her iki cihazda aynı olmalı' },
+                        { name: 'group_name', why: "HA grup adı iki üyede birebir aynı olmalı; farklıysa küme kurulmaz. Aynı L2 segmentindeki farklı kümeleri ayıran ise Group ID'dir (sanal MAC).",   label: 'Group Adı',         type: 'text',   required: true, placeholder: 'FG-HA',       hint: 'Küme adı — her iki cihazda aynı olmalı' },
                         { name: 'password', why: "HA parolası iki üyede aynı olmalı. Parolasız HA, ağa takılan başka bir FortiGate'in cluster'a katılmasına kapı bırakır.",     label: 'HA Şifresi',        type: 'text',   required: true, placeholder: 'hapassword',  hint: 'Her iki cihazda aynı şifre kullanılmalı' },
-                        { name: 'monitor_intfs', why: 'İzlenen arayüz down olursa failover tetiklenir. WAN ve LAN arayüzlerini izlemek şarttır; izlenmezse hat kopsa bile cihaz primary kalmaya devam eder.',label: 'Monitor Interface\'ler', type: 'text', validate: 'iface_range', required: true, placeholder: 'port1,port2', hint: 'Virgülle ayrılmış izlenecek arayüzler' },
-                        { name: 'priority', why: 'Yüksek öncelikli üye primary olur. <code>override</code> kapalıyken primary döndüğünde rolü geri almaz — bu ikinci kesintiyi önler.',     label: 'Priority',          type: 'text',   required: true, placeholder: '128',         hint: '0–255; birincil cihaz için daha yüksek değer' },
+                        { name: 'monitor_intfs', why: 'İzlenen arayüz down olursa failover tetiklenir. WAN ve LAN arayüzlerini izlemek şarttır; izlenmezse hat kopsa bile cihaz primary kalmaya devam eder.',label: 'Monitor Interface\'ler', type: 'text', validate: 'iface_range', required: true, placeholder: 'port1,port2', hint: 'Virgül ya da boşlukla ayrılmış izlenecek arayüzler' },
+                        { name: 'priority', why: '<code>override</code> kapalıyken (varsayılan) birincil seçimi: önce izlenen arayüzlerde daha az arıza, sonra <b>uptime</b> (5 dk\'dan fazla fark), sonra öncelik. Yani önceliği yüksek üye tek başına birincil olmaz; eski birincil geri döndüğünde rolü geri almaz (ikinci kesinti olmaz). override açıkken öncelik uptime\'ın önüne geçer.',     label: 'Priority',          type: 'text',   required: true, placeholder: '128',         hint: '0–255; birincil cihaz için daha yüksek değer' },
                         { name: 'session_sync', why: "Açıkken mevcut TCP oturumları failover'da kopmaz. Kapalıysa failover anında tüm bağlantılar yeniden kurulur; kullanıcı kesinti hisseder.", label: 'Session Sync',      type: 'select', options: [
                             { value: 'enable',  label: 'Enable',  selected: true },
                             { value: 'disable', label: 'Disable' }
@@ -1368,20 +1582,30 @@ FortiGate.haaa = {
     }
 };
 function cgFgHaaaGen(data) {
-    const groupId      = cgEsc(data.group_id || '1');
+    const groupId      = cgEsc(String(data.group_id || '1').trim());
     const groupName    = cgEsc(data.group_name || '');
     const password     = cgEsc(data.password || '');
-    const monitorIntfs = cgEsc(data.monitor_intfs || '').split(',').map(s => s.trim()).filter(Boolean);
-    const priority     = cgEsc(data.priority || '128');
+    // Virgül ya da boşluk ayrımlı: her arayüz ayrı tırnak ("port1" "port2")
+    const monitorIntfs = _fgWList(data.monitor_intfs);
+    const priority     = cgEsc(String(data.priority || '128').trim());
     const sessionSync  = cgEsc(data.session_sync || 'enable');
     const monitorStr   = monitorIntfs.map(i => '"' + cgEsc(i) + '"').join(' ');
+    const w = [];
     let c = '# ========================================\n# FortiGate — HA Active-Active\n# ========================================\n\n';
     c += 'config system ha\n    set mode a-a\n    set group-id ' + groupId + '\n    set group-name "' + groupName + '"\n';
-    c += '    set password ' + password + '\n    set priority ' + priority + '\n';
-    c += '    set session-pickup ' + sessionSync + '\n    set monitor ' + monitorStr + '\nend\n\n';
-    c += '# NOT: HA konfigürasyonu her iki cihaza ayrı ayrı uygulanır.\n\n';
+    c += '    set password "' + password + '"\n    set priority ' + priority + '\n';
+    c += '    set session-pickup ' + sessionSync + '\n';
+    if (monitorStr) c += '    set monitor ' + monitorStr + '\n';
+    c += 'end\n\n';
+    c += '# NOT: HA konfigürasyonu her iki cihaza ayrı ayrı uygulanır; heartbeat (hbdev) ayarı ayrıca yapılmalıdır.\n\n';
     c += '# Doğrulama:\n# get system ha status\n# diagnose sys ha checksum cluster\n';
-    return c;
+    if (!/^\d+$/.test(priority) || +priority > 255) w.push('⛔ Priority 0–255 arası tam sayı olmalı.');
+    if (!/^\d+$/.test(groupId)) w.push('⛔ Group ID tam sayı olmalı.');
+    if (String(data.group_name || '').length > 32) w.push('⛔ HA grup adı en çok 32 karakter olabilir.');
+    if (!monitorIntfs.length) w.push('⚠ İzlenen arayüz yok: hat kopsa bile failover olmaz.');
+    w.push('ℹ override varsayılan olarak kapalı: seçimde uptime (5 dk üzeri fark) öncelikten önce gelir; önceliği yüksek üye birincil olmayabilir (fgt-25).');
+    w.push('ℹ Bu araç heartbeat arayüzünü (set hbdev) yazmaz; varsayılanı modele göre değişir. hbdev\'in heartbeat kablosunun gerçekten bağlı olduğu arayüzleri gösterdiğini show system ha ile doğrulayın, yoksa küme kurulmaz (fgt-27).');
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: SNMP v3 ────────────────────────────────────────────────────────
@@ -1586,7 +1810,15 @@ function cgFgStaticGen(data) {
     if (data.disabled) c += '        set status disable\n';
     c += '    next\nend\n\n';
     c += '# Doğrulama:\n# show router static ' + seq + '\n# get router info routing-table static\n# get router info routing-table database\n';
-    return c;
+    const w = [], dn = _fgWNet(data.dst), dist = String(data.distance || '').trim();
+    if (_fgWHostBits(dn)) w.push('⚠ Hedefte host bitleri dolu (' + String(data.dst).trim() + '): ağ adresini yazın (ör. 10.64.10.0 255.255.255.0); aksi hâlde kastettiğiniz ağ eşleşmeyebilir.');
+    if (ty === 'gw' && String(data.gateway || '').trim() === '0.0.0.0') w.push('⛔ Gateway 0.0.0.0 olamaz: next-hop yoksa Tünel / Arayüz tipini seçin.');
+    if (ty !== 'blackhole' && dist && +dist > 10) w.push('ℹ Distance ' + dist + ' (varsayılan 10): aynı hedefe daha düşük mesafeli rota varken bu rota tabloda GÖRÜNMEZ; birincil düşünce devreye girer (yedek/floating rota, fgt-06). Mesafe tabanlı yedekleme yalnız arayüz düşünce çalışır; hat ölü ama arayüz up ise link-monitor gerekir.');
+    if (ty !== 'blackhole' && !dist && dn && dn.len === 0) w.push('ℹ Varsayılan rota mesafe 10 ile yazılır. Yedek hat için ikinci rotaya daha yüksek distance verin; eşit mesafe ve öncelikte iki rota ECMP olur (trafik bölünür).');
+    if (data.priority && dist && +dist <= 10) w.push('ℹ Priority yalnız AYNI distance\'taki rotalar arasında seçim yapar (küçük olan tercih edilir); iki rota da tabloda kalır.');
+    if (ty === 'tunnel') w.push('ℹ Tünel rotası: tünel düşünce rota tablodan çıkar ve trafik varsayılan rotayla internete şifresiz gidebilir. Aynı hedefe Blackhole tipinde, distance 254 bir rota ekleyin (fgt-11).');
+    if (ty === 'blackhole' && dist !== '254') w.push('ℹ Blackhole bir tünelin yedeği olarak kullanılıyorsa distance 254 verin; aksi hâlde (varsayılan 10) asıl rotayla yarışır ve trafiği düşürebilir.');
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: Service Object / Service Group ─────────────────────────────────
@@ -2240,11 +2472,14 @@ function cgFgAdminGen(data) {
     const prof = cgEsc(data.ad_prof || ''), user = cgEsc(data.ad_user || '');
     const th = [data.ad_th1, data.ad_th2, data.ad_th3].map(x => String(x || '').trim().replace(/\s+/g, ' ')).filter(Boolean);
     let c = '# ========================================\n# FortiGate — Admin & Access Profile\n# ========================================\n\n';
-    if (/[?\s]/.test(data.ad_pass || '')) c += '# UYARI: parolada boşluk veya "?" var — FortiOS CLI\'de "?" yardım menüsünü açar, boşluk parolayı böler.\n';
-    if (!th.length) c += '# UYARI: trusted host tanımlanmadı — bu yönetici her kaynaktan giriş yapabilir.\n';
-    if ((data.ad_2fa || 'disable') === 'disable') c += '# Not: 2FA kapalı. Yönetici hesapları için FortiToken önerilir.\n';
-    if (/^super_admin$/i.test(data.ad_prof || '')) c += '# UYARI: super_admin profili tam yetki verir — en az yetki ilkesine göre daha dar bir profil seçin.\n';
-    c += '\n';
+    const w = [];
+    if (/[?\s]/.test(data.ad_pass || '')) w.push('⚠ Parolada boşluk veya "?" var: FortiOS CLI\'de "?" yardım menüsünü açar, boşluk parolayı böler.');
+    if (!th.length) w.push('⚠ Trusted host tanımlanmadı: bu yönetici her kaynaktan giriş yapabilir.');
+    else if (th.some(t => { const n = _fgWNet(t); return n && n.len === 0; })) w.push('⚠ Trusted host 0.0.0.0 0.0.0.0: her kaynaktan girişe izin verir, kısıtlama yok hükmündedir.');
+    if (th.some(t => _fgWHostBits(_fgWNet(t)))) w.push('⚠ Trusted host\'ta host bitleri dolu (ör. 10.64.10.5 255.255.255.0): tek makine için /32 (255.255.255.255), ağ için ağ adresini yazın.');
+    if ((data.ad_2fa || 'disable') === 'disable') w.push('ℹ 2FA kapalı. Yönetici hesapları için FortiToken önerilir.');
+    if (/^super_admin$/i.test(data.ad_prof || '')) w.push('⚠ super_admin profili tam yetki verir: en az yetki ilkesine göre daha dar bir profil seçin.');
+    w.push('ℹ Trusted host yalnız bu hesabı kısıtlar; arayüzde allowaccess https/ssh açıksa diğer hesaplar için de trusted host tanımlayın (fgt-01).');
     if ((data._cgtype || 'existing') === 'newprof') {
         const rw = data.ad_preset === 'netop' ? ['netgrp', 'fwgrp', 'vpngrp'] : [];
         c += 'config system accprofile\n    edit "' + prof + '"\n';
@@ -2274,7 +2509,7 @@ function cgFgAdminGen(data) {
         c += 'end\n\n';
     }
     c += '# Doğrulama:\n# show system admin "' + user + '"\n# show system accprofile "' + prof + '"\n# get system global\n';
-    return c;
+    return { config: c, warnings: w };
 }
 
 // ── FortiGate: Local User + User Group ────────────────────────────────────────
