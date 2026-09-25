@@ -1792,7 +1792,10 @@ const ConfigGenerator = {
     },
 
     _route() {
-        const m = (location.hash || '').match(/^#\/([^/]+)\/([^/]+)$/);
+        const h = location.hash || '';
+        const cli = h.match(/^#\/cli(?:\/([a-z0-9-]+))?$/);
+        if (cli) { this._renderCli(cli[1]); return; }
+        const m = h.match(/^#\/([^/]+)\/([^/]+)$/);
         if (m && CG_REGISTRY[m[1]]) this._renderWork(m[1], m[2]);
         else if ((location.hash || '') === '#/converter') this._renderConverter();
         else this._renderHome();
@@ -2042,6 +2045,14 @@ const ConfigGenerator = {
         if (typeof ConfigConverter !== 'undefined') ConfigConverter.render(host);
         else host.innerHTML = '<div class="cg-empty"><i class="fas fa-exchange-alt"></i><p>Dönüştürücü yüklenemedi.</p></div>';
         this._bindSlash();
+    },
+
+    // ── KOMUTLAR: çok vendorlu CLI komut kütüphanesi ────────────────────
+    _renderCli(vendor) {
+        this._setNav('cli');
+        this._vendor = this._type = null;
+        if (typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Komut kütüphanesi yüklenemedi.</p></div>'; return; }
+        CgCli.render(this._root, vendor);
     },
 
     // ── Geriye dönük uyumluluk (eski çağrılar için) ──────────────────────
