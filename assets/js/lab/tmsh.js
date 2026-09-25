@@ -84,7 +84,8 @@ const CgLabTmsh = (function () {
             const prov = {}; PROV.forEach(p => { prov[p] = p === 'ltm' ? 'nominal' : 'none'; });
             return { hostname: lab.hostname || 'bigip-a.lab.example', guiSetup: 'enabled', mgmtIp: null, mgmtRoutes: {}, ifs, vlans: {}, selfs: {}, routes: {},
                 httpd: { allow: ['ALL'], idle: 1200 }, sshd: { allow: ['ALL'], idle: 0, banner: 'disabled', bannerText: '' }, dns: { servers: [], search: [] }, ntp: { servers: [], tz: 'America/Los_Angeles' },
-                prov, users: { admin: { role: 'admin', shell: 'tmsh', pw: true } }, pwpol: { enf: 'disabled', min: 6, up: 0, low: 0, num: 0, spec: 0, fail: 0, maxdur: 99999 } };
+                prov, users: { admin: { role: 'admin', shell: 'tmsh', pw: true } }, pwpol: { enf: 'disabled', min: 6, up: 0, low: 0, num: 0, spec: 0, fail: 0, maxdur: 99999 },
+                nodes: {}, pools: {}, monitors: {}, virtuals: {}, snatpools: {}, persists: {}, httpProfiles: {} };
         }
         const M = () => S.m;
         const short = () => M().hostname.split('.')[0];
@@ -310,14 +311,217 @@ const CgLabTmsh = (function () {
         }
 
         // ═══ tmsh komut yürütme ═══════════════════════════════════════════
+        // ═══ LTM nesneleri ═══════════════════════════════════════════════
+        const PORTN = { 80: 'http', 443: 'https', 8080: 'webcache', 22: 'ssh', 53: 'domain', 21: 'ftp', 25: 'smtp', 8443: 'pcsync-https' };
+        const PORTV = Object.fromEntries(Object.entries(PORTN).map(([k, v]) => [v, +k]));
+        const portOf = s => (/^\d{1,5}$/.test(s) && +s <= 65535 ? +s : (s in PORTV ? PORTV[s] : (s === 'any' || s === '0' ? 0 : null)));
+        const pname = n => (n === 0 ? 'any' : PORTN[n] || String(n));
+        const ipport = s => { const m = String(s).match(/^(\d{1,3}(?:\.\d{1,3}){3})[:.]([A-Za-z0-9-]+)$/); if (!m || !isIp(m[1])) return null; const p = portOf(m[2]); return p === null ? null : { ip: m[1], port: p, key: m[1] + ':' + p }; };
+        const LB_MODES = ['round-robin', 'ratio-member', 'ratio-node', 'least-connections-member', 'least-connections-node', 'fastest-node', 'fastest-app-response', 'observed-member', 'observed-node', 'predictive-member', 'predictive-node', 'dynamic-ratio-member', 'dynamic-ratio-node', 'ratio-least-connections-member', 'ratio-least-connections-node', 'weighted-least-connections-member', 'weighted-least-connections-node', 'ratio-session', 'least-sessions'];
+        const BUILTIN_MON = { http: { type: 'http', send: 'GET /\\r\\n', recv: '' }, https: { type: 'https', send: 'GET /\\r\\n', recv: '' }, tcp: { type: 'tcp', send: '', recv: '' }, tcp_half_open: { type: 'tcp_half_open' }, gateway_icmp: { type: 'gateway-icmp' }, icmp: { type: 'icmp' }, http_head_f5: { type: 'http', send: 'HEAD / HTTP/1.0\\r\\n\\r\\n', recv: 'Server' } };
+        const monOf = n => M().monitors[n] || BUILTIN_MON[n] || null;
+        const BUILTIN_PROF = { tcp: 'tcp', http: 'http', clientssl: 'client-ssl', serverssl: 'server-ssl', fastL4: 'fastl4', oneconnect: 'one-connect', 'f5-tcp-progressive': 'tcp', 'f5-tcp-wan': 'tcp', 'f5-tcp-lan': 'tcp' };
+        const profType = n => BUILTIN_PROF[n] || (M().httpProfiles[n] ? 'http' : null);
+        const BUILTIN_PERSIST = { cookie: 'cookie', source_addr: 'source-addr', ssl: 'ssl', dest_addr: 'dest-addr', universal: 'universal', hash: 'hash' };
+        const persistType = n => BUILTIN_PERSIST[n] || (M().persists[n] ? M().persists[n].type : null);
+        const memberList = s => { const r = listOp([], { op: 'replace-all-with', items: [{ k: s }] }, x => x); return r.list; };
+        void memberList;
+        const monSpec = v => { const names = String(v).split(/\s+and\s+/).map(x => x.trim()).filter(Boolean); return names; };
+        const vsUsing = pool => Object.entries(M().virtuals).find(([, v]) => v.pool === pool);
+        T['ltm node'] = {
+            kind: 'node', named: true, coll: () => M().nodes,
+            fresh: () => ({ address: null, session: 'user-enabled', state: 'user-up', monitor: null, desc: '' }),
+            set(o, P, name, isCreate) {
+                for (const p of P) {
+                    if (p.k === 'address') { if (!isIp(p.v || '')) return SYNx('"' + p.v + '" invalid IP address'); o.address = p.v; }
+                    else if (p.k === 'session') { if (!['user-enabled', 'user-disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid session (user-enabled|user-disabled)'); o.session = p.v; }
+                    else if (p.k === 'state') { if (!['user-up', 'user-down'].includes(p.v)) return SYNx('"' + p.v + '" invalid state (user-up|user-down)'); o.state = p.v; }
+                    else if (p.k === 'monitor') { if (p.v === 'none') { o.monitor = null; continue; } for (const m of monSpec(p.v)) if (!monOf(m)) return NF('monitor', m); o.monitor = monSpec(p.v); }
+                    else if (p.k === 'description') o.desc = p.v;
+                    else return SYN(p.k);
+                }
+                if (isCreate && !o.address) { if (isIp(name)) o.address = name; else return E('# [Simülatör] Node için address gerekli.'); }
+                return null;
+            },
+            del(name) { const n = M().nodes[name]; const u = Object.entries(M().pools).find(([, pl]) => Object.values(pl.members).some(m => m.ip === n.address)); if (u) return E('# [Simülatör] Node (/Common/' + name + ') silinemez: /Common/' + u[0] + ' pool\'unun üyesi. Önce üyeyi pool\'dan çıkarın.'); return null; },
+            list(n, o) { const L = ['ltm node ' + n + ' {', '    address ' + o.address]; if (o.desc) L.push('    description "' + o.desc + '"'); if (o.monitor) L.push('    monitor ' + o.monitor.join(' and ')); if (o.session !== 'user-enabled') L.push('    session ' + o.session); if (o.state !== 'user-up') L.push('    state ' + o.state); L.push('}'); return L; },
+            props: ['address', 'session', 'state', 'monitor', 'description'],
+        };
+        function ensureNode(ip) { const n = Object.entries(M().nodes).find(([, x]) => x.address === ip); if (n) return n[0]; M().nodes[ip] = { address: ip, session: 'user-enabled', state: 'user-up', monitor: null, desc: '' }; return ip; }
+        T['ltm pool'] = {
+            kind: 'pool', named: true, coll: () => M().pools,
+            fresh: () => ({ members: {}, order: [], monitor: null, lb: 'round-robin', minActive: 0, desc: '' }),
+            set(o, P, name) {
+                for (const p of P) {
+                    if (p.k === 'members') {
+                        if (p.v === 'none') { o.members = {}; o.order = []; continue; }
+                        if (p.v !== undefined) return SYNx('"' + p.v + '" unexpected argument (members add { ip:port })');
+                        if (p.op === 'replace-all-with') { o.members = {}; o.order = []; }
+                        for (const it of p.items) {
+                            const ap = ipport(it.k); if (!ap) return SYNx('"' + it.k + '" invalid pool member (A.B.C.D:port)');
+                            if (p.op === 'delete') { if (!o.members[ap.key]) return NF('pool member', name + ' ' + it.k); delete o.members[ap.key]; o.order = o.order.filter(x => x !== ap.key); continue; }
+                            if (p.op === 'modify' && !o.members[ap.key]) return NF('pool member', name + ' ' + it.k);
+                            const m = o.members[ap.key] || { ip: ap.ip, port: ap.port, pg: 0, ratio: 1, session: 'user-enabled', state: 'user-up', desc: '' };
+                            const b = it.b || [];
+                            for (let i = 0; i < b.length; i += 2) {
+                                const k = b[i].k, v = b[i + 1] && b[i + 1].k;
+                                if (k === 'address') continue;
+                                if (v === undefined) return SYNx('"' + k + '" requires a value');
+                                if (k === 'priority-group') { if (!/^\d{1,5}$/.test(v)) return SYNx('"' + v + '" invalid priority-group'); m.pg = +v; }
+                                else if (k === 'ratio') { if (!/^\d{1,5}$/.test(v) || +v < 1) return SYNx('"' + v + '" invalid ratio'); m.ratio = +v; }
+                                else if (k === 'session') { if (!['user-enabled', 'user-disabled'].includes(v)) return SYNx('"' + v + '" invalid session'); m.session = v; }
+                                else if (k === 'state') { if (!['user-up', 'user-down'].includes(v)) return SYNx('"' + v + '" invalid state'); m.state = v; }
+                                else if (k === 'description') m.desc = v;
+                                else return SYN(k);
+                            }
+                            if (!o.members[ap.key]) { o.order.push(ap.key); ensureNode(ap.ip); }
+                            o.members[ap.key] = m;
+                        }
+                    }
+                    else if (p.k === 'monitor') { if (p.v === 'none') { o.monitor = null; continue; } for (const m of monSpec(p.v)) if (!monOf(m)) return NF('monitor', m); o.monitor = monSpec(p.v); }
+                    else if (p.k === 'load-balancing-mode') { if (!LB_MODES.includes(p.v)) return SYNx('"' + p.v + '" invalid load-balancing-mode'); o.lb = p.v; }
+                    else if (p.k === 'min-active-members') { if (!/^\d{1,3}$/.test(p.v)) return SYNx('"' + p.v + '" invalid value'); o.minActive = +p.v; }
+                    else if (p.k === 'description') o.desc = p.v;
+                    else return SYN(p.k);
+                }
+                return null;
+            },
+            del(name) { const u = vsUsing(name); if (u) return E('# [Simülatör] Pool (/Common/' + name + ') silinemez: /Common/' + u[0] + ' virtual server\'ı kullanıyor.'); return null; },
+            list(n, o) {
+                const L = ['ltm pool ' + n + ' {']; if (o.desc) L.push('    description "' + o.desc + '"'); if (o.lb !== 'round-robin') L.push('    load-balancing-mode ' + o.lb);
+                if (o.order.length) { L.push('    members {'); o.order.forEach(k => { const m = o.members[k]; L.push('        ' + m.ip + ':' + pname(m.port) + ' {', '            address ' + m.ip); if (m.pg) L.push('            priority-group ' + m.pg); if (m.ratio !== 1) L.push('            ratio ' + m.ratio); if (m.session !== 'user-enabled') L.push('            session ' + m.session); if (m.state !== 'user-up') L.push('            state ' + m.state); L.push('        }'); }); L.push('    }'); }
+                if (o.minActive) L.push('    min-active-members ' + o.minActive);
+                if (o.monitor) L.push('    monitor ' + o.monitor.join(' and '));
+                L.push('}'); return L;
+            },
+            props: ['members', 'monitor', 'load-balancing-mode', 'min-active-members', 'description'],
+        };
+        const monType = (typ) => ({
+            kind: 'monitor', named: true, coll: () => new Proxy(M().monitors, { get: (t, k) => (t[k] && t[k].type === typ ? t[k] : undefined), has: (t, k) => !!(t[k] && t[k].type === typ), ownKeys: t => Object.keys(t).filter(k => t[k].type === typ), getOwnPropertyDescriptor: (t, k) => (t[k] && t[k].type === typ ? { enumerable: true, configurable: true, value: t[k] } : undefined), set: (t, k, v) => { t[k] = v; return true; }, deleteProperty: (t, k) => { delete t[k]; return true; } }),
+            fresh: () => ({ type: typ, parent: typ === 'gateway-icmp' ? 'gateway_icmp' : typ, send: typ === 'http' || typ === 'https' ? 'GET /\\r\\n' : '', recv: '', recvDisable: '', interval: 5, timeout: 16, dest: '*:*' }),
+            set(o, P, name) {
+                if (BUILTIN_MON[name]) return E('# [Simülatör] "' + name + '" hazır (varsayılan) bir monitör; değiştirmek yerine defaults-from ile yenisini oluşturun.');
+                for (const p of P) {
+                    if (p.k === 'defaults-from') { const b = monOf(p.v); if (!b || (b.type !== typ && !(typ === 'gateway-icmp' && p.v === 'gateway_icmp'))) return NF('monitor', p.v); o.parent = p.v; if (b.send !== undefined) o.send = b.send; if (b.recv !== undefined) o.recv = b.recv; }
+                    else if (p.k === 'send' && (typ === 'http' || typ === 'https' || typ === 'tcp')) o.send = p.v;
+                    else if (p.k === 'recv' && (typ === 'http' || typ === 'https' || typ === 'tcp')) o.recv = p.v === 'none' ? '' : p.v;
+                    else if (p.k === 'recv-disable' && (typ === 'http' || typ === 'https')) o.recvDisable = p.v === 'none' ? '' : p.v;
+                    else if (p.k === 'interval' || p.k === 'timeout') { if (!/^\d{1,5}$/.test(p.v) || +p.v < 1) return SYNx('"' + p.v + '" invalid value'); o[p.k] = +p.v; }
+                    else if (p.k === 'destination') { if (!/^(\*|\d{1,3}(\.\d{1,3}){3}):(\*|\d{1,5}|[a-z-]+)$/.test(p.v)) return SYNx('"' + p.v + '" invalid destination (*:* ya da *:8080)'); o.dest = p.v; }
+                    else if (p.k === 'description') o.desc = p.v;
+                    else return SYN(p.k);
+                }
+                if (o.timeout <= o.interval) return E('# [Simülatör] timeout, interval\'dan büyük olmalı (öneri: 3 × interval + 1, ör. 5/16).');
+                return null;
+            },
+            del(name) { const u = Object.entries(M().pools).find(([, pl]) => (pl.monitor || []).includes(name)) || Object.entries(M().nodes).find(([, nd]) => (nd.monitor || []).includes(name)); if (u) return E('# [Simülatör] Monitör (/Common/' + name + ') silinemez: /Common/' + u[0] + ' tarafından kullanılıyor.'); return null; },
+            list(n, o) { const L = ['ltm monitor ' + typ + ' ' + n + ' {', '    adaptive disabled', '    defaults-from /Common/' + o.parent, '    destination ' + o.dest, '    interval ' + o.interval]; if (typ === 'http' || typ === 'https' || typ === 'tcp') { if (o.recv) L.push('    recv "' + o.recv + '"'); if (o.recvDisable) L.push('    recv-disable "' + o.recvDisable + '"'); if (o.send) L.push('    send "' + o.send + '"'); } L.push('    time-until-up 0', '    timeout ' + o.timeout, '}'); return L; },
+            props: ['defaults-from', 'send', 'recv', 'recv-disable', 'interval', 'timeout', 'destination', 'description'],
+        });
+        T['ltm monitor http'] = monType('http'); T['ltm monitor https'] = monType('https'); T['ltm monitor tcp'] = monType('tcp'); T['ltm monitor gateway-icmp'] = monType('gateway-icmp');
+        T['ltm snatpool'] = {
+            kind: 'snatpool', named: true, coll: () => M().snatpools,
+            fresh: () => ({ members: [] }),
+            set(o, P) { for (const p of P) { if (p.k !== 'members') return SYN(p.k); const r = listOp(o.members, p, x => (isIp(x) ? x : null)); if (r.bad) return SYNx('"' + r.bad + '" invalid IP address'); if (r.missing) return E('# [Simülatör] ' + r.missing + ' listede yok.'); o.members = r.list; } if (!o.members.length) return E('# [Simülatör] SNAT pool\'da en az bir adres olmalı.'); return null; },
+            del(name) { const u = Object.entries(M().virtuals).find(([, v]) => v.sat.type === 'snat' && v.sat.pool === name); if (u) return E('# [Simülatör] SNAT pool /Common/' + u[0] + ' tarafından kullanılıyor.'); return null; },
+            list(n, o) { return ['ltm snatpool ' + n + ' {', '    members {'].concat(o.members.map(x => '        /Common/' + x), ['    }', '}']); },
+            props: ['members'],
+        };
+        const persistT = (typ, parent) => ({
+            kind: 'persistence profile', named: true, coll: () => new Proxy(M().persists, { get: (t, k) => (t[k] && t[k].type === typ ? t[k] : undefined), has: (t, k) => !!(t[k] && t[k].type === typ), ownKeys: t => Object.keys(t).filter(k => t[k].type === typ), getOwnPropertyDescriptor: (t, k) => (t[k] && t[k].type === typ ? { enumerable: true, configurable: true, value: t[k] } : undefined), set: (t, k, v) => { t[k] = v; return true; }, deleteProperty: (t, k) => { delete t[k]; return true; } }),
+            fresh: () => (typ === 'cookie' ? { type: typ, parent, method: 'insert', cookieName: '', expiration: '0' } : { type: typ, parent, timeout: 180, mask: 'none' }),
+            set(o, P) {
+                for (const p of P) {
+                    if (p.k === 'defaults-from') { if (persistType(p.v) !== typ) return NF('persistence profile', p.v); o.parent = p.v; }
+                    else if (typ === 'cookie' && p.k === 'method') { if (!['insert', 'rewrite', 'passive', 'hash'].includes(p.v)) return SYNx('"' + p.v + '" invalid method'); o.method = p.v; }
+                    else if (typ === 'cookie' && p.k === 'cookie-name') o.cookieName = p.v;
+                    else if (typ === 'cookie' && p.k === 'expiration') o.expiration = p.v;
+                    else if (typ === 'source-addr' && p.k === 'timeout') { if (!/^\d+$/.test(p.v)) return SYNx('"' + p.v + '" invalid value'); o.timeout = +p.v; }
+                    else if (typ === 'source-addr' && p.k === 'mask') o.mask = p.v;
+                    else return SYN(p.k);
+                }
+                return null;
+            },
+            list(n, o) { return typ === 'cookie' ? ['ltm persistence cookie ' + n + ' {', '    app-service none', o.cookieName ? '    cookie-name ' + o.cookieName : null, '    defaults-from /Common/' + o.parent, '    expiration ' + o.expiration, '    method ' + o.method, '}'].filter(Boolean) : ['ltm persistence source-addr ' + n + ' {', '    app-service none', '    defaults-from /Common/' + o.parent, '    mask ' + o.mask, '    timeout ' + o.timeout, '}']; },
+            props: typ === 'cookie' ? ['defaults-from', 'method', 'cookie-name', 'expiration'] : ['defaults-from', 'timeout', 'mask'],
+        });
+        T['ltm persistence cookie'] = persistT('cookie', 'cookie'); T['ltm persistence source-addr'] = persistT('source-addr', 'source_addr');
+        T['ltm profile http'] = {
+            kind: 'profile', named: true, coll: () => M().httpProfiles,
+            fresh: () => ({ parent: 'http', xff: 'disabled', redirectRewrite: 'none' }),
+            set(o, P) { for (const p of P) { if (p.k === 'defaults-from') { if (profType(p.v) !== 'http') return NF('profile', p.v); o.parent = p.v; } else if (p.k === 'insert-xforwarded-for') { if (!['enabled', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.xff = p.v; } else if (p.k === 'redirect-rewrite') { if (!['none', 'all', 'matching', 'nodes'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.redirectRewrite = p.v; } else return SYN(p.k); } return null; },
+            del(name) { const u = Object.entries(M().virtuals).find(([, v]) => v.profiles.includes(name)); if (u) return E('# [Simülatör] Profil /Common/' + u[0] + ' tarafından kullanılıyor.'); return null; },
+            list(n, o) { return ['ltm profile http ' + n + ' {', '    app-service none', '    defaults-from /Common/' + o.parent, '    insert-xforwarded-for ' + o.xff, '    redirect-rewrite ' + o.redirectRewrite, '}']; },
+            props: ['defaults-from', 'insert-xforwarded-for', 'redirect-rewrite'],
+        };
+        T['ltm virtual'] = {
+            kind: 'virtual server', named: true, coll: () => M().virtuals,
+            fresh: () => ({ dest: null, proto: 'tcp', pool: null, profiles: ['tcp'], persist: [], fallback: null, sat: { type: 'none' }, tport: 'enabled', taddr: 'enabled', mask: '255.255.255.255', enabled: true, desc: '', idx: 2 + Object.keys(M().virtuals).length }),
+            flags: ['enabled', 'disabled'],
+            set(o, P, name, isCreate) {
+                for (const p of P) {
+                    if (p.flag) { o.enabled = p.k === 'enabled'; continue; }
+                    if (p.k === 'destination') { const d = ipport(p.v || ''); if (!d) return SYNx('"' + p.v + '" invalid destination (A.B.C.D:port)'); o.dest = d.key; }
+                    else if (p.k === 'ip-protocol') { if (!['tcp', 'udp', 'any'].includes(p.v)) return SYNx('"' + p.v + '" invalid ip-protocol'); o.proto = p.v; }
+                    else if (p.k === 'pool') { if (p.v === 'none') { o.pool = null; continue; } if (!M().pools[p.v]) return NF('pool', p.v); o.pool = p.v; }
+                    else if (p.k === 'profiles') {
+                        const cur = o.profiles.slice(), r = listOp(cur, { op: p.op, v: p.v, items: (p.items || []).map(x => ({ k: x.k })) }, x => (profType(x) ? x : null));
+                        if (r.bad) return NF('profile', r.bad); if (r.missing) return E('# [Simülatör] ' + r.missing + ' profili bu virtual server\'da yok.');
+                        o.profiles = r.list;
+                    }
+                    else if (p.k === 'persist') {
+                        if (p.v === 'none') { o.persist = []; continue; }
+                        const items = p.v !== undefined ? [{ k: p.v }] : p.items;
+                        const r = listOp(o.persist, { op: p.v !== undefined ? 'replace-all-with' : p.op, items: items.map(x => ({ k: x.k })) }, x => (persistType(x) ? x : null));
+                        if (r.bad) return NF('persistence profile', r.bad); if (r.missing) return E('# [Simülatör] ' + r.missing + ' bu virtual server\'da yok.');
+                        o.persist = r.list.slice(0, 1);
+                    }
+                    else if (p.k === 'fallback-persistence') { if (p.v === 'none') { o.fallback = null; continue; } if (!persistType(p.v)) return NF('persistence profile', p.v); o.fallback = p.v; }
+                    else if (p.k === 'source-address-translation') {
+                        const b = p.items || []; const kv = {}; for (let i = 0; i < b.length; i += 2) kv[b[i].k] = b[i + 1] && b[i + 1].k;
+                        if (!['none', 'automap', 'snat'].includes(kv.type)) return SYNx('source-address-translation { type none|automap|snat [pool <snatpool>] }');
+                        if (kv.type === 'snat') { if (!kv.pool || !M().snatpools[kv.pool]) return NF('snatpool', kv.pool || '(pool)'); o.sat = { type: 'snat', pool: kv.pool }; } else o.sat = { type: kv.type };
+                    }
+                    else if (p.k === 'snat') { if (p.v === 'automap') o.sat = { type: 'automap' }; else if (p.v === 'none') o.sat = { type: 'none' }; else return SYNx('"' + p.v + '" (snat automap|none; yeni sürümlerde source-address-translation { type … })'); }
+                    else if (p.k === 'translate-port' || p.k === 'translate-address') { if (!['enabled', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o[p.k === 'translate-port' ? 'tport' : 'taddr'] = p.v; }
+                    else if (p.k === 'mask') { if (!isIp(p.v)) return SYNx('"' + p.v + '" invalid mask'); o.mask = p.v; }
+                    else if (p.k === 'description') o.desc = p.v;
+                    else if (p.k === 'rules') return E('# [Simülatör] iRule\'lar ileri seviye modülde gelecek; bu lab sürümünde rules desteklenmiyor.', 'unsupported');
+                    else return SYN(p.k);
+                }
+                if (isCreate && !o.dest) return E('# [Simülatör] Virtual server için destination gerekli (ör. destination 203.0.113.100:80).');
+                const dup = Object.entries(M().virtuals).find(([vn, v]) => vn !== name && v.dest === o.dest && v.proto === o.proto);
+                if (dup) return E('# [Simülatör] ' + o.dest + ' hedefi zaten /Common/' + dup[0] + ' virtual server\'ında kullanılıyor.');
+                const hasHttp = o.profiles.some(x => profType(x) === 'http');
+                if (o.persist.some(x => persistType(x) === 'cookie') && !hasHttp) return E('# [Simülatör] Cookie persistence için virtual server\'da bir HTTP profili gerekir (profiles add { http }).');
+                if (o.profiles.some(x => profType(x) === 'http') && !o.profiles.some(x => ['tcp', 'fastl4'].includes(profType(x)))) return E('# [Simülatör] HTTP profili bir TCP profili gerektirir.');
+                return null;
+            },
+            list(n, o) {
+                const L = ['ltm virtual ' + n + ' {', '    creation-time 2026-09-24:10:21:07']; if (o.desc) L.push('    description "' + o.desc + '"');
+                const d = o.dest.split(':'); L.push('    destination ' + d[0] + ':' + pname(+d[1])); if (!o.enabled) L.push('    disabled');
+                if (o.fallback) L.push('    fallback-persistence ' + o.fallback);
+                L.push('    ip-protocol ' + o.proto, '    last-modified-time 2026-09-24:10:21:07', '    mask ' + o.mask);
+                if (o.persist.length) { L.push('    persist {'); o.persist.forEach(x => L.push('        ' + x + ' {', '            default yes', '        }')); L.push('    }'); }
+                if (o.pool) L.push('    pool ' + o.pool);
+                L.push('    profiles {'); o.profiles.forEach(x => L.push('        ' + x + ' { }')); L.push('    }');
+                L.push('    serverssl-use-sni disabled', '    source 0.0.0.0/0');
+                L.push('    source-address-translation {', '        ' + (o.sat.type === 'snat' ? 'pool ' + o.sat.pool : '') + (o.sat.type === 'snat' ? '\n        ' : '') + 'type ' + o.sat.type, '    }');
+                if (o.taddr !== 'enabled') L.push('    translate-address ' + o.taddr); else L.push('    translate-address enabled');
+                L.push('    translate-port ' + o.tport, '    vs-index ' + o.idx, '}');
+                return L;
+            },
+            props: ['destination', 'ip-protocol', 'pool', 'profiles', 'persist', 'fallback-persistence', 'source-address-translation', 'translate-port', 'translate-address', 'mask', 'description', 'enabled', 'disabled'],
+        };
         const TYPES = Object.keys(T);
         const MODULES = ['net', 'sys', 'auth', 'ltm', 'cm', 'util', 'gtm', 'security', 'apm', 'asm'];
         function resolveType(toks) {
             // tüm türler iki sözcük: "net vlan", "/net vlan", "/net/vlan"
             const a = toks[0].t.replace(/^\//, '');
             if (a.includes('/')) { const [m, c] = a.split('/'); return T[m + ' ' + c] ? { type: m + ' ' + c, rest: toks.slice(1) } : { mod: m, comp: c }; }
-            const b = toks[1] && toks[1].t;
-            return T[a + ' ' + b] ? { type: a + ' ' + b, rest: toks.slice(2) } : { mod: a, comp: b };
+            const b = toks[1] && toks[1].t, c = toks[2] && toks[2].t;
+            if (c && T[a + ' ' + b + ' ' + c]) return { type: a + ' ' + b + ' ' + c, rest: toks.slice(3) };
+            return T[a + ' ' + b] ? { type: a + ' ' + b, rest: toks.slice(2) } : { mod: a, comp: b, sub: c };
         }
         const stamp = k => { const t = 10 * 3600 + 21 * 60 + k; return 'Sep 24 ' + [Math.floor(t / 3600), Math.floor(t / 60) % 60, t % 60].map(x => String(x).padStart(2, '0')).join(':'); };
         function auditLog(line) { S.audit.push(stamp(S.audit.length) + ' ' + short() + ' notice tmsh[' + (7310 + S.audit.length) + ']: 01420002:5: AUDIT - pid=' + (7310 + S.audit.length) + ' user=root folder=/Common module=(tmos)# status=[Command OK] cmd_data=' + line); }
@@ -351,7 +555,7 @@ const CgLabTmsh = (function () {
                 return E('Syntax Error: "' + r.comp + '" unknown property', 'invalid');
             }
             const t = T[r.type];
-            if (verb === 'show') { const o = showCmd(r.type.split(' ')[0], r.type.split(' ')[1], r.rest); if (o !== null) return o; return E('# [Simülatör] "show ' + r.type + '" bu lab sürümünde yok; yapılandırma için "list ' + r.type + '".', 'unsupported'); }
+            if (verb === 'show') { const tw = r.type.split(' '); const o = showCmd(tw[0], tw[1], tw.length > 2 ? [{ t: tw[2] }].concat(r.rest) : r.rest); if (o !== null) return o; return E('# [Simülatör] "show ' + r.type + '" bu lab sürümünde yok; yapılandırma için "list ' + r.type + '".', 'unsupported'); }
             if (verb === 'list') return listCmd(r.type, r.rest);
             return change(verb, r.type, t, r.rest, line);
         }
@@ -378,6 +582,9 @@ const CgLabTmsh = (function () {
                 if (t.fixed) return E('Syntax Error: "create" is not supported for ' + key, 'invalid');
                 if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,62}$/.test(name)) return SYNx('"' + name + '" invalid name');
                 if (coll[name]) return EX(t.kind, name);
+                if (t.kind === 'monitor' && (M().monitors[name] || BUILTIN_MON[name])) return EX('monitor', name);
+                if (t.kind === 'persistence profile' && (M().persists[name] || BUILTIN_PERSIST[name])) return EX('persistence profile', name);
+                if (t.kind === 'profile' && BUILTIN_PROF[name]) return EX('profile', name);
                 const pr = props(rest, 1, t.flags); if (pr.err) return perr(pr, rest);
                 const o = t.fresh(); const snap = clone(M()); coll[name] = o;
                 const e = t.set(o, pr.P, name, true); if (e) { S.m = snap; return e; }
@@ -416,6 +623,43 @@ const CgLabTmsh = (function () {
         // ── show çıktıları
         function showCmd(mod, comp, rest) {
             const a = (rest || []).map(x => x.t);
+            if (mod === 'ltm') {
+                const bar = '-'.repeat(69);
+                const colorOf = av => (av === 'available' ? 'available' : av === 'offline' ? 'offline' : 'unknown');
+                if (comp === 'virtual') {
+                    const names = a[0] ? [a[0]] : Object.keys(M().virtuals); if (a[0] && !M().virtuals[a[0]]) return NF('virtual server', a[0]);
+                    const L = [];
+                    names.forEach(n => { const v = M().virtuals[n], st = vsStatus(n), d = v.dest.split(':'), hits = Object.entries(S.rt.hits || {}).filter(([k]) => v.pool && k.startsWith(v.pool + '|')).reduce((x, [, c]) => x + c, 0);
+                        L.push('', bar, 'Ltm::Virtual Server: ' + n, bar, 'Status', '  Availability     : ' + colorOf(st.avail), '  State            : ' + st.state, '  Reason           : ' + st.reason, '  CMP              : enabled', '  CMP Mode         : all-cpus', '  Destination      : ' + d[0] + ':' + d[1], '',
+                            'Traffic                             ClientSide  Ephemeral  General', '  Bits In                                ' + (hits * 4096) + '          0        -', '  Current Connections                        0          0        -', '  Total Connections                  ' + String(hits).padStart(9) + '          0        -'); });
+                    L.push('# [Simülatör] Sayaçlar bu oturumdaki isteklerden hesaplandı; çıktı sadeleştirildi.');
+                    log({ show: 'ltm virtual', name: a[0] || null }); return { out: L.join('\n'), ok: true };
+                }
+                if (comp === 'pool') {
+                    const names = a[0] && a[0] !== 'members' ? [a[0]] : Object.keys(M().pools); if (a[0] && a[0] !== 'members' && !M().pools[a[0]]) return NF('pool', a[0]);
+                    const withM = a.includes('members') || a.includes('detail'); const L = [];
+                    names.forEach(pn => { const pl = M().pools[pn], ps = poolStatus(pn);
+                        L.push('', bar, 'Ltm::Pool: ' + pn, bar, 'Status', '  Availability : ' + colorOf(ps.avail), '  State        : ' + (ps.state || 'enabled'), '  Reason       : ' + ps.reason, '  Monitor      : ' + (pl.monitor ? pl.monitor.join(' and ') : 'none'), '  Minimum Active Members : ' + pl.minActive, '  Current Active Members : ' + pl.order.filter(k => memberStatus(pn, k).avail === 'available').length, '  Available Members      : ' + eligible(pn).length, '  Total Members          : ' + pl.order.length);
+                        if (withM) pl.order.forEach(k => { const m = pl.members[k], st = memberStatus(pn, k), h = (S.rt.hits || {})[pn + '|' + k] || 0, c = (SIM.conns || {})[k] || 0;
+                            L.push('', '  ' + '-'.repeat(65), '  Ltm::Pool Member: ' + m.ip + ':' + pname(m.port), '  ' + '-'.repeat(65), '  Status', '    Availability : ' + colorOf(st.avail), '    State        : ' + st.state, '    Reason       : ' + st.reason + (st.err ? ' (' + st.err + ')' : ''), '    Monitor      : ' + (st.mon ? st.mon + ' (' + (pl.monitor ? 'pool' : 'node') + ' monitor)' : 'none'), '    Monitor Status : ' + (st.avail === 'available' ? 'up' : st.avail === 'offline' ? 'down' : 'unchecked'), '    Priority Group : ' + m.pg + '    Ratio : ' + m.ratio, '',
+                                '  Traffic                             ServerSide  General', '    Current Connections                    ' + String(c).padStart(4) + '        -', '    Total Connections                      ' + String(h + c * 7).padStart(4) + '        -'); }); });
+                    L.push('# [Simülatör] Çıktı sadeleştirildi; sayaçlar bu oturumdan ve lab başlangıç değerlerinden.');
+                    log({ show: 'ltm pool', name: names.length === 1 ? names[0] : null, members: withM }); return { out: L.join('\n'), ok: true };
+                }
+                if (comp === 'node') {
+                    const L = ['', bar, 'Ltm::Node', bar, 'Name                Address           Availability  State     Monitor'];
+                    Object.entries(M().nodes).forEach(([n, o]) => { const r = reach(o.address); const av = o.state === 'user-down' ? 'offline' : o.monitor ? (o.monitor.every(mm => monCheck(mm, o.address, 0).up) ? 'available' : 'offline') : 'unknown'; void r; L.push(pad(n, 20) + pad(o.address, 18) + pad(av, 14) + pad(o.session === 'user-disabled' ? 'disabled' : 'enabled', 10) + (o.monitor ? o.monitor.join(' and ') : 'none')); });
+                    L.push('# [Simülatör] Tablo biçimi sadeleştirildi (gerçek çıktı node başına blok gösterir).');
+                    log({ show: 'ltm node' }); return { out: L.join('\n'), ok: true };
+                }
+                if (comp === 'persistence' && a[0] === 'persist-records') {
+                    const L = ['Sys::Persistent Connections', 'source-address  ' + pad('198.51.100.20', 16) + 'Mode: source-address'].slice(0, 1);
+                    Object.entries(S.rt.persist || {}).forEach(([k, mk]) => { const [pn, src] = k.split('|'); const vn = (Object.entries(M().virtuals).find(([, v]) => v.pool === pn) || ['?'])[0], vd = vn !== '?' ? M().virtuals[vn].dest.split(':') : ['?', '?']; L.push('source-address  ' + src + '  ' + vd[0] + ':' + vd[1] + '  ' + mk + '  (tmm: 0)'); });
+                    if (L.length === 1) L.push('Total records returned: 0'); else L.push('Total records returned: ' + (L.length - 1));
+                    L.push('# [Simülatör] Yalnız source-address kayıtları tabloda tutulur; cookie persistence (insert) kayıt tutmaz, bilgi istemcideki cookie\'dedir.');
+                    log({ show: 'ltm persistence' }); return { out: L.join('\n'), ok: true };
+                }
+            }
             if (mod === 'net' && comp === 'interface') {
                 const L = ['', '-------------------------------------------------------------------------', 'Net::Interface', 'Name  Status    Bits    Bits    Pkts    Pkts  Drops  Errs      Media', '                    In     Out      In     Out', '-------------------------------------------------------------------------'];
                 const list = a[0] ? [a[0]] : IFS.concat(['mgmt']);
@@ -475,6 +719,153 @@ const CgLabTmsh = (function () {
             Object.entries(M().selfs).forEach(([, s]) => { if (!s.address) return; const c = cidr(s.address), dst = n2ip(netOf(c.ip, c.len)) + '/' + c.len; if (vlanUp(s.vlan) && !R.some(r => r.dst === dst)) R.push({ name: dst, dst, type: 'interface', nh: s.vlan, origin: 'connected' }); });
             Object.entries(M().routes).forEach(([n, r]) => { const ok = Object.values(M().selfs).some(s => s.address && vlanUp(s.vlan) && inNet(r.gw, s.address)); R.push({ name: n, dst: r.network === 'default' ? '0.0.0.0/0' : r.network, type: 'gw', nh: r.gw, origin: ok ? 'static' : 'static (unreachable)' }); });
             return R;
+        }
+        // ═══ LTM simülasyonu: sunucular, monitörler, durum, trafik ═══════════
+        // lab.sim.servers: [{ ip, name, gw, ports: { 80: { paths: { '/': 200, '/health': 200, '/old': { code: 301, loc: '/new' } }, body }, 8080: … } }]
+        const srvOf = ip => (SIM.servers || []).find(x => x.ip === ip) || null;
+        const REASON = { 200: 'OK', 201: 'Created', 204: 'No Content', 301: 'Moved Permanently', 302: 'Found', 304: 'Not Modified', 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed', 500: 'Internal Server Error', 501: 'Not Implemented', 502: 'Bad Gateway', 503: 'Service Unavailable', 504: 'Gateway Timeout' };
+        // sunucunun bir isteğe yanıtı (yol + metot)
+        function serverResp(srv, port, path, method) {
+            const P = srv.ports && srv.ports[port]; if (!P) return null;
+            const allow = P.methods || ['GET', 'HEAD', 'POST'];
+            if (method === 'OPTIONS') return { code: 200, headers: ['Allow: ' + allow.concat(['OPTIONS']).join(', ')], body: '' };
+            if (!allow.includes(method)) return { code: method === 'TRACE' ? 405 : 501, headers: [], body: '' };
+            const ent = P.paths ? (P.paths[path] !== undefined ? P.paths[path] : (P.paths['*'] !== undefined ? P.paths['*'] : 404)) : 200;
+            const e = typeof ent === 'number' ? { code: ent } : ent;
+            const H = []; if (e.loc) H.push('Location: ' + e.loc);
+            const body = e.body !== undefined ? e.body : (e.code === 200 ? (P.body || srv.name || srv.ip) + ' OK' : e.code + ' ' + (REASON[e.code] || ''));
+            return { code: e.code, headers: H, body: method === 'HEAD' ? '' : body };
+        }
+        // monitör sonucu: { up, err, disabled }
+        function monCheck(mname, ip, port) {
+            const mo = monOf(mname); if (!mo) return { up: false, err: 'monitor yok' };
+            const r = reach(ip);
+            const t = mo.type;
+            if (t === 'icmp' || t === 'gateway-icmp') return r.ok ? { up: true } : { up: false, err: 'No successful responses received before deadline.' };
+            const dport = mo.dest && mo.dest !== '*:*' ? portOf(mo.dest.split(':')[1]) || port : port;
+            const srv = srvOf(ip);
+            if (!r.ok || !srv) return { up: false, err: 'Unable to connect; No successful responses received before deadline.' };
+            if (!srv.ports || !srv.ports[dport]) return { up: false, err: 'Unable to connect; Connection refused.' };
+            if (t === 'tcp_half_open' || (t === 'tcp' && !mo.recv)) return { up: true };
+            if (t === 'https' && !srv.ports[dport].tls) return { up: false, err: 'SSL handshake failed.' };
+            const m = String(mo.send || '').match(/^([A-Z]+)\s+(\S+)/); const method = m ? m[1] : 'GET', path = m ? m[2] : '/';
+            const resp = serverResp(srv, dport, path, method);
+            if (!resp) return { up: false, err: 'Unable to connect.' };
+            const raw = 'HTTP/1.1 ' + resp.code + ' ' + (REASON[resp.code] || '') + '\r\n' + resp.headers.join('\r\n') + '\r\n\r\n' + resp.body;
+            if (mo.recvDisable && raw.includes(mo.recvDisable)) return { up: true, disabled: true };
+            if (!mo.recv) return { up: true };
+            if (raw.includes(mo.recv) || (() => { try { return new RegExp(mo.recv).test(raw); } catch (e) { return false; } })()) return { up: true };
+            return { up: false, err: 'Response Code: ' + resp.code + ' (' + (REASON[resp.code] || '') + ')' };
+        }
+        // üye durumu: availability (available | offline | unknown), state (enabled | disabled | forced-offline), reason
+        function memberStatus(pn, key) {
+            const pl = M().pools[pn], m = pl.members[key];
+            const node = Object.values(M().nodes).find(n => n.address === m.ip) || {};
+            const mons = pl.monitor || node.monitor || null;
+            const forced = m.state === 'user-down' || node.state === 'user-down';
+            const disabled = m.session === 'user-disabled' || node.session === 'user-disabled';
+            let avail = 'unknown', reason = 'Pool member does not have service checking enabled', err = null, monName = mons ? mons.join(' and ') : null, mdis = false;
+            if (mons) {
+                const rs = mons.map(x => ({ n: x, r: monCheck(x, m.ip, m.port) }));
+                const bad = rs.find(x => !x.r.up);
+                if (bad) { avail = 'offline'; reason = 'Pool member has been marked down by a monitor'; err = '/Common/' + bad.n + ': ' + bad.r.err; }
+                else { avail = 'available'; reason = 'Pool member is available'; mdis = rs.some(x => x.r.disabled); }
+            }
+            if (forced) { avail = 'offline'; reason = 'Forced down'; }
+            return { avail, state: forced ? 'forced-offline' : disabled || mdis ? 'disabled' : 'enabled', reason, err, mon: monName };
+        }
+        function poolStatus(pn) {
+            const pl = M().pools[pn]; if (!pl) return { avail: 'unknown', reason: 'no pool' };
+            const ms = pl.order.map(k => memberStatus(pn, k));
+            if (!ms.length) return { avail: 'unknown', reason: 'The pool has no members', state: 'enabled' };
+            const live = ms.filter(x => x.avail !== 'offline');
+            if (live.length && live.every(x => x.state === 'disabled')) return { avail: live.some(x => x.avail === 'available') ? 'available' : 'unknown', reason: 'The children pool member(s) are disabled', state: 'disabled' };
+            if (ms.some(x => x.avail === 'available')) return { avail: 'available', reason: 'The pool is available' };
+            if (ms.every(x => x.avail === 'offline')) return { avail: 'offline', reason: 'The children pool member(s) are down' };
+            return { avail: 'unknown', reason: 'The children pool member(s) either don\'t have service checking enabled, or service check results are not available yet' };
+        }
+        function vsStatus(vn) {
+            const v = M().virtuals[vn];
+            if (!v.pool) return { avail: 'unknown', reason: 'The virtual server does not have a default pool', state: v.enabled ? 'enabled' : 'disabled' };
+            const ps = poolStatus(v.pool);
+            const reason = ps.state === 'disabled' ? 'The children pool member(s) are disabled' : ps.avail === 'available' ? 'The virtual server is available' : ps.avail === 'offline' ? 'The children pool member(s) are down' : ps.reason;
+            return { avail: ps.avail, reason, state: v.enabled ? (ps.state === 'disabled' ? 'disabled' : 'enabled') : 'disabled' };
+        }
+        // durum değişimlerini /var/log/ltm'e yaz (01070638 down, 01070727 up, 01010028 pool boş)
+        let ltmN = 0;
+        const lstamp = () => { const t = 10 * 3600 + 25 * 60 + (ltmN++) * 3; return 'Sep 24 ' + [Math.floor(t / 3600), Math.floor(t / 60) % 60, t % 60].map(x => String(x).padStart(2, '0')).join(':'); };
+        function ltmTick(quiet) {
+            const prev = S.rt.ms || {}, now = {}, prevP = S.rt.ps || {}, nowP = {};
+            for (const [pn, pl] of Object.entries(M().pools)) {
+                for (const k of pl.order) {
+                    const st = memberStatus(pn, k), id = pn + '|' + k; now[id] = st.avail;
+                    if (!quiet && prev[id] !== st.avail && st.state !== 'forced-offline' && (prev[id] || st.avail === 'offline')) {
+                        const mm = pl.members[k], mid = '/Common/' + mm.ip + ':' + mm.port;
+                        if (st.avail === 'offline') S.ltmlog.push(lstamp() + ' ' + short() + ' notice mcpd[5821]: 01070638:5: Pool /Common/' + pn + ' member ' + mid + ' monitor status down. [ ' + st.err + '@2026/09/24 10:25:0' + (ltmN % 10) + '. ]  [ was ' + (prev[id] === 'available' ? 'up for 0hr:12mins:3sec' : 'unchecked for 0hr:0mins:1sec') + ' ]');
+                        if (st.avail === 'available' && prev[id] === 'offline') S.ltmlog.push(lstamp() + ' ' + short() + ' notice mcpd[5821]: 01070727:5: Pool /Common/' + pn + ' member ' + mid + ' monitor status up. [ /Common/' + (st.mon || '').split(' and ')[0] + ': up ]  [ was down for 0hr:0mins:15sec ]');
+                    }
+                }
+                const ps = poolStatus(pn).avail; nowP[pn] = ps;
+                if (!quiet && prevP[pn] && prevP[pn] !== 'offline' && ps === 'offline') S.ltmlog.push(lstamp() + ' ' + short() + ' err tmm[11562]: 01010028:3: No members available for pool /Common/' + pn);
+                if (!quiet && prevP[pn] === 'offline' && ps !== 'offline') S.ltmlog.push(lstamp() + ' ' + short() + ' err tmm[11562]: 01010221:3: Pool /Common/' + pn + ' now has available members');
+            }
+            S.rt.ms = now; S.rt.ps = nowP;
+        }
+        // ── istemciden VIP'e istek: { kind: 'ok'|'refused'|'reset'|'timeout', resp, member, setCookie }
+        function f5cookie(ip, port) { const o = ip.split('.').map(Number); const n = o[0] + o[1] * 256 + o[2] * 65536 + o[3] * 16777216; const pp = ((port & 0xff) << 8) | (port >> 8); return n + '.' + pp + '.0000'; }
+        function eligible(pn) {
+            const pl = M().pools[pn];
+            let L = pl.order.filter(k => { const st = memberStatus(pn, k); return st.avail !== 'offline' && st.state === 'enabled'; });
+            if (pl.minActive > 0 && L.length) {
+                // priority group activation: en yüksek gruptan başla, min-active karşılanana kadar alt gruplar eklenir
+                const groups = [...new Set(L.map(k => pl.members[k].pg))].sort((a, b) => b - a); let sel = [];
+                for (const g of groups) { sel = sel.concat(L.filter(k => pl.members[k].pg === g)); if (sel.length >= pl.minActive) break; }
+                L = sel;
+            }
+            return L;
+        }
+        function lbPick(pn, L) {
+            const pl = M().pools[pn], rr = S.rt.rr || (S.rt.rr = {});
+            const conns = k => ((SIM.conns || {})[k] || 0) + ((S.rt.conns || {})[pn + '|' + k] || 0);
+            const lb = pl.lb;
+            if (/^ratio-(member|node|session)$/.test(lb)) { const seq = [].concat(...L.map(k => Array(pl.members[k].ratio).fill(k))); const i = (rr[pn] || 0) % seq.length; rr[pn] = (rr[pn] || 0) + 1; return seq[i]; }
+            if (/least-connections|least-sessions|observed/.test(lb)) return L.slice().sort((a, b) => conns(a) - conns(b))[0];
+            if (/fastest|predictive/.test(lb)) return L.slice().sort((a, b) => ((SIM.latency || {})[a] || 5) - ((SIM.latency || {})[b] || 5))[0];
+            const i = (rr[pn] || 0) % L.length; rr[pn] = (rr[pn] || 0) + 1; return L[i];
+        }
+        function vipRequest(o) {
+            // o: { ip, port, path, method, src, cookie, https }
+            const vn = Object.keys(M().virtuals).find(n => { const v = M().virtuals[n]; return v.dest === o.ip + ':' + o.port || v.dest === o.ip + ':0'; });
+            if (!vn) return { kind: 'refused', why: 'novs' };
+            const v = M().virtuals[vn];
+            if (!v.enabled) return { kind: 'refused', why: 'disabled', vs: vn };
+            if (o.https && !v.profiles.some(x => profType(x) === 'client-ssl')) return { kind: 'sslerr', vs: vn };
+            if (!v.pool) return { kind: 'reset', why: 'nopool', vs: vn };
+            const L = eligible(v.pool);
+            if (!L.length) return { kind: 'reset', why: 'nomember', vs: vn };
+            const pl = M().pools[v.pool], pers = v.persist[0] && persistType(v.persist[0]);
+            const hasHttp = v.profiles.some(x => profType(x) === 'http');
+            let key = null, setCookie = null, persisted = false;
+            const cname = pers === 'cookie' ? ((M().persists[v.persist[0]] || {}).cookieName || 'BIGipServer' + v.pool) : null;
+            if (pers === 'cookie' && o.cookie && o.cookie[cname]) { key = L.find(k => f5cookie(pl.members[k].ip, pl.members[k].port) === o.cookie[cname]) || null; persisted = !!key; }
+            if (pers === 'source-addr' || (!key && pers === 'cookie' && v.fallback && persistType(v.fallback) === 'source-addr')) { const pr = (S.rt.persist || (S.rt.persist = {}))[v.pool + '|' + o.src]; if (pr && L.includes(pr)) { key = pr; persisted = true; } }
+            if (!key) key = lbPick(v.pool, L);
+            const m = pl.members[key];
+            if (pers === 'source-addr' || (pers === 'cookie' && v.fallback)) S.rt.persist[v.pool + '|' + o.src] = key;
+            if (pers === 'cookie' && hasHttp && !persisted) { const mt = (M().persists[v.persist[0]] || {}).method || 'insert'; if (mt === 'insert') setCookie = cname + '=' + f5cookie(m.ip, m.port) + '; path=/; Httponly'; }
+            (S.rt.conns || (S.rt.conns = {}))[v.pool + '|' + key] = ((S.rt.conns || {})[v.pool + '|' + key] || 0);
+            (S.rt.hits || (S.rt.hits = {}))[v.pool + '|' + key] = (S.rt.hits[v.pool + '|' + key] || 0) + 1;
+            const sport = v.tport === 'enabled' ? m.port : o.port, sip = v.taddr === 'enabled' ? m.ip : o.ip;
+            const srv = srvOf(sip), r = reach(m.ip);
+            if (!srv || !r.ok) return { kind: 'timeout', why: 'l2', vs: vn, member: key };
+            if (!srv.ports || !srv.ports[sport]) return { kind: 'reset', why: 'srvrefused', vs: vn, member: key, sport };
+            // dönüş yolu: SNAT yoksa sunucu istemciye kendi ağ geçidi üzerinden döner
+            if (v.sat.type === 'none') { const back = Object.values(M().selfs).some(s => s.address && s.address.split('/')[0] === srv.gw); if (!back) return { kind: 'timeout', why: 'asym', vs: vn, member: key }; }
+            if (v.sat.type === 'snat') { const ok = M().snatpools[v.sat.pool].members.some(ip => Object.values(M().selfs).some(s => s.address && inNet(ip, s.address) && inNet(m.ip, s.address))); if (!ok) return { kind: 'timeout', why: 'snatroute', vs: vn, member: key }; }
+            const resp = serverResp(srv, sport, o.path, o.method);
+            if (!resp) return { kind: 'reset', why: 'srvrefused', vs: vn, member: key };
+            if (setCookie) resp.headers = resp.headers.concat(['Set-Cookie: ' + setCookie]);
+            return { kind: 'ok', resp, vs: vn, member: key, persisted, src: v.sat.type === 'automap' ? 'self' : v.sat.type === 'snat' ? 'snat' : 'client' };
         }
         const vlanUp = vn => { const v = M().vlans[vn]; return !!v && Object.keys(v.ifs).some(linkUp); };
         function saveLoad(verb, rest) {
@@ -540,6 +931,10 @@ const CgLabTmsh = (function () {
             return { text: text.split('\n').filter(l => re.test(l) !== inv).join('\n'), file: argv[i + 1] };
         }
         function bashLine(line, nested) {
+            // for i in {1..N}; do <komut>; done  (yalnız bu kalıp)
+            const fl = line.match(/^for\s+\w+\s+in\s+\{(\d+)\.\.(\d+)\};\s*do\s+(.+?);\s*done$/);
+            if (fl) { const n = Math.min(Math.max(+fl[2] - +fl[1] + 1, 0), 20); const outs = []; for (let i = 0; i < n; i++) { const r = bashLine(fl[3], nested); if (r && r.err) return r; outs.push(typeof r === 'string' ? r : r.out); } return { out: outs.filter(x => x !== '').join('\n'), ok: true, log: { loop: n } }; }
+            if (/^for\s/.test(line)) return E('# [Simülatör] Bu lab\'da yalnız "for i in {1..N}; do <komut>; done" kalıbı desteklenir.', 'unsupported');
             const parts = splitPipe(line); const argv = shWords(parts[0]);
             if (!argv.length) return '';
             const pipes = parts.slice(1).map(shWords);
@@ -549,6 +944,53 @@ const CgLabTmsh = (function () {
             let out = typeof r === 'string' ? r : r.out;
             for (const p of pipes) { const g = grepF(p, out); if (!g) return E('Usage: grep [OPTION]... PATTERNS [FILE]...', 'incomplete'); out = g.text; }
             return { out, ok: true, log: r.log };
+        }
+        // curl: VIP'e istek dış istemciden (lab.sim.client) gönderilmiş kabul edilir; sunucu IP'sine istek BIG-IP'nin kendisinden gider
+        const JARS = {};
+        function curl(a) {
+            let url = null, verbose = false, head = false, silent = false, out = null, wfmt = null, method = null, jarR = null, jarW = null, iface = null; const hdr = [];
+            for (let i = 1; i < a.length; i++) {
+                const t = a[i];
+                if (/^-[vkIsSL]+$/.test(t)) { if (t.includes('v')) verbose = true; if (t.includes('I')) head = true; if (t.includes('s')) silent = true; continue; }
+                if (t === '-o') { out = a[++i]; continue; } if (t === '-w') { wfmt = a[++i]; continue; } if (t === '-X') { method = (a[++i] || '').toUpperCase(); continue; }
+                if (t === '-H') { hdr.push(a[++i]); continue; } if (t === '-b') { jarR = a[++i]; continue; } if (t === '-c') { jarW = a[++i]; continue; }
+                if (t === '--interface') { iface = a[++i]; continue; } if (t === '-m' || t === '--max-time' || t === '--connect-timeout') { i++; continue; }
+                if (/^https?:\/\//.test(t)) { url = t; continue; }
+                return E('curl: option ' + t + ': is unknown\n# [Simülatör] Desteklenen: -v -I -k -s -o -w -X -H -b -c --interface -m', 'invalid');
+            }
+            if (!url) return E('curl: no URL specified!', 'incomplete');
+            const u = url.match(/^(https?):\/\/([^/:]+)(?::(\d+))?(\/[^\s]*)?$/); if (!u || !isIp(u[2])) return E('curl: (6) Could not resolve host: ' + (u ? u[2] : url) + '\n# [Simülatör] Bu lab\'da URL\'de IP adresi kullanın.', 'value');
+            const https = u[1] === 'https', ip = u[2], port = +(u[3] || (https ? 443 : 80)), path = u[4] || '/'; method = method || (head ? 'HEAD' : 'GET');
+            const isVip = Object.values(M().virtuals).some(v => v.dest.split(':')[0] === ip);
+            const cookie = {}; if (jarR && JARS[jarR]) Object.assign(cookie, JARS[jarR]); hdr.forEach(h => { const m = h.match(/^Cookie:\s*([^=]+)=(\S+)/i); if (m) cookie[m[1]] = m[2]; });
+            const L = [];
+            let res;
+            if (isVip) { res = vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https }); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi.'); }
+            else {
+                const r = reach(ip), srv = srvOf(ip);
+                if (iface && !Object.values(M().selfs).some(s => s.address && s.address.split('/')[0] === iface) && !(M().mgmtIp && M().mgmtIp.split('/')[0] === iface)) return E('curl: (45) bind failed with errno 99: Cannot assign requested address', 'value');
+                if (r.noroute) res = { kind: 'unreach' };
+                else if (!r.ok || !srv) res = { kind: 'timeout' };
+                else if (!srv.ports || !srv.ports[port]) res = { kind: 'refused' };
+                else if (https && !srv.ports[port].tls) res = { kind: 'sslerr' };
+                else res = { kind: 'ok', resp: serverResp(srv, port, path, method) };
+            }
+            log({ curl: { ip, port, path, method, vip: isVip, kind: res.kind, code: res.resp ? res.resp.code : null, member: res.member || null, persisted: !!res.persisted } });
+            if (verbose) L.push('*   Trying ' + ip + ':' + port + '...');
+            const fail = { refused: 'curl: (7) Failed to connect to ' + ip + ' port ' + port + ': Connection refused', reset: 'curl: (56) Recv failure: Connection reset by peer', timeout: 'curl: (28) Operation timed out after 5001 milliseconds with 0 bytes received', unreach: 'curl: (7) Failed to connect to ' + ip + ' port ' + port + ': Network is unreachable', sslerr: 'curl: (35) error:1408F10B:SSL routines:ssl3_get_record:wrong version number' };
+            if (res.kind !== 'ok') {
+                if (res.kind === 'reset' && verbose) L.push('* Connected to ' + ip + ' (' + ip + ') port ' + port + ' (#0)', '> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + ip, '>', '* Recv failure: Connection reset by peer');
+                L.push(fail[res.kind]);
+                return { out: L.join('\n') };
+            }
+            const r = res.resp, st = 'HTTP/1.1 ' + r.code + ' ' + (REASON[r.code] || '');
+            if (jarW) { const sc = r.headers.find(h => /^Set-Cookie:/i.test(h)); if (sc) { const m = sc.match(/^Set-Cookie:\s*([^=]+)=([^;]+)/i); JARS[jarW] = Object.assign(JARS[jarW] || {}, { [m[1]]: m[2] }); } }
+            if (verbose) { L.push('* Connected to ' + ip + ' (' + ip + ') port ' + port + ' (#0)', '> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + ip, '> User-Agent: curl/7.47.1', '> Accept: */*'); Object.keys(cookie).length && L.push('> Cookie: ' + Object.entries(cookie).map(([k, v]) => k + '=' + v).join('; ')); L.push('>', '< ' + st, '< Server: Apache'); r.headers.forEach(h => L.push('< ' + h)); L.push('< Content-Length: ' + r.body.length, '<'); }
+            else if (head) { L.push(st, 'Server: Apache'); r.headers.forEach(h => L.push(h)); L.push('Content-Length: ' + r.body.length); }
+            if (!head && out !== '/dev/null' && r.body) L.push(r.body);
+            if (verbose) L.push('* Connection #0 to host ' + ip + ' left intact');
+            if (wfmt) L.push(wfmt.replace(/%\{http_code\}/g, String(r.code)).replace(/\\n/g, '\n').replace(/\n$/, ''));
+            return { out: L.join('\n') };
         }
         function bashCmd(a, line, nested) {
             const c = a[0];
@@ -570,6 +1012,7 @@ const CgLabTmsh = (function () {
                 return ['2: mgmt: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 1000', '    link/ether 00:50:56:8a:1c:01 brd ff:ff:ff:ff:ff:ff', ip ? '    inet ' + ip.ip + '/' + ip.len + ' brd ' + n2ip(netOf(ip.ip, ip.len) + 2 ** (32 - ip.len) - 1) + ' scope global mgmt' : '    # [Simülatör] IPv4 adresi yok'].join('\n');
             }
             if (c === 'ping') return ping(a);
+            if (c === 'curl') return curl(a);
             if (c === 'cat' || c === 'tail' || c === 'less' || c === 'head') {
                 const f = a.filter(x => !/^-/.test(x) && !/^\d+$/.test(x)).slice(1)[0];
                 if (!f) return E(c + ': missing operand', 'incomplete');
@@ -582,7 +1025,7 @@ const CgLabTmsh = (function () {
             if (c === 'grep') { const g = grepF(a, ''); if (!g || !g.file) return E('Usage: grep [OPTION]... PATTERNS [FILE]...', 'incomplete'); const F = FILES(); if (!(g.file in F)) return E('grep: ' + g.file + ': No such file or directory', 'value'); return { out: grepF(a.slice(0, -1), F[g.file]).text, log: { file: g.file, grep: true } }; }
             if (c === 'ls') { const d = (a.filter(x => !/^-/.test(x))[1] || '/config').replace(/\/$/, ''); if (!(d in DIRS)) return E('ls: cannot access \'' + d + '\': No such file or directory', 'value'); const L = DIRS[d]; return a.includes('-l') || a.includes('-lh') ? L.map(n => '-rw-r--r--. 1 root root ' + (/\.iso$/.test(n) ? '2.4G' : '12K') + ' Sep 24 09:12 ' + n).join('\n') : L.join('  '); }
             if (c === 'date') return 'Thu Sep 24 10:21:07 PDT 2026';
-            if (['qkview', 'tcpdump', 'df', 'bigstart', 'curl', 'netstat', 'ssldump', 'cpcfg', 'switchboot', 'config', 'top', 'ssh', 'scp'].includes(c)) return E('# [Simülatör] "' + c + '" gerçek BIG-IP\'de var ama bu lab sürümünde henüz desteklenmiyor.', 'unsupported');
+            if (['qkview', 'tcpdump', 'df', 'bigstart', 'netstat', 'ssldump', 'cpcfg', 'switchboot', 'config', 'top', 'ssh', 'scp'].includes(c)) return E('# [Simülatör] "' + c + '" gerçek BIG-IP\'de var ama bu lab sürümünde henüz desteklenmiyor.', 'unsupported');
             if (['list', 'show', 'create', 'modify', 'delete', 'save', 'load'].includes(c)) return E('-bash: ' + c + ': command not found\n# [Simülatör] Bu bir tmsh komutu. Önce "tmsh" yazın ya da tek komut için: tmsh ' + line, 'wrongmode');
             return E('-bash: ' + c + ': command not found', 'invalid');
         }
@@ -632,7 +1075,7 @@ const CgLabTmsh = (function () {
             if (r && r.err) { log({ raw: line, err: r.err, mode }); return r.msg; }
             const out = typeof r === 'string' ? r : (r ? r.out : '');
             log(Object.assign({ raw: line, canon, mode }, (r && r.log) || {}));
-            warnAccess(line);
+            warnAccess(line); ltmTick(false);
             return (out || '') + (S.warn ? (out ? '\n' : '') + S.warn : '');
         }
         // yönetim erişimini kendine kapatma uyarısı (gerçek cihaz uyarmaz; bağlantı kopar)
@@ -667,8 +1110,10 @@ const CgLabTmsh = (function () {
             if (verb === 'run') return w.length === 1 ? ['util'] : w.length === 2 ? ['bash', 'ping'] : [];
             const types = TYPES.filter(k => !(verb === 'create' && (T[k].single || T[k].fixed)) && !(verb === 'delete' && (T[k].single || T[k].fixed)));
             if (w.length === 1) return [...new Set(types.map(k => k.split(' ')[0]).concat(verb === 'show' ? ['net', 'sys', 'cm'] : []))];
-            if (w.length === 2) return [...new Set(types.filter(k => k.startsWith(w[1] + ' ')).map(k => k.split(' ')[1]).concat(verb === 'show' ? (w[1] === 'net' ? ['interface', 'vlan', 'route', 'arp'] : w[1] === 'sys' ? ['software', 'version', 'license', 'provision', 'failover'] : w[1] === 'cm' ? ['sync-status'] : []) : []))];
-            const key = w[1] + ' ' + w[2], t = T[key]; if (!t) return [];
+            if (w.length === 2) return [...new Set(types.filter(k => k.startsWith(w[1] + ' ')).map(k => k.split(' ')[1]).concat(verb === 'show' ? (w[1] === 'net' ? ['interface', 'vlan', 'route', 'arp'] : w[1] === 'sys' ? ['software', 'version', 'license', 'provision', 'failover'] : w[1] === 'cm' ? ['sync-status'] : w[1] === 'ltm' ? ['virtual', 'pool', 'node', 'persistence'] : []) : []))];
+            if (w.length === 3 && !T[w[1] + ' ' + w[2]]) return [...new Set(types.filter(k => k.startsWith(w[1] + ' ' + w[2] + ' ')).map(k => k.split(' ')[2]))];
+            const k3 = T[w[1] + ' ' + w[2] + ' ' + w[3]] ? w[1] + ' ' + w[2] + ' ' + w[3] : null, key = k3 || w[1] + ' ' + w[2], t = T[key]; if (!t) return [];
+            if (k3) w = w.slice(0, 3).concat(w.slice(4));
             if (w.length === 3 && t.named) return Object.keys(t.coll()).concat(verb === 'create' ? ['<ad>'] : []);
             if (verb === 'list' || verb === 'show') return ['one-line', 'all-properties'];
             return t.props || [];
@@ -686,6 +1131,7 @@ const CgLabTmsh = (function () {
         apply(lab.start || []);
         S.saved = clone(M());
         apply(lab.startUnsaved || []);
+        ltmTick(true);
         S.ev = []; S.hist = []; S.audit = (SIM.auditlog || []).slice(); S.rt.acc = { ssh: allowHas(M().sshd.allow, ADMIN), gui: allowHas(M().httpd.allow, ADMIN) };
         if (lab.startMode === 'tmsh') S.mode = 'tmsh';
 
@@ -706,6 +1152,9 @@ const CgLabTmsh = (function () {
             variant: () => VAR,
             get model() { return S.m; }, get savedModel() { return S.saved; },
             ev: EV, mode: () => S.mode, dirty,
+            // yan etkisiz VIP testi (kontrollerde kullanılır): sayaçları ve kalıcılık tablosunu değiştirmez
+            vipTest: (ip, port, path) => { const keep = JSON.stringify(S.rt); const r = vipRequest({ ip, port, path: path || '/', method: 'GET', src: SIM.client || '198.51.100.20', cookie: {} }); S.rt = JSON.parse(keep); return { kind: r.kind, code: r.resp ? r.resp.code : null, member: r.member || null }; },
+            memberStatus: (p, k) => memberStatus(p, k), poolStatus: p => poolStatus(p), vsStatus: v => vsStatus(v),
             reach: ip => reach(ip), sshAllowed: ip => allowHas(M().sshd.allow, ip || ADMIN), guiAllowed: ip => allowHas(M().httpd.allow, ip || ADMIN),
             selfAllows: (name, svc) => { const s = M().selfs[name]; if (!s) return false; if (s.allow === 'all') return true; if (s.allow === 'none') return false; const L = s.allow === 'default' ? ALLOW_DEFAULT : s.allow; const [pr, pt] = svc.split(':'); return L.some(x => { const [p2, t2] = x.split(':'); return p2 === pr && (t2 === 'any' || t2 === pt || SVC_PORT[t2] === +pt || +t2 === SVC_PORT[pt]); }); },
             showRun: () => TYPES.map(k => { const t = T[k]; if (t.special) return t.list().join('\n'); if (t.single) return t.list().join('\n'); return Object.keys(t.coll()).map(n => t.list(n, t.coll()[n]).join('\n')).join('\n'); }).filter(Boolean).join('\n'),

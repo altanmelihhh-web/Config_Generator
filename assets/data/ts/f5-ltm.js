@@ -44,5 +44,31 @@
                   fix: [{ cause: 'Değişiklik yapıldı ama kaydedilmedi', cmd: 'tmsh save sys config' }] },
             ]
         },
+        {
+            title: 'Web Sitesi (VIP) Açılmıyor: Refused, Reset ya da Zaman Aşımı?', severity: 'err', topic: 'adc', lab: 'f5-10', replaces: 'Virtual Server Offline / Unavailable',
+            symptom: 'Kullanıcılar bir virtual server üzerinden yayınlanan siteye ulaşamıyor. Belirti türü (bağlantı reddi, sıfırlama, zaman aşımı) arızanın yerini gösterir.',
+            steps: [
+                { code: 'curl -v http://203.0.113.100/', desc: 'Bir istemciden. "Connection refused": virtual server yok ya da devre dışı. "Connection reset by peer": VS var ama gönderecek çalışan üye yok ya da sunucu o portta dinlemiyor (BIG-IP pool boşken 503 değil RST gönderir). "Operation timed out": istek sunucuya gidiyor ama yanıt BIG-IP\'ye dönmüyor (SNAT yok, asimetrik yol) ya da L2 sorunu.',
+                  fix: [{ cause: 'Virtual server devre dışı', cmd: 'tmsh modify ltm virtual vs_web enabled\ntmsh save sys config' }] },
+                { code: 'tmsh show ltm virtual vs_web\ntmsh show ltm pool web_pool members', desc: 'Availability (available / offline / unknown), State (enabled / disabled) ve Reason satırları. Üyeler "marked down by a monitor" ise monitörün son hatası Reason\'da ve /var/log/ltm\'de yazar. Üyeler "disabled" ise bakımda kapatılıp açılmamıştır.',
+                  fix: [{ cause: 'Üyeler bakımda devre dışı bırakılmış', cmd: 'tmsh modify ltm pool web_pool members modify { 10.64.30.50:80 { session user-enabled } }\ntmsh save sys config' }] },
+                { code: 'tail -n 30 /var/log/ltm | grep -E "01070638|01010028"', desc: '01070638: üye monitor status down (satırda last error: Response Code, bağlantı hatası vb.). 01010028: pool\'da çalışan üye kalmadı. "Response Code: 200 (OK)" ile down olan üye, sunucunun 200 döndüğünü ama recv dizgesinin eşleşmediğini gösterir.',
+                  fix: [{ cause: 'Monitör recv dizgesi yanlış', cmd: 'tmsh modify ltm monitor http mon_web recv "200 OK"\ntmsh save sys config' }] },
+                { code: 'tmsh list ltm virtual vs_web source-address-translation\ntmsh list ltm pool web_pool', desc: 'Zaman aşımında: SNAT type none ve sunucuların ağ geçidi BIG-IP değilse dönüş yolu yoktur. Reset + yeşil üyelerde: üye portu uygulamanın portu mu, monitör yalnız ICMP mi (yeşil ama uygulamayı sınamıyor)?',
+                  fix: [{ cause: 'SNAT kaldırılmış', cmd: 'tmsh modify ltm virtual vs_web source-address-translation { type automap }\ntmsh save sys config' },
+                        { cause: 'Üyeler yanlış porttan ve monitör yalnız ICMP', cmd: 'tmsh modify ltm pool web_pool members replace-all-with { 10.64.30.50:80 10.64.30.51:80 } monitor mon_web\ntmsh save sys config' }] },
+                { code: 'curl -v http://10.64.30.50/health', desc: 'BIG-IP bash\'ten doğrudan sunucuya: monitörün gördüğü yanıtı görürsünüz. Kaynak adresi seçmek için --interface <self-ip>.' },
+            ]
+        },
+        {
+            title: 'Kullanıcının Oturumu Düşüyor / Başka Sunucuya Gidiyor: Persistence', severity: 'warn', topic: 'adc', lab: 'f5-07',
+            symptom: 'Kullanıcılar oturum açtıktan sonra bir sonraki tıklamada oturumları kayboluyor ya da sepet boşalıyor; uygulama oturumu sunucuda tutuyor.',
+            steps: [
+                { code: 'tmsh list ltm virtual vs_web persist profiles', desc: 'Persistence tanımlı mı, hangi tip? Cookie persistence HTTP profili ister. Cookie tutmayan istemcilerde (API, bazı cihazlar) cookie persistence işlemez; fallback olarak source_addr verilebilir.',
+                  fix: [{ cause: 'Persistence yok', cmd: 'tmsh modify ltm virtual vs_web profiles add { http } persist replace-all-with { cookie }\ntmsh save sys config' }] },
+                { code: 'curl -v -c /var/tmp/j -b /var/tmp/j http://203.0.113.100/', desc: 'Yanıtta "Set-Cookie: BIGipServer<pool>=…" başlığı olmalı; değer üyenin IP ve portunun kodlanmış hâlidir. Tarayıcı bu cookie\'yi geri göndermiyorsa (ör. farklı alan adı, cookie engeli) kalıcılık çalışmaz.' },
+                { code: 'tmsh show ltm persistence persist-records', desc: 'Source address persistence kayıtları burada görünür. Tüm kullanıcılar tek bir NAT adresinden geliyorsa hepsi aynı üyededir: yük dengelenmez; cookie persistence\'a geçin.' },
+            ]
+        },
     ];
 })();

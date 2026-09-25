@@ -57,9 +57,13 @@ F5LTM.vserver = {
             if (persist) c += '    persist replace-all-with { ' + persist + ' { default yes } }\n';
             if (snat === 'automap') c += '    source-address-translation { type automap }\n';
             if (irule) c += '    rules { ' + irule + ' }\n';
-            c += '    vlans-enabled\n}\n\n';
-            c += '# Doğrulama:\n# tmsh show ltm virtual ' + vs_name + '\n# tmsh show ltm virtual ' + vs_name + ' stats\n';
-            return c;
+            c += '}\n\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh show ltm virtual ' + vs_name + '\n# tmsh show ltm pool ' + pool_name + ' members\n# curl -v http://<VIP>/   (istemciden; refused / reset / zaman aşımı ayrımı için)\n';
+            const w = [];
+            if (persist && /cookie/i.test(persist) && vs_type !== 'http' && vs_type !== 'https') w.push('⛔ Cookie persistence HTTP profili ister; bu virtual server tipi HTTP profili eklemiyor. Tipi HTTP/HTTPS yapın ya da source_addr persistence kullanın (f5-07).');
+            if (snat !== 'automap') w.push('⚠ SNAT kapalı: sunucuların varsayılan ağ geçidi BIG-IP (HA\'da floating self IP) değilse yanıtlar BIG-IP\'ye dönmez ve istemci zaman aşımı görür (f5-04, f5-10).');
+            if (/source_addr/.test(persist || '')) w.push('ℹ Source address persistence: büyük bir NAT ya da proxy arkasındaki kullanıcılar tek IP\'den gelir ve hepsi aynı üyeye düşer; tarayıcı trafiğinde cookie persistence tercih edin (f5-07).');
+            return { config: c, warnings: w };
         });
     }
 };
@@ -118,9 +122,13 @@ F5LTM.pool = {
             });
             c += '    }\n';
             c += '    monitor ' + monitor + '\n';
-            c += '    min-active-members ' + minActive + '\n}\n\n';
-            c += '# Doğrulama:\n# tmsh show ltm pool ' + pool_name + '\n# tmsh show ltm pool ' + pool_name + ' members stats\n';
-            return c;
+            c += '    min-active-members ' + minActive + '\n}\n\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh show ltm pool ' + pool_name + ' members\n';
+            const w = [];
+            if (/icmp/.test(monitor || '')) w.push('⚠ Yalnız ICMP monitörü sunucunun ayakta olduğunu gösterir, uygulamanın çalıştığını değil: servis çökse ya da üye portu yanlış olsa bile üye yeşil kalır. Uygulamayı sınayan bir HTTP/TCP monitörü kullanın (f5-10).');
+            if (!monitor || monitor === 'none') w.push('⚠ Monitör yok: üyeler "unknown" (mavi) görünür ve çökmüş sunucuya da trafik gider.');
+            if (+minActive > 0) w.push('ℹ min-active-members yalnız üyelere priority-group verildiğinde anlam taşır (priority group activation): en yüksek gruptaki çalışan üye sayısı bu değerin altına düşerse alt grup devreye girer (f5-06).');
+            return { config: c, warnings: w };
         });
     }
 };
@@ -167,11 +175,16 @@ F5LTM.monitor = {
             c += 'tmsh create ltm monitor ' + mon_type + ' ' + mon_name + ' {\n';
             c += '    interval ' + intv + '\n';
             c += '    timeout ' + tout + '\n';
-            if (send) c += '    send "' + send + '"\n';
-            if (recv) c += '    recv "' + recv + '"\n';
-            c += '}\n\n';
-            c += '# Doğrulama:\n# tmsh show ltm monitor ' + mon_type + ' ' + mon_name + '\n';
-            return c;
+            if (send) c += '    send "' + String(send).replace(/"/g, '') + '"\n';
+            if (recv) c += '    recv "' + String(recv).replace(/"/g, '') + '"\n';
+            c += '}\n\ntmsh save sys config\n\n';
+            c += '# Doğrulama:\n# tmsh list ltm monitor ' + mon_type + ' ' + mon_name + '\n# tmsh show ltm pool <pool> members   (Monitor Status)\n# curl -v http://<üye-ip>:<port>/health   (BIG-IP bash\'ten; monitörün gördüğü yanıt)\n';
+            const w = [];
+            if (/^https?$/.test(mon_type) && !recv) w.push('⚠ recv boş: sunucu 404 ya da 500 dönse bile her yanıt "up" sayılır. Sağlık sayfasının döndürdüğü bir metni (ör. "200 OK") yazın (f5-04).');
+            if (/^https?$/.test(mon_type) && /HTTP\/1\.1/.test(send || '') && !/Host:/i.test(send || '')) w.push('⛔ HTTP/1.1 send dizgesinde Host başlığı yok: çoğu sunucu 400 döner ve tüm üyeler kırmızı olur. \\r\\nHost: <ad>\\r\\n ekleyin.');
+            if (recv && /0K/.test(recv)) w.push('⚠ recv dizgesinde "0K" (sıfır) var; "OK" (harf) olmalı. Tek karakterlik hata tüm pool\'u kırmızıya çevirir (f5-10).');
+            w.push('ℹ Monitör, sunucu ağındaki non-floating self IP\'den gönderilir; sunucu güvenlik duvarı bu adrese izin vermeli.');
+            return { config: c, warnings: w };
         });
     }
 };
