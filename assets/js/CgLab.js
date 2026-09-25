@@ -316,6 +316,8 @@ const CgLab = {
         if (Object.values(st.wrong || {}).reduce((a, b) => a + b, 0) >= 2) s--;
         if (lv.some(x => x >= 2)) s--;
         if (st.sol || lv.some(x => x >= 3)) s--;
+        // zamana karşı lab: hedef süre aşılırsa bir yıldız düşer
+        if (this._lab && this._lab.timed && st.t0 && st.tDone && (st.tDone - st.t0) / 1000 > this._lab.timed) s--;
         return Math.max(1, s);
     },
     _check(show) {
@@ -413,7 +415,7 @@ const CgLab = {
         return `<div class="cg-lab-finish">
             <div class="cg-lab-stars" role="img" aria-label="3 üzerinden ${st.stars} yıldız">${'★'.repeat(st.stars)}<span>${'☆'.repeat(3 - st.stars)}</span></div>
             <h3>Lab tamamlandı!</h3>
-            <p>${secs ? 'Süre: <b>' + (secs >= 60 ? Math.floor(secs / 60) + ' dk ' : '') + (secs % 60) + ' sn</b> · ' : ''}İpucu: <b>${hints}</b>${st.sol ? ' · çözüm görüntülendi' : ''}</p>
+            <p>${secs ? 'Süre: <b>' + (secs >= 60 ? Math.floor(secs / 60) + ' dk ' : '') + (secs % 60) + ' sn</b>' + (lab.timed ? ' (hedef ' + Math.round(lab.timed / 60) + ' dk' + (secs > lab.timed ? ', aşıldı' : ', tuttu') + ')' : '') + ' · ' : ''}İpucu: <b>${hints}</b>${st.sol ? ' · çözüm görüntülendi' : ''}</p>
             ${st.stars < 3 ? '<p class="cg-lab-finish-tip">3 yıldız için: Sıfırla ile tekrar deneyin, komut iskeleti ve çözüm ipuçlarını kullanmadan bitirin.</p>' : ''}
             ${[...new Set(lab.tasks.map(t => this._warnHtml(t)).filter(Boolean))].join('')}
             <b>Öğrendikleriniz</b><ul>${lab.learn.map(x => `<li>${x}</li>`).join('')}</ul>
