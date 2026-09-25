@@ -563,6 +563,8 @@ const CgLabTmsh = (function () {
                 const md = (r.mod || '').replace(/^\//, '');
                 if (!MODULES.includes(md)) return E('Syntax Error: "' + (TK[1].t) + '" unknown property', 'invalid');
                 if (verb === 'show') { const o = showCmd(md, r.comp, TK.slice(3)); if (o !== null) return o; }
+                if (verb === 'delete' && md === 'sys' && r.comp === 'connection') { const o = deleteConn(TK.slice(3).map(x => x.t)); if (!o.err) auditLog(line); return o; }
+                if (verb === 'delete' && md === 'ltm' && r.comp === 'persistence' && TK[3] && TK[3].t === 'persist-records') { const o = persistRecs(TK.slice(4).map(x => x.t), true); if (!o.err) auditLog(line); return o; }
                 if ((verb === 'list' || verb === 'show') && md === 'sys' && r.comp === 'ucs') { log({ listUcs: true }); return { out: S.ucs.map(u => 'sys ucs /var/local/ucs/' + u.name + ' {\n    base-build 0.0.5\n    base-version ' + (u.ver || curVer()) + '\n    file-created-date 2026-09-24T10:2' + (S.ucs.indexOf(u) % 10) + ':07Z\n    hostname ' + M().hostname + '\n}').join('\n') + (S.ucs.length ? '\n# [Simülatör] Alanlar kısaltıldı.' : '# [Simülatör] /var/local/ucs altında UCS yok.'), ok: true }; }
                 if (!r.comp) return E('Syntax Error: "' + md + '" requires a component', 'incomplete');
                 if (['ltm', 'cm', 'gtm', 'security', 'apm', 'asm', 'util'].includes(md) || ['software', 'ucs', 'license', 'log', 'syslog', 'snmp', 'db', 'failover', 'service'].includes(r.comp)) return E('# [Simülatör] "' + md + ' ' + r.comp + '" bu lab sürümünde henüz desteklenmiyor.', 'unsupported');
@@ -669,7 +671,8 @@ const CgLabTmsh = (function () {
                             'Traffic                ServerSide  General', '  Current Connections ' + String(c).padStart(13) + '        -', ''); });
                     log({ show: 'ltm node' }); return { out: L.join('\n'), ok: true };
                 }
-                if (comp === 'persistence' && a[0] === 'persist-records') {
+                if (comp === 'persistence' && a[0] === 'persist-records') return persistRecs(a.slice(1), false);
+                if (comp === 'persistence-old' && a[0] === 'persist-records') {
                     const L = ['Sys::Persistent Connections'];
                     Object.entries(S.rt.persist || {}).forEach(([k, mk]) => { const [pn, src] = k.split('|'); const vn = (Object.entries(M().virtuals).find(([, v]) => v.pool === pn) || ['?'])[0], vd = vn !== '?' ? M().virtuals[vn].dest : '?'; L.push('source-address  ' + src + '  ' + vd + '  ' + mk + '  (tmm: 1)'); });
                     L.push('Total records returned: ' + (L.length - 1));
@@ -713,6 +716,7 @@ const CgLabTmsh = (function () {
                 log({ show: 'sys version' });
                 return { out: ['', 'Sys::Version', 'Main Package', '  Product     ' + VER.product, '  Version     ' + curVer(), '  Build       ' + VER.build, '  Edition     ' + VER.edition, '  Date        ' + VER.date, ''].join('\n'), ok: true };
             }
+            if (mod === 'sys' && comp === 'connection') return showConn(a);
             if (mod === 'sys' && comp === 'log' && a[0] === 'ltm') {
                 // show sys log ltm [lines N]: "ltm MM-DD HH:MM:SS <seviye> <host> <süreç>: <mesaj>" (mesaj kodu gösterilmez)
                 const li = a.indexOf('lines'); const n = li >= 0 ? +(a[li + 1] || 10) : 0;
@@ -785,7 +789,7 @@ const CgLabTmsh = (function () {
         // üye durumu: availability (available | offline | unknown), state (enabled | disabled | forced-offline), reason
         // Durum dizgeleri gerçek tmsh çıktılarından (notes/f5-tmsh-cikti-ornekleri.md §4)
         const MSTAMP = '@2026/09/24 10:25:07.';
-        const connOf = (pn, k) => ((SIM.conns || {})[k] || 0) + ((S.rt.conns || {})[pn + '|' + k] || 0);
+        const connOf = (pn, k) => ((SIM.conns || {})[k] || 0) + ((S.rt.conns || {})[pn + '|' + k] || 0) + (S.ct || []).filter(c => c.pool === pn && c.member === k).length;
         function memberStatus(pn, key) {
             const pl = M().pools[pn], m = pl.members[key];
             const node = Object.values(M().nodes).find(n => n.address === m.ip) || {};
@@ -903,16 +907,19 @@ const CgLabTmsh = (function () {
             if (o.https && !v.profiles.some(x => profType(x) === 'client-ssl')) return { kind: 'sslerr', vs: vn };
             if (!v.pool) return { kind: 'reset', why: 'nopool', vs: vn };
             const L = eligible(v.pool);
-            if (!L.length) return { kind: 'reset', why: 'nomember', vs: vn };
+            const hasPersisted = (S.rt.persist || {})[v.pool + '|' + o.src];
+            if (!L.length && !hasPersisted) return { kind: 'reset', why: 'nomember', vs: vn };
             const pl = M().pools[v.pool], pers = v.persist[0] && persistType(v.persist[0]);
             const hasHttp = v.profiles.some(x => profType(x) === 'http');
             let key = null, setCookie = null, persisted = false;
             const cname = pers === 'cookie' ? ((M().persists[v.persist[0]] || {}).cookieName || 'BIGipServer' + v.pool) : null;
-            if (pers === 'cookie' && o.cookie && o.cookie[cname]) { key = L.find(k => f5cookie(pl.members[k].ip, pl.members[k].port) === o.cookie[cname]) || null; persisted = !!key; }
-            if (pers === 'source-addr' || (!key && pers === 'cookie' && v.fallback && persistType(v.fallback) === 'source-addr')) { const pr = (S.rt.persist || (S.rt.persist = {}))[v.pool + '|' + o.src]; if (pr && L.includes(pr)) { key = pr; persisted = true; } }
+            // devre dışı (session user-disabled) üye yeni bağlantı almaz ama kalıcılık kaydı olan istemcileri kabul eder; forced offline kabul etmez
+            const persistOk = k => { if (!pl.members[k]) return false; if (L.includes(k)) return true; const st = memberStatus(v.pool, k); return (st.avail === 'available' || st.avail === 'unknown') && st.session === 'user-disabled'; };
+            if (pers === 'cookie' && o.cookie && o.cookie[cname]) { key = pl.order.find(k => f5cookie(pl.members[k].ip, pl.members[k].port) === o.cookie[cname] && persistOk(k)) || null; persisted = !!key; }
+            if (pers === 'source-addr' || (!key && pers === 'cookie' && v.fallback && persistType(v.fallback) === 'source-addr')) { const pr = (S.rt.persist || (S.rt.persist = {}))[v.pool + '|' + o.src]; if (pr && persistOk(pr)) { key = pr; persisted = true; } }
             if (!key) key = lbPick(v.pool, L);
             const m = pl.members[key];
-            if (pers === 'source-addr' || (pers === 'cookie' && v.fallback)) S.rt.persist[v.pool + '|' + o.src] = key;
+            if (pers === 'source-addr' || (pers === 'cookie' && v.fallback)) { S.rt.persist[v.pool + '|' + o.src] = key; (S.rt.pmeta || (S.rt.pmeta = {}))[v.pool + '|' + o.src] = { vs: vn, age: 12 + (ip2n(o.src) % 150) }; }
             if (pers === 'cookie' && hasHttp && !persisted) { const mt = (M().persists[v.persist[0]] || {}).method || 'insert'; if (mt === 'insert') setCookie = cname + '=' + f5cookie(m.ip, m.port) + '; path=/; Httponly'; }
             (S.rt.conns || (S.rt.conns = {}))[v.pool + '|' + key] = ((S.rt.conns || {})[v.pool + '|' + key] || 0);
             (S.rt.hits || (S.rt.hits = {}))[v.pool + '|' + key] = (S.rt.hits[v.pool + '|' + key] || 0) + 1;
@@ -927,6 +934,70 @@ const CgLabTmsh = (function () {
             if (!resp) return { kind: 'reset', why: 'srvrefused', vs: vn, member: key };
             if (setCookie) resp.headers = resp.headers.concat(['Set-Cookie: ' + setCookie]);
             return { kind: 'ok', resp, vs: vn, member: key, persisted, src: v.sat.type === 'automap' ? 'self' : v.sat.type === 'snat' ? 'snat' : 'client' };
+        }
+        // ═══ Bağlantı tablosu (show/delete sys connection) ═══════════════════
+        // lab.sim.clients: [{ ip, vs, n }] sürekli bağlı istemciler. Kurulu bağlantı yapılandırma değişikliğinden etkilenmez (K13253);
+        // silinen bağlantının istemcisi yeniden bağlanır ve o anki dağıtım/kalıcılık kararıyla yeni üyeye gider.
+        S.ct = [];
+        let ctPort = 49930;
+        function ctOpen(ip, vn) {
+            const v = M().virtuals[vn]; if (!v || !v.enabled) return null;
+            const [vip, vport] = v.dest.split(':'); const port = ctPort++;
+            const c = { cc: ip + ':' + port, cs: vip + ':' + vport, sc: 'any6.any', ss: 'any6.any', proto: v.proto === 'udp' ? 'udp' : 'tcp', idle: 3 + (port % 40), tmm: port % 2, vs: vn, pool: v.pool, member: null };
+            const r = vipRequest({ ip: vip, port: +vport, path: '/', method: 'GET', src: ip, cookie: {}, test: true });
+            if (r.member && r.kind !== 'refused') {
+                const m = M().pools[v.pool].members[r.member]; c.member = r.member;
+                c.ss = m.ip + ':' + (v.tport === 'enabled' ? m.port : vport);
+                const self = Object.values(M().selfs).find(x => x.address && inNet(m.ip, x.address));
+                c.sc = v.sat.type === 'automap' && self ? self.address.split('/')[0] + ':' + port : v.sat.type === 'snat' ? M().snatpools[v.sat.pool].members[0] + ':' + port : ip + ':' + port;
+                if (r.kind !== 'ok') { c.sc = 'any6.any'; c.ss = 'any6.any'; c.member = null; }
+            }
+            return c;
+        }
+        function ctBoot() { (SIM.clients || []).forEach(cl => { for (let i = 0; i < (cl.n || 1); i++) { const c = ctOpen(cl.ip, cl.vs); if (c) S.ct.push(c); } }); }
+        const ipIn = (ipport, flt) => { const ip = ipport.split(':')[0]; return flt.includes('/') ? inNet(ip, flt) : ip === flt; };
+        function ctFilter(a) {
+            const F = {}; const keys = ['cs-client-addr', 'cs-client-port', 'cs-server-addr', 'cs-server-port', 'ss-client-addr', 'ss-client-port', 'ss-server-addr', 'ss-server-port', 'protocol', 'age', 'virtual-server'];
+            for (let i = 0; i < a.length; i++) { if (a[i] === 'all-properties') { F.all = true; continue; } if (!keys.includes(a[i])) return { err: a[i] }; if (a[i + 1] === undefined) return { err: a[i], novalue: true }; F[a[i]] = a[++i]; }
+            const pnum = x => portOf(x);
+            const fld = { 'cs-client': 'cc', 'cs-server': 'cs', 'ss-client': 'sc', 'ss-server': 'ss' };
+            const list = S.ct.filter(c => Object.entries(fld).every(([k, f]) => (!F[k + '-addr'] || (c[f] !== 'any6.any' && ipIn(c[f], F[k + '-addr']))) && (!F[k + '-port'] || (c[f] !== 'any6.any' && +c[f].split(':')[1] === pnum(F[k + '-port'])))) && (!F.protocol || c.proto === F.protocol) && (!F.age || c.idle >= +F.age) && (!F['virtual-server'] || c.vs === F['virtual-server'].replace(/^\/Common\//, '')));
+            return { F, list };
+        }
+        function showConn(a) {
+            const r = ctFilter(a); if (r.err) return r.novalue ? E('Syntax Error: "' + r.err + '" requires a value', 'incomplete') : SYN(r.err);
+            const L = ['Sys::Connections'];
+            r.list.forEach(c => {
+                if (!r.F.all) { L.push(c.cc + '  ' + c.cs + '  ' + c.sc + '  ' + c.ss + '  ' + c.proto + '  ' + c.idle + '  (tmm: ' + c.tmm + ')  none  none'); return; }
+                L.push(c.cc + ' - ' + c.cs + ' - ' + c.sc + ' - ' + c.ss, '-'.repeat(69), '  TMM           ' + c.tmm, '  Type          any', '  Acceleration  none', '  Neuron Rules  none', '  Protocol      ' + c.proto, '  Idle Time     ' + c.idle, '  Idle Timeout  300', '  Unit ID       1',
+                    '  Lasthop       /Common/external 00:50:56:8a:77:01', '  Server Nexthop ' + (c.member ? '/Common/server 00:50:56:8a:30:' + (ip2n(c.ss.split(':')[0]) % 90 + 10) : 'none'), '  Ingress Dest  none', '  Virtual Path  ' + c.cs, '  Conn Id 0', '',
+                    '                         ClientSide        ServerSide', '  Client Addr  ' + c.cc.padStart(19) + '  ' + c.sc.padStart(18), '  Server Addr  ' + c.cs.padStart(19) + '  ' + c.ss.padStart(18), '  Bits In      ' + '5.0K'.padStart(19) + '  ' + (c.member ? '34.8K' : '0').padStart(18), '  Bits Out     ' + '35.2K'.padStart(19) + '  ' + (c.member ? '5.0K' : '0').padStart(18), '');
+            });
+            L.push('Total records returned: ' + r.list.length);
+            log({ showConn: r.F, n: r.list.length });
+            return { out: L.join('\n'), ok: true };
+        }
+        function deleteConn(a) {
+            const r = ctFilter(a); if (r.err || r.F.all) return r.novalue ? E('Syntax Error: "' + r.err + '" requires a value', 'incomplete') : SYN(r.err || 'all-properties');
+            const gone = r.list; S.ct = S.ct.filter(c => !gone.includes(c));
+            // istemciler yeniden bağlanır
+            gone.forEach(c => { const n = ctOpen(c.cc.split(':')[0], c.vs); if (n) S.ct.push(n); });
+            log({ delConn: r.F, n: gone.length });
+            return { out: '', ok: true };
+        }
+        function persistRecs(a, del) {
+            const F = {}; const keys = ['client-addr', 'key', 'mode', 'node-addr', 'node-port', 'pool', 'virtual'];
+            for (let i = 0; i < a.length; i++) { if (a[i] === 'all-properties' && !del) { F.all = true; continue; } if (!keys.includes(a[i])) return SYN(a[i]); if (a[i + 1] === undefined) return E('Syntax Error: "' + a[i] + '" requires a value', 'incomplete'); F[a[i]] = a[++i]; }
+            if (F.mode && !['cookie', 'destination-address', 'hash', 'msrdp', 'sip', 'source-address', 'ssl-session-id', 'universal'].includes(F.mode)) return SYNx('"' + F.mode + '" invalid mode');
+            const recs = Object.entries(S.rt.persist || {}).map(([k, mk]) => { const [pn, src] = k.split('|'); const meta = (S.rt.pmeta || {})[k] || {}; const vn = meta.vs || (Object.entries(M().virtuals).find(([, v]) => v.pool === pn) || ['?'])[0]; return { k, pn, src, mk, vn, vd: M().virtuals[vn] ? M().virtuals[vn].dest : 'any:any', age: meta.age || 30 }; })
+                .filter(x => (!F['client-addr'] || x.src === F['client-addr']) && (!F.mode || F.mode === 'source-address') && (!F['node-addr'] || x.mk.split(':')[0] === F['node-addr']) && (!F['node-port'] || x.mk.split(':')[1] === String(portOf(F['node-port']))) && (!F.pool || x.pn === F.pool.replace(/^\/Common\//, '')) && (!F.virtual || x.vn === F.virtual.replace(/^\/Common\//, '')));
+            if (del) { recs.forEach(x => { delete S.rt.persist[x.k]; if (S.rt.pmeta) delete S.rt.pmeta[x.k]; }); log({ delPersist: F, n: recs.length }); return { out: '', ok: true }; }
+            const L = ['Sys::Persistent Connections'];
+            recs.forEach(x => { if (!F.all) { L.push('source-address  ' + x.src + '  ' + x.vd + '  ' + x.mk + '  (tmm: ' + (ip2n(x.src) % 2) + ')'); return; }
+                L.push('source-address - ' + x.vd + ' - ' + x.mk, '-'.repeat(57), '  TMM           ' + (ip2n(x.src) % 2), '  Mode          source-address', '  Value         ' + x.src, '  Age (sec.)    ' + x.age, '  Virtual Name  /Common/' + x.vn, '  Virtual Addr  ' + x.vd, '  Node Addr     ' + x.mk, '  Pool Name     /Common/' + x.pn, '  Client Addr   ' + x.src, '  Owner entry', '  not mirrored'); });
+            L.push('Total records returned: ' + recs.length);
+            log({ show: 'ltm persistence', F, n: recs.length });
+            return { out: L.join('\n'), ok: true };
         }
         const vlanUp = vn => { const v = M().vlans[vn]; return !!v && Object.keys(v.ifs).some(linkUp); };
         function saveLoad(verb, rest) {
@@ -1245,7 +1316,7 @@ const CgLabTmsh = (function () {
         apply(lab.start || []);
         S.saved = clone(M());
         apply(lab.startUnsaved || []);
-        ltmTick(true);
+        ctBoot(); ltmTick(true);
         // başlangıç açılış hacmi (ör. yükseltme sonrası arıza lab'ı)
         if (SIM.bootVol && S.vols[SIM.bootVol]) { S.boot = SIM.bootVol; S.inop = !svcOk(curVer()); if (S.inop) S.ltmlog.push(stamp(900) + ' ' + short() + ' emerg load_config_files[4122]: "/usr/bin/tmsh -n -g -a load sys config partitions all " - failed. -- 01070608:0: License is not operational (expired or digital signature does not match contents).'); }
         S.ev = []; S.hist = []; S.audit = (SIM.auditlog || []).slice(); S.rt.acc = { ssh: allowHas(M().sshd.allow, ADMIN), gui: allowHas(M().httpd.allow, ADMIN) };
@@ -1270,6 +1341,7 @@ const CgLabTmsh = (function () {
             ev: EV, mode: () => S.mode, dirty,
             // yan etkisiz VIP testi (kontrollerde kullanılır): sayaçları ve kalıcılık tablosunu değiştirmez
             vipTest: (ip, port, path) => { const keep = JSON.stringify(S.rt); const r = vipRequest({ ip, port, path: path || '/', method: 'GET', src: SIM.client || '198.51.100.20', cookie: {}, test: true }); S.rt = JSON.parse(keep); return { kind: r.kind, code: r.resp ? r.resp.code : null, member: r.member || null }; },
+            conns: () => S.ct.map(c => Object.assign({}, c)), persistRecords: () => Object.assign({}, S.rt.persist || {}),
             vols: () => clone(S.vols), bootVol: () => S.boot, inop: () => S.inop, ucsFiles: () => S.ucs.map(u => u.name),
             memberStatus: (p, k) => memberStatus(p, k), poolStatus: p => poolStatus(p), vsStatus: v => vsStatus(v),
             reach: ip => reach(ip), sshAllowed: ip => allowHas(M().sshd.allow, ip || ADMIN), guiAllowed: ip => allowHas(M().httpd.allow, ip || ADMIN),

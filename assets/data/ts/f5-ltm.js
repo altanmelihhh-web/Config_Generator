@@ -93,5 +93,17 @@
                 { code: 'tmsh show sys log ltm lines 20', desc: 'Aynı log tmsh\'ten kodsuz biçimde. Yükseltme ya da failover sonrasında son satırlarda beklenmeyen down, No members available ya da unavailable olmamalıdır; varsa uygulama ekibiyle doğrulama yapılmadan bakım kapatılmaz.' },
             ]
         },
+        {
+            title: 'Kullanıcı Hep Aynı (Sorunlu) Sunucuya Gidiyor ya da Bakıma Alınan Üyeye Hâlâ Trafik Gidiyor: Bağlantı Tablosu ve Persist Kayıtları', severity: 'warn', topic: 'adc', lab: 'f5-14', replaces: 'Client Belirli Sunucuya Yonlendirilmiyor',
+            symptom: 'Belirli bir kullanıcı hep aynı sunucuya düşüyor; ya da bakım için devre dışı bırakılan pool üyesine trafik gitmeye devam ediyor.',
+            steps: [
+                { code: 'tmsh show sys connection cs-client-addr 198.51.100.23', desc: 'Satır: istemci → VIP → SNAT adresi (ss-client) → sunucu (ss-server). Dördüncü sütun kullanıcının gerçekte hangi sunucuda olduğunu gösterir. Kayıt yoksa istek BIG-IP\'ye ulaşmıyor; sunucu tarafı any6.any ise bağlantı açılmış ama bir üye seçilememiş (üye yok ya da istek bekleniyor).' },
+                { code: 'tmsh show ltm persistence persist-records client-addr 198.51.100.23', desc: 'Source address persistence kaydı istemciyi bir üyeye bağlar ve süresi dolana kadar aynı üye seçilir. Cookie insert persistence tabloda kayıt tutmaz; bilgi istemcideki BIGipServer<pool> cookie\'sindedir (tarayıcıdan silinir).',
+                  fix: [{ cause: 'Kullanıcıyı başka sunucuya taşımak (önce persist kaydı, sonra bağlantı)', cmd: 'tmsh delete ltm persistence persist-records client-addr 198.51.100.23\ntmsh delete sys connection cs-client-addr 198.51.100.23 cs-server-addr 203.0.113.100 cs-server-port 80' }] },
+                { code: 'tmsh show sys connection ss-server-addr 10.64.30.52 ss-server-port 80', desc: 'Bakımdaki üyede kalan bağlantılar. Disabled (session user-disabled) üye yeni bağlantı almaz ama mevcut bağlantılar ve kalıcılık kaydı olan istemciler sürer. Kurulu bağlantılar yapılandırma değişikliğinden etkilenmez (K13253).',
+                  fix: [{ cause: 'Üyeyi kesintisiz boşaltmak', cmd: 'tmsh delete ltm persistence persist-records node-addr 10.64.30.52 node-port 80\ntmsh delete sys connection ss-server-addr 10.64.30.52 ss-server-port 80\ntmsh modify ltm pool web_pool members modify { 10.64.30.52:80 { state user-down } }' }] },
+                { code: 'tmsh show sys connection cs-client-addr 198.51.100.23 all-properties', desc: 'Ayrıntılı blok: Idle Timeout (TCP profilinin süresi), Virtual Path (VIP), Lasthop. Filtresiz "delete sys connection" TÜM tabloyu (mirror dahil) siler; her zaman adres ve port ile daraltın.' },
+            ]
+        },
     ];
 })();

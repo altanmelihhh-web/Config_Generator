@@ -2162,3 +2162,103 @@ function cgF5UpgradeGen(data) {
     c += '\n# Geri dönüş\ntmsh reboot volume ' + cur + '\n';
     return { config: c.replace(/ {2,}#/g, ' #'), warnings: w };
 }
+
+// ── F5 BIG-IP: Bağlantı / Kalıcılık Sorgusu ───────────────────────────────────
+// Sözdizimi: tmsh reference sys connection, ltm persistence persist-records (clouddocs); K53851362, K13253. Lab: f5-14.
+F5LTM.conntable = {
+    label: 'Bağlantı / Kalıcılık Sorgusu',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-stream',
+                title: 'Bağlantı Tablosu ve Kalıcılık Kayıtları',
+                desc: 'İstemci, VIP, SNAT ya da pool üyesine göre bağlantı tablosu ve persistence kaydı sorguları; gerekirse dar filtreli silme.<br>Örnek: <code>tmsh show sys connection cs-client-addr 198.51.100.23</code>',
+                badge: { text: 'Teşhis', cls: 'info' }
+            },
+            sections: [
+                {
+                    title: 'Filtreler (en az biri)',
+                    icon: 'fas fa-filter',
+                    fields: [
+                        { name: 'client', label: 'İstemci IP (cs-client-addr)', type: 'text', validate: 'ip', placeholder: '198.51.100.23', why: "Kullanıcının hangi sunucuya gittiğini bulmak için. Satırın dördüncü sütunu (ss-server) sunucudur." },
+                        { name: 'vip', label: 'VIP IP (cs-server-addr)', type: 'text', validate: 'ip', placeholder: '203.0.113.100', why: "Trafik VIP'e geliyor mu? Hiç kayıt yoksa istek BIG-IP'ye ulaşmıyor (rota, ARP, güvenlik duvarı)." },
+                        { name: 'vport', label: 'VIP Port (cs-server-port)', type: 'text', placeholder: '80' },
+                        { name: 'member', label: 'Pool Üyesi IP (ss-server-addr)', type: 'text', validate: 'ip', placeholder: '10.64.30.52', why: "Bakıma alınacak üyede hâlâ bağlantı var mı? Disabled üye kalıcı istemcileri kabul etmeye devam eder." },
+                        { name: 'mport', label: 'Üye Port (ss-server-port)', type: 'text', placeholder: '80' },
+                        { name: 'snat', label: 'SNAT Adresi (ss-client-addr)', type: 'text', validate: 'ip', placeholder: '10.64.30.11', why: "SNAT gerçekten uygulanıyor mu? SNAT yoksa ss-client sütununda istemcinin kendi adresi görünür." }
+                    ]
+                },
+                {
+                    title: 'İşlem',
+                    icon: 'fas fa-tools',
+                    fields: [
+                        { name: 'detail', label: 'Ayrıntılı blok (all-properties)', type: 'checkbox', why: "Idle Timeout (TCP profilinin süresi), Virtual Path, Lasthop gibi alanları gösterir." },
+                        { name: 'persist', label: 'Kalıcılık kayıtlarını da sorgula', type: 'checkbox', checked: true },
+                        { name: 'del', label: 'Eşleşen kayıtları sil (dikkat)', type: 'checkbox', why: "Silinen bağlantının istemcisi yeniden bağlanır ve o anki dağıtım kararıyla başka üyeye gidebilir. Önce persist kaydı silinmezse kalıcı istemci aynı üyeye döner." }
+                    ]
+                }
+            ],
+            submit: 'Komutları Oluştur'
+        }, (data) => cgF5ConnGen(data));
+    }
+};
+function cgF5ConnGen(data) {
+    const f = [], w = [];
+    const add = (k, v) => { v = String(v || '').trim(); if (v) f.push(k + ' ' + cgEsc(v)); };
+    add('cs-client-addr', data.client); add('cs-server-addr', data.vip); add('cs-server-port', data.vport); add('ss-client-addr', data.snat); add('ss-server-addr', data.member); add('ss-server-port', data.mport);
+    if (!f.length) w.push('⛔ Filtre yok: filtresiz "show sys connection" binlerce satır döker, filtresiz "delete sys connection" ise TÜM bağlantıları (mirror dahil) siler. En az bir adres verin.');
+    if ((data.member && !data.mport) || (data.client && !data.vport && data.del)) w.push('⚠ Port verilmeden IP ile silme, o IP\'nin tüm bağlantılarını siler (referans uyarısı). Mümkünse portu da verin.');
+    let c = '# ========================================\n# F5 BIG-IP — Bağlantı / Kalıcılık Sorgusu\n# ========================================\n\n';
+    const j = (...p) => p.filter(Boolean).join(' ');
+    c += '# Bağlantı tablosu: istemci -> VIP -> SNAT adresi -> sunucu\n' + j('tmsh show sys connection', f.join(' '), data.detail ? 'all-properties' : '') + '\n';
+    if (data.persist) {
+        const pf = []; if (data.client) pf.push('client-addr ' + cgEsc(data.client)); if (data.member) pf.push('node-addr ' + cgEsc(data.member)); if (data.member && data.mport) pf.push('node-port ' + cgEsc(data.mport));
+        c += '\n# Kalıcılık kayıtları (cookie insert kayıt tutmaz; bilgi istemcideki BIGipServer cookie\'sindedir)\n' + j('tmsh show ltm persistence persist-records', pf.join(' '), data.detail ? 'all-properties' : '') + '\n';
+        if (data.del && pf.length) c += '\n# Önce kalıcılık kaydı, sonra bağlantı silinir (yoksa istemci aynı üyeye döner)\ntmsh delete ltm persistence persist-records ' + pf.join(' ') + '\n';
+    }
+    if (data.del && f.length) c += 'tmsh delete sys connection ' + f.join(' ') + '\n\n# Doğrulama\ntmsh show sys connection ' + f.join(' ') + '\n';
+    w.push('ℹ Kurulu bağlantılar yapılandırma değişikliğinden etkilenmez (K13253): VS/profil değişikliğinden sonra eski davranış sürüyorsa ilgili bağlantıları dar filtreyle silin.');
+    return { config: c.replace(/ {2,}#/g, ' #'), warnings: w };
+}
+
+// ── F5 BIG-IP: Pool Üyesi Bakım (Güvenli Boşaltma) ────────────────────────────
+F5LTM.drain = {
+    label: 'Pool Üyesi Bakım (Boşaltma)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-tint-slash',
+                title: 'Pool Üyesini Kesintisiz Bakıma Almak',
+                desc: 'Disable → bağlantı ve kalıcılık kontrolü → (gerekirse) silme → forced offline → bakım sonrası geri alma.<br>Örnek: <code>tmsh modify ltm pool web_pool members modify { 10.64.30.52:80 { session user-disabled } }</code>',
+                badge: { text: 'Operasyon', cls: 'info' }
+            },
+            sections: [
+                {
+                    title: 'Üye',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'pool', label: 'Pool', type: 'text', required: true, placeholder: 'web_pool' },
+                        { name: 'member', label: 'Üye (IP:port)', type: 'text', required: true, placeholder: '10.64.30.52:80', why: "Disabled üye yeni bağlantı almaz ama mevcut ve kalıcı (persistence) istemcileri kabul eder; forced offline ise hiçbirini kabul etmez ve açık oturumları keser." },
+                        { name: 'force', label: 'Bağlantılar bitmezse persist kaydı ve bağlantıları sil', type: 'checkbox', why: "Uzun süren bağlantılar (ör. WebSocket, RDP) kendiliğinden bitmeyebilir. Silmek o kullanıcıları başka üyeye taşır; kısa bir yeniden bağlanma yaşanır." }
+                    ]
+                }
+            ],
+            submit: 'Planı Oluştur'
+        }, (data) => cgF5DrainGen(data));
+    }
+};
+function cgF5DrainGen(data) {
+    const pool = cgEsc(String(data.pool || '').trim()), mem = cgEsc(String(data.member || '').trim()), w = [];
+    const m = mem.match(/^(\d{1,3}(?:\.\d{1,3}){3}):(\d+)$/);
+    if (!m) w.push('⛔ Üye IP:port biçiminde olmalı (ör. 10.64.30.52:80).');
+    const ip = m ? m[1] : '<ip>', port = m ? m[2] : '<port>';
+    let c = '# ========================================\n# F5 BIG-IP — Pool Üyesi Bakım (Güvenli Boşaltma)\n# ========================================\n\n';
+    c += '# 1) Yeni bağlantıları kes (mevcutlar ve kalıcı istemciler sürer)\ntmsh modify ltm pool ' + pool + ' members modify { ' + mem + ' { session user-disabled } }\n\n';
+    c += '# 2) Kalan bağlantıları ve kalıcılık kayıtlarını izle\ntmsh show sys connection ss-server-addr ' + ip + ' ss-server-port ' + port + '\ntmsh show ltm persistence persist-records node-addr ' + ip + ' node-port ' + port + '\ntmsh show ltm pool ' + pool + ' members   # Current Connections\n\n';
+    if (data.force) c += '# 3) Bitmeyenleri taşı: önce persist kaydı, sonra bağlantı\ntmsh delete ltm persistence persist-records node-addr ' + ip + ' node-port ' + port + '\ntmsh delete sys connection ss-server-addr ' + ip + ' ss-server-port ' + port + '\n\n';
+    c += '# ' + (data.force ? '4' : '3') + ') Bağlantı kalmayınca zorla kapat (bakım)\ntmsh modify ltm pool ' + pool + ' members modify { ' + mem + ' { state user-down } }\ntmsh save sys config\n\n';
+    c += '# Bakım bitince geri al\ntmsh modify ltm pool ' + pool + ' members modify { ' + mem + ' { state user-up session user-enabled } }\ntmsh show ltm pool ' + pool + ' members   # Availability: available, State: enabled\ntmsh save sys config\n';
+    w.push('ℹ Sıra önemli: bağlantılar bitmeden forced offline yapmak açık oturumları keser. Disabled üyeye kalıcı istemciler gitmeye devam eder; boşalmıyorsa persist kaydını silin (f5-14).');
+    w.push('ℹ /var/log/ltm\'de forced down ve geri alındığında monitor status up satırları görülür; bakım kaydına ekleyin.');
+    return { config: c.replace(/ {2,}#/g, ' #'), warnings: w };
+}
