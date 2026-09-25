@@ -5,7 +5,13 @@
 // İlerleme bu tarayıcıda (localStorage) tutulur; dışa/içe aktarılabilir.
 const CgLab = {
     LEVELS: ['CLI temelleri', 'Temel yapılandırma', 'L2 anahtarlama', 'L3 / yönlendirme', 'Güvenlik ve servisler', 'Sorun giderme', 'Sınav tarzı'],
-    VENDORS: { 'cisco-ios': { name: 'Cisco IOS', engine: () => (typeof CgLabIos !== 'undefined' ? CgLabIos : null), files: ['assets/js/lab/core.js', 'assets/js/lab/ios.js', 'assets/data/labs/ios.js'] } },
+    VENDORS: {
+        'cisco-ios': { name: 'Cisco IOS', look: 'IOS 15.x', engine: () => (typeof CgLabIos !== 'undefined' ? CgLabIos : null), files: ['assets/js/lab/core.js', 'assets/js/lab/ios.js', 'assets/data/labs/ios.js'] },
+        fortigate: { name: 'FortiGate', look: 'FortiOS 7.4', levels: ['CLI temelleri', 'Temel yapılandırma', 'Nesneler ve güvenlik kuralları', 'Yönlendirme ve NAT', 'VPN, kimlik ve profiller', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabFgt !== 'undefined' ? CgLabFgt : null), files: ['assets/js/lab/core.js', 'assets/js/lab/fortios.js', 'assets/data/labs/fortigate.js'] },
+    },
+    lvName(vendor, lv) { const v = this.VENDORS[vendor]; return ((v && v.levels) || this.LEVELS)[lv] || ''; },
+    KIND: { switch: 'Switch', router: 'Router', firewall: 'Firewall' },
+    _vf: 'all',
     KEY: 'cg-lab-v1',
 
     // ── depolama (her erişim try/catch; tarayıcı engellerse ilerleme yalnız oturumda kalır)
@@ -36,7 +42,12 @@ const CgLab = {
 
     // ═══ Katalog ═══════════════════════════════════════════════════════════
     _paintCatalog() {
-        const labs = window.CG_LABS || [], real = labs.filter(l => !l.sandbox);
+        const all = window.CG_LABS || [];
+        const labs = all.filter(l => this._vf === 'all' || l.vendor === this._vf), real = labs.filter(l => !l.sandbox);
+        const vchips = ['all'].concat(Object.keys(this.VENDORS)).map(v => {
+            const n = all.filter(l => !l.sandbox && (v === 'all' || l.vendor === v)).length;
+            return `<button class="cg-chip${this._vf === v ? ' active' : ''}" data-vf="${v}">${v === 'all' ? '' : this._mark(v)}<span class="cg-chip-l">${v === 'all' ? 'Tümü' : cgEsc(this.VENDORS[v].name)}</span><span class="cg-chip-n">${n}</span></button>`;
+        }).join('');
         const doneN = real.filter(l => this._st(l.id).tDone).length;
         const stars = real.reduce((a, l) => a + (this._st(l.id).stars || 0), 0);
         const levels = [...new Set(real.map(l => l.level))].sort((a, b) => a - b);
@@ -63,15 +74,17 @@ const CgLab = {
                 <span class="cg-lab-stats-act"><button class="cg-ts-btn" data-exp><i class="fas fa-download"></i> İlerlemeyi indir</button>
                 <label class="cg-ts-btn"><i class="fas fa-upload"></i> Yükle<input type="file" accept="application/json" data-imp hidden></label></span>
             </div>
-            <div class="cg-lab-simnote"><i class="fas fa-info-circle"></i> Bu bir <b>eğitim simülatörüdür</b>; IOS 15.x davranışının bir alt kümesini taklit eder. Desteklenmeyen bir komut yazarsanız bunu açıkça söyler.</div>
+            <div class="cg-chips cg-lab-vf">${vchips}</div>
+            <div class="cg-lab-simnote"><i class="fas fa-info-circle"></i> Bu bir <b>eğitim simülatörüdür</b>; ${Object.values(this.VENDORS).map(v => v.name + ' (' + v.look + ')').join(', ')} davranışının bir alt kümesini taklit eder. Desteklenmeyen bir komut yazarsanız bunu açıkça söyler.</div>
             ${levels.map(lv => `<section class="cg-lab-level">
-                <h3><span class="cg-lab-lvn">Seviye ${lv}</span> ${cgEsc(this.LEVELS[lv] || '')}</h3>
+                <h3><span class="cg-lab-lvn">Seviye ${lv}</span> ${cgEsc([...new Set(real.filter(l => l.level === lv).map(l => this.lvName(l.vendor, lv)))].join(' · '))}</h3>
                 <div class="cg-lab-cards">${real.filter(l => l.level === lv).map(card).join('')}</div>
             </section>`).join('')}
             ${sandboxes.length ? `<section class="cg-lab-level"><h3><span class="cg-lab-lvn"><i class="fas fa-terminal"></i></span> Serbest terminal</h3>
                 <div class="cg-lab-cards">${sandboxes.map(l => `<a class="cg-lab-card" href="#/lab/${l.id}"><span class="cg-lab-card-top">${this._mark(l.vendor)}<span class="cg-lab-id">SANDBOX</span></span>
                 <span class="cg-lab-card-t">${cgEsc(l.title)}</span><span class="cg-lab-card-m">Görev yok, serbest deneme</span></a>`).join('')}</div></section>` : ''}
         </div>`;
+        this._root.querySelectorAll('[data-vf]').forEach(b => b.addEventListener('click', () => { this._vf = b.dataset.vf; this._paintCatalog(); }));
         this._root.querySelector('[data-exp]').addEventListener('click', () => this._export());
         this._root.querySelector('[data-imp]').addEventListener('change', e => this._import(e.target.files[0]));
     },
@@ -109,7 +122,7 @@ const CgLab = {
             if (!sec && e.i.trim()) this._hist.push(e.i);
         }
         this._hi = this._hist.length;
-        const lvl = lab.level === null || lab.level === undefined ? 'Serbest terminal' : 'Seviye ' + lab.level + ' · ' + (this.LEVELS[lab.level] || '');
+        const lvl = lab.level === null || lab.level === undefined ? 'Serbest terminal' : 'Seviye ' + lab.level + ' · ' + this.lvName(lab.vendor, lab.level);
         this._root.innerHTML = `
         <div class="cg-home cg-lab cg-lab-run">
             <nav class="cg-ts-crumbs"><a href="#/lab"><i class="fas fa-flask"></i> Laboratuvar</a><i class="fas fa-chevron-right"></i><span>${cgEsc(lvl)}</span><i class="fas fa-chevron-right"></i><span>${cgEsc(lab.title)}</span></nav>
@@ -117,7 +130,7 @@ const CgLab = {
                 <aside class="cg-lab-side" id="cg-lab-side"></aside>
                 <section class="cg-lab-termwrap">
                     <div class="cg-term-bar">
-                        <span class="cg-term-dev">${this._mark(lab.vendor)} ${cgEsc(V.name)} · ${lab.kind === 'router' ? 'Router' : 'Switch'}</span>
+                        <span class="cg-term-dev">${this._mark(lab.vendor)} ${cgEsc(V.name)} · ${this.KIND[lab.kind] || ''}</span>
                         <span class="cg-term-acts">
                             ${lab.tasks.length ? '<button class="cg-ts-btn" data-act="check"><i class="fas fa-clipboard-check"></i> Kontrol et</button>' : ''}
                             <button class="cg-ts-btn" data-act="reset" title="Cihazı ve bu lab'daki ilerlemeyi sıfırla"><i class="fas fa-undo"></i> Sıfırla</button>
@@ -301,7 +314,7 @@ const CgLab = {
         const lab = this._lab, st = this._stt;
         const secs = st.t0 && st.tDone ? Math.max(1, Math.round((st.tDone - st.t0) / 1000)) : null;
         const hints = Object.values(st.hints || {}).reduce((a, b) => a + b, 0);
-        const real = (window.CG_LABS || []).filter(l => !l.sandbox && l.vendor === lab.vendor).sort((a, b) => a.level - b.level);
+        const real = (window.CG_LABS || []).filter(l => !l.sandbox && l.vendor === lab.vendor).sort((a, b) => a.level - b.level || a.id.localeCompare(b.id));
         const next = real[real.findIndex(l => l.id === lab.id) + 1];
         return `<div class="cg-lab-finish">
             <div class="cg-lab-stars" role="img" aria-label="3 üzerinden ${st.stars} yıldız">${'★'.repeat(st.stars)}<span>${'☆'.repeat(3 - st.stars)}</span></div>
