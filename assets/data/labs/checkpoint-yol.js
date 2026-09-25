@@ -13,6 +13,21 @@
     const SIMBASE = { policy: { name: 'LAB-Policy' }, cpu: { user: 4, sys: 3, idle: 93, cpus: 4 } };
     const BRANCH = 'set static-route 10.128.0.0/16 nexthop gateway address 10.64.10.254 on';
     const NPW = 'Izleme-Ops26';
+    const PW = 'Expert-Lab1';
+    const EX = cmds => ['expert', PW].concat(cmds);   // clish → expert → komutlar
+    const lastIdx = (L, f) => { for (let i = L.length - 1; i >= 0; i--) if (f(L[i])) return i; return -1; };
+    // mgmt_cli lab'ları (standalone): yayınlanmış + kurulu başlangıç politikası
+    const MG_BASE = ['add network name LAN-NET subnet 10.64.10.0 mask-length 24', 'add network name MGMT-NET subnet 10.240.0.0 mask-length 16',
+        'add access-rule layer Network position 1 name Mgmt-Access source MGMT-NET destination Any service.1 ssh service.2 https action Accept track.type Log'];
+    const OUT_RULE = 'add access-rule layer Network position 2 name LAN-OUT source LAN-NET destination Any service.1 http service.2 https service.3 domain-udp action Accept track.type Log';
+    const WEB_HOST = 'add host name WEB-SRV ip-address 172.24.50.10';
+    const WEB_RULE = 'add access-rule layer Network position 2 name LAN-to-WEB source LAN-NET destination WEB-SRV service https action Accept track.type Log';
+    const INSTALL = 'mgmt_cli install-policy policy-package standard targets.1 gw-a -r true';
+    const UPX = 'fw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=443';
+    const WEBF = { src: '10.64.10.50', dst: '172.24.50.10', dport: 443, in: 'eth2' }, OUTF = { src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'eth2' };
+    const cur = s => { const m = s.mgmt(), x = m.sess(); return x ? x.db : m.pub(); };
+    const webRuleOk = db => { const R = db.rules, i = R.findIndex(r => r.name === 'LAN-to-WEB'), c = R.findIndex(r => r.name === 'Cleanup rule'), r = R[i];
+        return i >= 0 && i < c && r.enabled && r.action === 'Accept' && r.src.join() === 'LAN-NET' && r.dst.join() === 'WEB-SRV' && r.svc.join() === 'https' && !!db.objects['WEB-SRV'] && db.objects['WEB-SRV'].ip === '172.24.50.10'; };
     const branchOk = s => { const r = s.lookup('10.128.5.10'); return !!r && r.type === 'S' && r.gw === '10.64.10.254' && r.dev === 'eth2'; };   // netops kullanıcısının lab parolası (12 karakter, 4 karakter türü)
 
     const LABS = [
@@ -213,6 +228,126 @@
         learn: ['Nexthop bağlı ağda değilse rota etkin olmaz.', 'show route inactive tanımlı ama kullanılamayan rotaları gösterir.', 'Önce arayüz, sonra rota.', 'Düzeltmeden sonra save config.'],
         links: { tool: '#/checkpoint/route', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/110' }, cert: 'CCSA R81.20 · Troubleshooting'
     },
+    // ═══ mgmt_cli: nesneler, kural, publish ve install-policy ═══
+    {
+        id: 'cp-13', vendor: 'checkpoint', level: 3, title: 'Politika CLI\'dan: mgmt_cli ile nesne, kural, publish ve install-policy', minutes: 25, kind: 'firewall', hostname: 'gw-a', pre: ['cp-01'],
+        up: ['eth1', 'eth2', 'eth3'], start: BASE, sim: SIMBASE, mgmt: {}, mgmtStart: MG_BASE,
+        story: 'Lab kutusu <b>standalone</b> kurulumdur: yönetim sunucusu ve gateway aynı cihazda. Politika normalde SmartConsole\'da yazılır; aynı işi yönetim API\'si ile expert moddan <code>mgmt_cli</code> yapar (otomasyonun temeli). İstek: LAN (<code>LAN-NET</code>) DMZ\'deki web sunucusuna (<code>172.24.50.10</code>) yalnız <b>https</b> ile erişsin. Expert parolası: <code>' + PW + '</code>.',
+        lesson: L('Check Point\'te değişiklik üç aşamadan geçer. <b>Oturum</b> (session): <code>mgmt_cli login -r true &gt; id.txt</code> bir API oturumu açar; sonraki komutlar <code>-s id.txt</code> ile bu oturuma yazılır ve yalnız o oturumda görünür. <b>Publish</b>: oturumdaki değişiklikler yönetim veritabanına işlenir, diğer yöneticiler görür. <b>Install policy</b>: yayınlanmış politika gateway\'e derlenip yüklenir; trafik ancak bundan sonra değişir. <code>-s</code> olmadan çalışan tek bir komut kendi oturumunu açar ve otomatik yayınlanır.',
+            'En sık yanlış anlama "kuralı yazdım, neden çalışmıyor?" sorusudur: kural yayınlanmamış ya da yayınlanmış ama kurulmamış olabilir. Aşamaları ayırt etmek, hem SmartConsole hem otomasyon için temel beceridir.',
+            'mgmt_cli login -r true > id.txt\nmgmt_cli add host name WEB-SRV ip-address 172.24.50.10 -s id.txt\nmgmt_cli add access-rule layer Network position 1 name LAN-to-WEB source LAN-NET destination WEB-SRV service https action Accept track.type Log -s id.txt\nmgmt_cli publish -s id.txt\nmgmt_cli install-policy policy-package standard targets.1 gw-a -r true\nfw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=443',
+            ['Publish etmeden install-policy çalıştırmak: kurulan, yayınlanmış sürümdür; oturumdaki kural gateway\'e gitmez.', 'Kuralı <code>position bottom</code> ile eklemek: Cleanup (Any Any Drop) kuralının altına düşer ve hiç eşleşmez.', 'Servisi Any bırakmak: istenenden fazlası açılır.', 'Parolayı <code>-u admin -p …</code> ile komut satırına yazmak: bash geçmişine düşer; yönetim sunucusunda <code>-r true</code> yeterlidir.']),
+        goals: ['API oturumu açmak', 'Host nesnesi ve erişim kuralı', 'Publish ile install-policy farkı', 'fw up_execute ile kuralı doğrulamak'],
+        tasks: [
+            { t: 'Expert moda geçin ve bir API oturumu açıp kimliğini <code>id.txt</code> dosyasına yazın.', why: 'Oturum, değişikliklerinizi yayınlayana kadar sizde tutar. Kimlik dosyası sonraki komutlarda <code>-s id.txt</code> ile verilir. <code>-r true</code> yönetim sunucusunda root yetkisiyle parola sormadan giriş yapar.',
+              hints: ['expert, sonra mgmt_cli login … > id.txt', '<code>expert</code> → parola → <code>mgmt_cli login -r true &gt; id.txt</code>'], steps: EX(['mgmt_cli login -r true > id.txt']),
+              check: s => !!s.mgmt().sess() },
+            { t: 'Web sunucusu için <code>WEB-SRV</code> adlı host nesnesi oluşturun (<code>172.24.50.10</code>), oturumunuzda.', why: 'Kurallar adres değil nesne kullanır: adres değişirse tek yerden düzeltilir, loglarda ad görünür.',
+              hints: ['mgmt_cli add host name … ip-address … -s id.txt', '<code>mgmt_cli add host name WEB-SRV ip-address 172.24.50.10 -s id.txt</code>'], steps: EX(['mgmt_cli add host name WEB-SRV ip-address 172.24.50.10 -s id.txt']), needs: [0],
+              check: s => { const x = cur(s).objects['WEB-SRV']; return !!x && x.ip === '172.24.50.10'; } },
+            { t: 'Cleanup kuralının <b>üstüne</b> <code>LAN-to-WEB</code> kuralını ekleyin: LAN-NET → WEB-SRV, servis https, Accept, log açık.', why: 'Kural tabanı yukarıdan aşağı okunur, ilk eşleşen kazanır. <code>position 1</code> en üste koyar; <code>position.above Cleanup rule</code> gibi göreli konum da kullanılabilir. <code>track.type Log</code> kuralın loglanmasını sağlar.',
+              hints: ['mgmt_cli add access-rule layer Network position 1 name … source … destination … service https action Accept track.type Log -s id.txt', '<code>mgmt_cli add access-rule layer Network position 1 name LAN-to-WEB source LAN-NET destination WEB-SRV service https action Accept track.type Log -s id.txt</code>'],
+              steps: EX(['mgmt_cli add access-rule layer Network position 1 name LAN-to-WEB source LAN-NET destination WEB-SRV service https action Accept track.type Log -s id.txt']), needs: [0, 1],
+              check: s => webRuleOk(cur(s)),
+              fb: s => { const R = cur(s).rules, i = R.findIndex(r => r.name === 'LAN-to-WEB'), c = R.findIndex(r => r.name === 'Cleanup rule'); return i > c ? 'Kural Cleanup kuralının altında: hiç eşleşmez (set access-rule … new-position.above …).' : (i >= 0 && R[i].track === 'None' ? 'Çalışır ama kural loglanmıyor: track.type Log.' : null); } },
+            { t: 'Soru: kural oturumunuzda duruyor. Şu an <code>install-policy</code> çalıştırsanız gateway\'e ne gider?', ask: { choices: [['pub', 'Yalnız yayınlanmış (publish edilmiş) politika; oturumdaki yeni kural gitmez'], ['sess', 'Oturumdaki kural dahil her şey'], ['none', 'Hiçbir şey; install-policy yalnız SmartConsole\'dan çalışır'], ['err', 'Komut hata verir ve oturumu siler']], correct: 'pub' },
+              why: 'Install policy yönetim veritabanının yayınlanmış sürümünü derler. Oturumdaki değişiklik önce publish ile veritabanına işlenmelidir. SmartConsole\'da da "Publish" ve "Install Policy" ayrı düğmelerdir.',
+              hints: ['Oturumdaki değişikliği kim görür?', 'Publish ne yapar?'] },
+            { t: 'Oturumdaki değişiklikleri yayınlayın.', why: 'Publish sonrası kural yönetim veritabanındadır; SmartConsole\'daki diğer yöneticiler de görür. Gateway\'deki trafik henüz değişmedi.',
+              hints: ['mgmt_cli publish -s …', '<code>mgmt_cli publish -s id.txt</code>'], steps: EX(['mgmt_cli publish -s id.txt']), needs: [0, 1, 2],
+              check: s => webRuleOk(s.mgmt().pub()) && !s.mgmt().sess().dirty },
+            { t: 'Politikayı gateway\'e kurun (paket <code>standard</code>, hedef <code>gw-a</code>) ve <code>fw stat</code> ile kurulum zamanının değiştiğini görün.', why: 'Install policy politikayı derleyip gateway\'e yükler. <code>fw stat</code>\'taki tarih, gateway\'deki politikanın ne zaman kurulduğunu gösterir: arıza incelemesinde "değişiklik gerçekten kuruldu mu?" sorusunun ilk cevabıdır.',
+              hints: ['mgmt_cli install-policy policy-package … targets.1 … -r true; fw stat', '<code>mgmt_cli install-policy policy-package standard targets.1 gw-a -r true</code> → <code>fw stat</code>'],
+              steps: EX(['mgmt_cli install-policy policy-package standard targets.1 gw-a -r true', 'fw stat']), needs: [0, 1, 2, 4],
+              check: s => webRuleOk(s.mgmt().installed()) && s.decide(WEBF).stage === 'fwd' && s.ev.after(/^mgmt_cli install-policy/, /^fw stat$/) },
+            { t: 'Doğrulayın: LAN\'daki bir istemcinin (<code>10.64.10.50</code>) web sunucusuna https akışı hangi kurala düşüyor? Aynı istemcinin ssh (22) akışını da deneyin.', why: '<code>fw up_execute</code> trafik üretmeden kurulu politikada eşleşen kuralı gösterir. İzin verilen akış LAN-to-WEB\'e, istenmeyen ssh ise Cleanup\'a düşmeli: kural fazlasını açmadığını da böyle kanıtlarsınız.',
+              hints: ['fw up_execute src=… dst=… ipp=6 dport=…', '<code>fw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=443</code> → <code>… dport=22</code>'],
+              steps: EX(['fw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=443', 'fw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=22']), needs: [0, 1, 2, 4, 5],
+              check: s => s.ev.upexec(u => u.dst === '172.24.50.10' && u.dport === 443 && u.name === 'LAN-to-WEB') && s.ev.upexec(u => u.dst === '172.24.50.10' && u.dport === 22 && u.act === 'Drop') },
+        ],
+        verify: ['mgmt_cli show access-rulebase name Network -r true', 'mgmt_cli show host name WEB-SRV -r true', 'fw stat', 'fw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=443'],
+        learn: ['login -r true > id.txt → -s id.txt → publish → install-policy.', 'Oturumdaki değişikliği yalnız siz görürsünüz.', 'Kurulan, yayınlanmış politikadır.', 'fw stat tarihi = son kurulum.', 'fw up_execute kurulu politikada eşleşen kuralı gösterir.'],
+        links: { tool: '#/checkpoint/policy', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/107' }, cert: 'CCSA R81.20'
+    },
+    // ═══ Otomatik Hide NAT ═══
+    {
+        id: 'cp-14', vendor: 'checkpoint', level: 3, title: 'NAT: ağ nesnesinde otomatik Hide NAT ve fw monitor ile doğrulama', minutes: 20, kind: 'firewall', hostname: 'gw-a', pre: ['cp-13', 'cp-04'],
+        up: ['eth1', 'eth2', 'eth3'], hosts: ['203.0.113.1'], start: BASE, mgmt: {}, mgmtStart: MG_BASE.concat([OUT_RULE]),
+        sim: Object.assign({ flows: [{ src: '10.64.10.50', dst: '198.51.100.80', dport: 443 }] }, SIMBASE),
+        story: 'LAN\'dan internete izin veren <code>LAN-OUT</code> kuralı kurulu, ama kullanıcılar hiçbir siteye ulaşamıyor. LAN özel adres kullanıyor (<code>10.64.10.0/24</code>); internete çıkışta gateway\'in WAN adresinin (<code>203.0.113.2</code>) arkasına gizlenmesi (Hide NAT) gerekiyor. Standalone kutu, expert parolası: <code>' + PW + '</code>.',
+        lesson: L('<b>Otomatik NAT</b> nesnenin kendisinde tanımlanır: <code>nat-settings.auto-rule true</code>, <code>method hide</code>, <code>hide-behind gateway</code>. Yönetim sunucusu NAT kural tabanına bu nesne için kuralları kendisi ekler. <b>Hide NAT</b> çoktan bire çevirir ve tek yönlüdür: yalnız içeriden başlatılan bağlantılar çevrilir, dışarıdan içeriye bağlantı açılamaz. Sunucu yayınlamak için Static NAT gerekir. Erişim kuralı ile NAT ayrı katmanlardır: kural izin verir, NAT adresi çevirir.',
+            'Özel adresle internete çıkan paket karşıya ulaşsa bile dönüş gelmez: 10.64.x adresi internette yönlendirilmez. Belirti "kural var, trafik geçmiyor" gibi görünür. <code>fw monitor</code>\'da çıkış noktasında (O) kaynak adresin değişmediğini görmek kanıttır.',
+            'mgmt_cli set network name LAN-NET nat-settings.auto-rule true nat-settings.method hide nat-settings.hide-behind gateway -r true\nmgmt_cli install-policy policy-package standard targets.1 gw-a -r true\nfw monitor -e "accept host(198.51.100.80);"',
+            ['Erişim kuralını NAT sanmak (ya da tersi).', 'NAT ayarını yayınlayıp politikayı kurmamak.', 'Hide NAT\'la içerideki bir sunucuyu dışarıya açmaya çalışmak.', 'fw monitor çıktısında yalnız i/I noktalarına bakıp çıkıştaki (O) adrese bakmamak.']),
+        goals: ['NAT eksikliğini fw monitor ile kanıtlamak', 'Otomatik Hide NAT', 'Kurulumdan sonra doğrulamak', 'Hide ve Static NAT farkı'],
+        tasks: [
+            { t: 'Belirti: expert moda geçin ve internetteki sunucuya (<code>198.51.100.80</code>) giden paketleri <code>fw monitor</code> ile izleyin.', why: 'Çıkış noktalarında (eth1:o ve eth1:O) kaynak hâlâ 10.64.10.50 ise NAT yapılmıyor demektir. Aynı SYN\'in birkaç kez tekrarlanması ve hiç dönüş gelmemesi de bunu doğrular.',
+              hints: ['fw monitor -e "accept host(…);"', '<code>expert</code> → parola → <code>fw monitor -e "accept host(198.51.100.80);"</code>'], steps: EX(['fw monitor -e "accept host(198.51.100.80);"']), loo: false, /* son görevdeki doğrulama aynı komut */
+              check: s => s.ev.fwmon(f => f.hosts.includes('198.51.100.80')) },
+            { t: '<code>LAN-NET</code> nesnesinde otomatik Hide NAT\'ı açın: gateway arkasına gizlensin.', why: 'Tek bir <code>set network</code> komutu yeter; -s olmadan çalıştığı için kendi oturumunda otomatik yayınlanır. NAT kural tabanına kuralı yönetim sunucusu ekler.',
+              hints: ['mgmt_cli set network name LAN-NET nat-settings.… -r true', '<code>mgmt_cli set network name LAN-NET nat-settings.auto-rule true nat-settings.method hide nat-settings.hide-behind gateway -r true</code>'],
+              steps: EX(['mgmt_cli set network name LAN-NET nat-settings.auto-rule true nat-settings.method hide nat-settings.hide-behind gateway -r true']), needs: [0],
+              check: s => !!(s.mgmt().pub().objects['LAN-NET'] || {}).nat },
+            { t: 'Soru: NAT ayarı yayınlandı. Kullanıcılar hâlâ internete çıkamıyor. Neden?', ask: { choices: [['install', 'Politika kurulmadı: yayınlanan değişiklik gateway\'e install-policy ile gider'], ['rule', 'Hide NAT için ayrıca Any Any Accept kuralı gerekir'], ['save', 'save config yapılmadı'], ['reboot', 'NAT değişikliği gateway yeniden başlatılınca etkinleşir']], correct: 'install' },
+              why: 'NAT kuralları da politikanın parçasıdır ve gateway\'e kurulumla gider. save config Gaia işletim sistemi ayarları içindir; politika ile ilgisi yoktur.',
+              hints: ['NAT ayarı nerede tutuluyor?', 'Değişikliğin gateway\'e ulaşması için hangi adım gerekir?'] },
+            { t: 'Politikayı kurun.', why: 'Kurulumdan sonra LAN-NET kaynaklı ve WAN\'dan çıkan bağlantılar 203.0.113.2 arkasına gizlenir.',
+              hints: ['mgmt_cli install-policy …', '<code>mgmt_cli install-policy policy-package standard targets.1 gw-a -r true</code>'], steps: EX(['mgmt_cli install-policy policy-package standard targets.1 gw-a -r true']), needs: [0, 1],
+              check: s => { const d = s.decide(OUTF); return d.stage === 'fwd' && d.nat && d.reply === 'ok'; } },
+            { t: 'Doğrulayın: aynı <code>fw monitor</code> komutunu yeniden çalıştırın.', why: 'Şimdi eth1:o noktasında kaynak 10.64.10.50, eth1:O noktasında 203.0.113.2 olmalı; dönüş paketleri (SYN-ACK) gelip içeride yeniden 10.64.10.50\'ye çevrilmeli.',
+              hints: ['Aynı fw monitor', '<code>fw monitor -e "accept host(198.51.100.80);"</code>'], steps: EX(['fw monitor -e "accept host(198.51.100.80);"']), needs: [0, 1, 3], loo: false,
+              check: s => { const L = s.ev.list(), i = lastIdx(L, e => e.mgmt === 'install'), j = lastIdx(L, e => e.fwmon && e.fwmon.hosts.includes('198.51.100.80')); return i >= 0 && j > i && s.decide(OUTF).nat; } },
+            { t: 'Soru: Hide NAT açıkken internetteki bir istemci LAN\'daki 10.64.10.50\'ye bağlantı başlatabilir mi?', ask: { choices: [['no', 'Hayır: Hide NAT yalnız içeriden başlatılan bağlantıları çevirir; sunucu yayınlamak için Static NAT gerekir'], ['yes', 'Evet: 203.0.113.2\'ye gelen her bağlantı 10.64.10.50\'ye iletilir'], ['rule', 'Yalnız Any Any Accept kuralı varsa'], ['port', 'Yalnız 443 portu için']], correct: 'no' },
+              why: 'Hide NAT\'ta çok sayıda iç adres tek dış adresi paylaşır; dışarıdan gelen yeni bir bağlantının hangi iç adrese gideceği belirsizdir. Dışarıya hizmet veren sunucu için birebir Static NAT ve ayrıca erişim kuralı gerekir.',
+              hints: ['Çoktan bire çeviride geri dönüş nasıl belirlenir?', 'Yeni gelen bağlantının bir oturum kaydı var mı?'] },
+        ],
+        verify: ['mgmt_cli show network name LAN-NET -r true', 'fw stat', 'fw monitor -e "accept host(198.51.100.80);"'],
+        learn: ['Otomatik NAT nesnede tanımlanır (nat-settings).', 'NAT da politikanın parçasıdır: install-policy gerekir.', 'fw monitor: o = NAT öncesi, O = NAT sonrası.', 'Hide NAT tek yönlüdür; sunucu için Static NAT.'],
+        links: { tool: '#/checkpoint/nat', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/104' }, cert: 'CCSA R81.20'
+    },
+    // ═══ Arıza: kural yazıldı ama trafik düşüyor ═══
+    {
+        id: 'cp-15', vendor: 'checkpoint', level: 5, title: '"Kuralı yazdık ama web sunucusuna erişilemiyor" — arıza kaydı', minutes: 25, kind: 'firewall', hostname: 'gw-a', pre: ['cp-13', 'cp-03'],
+        up: ['eth1', 'eth2', 'eth3'], start: BASE, sim: SIMBASE, mgmt: {}, mgmtStart: MG_BASE.concat(['add network name DMZ-NET subnet 172.24.50.0 mask-length 24']),
+        variants: [
+            { key: 'install', mgmtStart: [], mgmtLate: [WEB_HOST, WEB_RULE], fix: [INSTALL] },
+            { key: 'order', mgmtStart: [WEB_HOST, WEB_RULE, 'add access-rule layer Network position 1 name DMZ-Block source LAN-NET destination DMZ-NET action Drop track.type Log'],
+              fix: ['mgmt_cli set access-rule layer Network name LAN-to-WEB new-position.above DMZ-Block -r true', INSTALL] },
+            { key: 'object', mgmtStart: ['add host name WEB-SRV ip-address 172.24.50.100', WEB_RULE], fix: ['mgmt_cli set host name WEB-SRV ip-address 172.24.50.10 -r true', INSTALL] },
+            { key: 'service', mgmtStart: [WEB_HOST, WEB_RULE.replace('service https', 'service http')], fix: ['mgmt_cli set access-rule layer Network name LAN-to-WEB service https -r true', INSTALL] },
+            { key: 'disabled', mgmtStart: [WEB_HOST, WEB_RULE + ' enabled false'], fix: ['mgmt_cli set access-rule layer Network name LAN-to-WEB enabled true -r true', INSTALL] },
+        ],
+        story: '<b>Arıza kaydı:</b> "Dün DMZ\'deki web sunucusuna (<code>172.24.50.10</code>, https) LAN\'dan erişim için <code>LAN-to-WEB</code> kuralı yazıldı. Kullanıcılar (ör. <code>10.64.10.50</code>) hâlâ bağlanamıyor." Kuralı silip yeniden yazmak yerine nedenini bulun: kurulu mu, sırası doğru mu, nesne ve servis doğru mu, kural açık mı? Standalone kutu, expert parolası: <code>' + PW + '</code>. <small>Her turda farklı bir arıza gelebilir.</small>',
+        lesson: L('Bir kuralın trafiğe etki etmesi için: (1) yayınlanmış ve <b>kurulmuş</b> olmalı, (2) kural tabanında onu gölgeleyen bir üst kural olmamalı, (3) kaynak/hedef <b>nesneleri doğru adresi</b> göstermeli, (4) <b>servis</b> gerçek trafikle eşleşmeli, (5) kural <b>devre dışı</b> olmamalı. <code>fw up_execute</code> kurulu politikada akışın hangi kurala düştüğünü; <code>fw stat</code> son kurulum zamanını; <code>mgmt_cli show access-rulebase</code> yayınlanmış kural tabanını gösterir.',
+            'Aynı belirtinin beş farklı nedeni vardır. Kanıtla ilerlemek, "kuralı silip Any Any Accept yazma" gibi güvenliği kaldıran kısayolların önüne geçer.',
+            'fw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=443\nfw stat\nmgmt_cli show access-rulebase name Network -r true\nmgmt_cli show host name WEB-SRV -r true\n# düzeltme + install-policy, sonra aynı fw up_execute',
+            ['Kuralı düzeltip yayınlamayı ya da kurmayı unutmak.', 'Gölgeleyen üst kuralı silmek yerine sırayı düzeltmemek (üst kural başka trafiği de koruyor olabilir).', 'Kurulu (fw stat) ve yayınlanmış (show access-rulebase) politikanın aynı olduğunu varsaymak.', 'Any Any Accept ile arızayı "kapatmak".']),
+        goals: ['Belirtiyi fw up_execute ile görmek', 'Kurulu ve yayınlanmış politikayı karşılaştırmak', 'Kök nedeni kanıtla seçmek', 'Tek düzeltme, kurulum, doğrulama'],
+        tasks: [
+            { t: 'Belirti: expert moda geçin ve akışın kurulu politikada hangi kurala düştüğüne bakın.', why: '<code>fw up_execute</code> gateway\'deki gerçek (kurulu) politikayı sorgular. Sonuç Cleanup ya da başka bir Drop kuralıysa trafik politikada düşüyordur.',
+              hints: ['fw up_execute src=… dst=… ipp=6 dport=443', '<code>expert</code> → parola → <code>fw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=443</code>'],
+              steps: EX([UPX]), loo: false, /* son görevdeki doğrulama aynı komut */
+              check: s => s.ev.upexec(u => u.dst === '172.24.50.10' && u.dport === 443) },
+            { t: 'Kanıt toplayın: kurulum zamanı, yayınlanmış kural tabanı ve WEB-SRV nesnesi.', why: '<code>fw stat</code> tarihi eskiyse ve kural tabanında kural görünüyorsa kural kurulmamıştır. Kural tabanında sıra, servis ve devre dışı işareti (<code>[x]</code>) görünür. Nesne çıktısı adresin doğru olup olmadığını gösterir.',
+              hints: ['fw stat, mgmt_cli show access-rulebase …, mgmt_cli show host …', '<code>fw stat</code> → <code>mgmt_cli show access-rulebase name Network -r true</code> → <code>mgmt_cli show host name WEB-SRV -r true</code>'],
+              steps: EX(['fw stat', 'mgmt_cli show access-rulebase name Network -r true', 'mgmt_cli show host name WEB-SRV -r true']), needs: [0],
+              check: s => s.ev.ran(/^fw stat$/) && s.ev.ran(/^mgmt_cli show access-rulebase/) && s.ev.ran(/^mgmt_cli show host name WEB-SRV/) },
+            { t: 'Kök neden hangisi?', ask: { choices: [['install', 'Kural yayınlanmış ama politika kurulmamış (fw stat tarihi eski)'], ['order', 'Üstteki DMZ-Block (Drop) kuralı LAN-to-WEB\'i gölgeliyor'], ['object', 'WEB-SRV nesnesinin adresi yanlış'], ['service', 'Kuralın servisi https değil'], ['disabled', 'Kural devre dışı bırakılmış']], correct: v => v.key },
+              why: 'up_execute Cleanup gösteriyor ve kural tabanında kural varsa: kurulmamış, adres/servis yanlış ya da kural kapalı. up_execute başka bir Drop kuralını gösteriyorsa: sıra. Kalanını kural tabanı ve nesne çıktısı ayırır.',
+              hints: ['fw up_execute hangi kuralı gösterdi?', 'Kural tabanındaki satırı ve nesnenin adresini okuyun.'], needs: [1] },
+            { t: 'Tek düzeltmeyle onarın ve politikayı kurun.', why: 'Yalnız bozuk halkayı düzeltin; ardından kurulum gerekir. -s olmadan çalışan düzeltme komutu kendi oturumunda yayınlanır.',
+              hints: ['Kök nedene göre bir mgmt_cli set komutu (install varyantında gerekmez), sonra install-policy.', 'order: <code>… set access-rule layer Network name LAN-to-WEB new-position.above DMZ-Block -r true</code> · object: <code>… set host name WEB-SRV ip-address 172.24.50.10 -r true</code> · service: <code>… service https</code> · disabled: <code>… enabled true</code> · hepsinde sonra <code>' + INSTALL + '</code>'],
+              steps: v => EX(v.fix), needs: [0],
+              check: s => { const d = s.decide(WEBF); return d.stage === 'fwd' && d.name === undefined && (s.mgmt().rules().find(r => r.n === d.rule) || {}).name === 'LAN-to-WEB'; },
+              fb: s => (s.mgmt().rules() || []).some(r => r.src.includes('any') && r.dst.includes('any') && r.svc.includes('any') && r.act === 'accept') ? 'Any Any Any Accept kuralı kurulu: arıza kapandı ama güvenlik kalktı.' : null },
+            { t: 'Doğrulayın: aynı <code>fw up_execute</code> artık LAN-to-WEB\'i göstermeli.', why: 'Kurulumdan sonra aynı sorgu, kaydı kapatmanın kanıtıdır.',
+              hints: ['Aynı komut', '<code>' + UPX + '</code>'], steps: EX([UPX]), needs: [0, 3], loo: false,
+              check: s => { const L = s.ev.list(), i = lastIdx(L, e => e.mgmt === 'install'), j = lastIdx(L, e => e.upexec && e.upexec.dst === '172.24.50.10' && e.upexec.name === 'LAN-to-WEB'); return i >= 0 && j > i; } },
+        ],
+        verify: ['fw stat', 'mgmt_cli show access-rulebase name Network -r true', UPX],
+        learn: ['Kural etkisi için: yayınla + kur.', 'fw stat tarihi = son kurulum.', 'fw up_execute kurulu politikayı sorgular.', 'Gölgelenmede sırayı düzeltin, kuralı silmeyin.'],
+        links: { tool: '#/checkpoint/policy', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/113' }, cert: 'CCSA R81.20 · Troubleshooting'
+    },
     ];
     // Çoktan seçmeli (ask) görevler ve adımlardan türetilen örnek çözüm (checkpoint.js ile aynı kural)
     LABS.forEach(l => l.tasks.forEach((t, i) => {
@@ -221,8 +356,10 @@
         t.check = s => !!s.answers && s.answers[key] === want(s.variant && s.variant());
         t.steps = t.steps || (v => [{ answer: i, v: want(v) }]);
     }));
+    // Görevler testte tek tek clish'ten başladığı için expert görevleri EX(...) ile başlar; örnek çözümde zaten expert'teyken tekrar girilmez
+    const dedupExpert = L => { const out = []; let ex = false; for (let i = 0; i < L.length; i++) { const x = L[i]; if (x === 'expert' && ex) { i++; continue; } if (x === 'expert') ex = true; else if (x === 'exit' && ex) ex = false; out.push(x); } return out; };
     LABS.forEach(l => {
-        l.solution = v => [].concat(...l.tasks.map(t => typeof t.steps === 'function' ? t.steps(v || {}) : t.steps));
+        l.solution = v => dedupExpert([].concat(...l.tasks.map(t => typeof t.steps === 'function' ? t.steps(v || {}) : t.steps)));
     });
     const OWN = new Set(LABS.map(l => l.id));
     const root = typeof window !== 'undefined' ? window : globalThis;

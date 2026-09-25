@@ -40,7 +40,7 @@
                   fix: [{ cause: 'Arayüz linki gerçekten düşük: kabloyu ve anahtar portunu kontrol edin. "Link detected: no" fiziksel sorundur', cmd: 'ethtool eth2' },
                         { cause: 'Link var ama arayüz DOWN: iki üyenin bu arayüzleri aynı VLAN\'da değil ya da anahtar CCP trafiğini süzüyor. Anahtar ekibiyle port/VLAN yapılandırmasını karşılaştırın' }] },
                 { code: 'cphaprob syncstat', desc: 'State sync istatistikleri. Kayıp ya da yeniden gönderilen sync paketlerinin sürekli artması, sync hattının sorunlu olduğunu gösterir; bu durumda failover\'da açık bağlantılar kopar. Çıktının biçimi sürüme göre değişir; sayaçları iki kez çalıştırıp artışa bakın. Sync arayüzü üyeler arasında doğrudan ya da ayrık bir VLAN üzerinden bağlanmalıdır.' },
-                { code: 'clusterXL_admin down', desc: 'Planlı bakım için doğru yöntem: üyeye ADMIN pnote\'u koyar, trafik diğer üyeye kontrollü geçer. Kablo çekmek ya da cpstop kullanmak yerine bunu tercih edin. Varsayılan hâli yeniden başlatmada kalıcı değildir (kalıcı için -p). Bakım bitince clusterXL_admin up ile geri alın ve cphaprob stat ile doğrulayın. Geri gelen üyenin STANDBY kalması normaldir: varsayılan "Maintain current active Cluster Member" ayarı ikinci bir kesinti yaratmamak için yeni aktif üyeyi görevde tutar.' },
+                { code: 'clusterXL_admin down;clusterXL_admin up', desc: 'Kontrollü failover için olağan kullanım: iki komut tek satırda çalışır. down üyeye ADMIN pnote\'u koyar ve trafik diğer üyeye geçer; up pnote\'u hemen kaldırır, üye STANDBY olarak kümeye döner ve küme yedeksiz kalmaz. Kablo çekmek ya da cpstop kullanmak yerine bunu tercih edin. Uzun bakımda (üye bakım boyunca trafik devralmamalıysa) yalnız clusterXL_admin down kullanılır; bakımda yeniden başlatma olacaksa -p ile kalıcı yapılır ve bitince clusterXL_admin up -p ile geri alınır. Sonucu cphaprob stat ile doğrulayın. Geri gelen üyenin STANDBY kalması normaldir: varsayılan "Maintain current active Cluster Member" ayarı ikinci bir kesinti yaratmamak için yeni aktif üyeyi görevde tutar.' },
             ]
         },
         {
@@ -184,6 +184,22 @@
                 { code: 'add backup local', desc: 'Gaia ve Check Point yapılandırmasının yedeğini alır; show backups ile izlenir. Dosyayı cihaz dışına kopyalayın: disk arızasında yerel yedek de gider. Backup kurulu hotfix\'i geri almaz.' },
                 { code: 'add snapshot <ad> desc "<açıklama>"', desc: 'İşletim sistemi dahil tüm sistem bölümünün görüntüsüdür; hotfix ya da yükseltme geri alınacaksa en eksiksiz yol budur. Dakikalar sürer ve diskte boş alan ister; show snapshots ile izleyin.' },
                 { code: 'show config-state', desc: 'Bakıma başlamadan önce "saved" olmalı. Kaydedilmemiş bir değişiklik bakım sırasındaki yeniden başlatmada kaybolur ve arızanın nedenini bulmayı zorlaştırır.' },
+            ]
+        },
+        {
+            title: 'Kural Yazıldı Ama Trafik Hâlâ Düşüyor: Yayın, Kurulum, Sıra, Nesne ve Servis', severity: 'err', topic: 'traffic', lab: 'cp-15',
+            symptom: 'LAN\'dan DMZ\'deki web sunucusuna (172.24.50.10, https) izin veren kural yazıldı; kullanıcılar (ör. 10.64.10.50) hâlâ bağlanamıyor.',
+            steps: [
+                { code: 'fw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=443', desc: 'Expert modda. Gateway\'e kurulu politikada bu akışın hangi kurala düştüğünü trafik üretmeden gösterir. Cleanup ya da başka bir Drop kuralı çıkıyorsa trafik politikada düşüyordur. Yayınlanmamış ya da kurulmamış değişiklikleri görmez.' },
+                { code: 'fw stat', desc: 'Son politika kurulum zamanı. Kural yayınlandıktan sonraysa ve tarih eskiyse değişiklik gateway\'e hiç gitmemiştir.',
+                  fix: [{ cause: 'Kural yayınlanmış ama kurulmamış', cmd: 'mgmt_cli install-policy policy-package standard targets.1 gw-a -r true' }] },
+                { code: 'mgmt_cli show access-rulebase name Network -r true', desc: 'Yayınlanmış kural tabanı (SmartConsole\'daki görünüm). Kuralın üstünde aynı trafiği yakalayan bir Drop kuralı var mı, servis https mi, kural devre dışı mı, bakın. Kural hiç görünmüyorsa yayınlanmamıştır (SmartConsole\'da Publish).',
+                  fix: [{ cause: 'Üstteki bir Drop kuralı gölgeliyor: sırayı düzeltin, kuralı silmeyin', cmd: 'mgmt_cli set access-rule layer Network name LAN-to-WEB new-position.above DMZ-Block -r true\nmgmt_cli install-policy policy-package standard targets.1 gw-a -r true' },
+                        { cause: 'Servis yanlış', cmd: 'mgmt_cli set access-rule layer Network name LAN-to-WEB service https -r true\nmgmt_cli install-policy policy-package standard targets.1 gw-a -r true' },
+                        { cause: 'Kural devre dışı', cmd: 'mgmt_cli set access-rule layer Network name LAN-to-WEB enabled true -r true\nmgmt_cli install-policy policy-package standard targets.1 gw-a -r true' }] },
+                { code: 'mgmt_cli show host name WEB-SRV -r true', desc: 'Kuraldaki nesnenin gerçekten sunucunun adresini gösterip göstermediğine bakın. Tek haneli bir yazım hatası kuralı başka bir adrese yazar.',
+                  fix: [{ cause: 'Nesnenin adresi yanlış', cmd: 'mgmt_cli set host name WEB-SRV ip-address 172.24.50.10 -r true\nmgmt_cli install-policy policy-package standard targets.1 gw-a -r true' }] },
+                { code: 'fw ctl zdebug drop | grep 172.24.50.10', desc: 'up_execute kuralın izin verdiğini gösteriyor ama trafik yine düşüyorsa gerçek düşme nedenine bakın (anti-spoofing, rota, ilk paket SYN değil). Kısa süre ve filtreli çalıştırın.' },
             ]
         },
     ];

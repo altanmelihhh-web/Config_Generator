@@ -54,8 +54,14 @@ const CgLabGaia = (() => {
 
     function session(lab, opts) {
         const VAR = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
-        if (VAR) lab = Object.assign({}, lab, { start: (lab.start || []).concat(VAR.start || []), sim: Object.assign({}, lab.sim || {}, VAR.sim || {}) });
+        if (VAR) lab = Object.assign({}, lab, { start: (lab.start || []).concat(VAR.start || []), sim: Object.assign({}, lab.sim || {}, VAR.sim || {}), mgmtStart: (lab.mgmtStart || []).concat(VAR.mgmtStart || []), mgmtLate: (lab.mgmtLate || []).concat(VAR.mgmtLate || []) });
         const SIM = lab.sim || {};
+        // Yönetim API'si (mgmt_cli): yalnız lab.mgmt tanımlıysa (standalone kurulum)
+        const MGF = lab.mgmt ? ((typeof CgGaiaMgmt !== 'undefined') ? CgGaiaMgmt : require('./gaia-mgmt.js')) : null;
+        const MG = MGF ? MGF.create({ gw: lab.mgmt.gw || lab.hostname || 'gw-a', isIp, inNet: (ip, c) => inNet(ip, c), netOf: C.netOf, n2ip }) : null;
+        const rulesNow = () => (MG && MG.rules()) || SIM.rules || [];
+        const natNow = () => (MG && MG.nat(SIM.wan || 'eth1')) || SIM.nat || [];
+        const policyNow = () => (MG && MG.policy()) || SIM.policy || { name: 'Standard' };
         const IFS = lab.ifaces || ['eth0', 'eth1', 'eth2', 'eth3'];
         const S = {
             m: baseModel(), saved: null, mode: 'clish', stack: [], pending: null, loggedOut: false, ev: [], hist: [], answers: {},
@@ -424,11 +430,11 @@ const CgLabGaia = (() => {
             if (f.arrives === false) return { stage: 'noarrive' };
             const sp = (SIM.spoof || {})[f.in];
             if (sp && !sp.some(c => inNet(f.src, c))) return { stage: 'spoof' };
-            const r = (SIM.rules || []).find(x => ruleMatch(x, f));
+            const r = rulesNow().find(x => ruleMatch(x, f));
             if (!r || r.act !== 'accept') return { stage: 'rule', rule: r ? r.n : null, name: r ? r.name : null };
             const rt = lookup(f.dst);
             if (!rt || rt.dev === 'lo') return { stage: 'noroute', rule: r.n };
-            const nat = (SIM.nat || []).find(n => inNet(f.src, n.src) && n.out === rt.dev);
+            const nat = natNow().find(n => inNet(f.src, n.src) && n.out === rt.dev);
             const osrc = nat ? (nat.hide || ifIp(rt.dev)) : f.src, osport = nat ? 10000 + (f.sport * 7) % 50000 : f.sport;
             let reply = f.reply;
             if (!nat && rt.dev === (SIM.wan || 'eth1') && isPriv(f.src) && !isPriv(f.dst)) reply = 'none';
@@ -486,7 +492,12 @@ const CgLabGaia = (() => {
             if (cur || has) out.push(cur);
             return out;
         }
-        function splitPipe(s) {
+        function splitSemi(s) {
+            const parts = []; let cur = '', q = null;
+            for (const ch of s) { if (q) { if (ch === q) q = null; cur += ch; continue; } if (ch === '"' || ch === '\'') { q = ch; cur += ch; continue; } if (ch === ';') { parts.push(cur.trim()); cur = ''; continue; } cur += ch; }
+            parts.push(cur.trim()); return parts;
+        }
+                function splitPipe(s) {
             const parts = []; let cur = '', q = null;
             for (const ch of s) { if (q) { if (ch === q) q = null; cur += ch; continue; } if (ch === '"' || ch === '\'') { q = ch; cur += ch; continue; } if (ch === '|') { parts.push(cur); cur = ''; continue; } cur += ch; }
             parts.push(cur); return parts.map(x => x.trim());
@@ -542,12 +553,13 @@ const CgLabGaia = (() => {
                 return { out: clAdmin(a[1], a[2] === '-p'), log: { cladmin: a[1] } };
             }
             if (c === 'vpn') return vpnCmd(a);
+            if (c === 'mgmt_cli') return MG ? MG.cmd(a, line) : U('# [Simülatör] Bu lab\'da cihaz yalnız gateway: mgmt_cli yönetim sunucusunda çalışır.');
             if (c === 'tcpdump') return tcpdump(a);
             if (c === 'cpview') return cpview(a);
             if (c === 'cpinfo') return (a[1] === '-y' && a[2] === 'all' && a.length === 3) ? cpinfo() : U();
             if (c === 'ip') return ipCmd(a);
             if (['cat', 'less', 'more', 'tail', 'grep'].includes(c)) return fileCmd(a);
-            if (EXPERT_ROOTS.includes(c) || ['cpstop', 'cprestart', 'fwaccel', 'cplic', 'cpwd_admin', 'ls', 'cd', 'pwd', 'uptime', 'date', 'free', 'ps', 'netstat', 'ifconfig', 'top', 'df', 'mgmt_cli', 'cp_conf', 'vi', 'find', 'ethtool', 'arp', 'traceroute', 'ssh', 'scp', 'curl_cli', 'dbedit', 'cpconfig', 'cpstart'].includes(c)) return U();
+            if (EXPERT_ROOTS.includes(c) || ['cpstop', 'cprestart', 'fwaccel', 'cplic', 'cpwd_admin', 'ls', 'cd', 'pwd', 'uptime', 'date', 'free', 'ps', 'netstat', 'ifconfig', 'top', 'df', 'cp_conf', 'vi', 'find', 'ethtool', 'arp', 'traceroute', 'ssh', 'scp', 'curl_cli', 'dbedit', 'cpconfig', 'cpstart'].includes(c)) return U();
             return { err: 'invalid', msg: notFound(c) };
         }
         function fwCmd(a) {
@@ -565,19 +577,20 @@ const CgLabGaia = (() => {
             if (s === 'tab -t connections -s') { const n = 120 + flows().length * 7; return pad('HOST', 22) + pad('NAME', 35) + pad('ID', 6) + pad('#VALS', 6) + pad('#PEAK', 6) + '#SLINKS\n' + pad('localhost', 22) + pad('connections', 35) + pad('8158', 6) + pad(String(n), 6) + pad(String(n * 3), 6) + (n * 2); }
             if (s === 'unloadlocal') return { out: '# [Simülatör] UYARI: "fw unloadlocal" gateway\'deki güvenlik politikasını tamamen kaldırır: tüm trafik denetimsiz kalır (ya da erişim kopar).\n# Sorun gidermede "önce politikayı kaldırıp bakayım" yanlış bir alışkanlıktır. Simülatörde engellendi.', log: { warn: 'unloadlocal' } };
             if (a[1] === 'monitor') return fwMonitor(a);
+            if (a[1] === 'up_execute') return upExecute(a);
             if (/^ctl (pstat|chain|multik|affinity|conntab)/.test(s) || /^(fetch|log|lslogs|logswitch|tab)\b/.test(s)) return U();
             if (!a[1]) return { err: 'incomplete', msg: '# [Simülatör] fw komutu alt komut ister (ör. fw stat, fw ctl zdebug drop, fw monitor -e "…").' };
             return { err: 'invalid', msg: '# [Simülatör] fw: "' + s + '" tanınmadı. Bu lab\'da: fw stat, fw ver, fw ctl zdebug [+] drop, fw ctl debug 0, fw ctl iflist, fw monitor, fw tab -t connections -s' };
         }
         function fwStat() {
-            const p = SIM.policy || { name: 'Standard' };
+            const p = policyNow();
             const ifl = ifList().filter(n => n !== 'eth0' || p.mgmt).filter(n => M().ifs[n].ip).map(n => '[>' + n + '] [<' + n + ']').join(' ');
             return 'HOST      POLICY     DATE\nlocalhost ' + p.name + ' ' + (p.date || FWDATE) + ' :  ' + ifl;
         }
         function cpstat(a) {
             const s = a.slice(1).join(' ');
             if (s === 'fw' || s === '-f policy fw') {
-                const p = SIM.policy || { name: 'Standard' };
+                const p = policyNow();
                 const L = ['Policy name: ' + p.name, 'Install time: ' + (p.time || DATE), '', 'Interface table', '-----------------------------------------------------------------',
                     '|Name|Dir|Total     *|Accept**|Deny|Log|', '-----------------------------------------------------------------'];
                 let tot = 0, acc = 0, den = 0;
@@ -799,6 +812,18 @@ const CgLabGaia = (() => {
             if (!pk.length) L.push('# [Simülatör] Eşleşen paket yok.');
             return { out: L.join('\n'), log: { fwmon: { expr, F, hosts, n: pk.length } } };
         }
+        // fw up_execute: verilen akışın kurulu Access Control politikasında hangi kurala düştüğünü gösterir (trafik üretmez)
+        function upExecute(a) {
+            const kv = {};
+            for (const t of a.slice(2)) { const m = t.match(/^(src|dst|ipp|dport|sport)=(\S+)$/); if (!m) return { err: 'invalid', msg: 'Usage: fw up_execute src=<ip> dst=<ip> ipp=<proto> [dport=<port>] [sport=<port>]\n# [Simülatör] Örnek: fw up_execute src=10.64.10.50 dst=198.51.100.80 ipp=6 dport=443' }; kv[m[1]] = m[2]; }
+            if (!kv.src || !kv.dst || !kv.ipp || !isIp(kv.src) || !isIp(kv.dst)) return { err: 'incomplete', msg: 'Usage: fw up_execute src=<ip> dst=<ip> ipp=<proto> [dport=<port>] [sport=<port>]' };
+            const f = { src: kv.src, dst: kv.dst, proto: kv.ipp === '17' ? 'udp' : kv.ipp === '6' ? 'tcp' : 'other', dport: +(kv.dport || 0) };
+            const rs = rulesNow(), r = rs.find(x => ruleMatch(x, f));
+            const act = r ? (r.act === 'accept' ? 'Accept' : 'Drop') : 'Drop';
+            const L = ['Rulebase execution ended successfully.', 'Overall status:', '----------------', 'Match status: MATCH', 'Action: ' + act, '', 'Per Layer:', '----------', 'Layer name: Network', 'Match status: MATCH',
+                'Action: ' + act, 'Matched rule: ' + (r ? r.n : 'Implicit Cleanup'), '# [Simülatör] Çıktı sadeleştirildi. Kurulu politikaya bakar; yayınlanmamış ya da kurulmamış değişiklikleri görmez.'];
+            return { out: L.join('\n'), log: { upexec: { src: f.src, dst: f.dst, dport: f.dport, rule: r ? r.n : null, name: r ? r.name : null, act } } };
+        }
         function ipCmd(a) {
             const s = a.slice(1).join(' ');
             if (/^route get [\d.]+$/.test(s) && isIp(a[3])) {
@@ -875,7 +900,14 @@ const CgLabGaia = (() => {
             const line = raw.replace(/\s+$/, '');
             if (!line.trim()) return '';
             S.hist.push(line.trim());
-            if (S.mode === 'expert') return expertLine(line.trim());
+            if (S.mode === 'expert') {
+                // bash: ";" ile ardışık komutlar (tırnak dışında), ör. clusterXL_admin down;clusterXL_admin up
+                const parts = splitSemi(line.trim());
+                if (parts.length < 2) return expertLine(line.trim());
+                const outs = [];
+                for (const p of parts) { if (!p) continue; const b = S.ev.length; outs.push(expertLine(p)); for (let k = b; k < S.ev.length; k++) S.ev[k].seq = true; if (S.mode !== 'expert' || S.pending) break; }
+                return outs.filter(Boolean).join('\n');
+            }
             return clishLine(line);
         }
         function prompt() {
@@ -894,7 +926,7 @@ const CgLabGaia = (() => {
             if (h.words) return h.words.map(w => pad(w, 20) + '- ' + (KW[w] || '')).join('\n');
             return h.rows.map(([w, d]) => pad(w, 20) + (d ? '- ' + d : '')).join('\n');
         }
-        const EXP_CMDS = ['fw', 'cpstat', 'cphaprob', 'clusterXL_admin', 'vpn', 'tcpdump', 'cpview', 'cpinfo', 'ip', 'ping', 'clish', 'exit', 'hostname', 'cat', 'grep', 'reboot'];
+        const EXP_CMDS = ['mgmt_cli', 'fw', 'cpstat', 'cphaprob', 'clusterXL_admin', 'vpn', 'tcpdump', 'cpview', 'cpinfo', 'ip', 'ping', 'clish', 'exit', 'hostname', 'cat', 'grep', 'reboot'];
         function complete(raw) {
             if (S.pending || S.loggedOut) return null;
             if (S.mode === 'expert') {
@@ -916,6 +948,7 @@ const CgLabGaia = (() => {
         apply(lab.start || []);
         S.saved = clone(M());
         apply(lab.startUnsaved || []);
+        if (MG) MG.boot(lab.mgmtStart || [], lab.mgmt.installed !== false, lab.mgmtLate || []);
         S.ev = []; S.hist = [];
 
         const EV = {
@@ -928,6 +961,8 @@ const CgLabGaia = (() => {
             abbrev: canon => S.ev.some(e => e.canon === canon && e.raw.trim().toLowerCase() !== canon),
             warned: w => S.ev.some(e => e.warn === w),
             zdebug: fn => S.ev.some(e => e.zdebug && (!fn || fn(e.zdebug))),
+            upexec: fn => S.ev.some(e => e.upexec && (!fn || fn(e.upexec))),
+            mgmt: fn => S.ev.some(e => e.mgmt && (!fn || fn(e))),
             fwmon: fn => S.ev.some(e => e.fwmon && (!fn || fn(e.fwmon))),
             tcpdump: fn => S.ev.some(e => e.tcpdump && (!fn || fn(e.tcpdump))),
             list: () => S.ev
@@ -942,7 +977,7 @@ const CgLabGaia = (() => {
             ev: EV, mode: () => S.mode, dirty, rib, lookup, ifUp,
             decide: f => decide(f), cluster: () => (SIM.cluster ? { local: clMembers()[0].st, peer: clMembers()[1].st, admin: S.rt.clAdmin } : null),
             vpnDebug: () => ({ vpn: S.rt.vpnDebug, ike: S.rt.ikeDebug }),
-            showRun: () => showConf(), inactive, allowedOk, files: () => S.files, backups: () => S.rt.backups.slice(), snaps: () => S.rt.snaps.slice(),
+            showRun: () => showConf(), mgmt: () => MG, inactive, allowedOk, files: () => S.files, backups: () => S.rt.backups.slice(), snaps: () => S.rt.snaps.slice(),
         };
     }
     return { session };
