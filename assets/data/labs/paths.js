@@ -45,6 +45,24 @@
         M(16, 'Yüksek erişilebilirlik (HA)', (d && d[16]) || 'Aktif-pasif küme, kontrollü failover ve sorun giderme.', ids[16]),
         M(17, 'Teşhis ve arıza', (d && d[17]) || 'debug flow, sniffer, performans, crashlog.', ids[17]),
     ];
+    // ADC (F5 BIG-IP) şablonu: F5-CAB blueprint sırasına yakın; iRule ve tcpdump modülleri sonra dolacak
+    const ADC = ids => [
+        M(1, 'bash ve tmsh temelleri', 'İki kabuk, list / show, save sys config.', ids[1]),
+        M(2, 'İlk kurulum: yönetim, VLAN, self IP, rota', 'Yönetim IP\'si, tagged/untagged VLAN, port lockdown, varsayılan rota.', ids[2]),
+        M(3, 'Yönetim erişim güvenliği', 'httpd/sshd allow, port lockdown, parola politikası, roller.', ids[3]),
+        M(4, 'İlk uygulama: monitor, pool, virtual server', 'HTTP monitörü, pool, VS ve SNAT; curl ile doğrulama.', ids[4]),
+        M(5, 'HTTP durum kodları ve metotları', 'Kodun kaynağı: sunucu mu BIG-IP mi; RST ve 5xx.', ids[5]),
+        M(6, 'Dağıtım yöntemleri', 'Round robin, ratio, least connections, priority group.', ids[6]),
+        M(7, 'Persistence', 'Cookie insert ve source address.', ids[7]),
+        M(8, 'SNAT ve port translation', 'Automap, SNAT pool, dönüş yolu.', ids[8]),
+        M(9, 'Bağlantı tablosu ve kalıcılık kayıtları', 'show/delete sys connection, persist-records, üyeyi boşaltma.', ids[9]),
+        M(10, 'Loglar', '/var/log/ltm: mesaj kodları, önem seviyeleri, tail ve grep.', ids[10]),
+        M(11, 'Yedek ve yükseltme', 'Service check date, UCS, ISO, volume, geri dönüş.', ids[11]),
+        M(12, 'Yüksek erişilebilirlik (HA)', 'Device trust, config sync, kontrollü failover, MAC masquerade.', ids[12]),
+        M(13, 'Arıza kayıtları', 'L2, VIP, yükseltme ve HA arızaları.', ids[13]),
+        M(14, 'Paket yakalama (tcpdump)', 'Yakında: 0.0:nnn, :p ve RST nedeni.', ids[14]),
+        M(15, 'iRule', 'Yakında: olaylar, yönlendirme, başlık işleme.', ids[15]),
+    ];
     root.CG_LAB_PATHS = [
         { id: 'cisco-swrt', vendor: 'cisco-ios', title: 'Cisco Switch & Router: sıfırdan üretime', desc: 'Kurulumdan yedekliliğe, bir kampüs switch\'i ve şube router\'ını adım adım üretime hazırlayın.',
           modules: SWRT('cisco-ios', { 1: ['ios-00', 'ios-01', 'ios-02'], 2: ['ios-35a'], 3: ['ios-03'], 4: ['ios-35b'], 5: ['ios-35c'], 6: ['ios-31'], 7: ['ios-30'], 8: ['ios-10'], 9: ['ios-04'],
@@ -58,6 +76,8 @@
         { id: 'checkpoint-fw', vendor: 'checkpoint', title: 'Check Point: sıfırdan üretime', desc: 'Gaia gateway\'ini clish ile kurulumdan ClusterXL\'e ve arıza teşhisine adım adım üretime hazırlayın. Politika SmartConsole\'da yazılır; burada gateway tarafı çalışılır.',
           modules: FW({ 1: ['cp-01', 'cp-02'], 2: ['cp-08'], 4: ['cp-09'], 5: ['cp-13'], 9: ['cp-14'], 12: ['cp-10', 'cp-06'], 13: ['cp-07'], 15: ['cp-11'], 16: ['cp-05'], 17: ['cp-03', 'cp-04', 'cp-12', 'cp-15'] },
               { 1: 'clish ve expert, show/set, save config; arayüz ve rota.', 2: 'İzinli istemciler, oturum zaman aşımı, parola politikası, roller.', 4: 'VLAN alt arayüzleri ve SmartConsole topolojisi.', 5: 'mgmt_cli ile nesne ve kural; publish ve install-policy.', 9: 'Nesnede otomatik Hide NAT ve fw monitor ile doğrulama.', 12: 'Saat dilimi, uzak syslog ve sağlık kontrolü.', 13: 'vpn tu ve IKE günlüğüyle faz 1/faz 2 teşhisi.', 15: 'save configuration, backup ve snapshot.', 16: 'ClusterXL durumu ve kontrollü failover.', 17: 'zdebug drop, fw monitor, tcpdump, rota ve kural arızaları.' }) },
+        { id: 'f5-adc', vendor: 'f5-ltm', title: 'F5 BIG-IP: sıfırdan üretime', desc: 'Boş bir BIG-IP\'yi ilk kurulumdan uygulama yayınına, operasyona, HA\'ya ve arıza teşhisine adım adım üretime hazırlayın (F5-CAB hedefleriyle).',
+          modules: ADC({ 1: ['f5-01'], 2: ['f5-02'], 3: ['f5-03'], 4: ['f5-04'], 5: ['f5-09'], 6: ['f5-06'], 7: ['f5-07'], 8: ['f5-08'], 9: ['f5-14'], 10: ['f5-13'], 11: ['f5-11'], 12: ['f5-15'], 13: ['f5-05', 'f5-10', 'f5-12', 'f5-16'] }) },
         { id: 'huawei-swrt', vendor: 'huawei', title: 'Huawei Switch & Router: sıfırdan üretime', desc: 'VRP ile aynı yolu Huawei S/AR cihazlarında yürüyün.',
           modules: SWRT('huawei', { 1: ['hua-01', 'hua-04'], 2: ['hua-05'], 3: ['hua-02'], 4: ['hua-08'], 5: ['hua-09'], 6: ['hua-10'], 7: ['hua-11'], 8: ['hua-03'], 9: ['hua-12'], 10: ['hua-13'], 11: ['hua-14'], 12: ['hua-15'], 13: ['hua-06'], 14: ['hua-07'], 15: ['hua-16'], 16: ['hua-17'], 17: ['hua-40', 'hua-42'] }) },
         { id: 'dell-swrt', vendor: 'dell', title: 'Dell OS10 Switch: sıfırdan üretime', desc: 'OS10 ile veri merkezi erişim switch\'ini adım adım kurun.',
