@@ -1795,6 +1795,8 @@ const ConfigGenerator = {
         const h = location.hash || '';
         const cli = h.match(/^#\/cli(?:\/([a-z0-9-]+))?$/);
         if (cli) { this._renderCli(cli[1]); return; }
+        const ts = h.match(/^#\/troubleshoot(?:\/([a-z0-9-]+))?(?:\/(\d+))?$/);
+        if (ts) { this._renderTs(ts[1], ts[2]); return; }
         const m = h.match(/^#\/([^/]+)\/([^/]+)$/);
         if (m && CG_REGISTRY[m[1]]) this._renderWork(m[1], m[2]);
         else if ((location.hash || '') === '#/converter') this._renderConverter();
@@ -2053,6 +2055,15 @@ const ConfigGenerator = {
         this._vendor = this._type = null;
         if (typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Komut kütüphanesi yüklenemedi.</p></div>'; return; }
         CgCli.render(this._root, vendor);
+    },
+
+    // ── SORUN GİDERME: senaryo tabanlı adım adım sihirbaz ────────────────
+    _renderTs(a, b) {
+        this._setNav('ts');
+        this._vendor = this._type = null;
+        if (typeof CgTroubleshoot === 'undefined' || typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Sorun giderme sihirbazı yüklenemedi.</p></div>'; return; }
+        CgTroubleshoot.render(this._root, a, b);
+        window.scrollTo(0, 0);
     },
 
     // ── Geriye dönük uyumluluk (eski çağrılar için) ──────────────────────

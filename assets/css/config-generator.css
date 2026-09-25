@@ -896,7 +896,7 @@
     padding: 7px 13px; border-radius: 7px;
     font: inherit; font-size: .84rem; font-weight: 600;
     color: var(--text-secondary, #6b7280);
-    display: inline-flex; align-items: center; gap: 7px;
+    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
     transition: background .15s, color .15s;
 }
 .app-nav-tab:hover { background: var(--bg-tertiary, #f3f4f6); color: var(--text-primary, #1f2937); }
@@ -905,7 +905,7 @@
 [data-theme="dark"] .app-nav-tab:hover,
 [data-theme="dark"] .app-nav-tab.active { background: #21262d; color: #e6edf3; }
 .app-brand { text-decoration: none; color: inherit; }
-@media (max-width: 720px) { .app-nav { margin-left: auto; } .app-nav-l { display: none; } .app-nav-tab { padding: 8px 10px; } }
+@media (max-width: 960px) { .app-nav { margin-left: auto; } .app-nav-l { display: none; } .app-nav-tab { padding: 8px 10px; } }
 
 /* ── Marka işareti (logo veya monogram) ──────────────────────────────────── */
 #config-generator-root .cg-mark,
@@ -1057,3 +1057,66 @@
 @media (max-width: 640px) { #config-generator-root .cg-cli-row { grid-template-columns: 12px minmax(0, 1fr); } #config-generator-root .cg-cli-row .cg-cli-desc { grid-column: 2; } }
 [data-theme="dark"] #config-generator-root .cg-cli code[data-code] { background: #0d1117; color: #79c0ff; }
 [data-theme="dark"] #config-generator-root .cg-cli code.is-copied { background: #064e3b !important; }
+
+/* ─── Sorun Giderme Sihirbazı (#/troubleshoot) ─────────────────────────── */
+#config-generator-root .cg-ts-q { font-size: .95rem; font-weight: 800; margin: 18px 0 10px; }
+#config-generator-root .cg-ts-topics { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+#config-generator-root .cg-ts-topic { display: grid; grid-template-columns: 34px 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; text-align: left; padding: 14px; border: 1px solid var(--border-color, #e5e7eb); border-radius: var(--cg-r, 10px); background: var(--bg-primary, #fff); color: var(--text-primary, #1f2937); cursor: pointer; font: inherit; transition: border-color .15s, transform .15s; }
+#config-generator-root .cg-ts-topic:hover { border-color: var(--primary-color, #4F46E5); transform: translateY(-1px); }
+#config-generator-root .cg-ts-topic > i { grid-row: 1 / 3; font-size: 1.2rem; color: var(--primary-color, #4F46E5); text-align: center; }
+#config-generator-root .cg-ts-topic-l { font-weight: 700; font-size: .92rem; }
+#config-generator-root .cg-ts-topic-m { font-size: .76rem; color: var(--text-secondary, #6b7280); }
+#config-generator-root .cg-ts-crumbs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: .82rem; color: var(--text-secondary, #6b7280); margin-bottom: 6px; }
+#config-generator-root .cg-ts-crumbs a { color: var(--primary-color, #4F46E5); text-decoration: none; font-weight: 600; }
+#config-generator-root .cg-ts-crumbs > i { font-size: .6rem; opacity: .6; }
+#config-generator-root .cg-ts-scens { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+#config-generator-root .cg-ts-scen { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 14px; border: 1px solid var(--border-color, #e5e7eb); border-radius: var(--cg-r, 10px); background: var(--bg-primary, #fff); color: var(--text-primary, #1f2937); cursor: pointer; font: inherit; }
+#config-generator-root .cg-ts-scen:hover { border-color: var(--primary-color, #4F46E5); }
+#config-generator-root .cg-ts-scen-v { display: flex; gap: 6px; align-items: center; font-size: .75rem; font-weight: 600; color: var(--text-secondary, #6b7280); }
+#config-generator-root .cg-ts-scen-t { display: flex; gap: 8px; align-items: center; font-weight: 700; font-size: .92rem; }
+#config-generator-root .cg-ts-scen-s { font-size: .8rem; color: var(--text-secondary, #6b7280); line-height: 1.4; }
+#config-generator-root .cg-ts-scen-n { font-size: .75rem; color: var(--primary-color, #4F46E5); font-weight: 600; margin-top: auto; }
+#config-generator-root .cg-ts-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-top: 8px; }
+#config-generator-root .cg-ts-head h2 { font-size: 1.2rem; font-weight: 800; margin: 0; display: flex; gap: 10px; align-items: center; }
+#config-generator-root .cg-ts-plat { display: flex; gap: 6px; align-items: center; font-size: .8rem; font-weight: 600; color: var(--text-secondary, #6b7280); }
+#config-generator-root .cg-ts-prog { height: 6px; border-radius: 3px; background: var(--bg-tertiary, #f3f4f6); margin: 14px 0; overflow: hidden; }
+#config-generator-root .cg-ts-prog span { display: block; height: 100%; background: var(--primary-color, #4F46E5); transition: width .25s; }
+#config-generator-root .cg-ts-steps { list-style: none; padding: 0; margin: 0; }
+#config-generator-root .cg-ts-step { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--border-color, #e5e7eb); }
+#config-generator-root .cg-ts-step:first-child { border-top: 0; }
+#config-generator-root .cg-ts-step-i { font-size: 1.05rem; margin-top: 2px; color: var(--text-tertiary, #9ca3af); }
+#config-generator-root .cg-ts-step.is-ok .cg-ts-step-i { color: #10b981; }
+#config-generator-root .cg-ts-step.is-bad .cg-ts-step-i { color: #ef4444; }
+#config-generator-root .cg-ts-step.is-cur .cg-ts-step-i { color: var(--primary-color, #4F46E5); }
+#config-generator-root .cg-ts-step.is-todo { opacity: .5; }
+#config-generator-root .cg-ts-step.is-cur .cg-ts-step-b { border: 1px solid var(--primary-color, #4F46E5); border-radius: var(--cg-r, 10px); padding: 12px; margin: -4px 0; }
+#config-generator-root .cg-ts-step.is-bad .cg-ts-step-b { border-left: 3px solid #ef4444; padding-left: 10px; }
+#config-generator-root .cg-ts-step-h { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary, #6b7280); margin-bottom: 4px; }
+#config-generator-root .cg-ts code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; word-break: break-word; padding: 2px 6px; border-radius: 5px; background: var(--bg-tertiary, #f3f4f6); }
+#config-generator-root .cg-ts code[data-code] { cursor: copy; }
+#config-generator-root .cg-ts code.is-copied { background: #d1fae5 !important; }
+#config-generator-root .cg-ts-look { font-size: .83rem; color: var(--text-secondary, #4b5563); margin-top: 6px; line-height: 1.45; }
+#config-generator-root .cg-ts-act, #config-generator-root .cg-ts-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+#config-generator-root .cg-ts-btn { font: inherit; font-size: .82rem; font-weight: 600; padding: 8px 14px; border-radius: 8px; cursor: pointer; border: 1px solid var(--border-color, #e5e7eb); background: var(--bg-primary, #fff); color: var(--text-primary, #1f2937); display: inline-flex; gap: 7px; align-items: center; }
+#config-generator-root .cg-ts-btn.ok { background: #10b981; border-color: #10b981; color: #fff; }
+#config-generator-root .cg-ts-btn.bad { background: #ef4444; border-color: #ef4444; color: #fff; }
+#config-generator-root .cg-ts-btn:hover { filter: brightness(1.05); }
+#config-generator-root .cg-ts-result { margin-top: 16px; padding: 16px; border-radius: var(--cg-r, 10px); border: 1px solid; }
+#config-generator-root .cg-ts-result.is-bad { border-color: #fca5a5; background: #fef2f2; }
+#config-generator-root .cg-ts-result.is-ok { border-color: #6ee7b7; background: #ecfdf5; }
+#config-generator-root .cg-ts-result h3 { margin: 0 0 8px; font-size: 1rem; font-weight: 800; display: flex; gap: 8px; align-items: center; }
+#config-generator-root .cg-ts-result p { font-size: .86rem; margin: 6px 0; line-height: 1.5; }
+#config-generator-root .cg-ts-rel { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; font-size: .82rem; }
+#config-generator-root .cg-ts-rel b { width: 100%; }
+#config-generator-root .cg-ts-rel a.cg-chip { text-decoration: none; }
+[data-theme="dark"] #config-generator-root .cg-ts-topic, [data-theme="dark"] #config-generator-root .cg-ts-scen, [data-theme="dark"] #config-generator-root .cg-ts-btn { background: #161b22; border-color: #30363d; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-ts-btn.ok { background: #059669; border-color: #059669; }
+[data-theme="dark"] #config-generator-root .cg-ts-btn.bad { background: #dc2626; border-color: #dc2626; }
+[data-theme="dark"] #config-generator-root .cg-ts code { background: #0d1117; color: #79c0ff; }
+[data-theme="dark"] #config-generator-root .cg-ts code.is-copied { background: #064e3b !important; }
+[data-theme="dark"] #config-generator-root .cg-ts-prog { background: #21262d; }
+[data-theme="dark"] #config-generator-root .cg-ts-step, [data-theme="dark"] #config-generator-root .cg-ts-step.is-cur .cg-ts-step-b { border-color: #30363d; }
+[data-theme="dark"] #config-generator-root .cg-ts-step.is-cur .cg-ts-step-b { border-color: var(--primary-color, #5865f2); }
+[data-theme="dark"] #config-generator-root .cg-ts-result.is-bad { background: #2d1215; border-color: #7f1d1d; }
+[data-theme="dark"] #config-generator-root .cg-ts-result.is-ok { background: #0f2a1f; border-color: #065f46; }
+[data-theme="dark"] #config-generator-root .cg-ts-look, [data-theme="dark"] #config-generator-root .cg-ts-scen-s { color: #8b949e; }
