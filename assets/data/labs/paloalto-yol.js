@@ -65,7 +65,7 @@
         ],
         verify: ['show config running', 'show interface ethernet1/1'],
         learn: ['Veri arayüzünde yönetim: interface-management-profile.', 'MGT portu: permitted-ip + service disable-…', 'idle-timeout ve admin-lockout.', 'WAN\'da yönetim profili olmaz.'],
-        links: { tool: '#/paloalto/mgmt', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst · Device Settings'
+        links: { tool: '#/paloalto/admin', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst · Device Settings'
     },
     // ═══ Sistem servisleri: DNS, NTP, DHCP ═══
     {
@@ -103,7 +103,7 @@
         ],
         verify: ['show ntp', 'show dhcp server lease interface all', 'show config running'],
         learn: ['deviceconfig system: DNS ve NTP.', 'show ntp ile eşitleme kontrolü.', 'DHCP arayüz başına: ip-pool + option gateway.', 'Kiralar: show dhcp server lease.'],
-        links: { tool: '#/paloalto/system', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst · Device Settings'
+        links: { tool: '#/paloalto/devsetup', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst · Device Settings'
     },
     // ═══ Güvenlik profilleri ═══
     {
@@ -134,7 +134,7 @@
         ],
         verify: ['show config running'],
         learn: ['allow ≠ güvenli: içeriği profiller inceler.', 'profiles ya da group; ikisi birden değil.', 'Sunucu yayınına zafiyet koruması (strict).', 'HTTPS içeriği için şifre çözme gerekir.'],
-        links: { tool: '#/paloalto/security', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst · Security Profiles'
+        links: { tool: '#/paloalto/secprofilegroup', cli: '#/cli/paloalto' }, cert: 'Network Security Analyst · Security Profiles'
     },
     // ═══ Yapılandırma yönetimi ═══
     {
@@ -209,7 +209,7 @@
         ],
         verify: ['test routing fib-lookup virtual-router default ip 198.51.100.80', TSP, 'show interface ethernet1/2'],
         learn: ['Zincir: zone → rota → NAT araması → güvenlik kuralı → NAT uygulaması.', 'Her halkanın test komutu var.', 'NAT ve güvenlik kuralı ayrı katmanlar.', 'Geçici kuralları kaldırmayı unutmayın.'],
-        links: { tool: '#/paloalto/security', cli: '#/cli/paloalto', wizard: '#/troubleshoot/traffic' }, cert: 'NGFW Engineer · Troubleshooting'
+        links: { tool: '#/paloalto/policy', cli: '#/cli/paloalto', wizard: '#/troubleshoot/traffic' }, cert: 'NGFW Engineer · Troubleshooting'
     },
     // ═══ Alt arayüzler (802.1Q) ═══
     {
@@ -303,7 +303,7 @@
         ],
         verify: ['show routing route type static', FIB, 'test nat-policy-match from trust to untrust source 10.64.10.50 destination 198.51.100.80 destination-port 443 protocol 6 to-interface ethernet1/4'],
         learn: ['Küçük metrik kazanır; yedek rotaya büyük metrik verin.', 'Arayüz düşünce rota düşer; hattın ötesi için path monitoring.', 'NAT to-interface: her çıkış hattına kendi NAT kuralı.', 'Kopmayı kontrollü deneyin, sonra geri alın.'],
-        links: { tool: '#/paloalto/route', cli: '#/cli/paloalto', wizard: '#/troubleshoot/paloalto/111' }, cert: 'Network Security Analyst · Routing'
+        links: { tool: '#/paloalto/staticroute', cli: '#/cli/paloalto', wizard: '#/troubleshoot/paloalto/111' }, cert: 'Network Security Analyst · Routing'
     },
     // ═══ HA: durum, config eşitleme, kontrollü failover ═══
     {
@@ -342,6 +342,48 @@
         verify: ['show high-availability state', 'show high-availability all'],
         learn: ['PAN-OS HA: küçük priority = yüksek öncelik.', 'Failover öncesi Running Configuration: synchronized olmalı.', 'suspend → eş aktif; functional → geri katıl.', 'Preemptive kapalıysa geri dönen cihaz passive kalır.'],
         links: { cli: '#/cli/paloalto', wizard: '#/troubleshoot/paloalto/112' }, cert: 'Network Security Engineer · HA'
+    },
+    // ═══ Log iletimi: syslog profili, log iletim profili, sistem/config logları ═══
+    {
+        id: 'pan-11', vendor: 'paloalto', level: 4, title: 'Log iletimi: syslog profili, log iletim profili ve kurala bağlama', minutes: 25, kind: 'firewall', hostname: 'PA-A', pre: ['pan-04'],
+        up: ['ethernet1/1', 'ethernet1/2', 'ethernet1/3'], hosts: ['203.0.113.1', '198.51.100.80'], start: BASE.concat(OUT_OK),
+        sim: { mgmtReach: ['10.240.0.20'], flows: [{ src: '10.64.10.50', dst: '198.51.100.80', dport: 443, app: 'ssl' }, { src: '10.64.10.61', dst: '198.51.100.80', dport: 22, app: 'ssh' }] },
+        story: 'Güvenlik ekibi güvenlik duvarının loglarını SIEM toplayıcısına (<code>10.240.0.20</code>, UDP 514, yönetim ağında) istiyor: internet çıkış kuralının trafik ve tehdit logları, ayrıca sistem ve yapılandırma (config) logları. Toplayıcı yönetim arayüzünden (MGT) erişilebilir.',
+        lesson: L('PAN-OS\'ta log iletimi üç parçadır. (1) <b>Syslog sunucu profili</b>: nereye ve nasıl (<code>shared log-settings syslog</code>: sunucu, taşıma, port, biçim, facility). (2) <b>Log iletim profili</b>: hangi log tipleri nereye (<code>shared log-settings profiles … match-list … log-type … send-syslog …</code>). (3) <b>Bağlama</b>: profil güvenlik kuralına <code>log-setting</code> ile verilir; sistem ve config logları ise <code>shared log-settings system|config match-list</code> ile iletilir. Syslog varsayılan olarak yönetim arayüzünden (MGT) gönderilir; başka arayüzden gidecekse service route ayarlanır.',
+            'Log iletilmezse olay incelemesinde elde yalnız cihazdaki sınırlı log kalır. Profil tanımlayıp kurala bağlamayı unutmak en sık hatadır: "SIEM\'e hiçbir şey gelmiyor" kaydının çoğu budur.',
+            'set shared log-settings syslog SIEM server SIEM1 server 10.240.0.20 transport UDP port 514 format BSD facility LOG_USER\nset shared log-settings profiles LF-SIEM match-list TRAFFIC log-type traffic filter "All Logs" send-syslog SIEM\nset rulebase security rules LAN-OUT log-setting LF-SIEM\nset shared log-settings system match-list SYS filter "All Logs" send-syslog SIEM\ncommit\nshow log traffic direction equal backward',
+            ['Log iletim profilini oluşturup kurala bağlamamak.', 'Varsayılan kuralların (interzone-default) logladığını sanmak: reddedilen trafik görünmez.', 'SIEM\'i yalnız veri ağından erişilebilir yapıp syslog\'un MGT\'den çıktığını unutmak.', 'log-end\'i kapatıp yalnız log-start bırakmak: oturumun uygulama ve byte bilgisi eksik kalır.', 'UDP syslog\'da iletimin garanti olmadığını unutmak (önemli loglar için TCP/SSL).']),
+        goals: ['Syslog sunucu profili', 'Log iletim profili ve match-list', 'Profili kurala bağlamak', 'Sistem ve config logları', 'Varsayılan kuralların loglamadığını görmek'],
+        tasks: [
+            { t: 'SIEM için <code>SIEM</code> adlı syslog sunucu profili oluşturun: sunucu adı <code>SIEM1</code>, adres <code>10.240.0.20</code>, UDP, port 514, BSD biçimi, facility LOG_USER; commit.', why: 'Profil yalnız hedefi tanımlar; tek başına hiçbir log göndermez. Birden çok sunucu eklenebilir.',
+              hints: ['shared log-settings syslog SIEM server SIEM1 server … transport … port … format … facility …', '<code>set shared log-settings syslog SIEM server SIEM1 server 10.240.0.20 transport UDP port 514 format BSD facility LOG_USER</code>'],
+              steps: C(['set shared log-settings syslog SIEM server SIEM1 server 10.240.0.20 transport UDP port 514 format BSD facility LOG_USER']),
+              check: s => s.val('shared log-settings syslog SIEM server SIEM1 server') === '10.240.0.20' && s.val('shared log-settings syslog SIEM server SIEM1 transport') === 'UDP' && s.val('shared log-settings syslog SIEM server SIEM1 port') === '514' },
+            { t: '<code>LF-SIEM</code> log iletim profili: <code>TRAFFIC</code> eşleşme listesi (log-type traffic) ve <code>THREAT</code> eşleşme listesi (log-type threat), ikisi de filtre <code>"All Logs"</code> ile SIEM\'e; commit.', why: 'Her match-list bir log tipini bir ya da daha çok hedefe yollar. Filtreyle yalnız belirli kayıtlar (ör. yalnız reddedilenler) seçilebilir.',
+              hints: ['shared log-settings profiles LF-SIEM match-list … log-type … filter "All Logs" send-syslog SIEM', '<code>set shared log-settings profiles LF-SIEM match-list TRAFFIC log-type traffic filter "All Logs" send-syslog SIEM</code> · <code>… match-list THREAT log-type threat …</code>'],
+              steps: C(['set shared log-settings profiles LF-SIEM match-list TRAFFIC log-type traffic filter "All Logs" send-syslog SIEM', 'set shared log-settings profiles LF-SIEM match-list THREAT log-type threat filter "All Logs" send-syslog SIEM']), needs: [0],
+              check: s => s.val('shared log-settings profiles LF-SIEM match-list TRAFFIC log-type') === 'traffic' && s.val('shared log-settings profiles LF-SIEM match-list THREAT log-type') === 'threat' && arr(s, 'shared log-settings profiles LF-SIEM match-list TRAFFIC send-syslog').includes('SIEM') },
+            { t: 'Profili internet çıkış kuralına (<code>LAN-OUT</code>) bağlayın; commit.', why: 'Kurala bağlanmayan profil hiçbir şey iletmez. Kural loglarını oturum sonunda (log-end, varsayılan açık) yazar; kayıtta uygulama, byte ve bitiş nedeni olur.',
+              hints: ['set rulebase security rules LAN-OUT log-setting …', '<code>set rulebase security rules LAN-OUT log-setting LF-SIEM</code>'], steps: C(['set rulebase security rules LAN-OUT log-setting LF-SIEM']), needs: [0, 1],
+              check: s => (s.logFwd().rules['LAN-OUT'] || []).includes('traffic'),
+              fb: s => (s.val('rulebase security rules LAN-OUT log-end') === 'no' ? 'Çalışır ama log-end kapalı: oturum sonu kaydı (uygulama, byte, bitiş nedeni) yazılmaz.' : s.val('rulebase security rules LAN-OUT log-start') === 'yes' ? 'Çalışır ama log-start açık: her oturum için ikinci bir kayıt üretir ve SIEM\'i gereksiz doldurur.' : null) },
+            { t: 'Sistem ve yapılandırma (config) loglarını da SIEM\'e iletin: <code>SYS</code> ve <code>CFG</code> eşleşme listeleri, filtre "All Logs"; commit.', why: 'Giriş denemeleri, commit\'ler ve HA olayları sistem/config loglarındadır. Bu loglar kurala bağlı değildir; <code>shared log-settings system|config</code> altında iletilir.',
+              hints: ['shared log-settings system match-list … / config match-list …', '<code>set shared log-settings system match-list SYS filter "All Logs" send-syslog SIEM</code> · <code>set shared log-settings config match-list CFG filter "All Logs" send-syslog SIEM</code>'],
+              steps: C(['set shared log-settings system match-list SYS filter "All Logs" send-syslog SIEM', 'set shared log-settings config match-list CFG filter "All Logs" send-syslog SIEM']), needs: [0],
+              check: s => { const f = s.logFwd(); return f.system && f.config; } },
+            { t: 'Trafik loglarına en yeniden eskiye bakın.', why: '<code>show log traffic direction equal backward</code> son kayıtları önce gösterir. LAN-OUT\'a düşen https oturumu görünür. Aynı istemci grubundan denenen ssh oturumu ise görünmez: onu interzone-default reddetti ve varsayılan kurallar loglamaz.',
+              hints: ['show log traffic direction equal …', '<code>show log traffic direction equal backward</code>'], steps: ['show log traffic direction equal backward'], needs: [0, 1, 2],
+              check: s => s.ev.list().some(e => e.showlog === 'traffic' && e.n > 0) },
+            { t: 'Soru: reddedilen ssh denemeleri logda yok. SIEM\'in reddedilen trafiği de görmesi için ne yapılır?', ask: { choices: [['override', 'interzone-default kuralını override edip loglamasını açmak (ya da en alta loglayan açık bir deny kuralı eklemek) ve log iletim profilini ona da bağlamak'], ['syslog', 'Syslog profiline ikinci sunucu eklemek'], ['start', 'LAN-OUT\'ta log-start açmak'], ['none', 'Mümkün değil; reddedilen trafik loglanmaz']], correct: 'override' },
+              why: 'Varsayılan kurallar (intrazone-default, interzone-default) varsayılan olarak log yazmaz. Override ile loglama açılabilir ya da kural tabanının sonuna loglayan açık bir deny kuralı konur. Log iletim profili de o kurala bağlanmalıdır.',
+              hints: ['ssh oturumu hangi kurala düştü?', 'O kural log yazıyor mu?'] },
+            { t: 'Soru: SIEM toplayıcısı yalnız veri ağından (ör. trust zone\'u) erişilebilir olsaydı ne gerekirdi?', ask: { choices: [['sroute', 'Syslog için service route: gönderimi bir veri arayüzünden yaptırmak (varsayılan MGT)'], ['rule', 'trust → trust izin kuralı'], ['nat', 'Kaynak NAT kuralı'], ['nothing', 'Hiçbir şey; syslog her arayüzden çıkar']], correct: 'sroute' },
+              why: 'Yönetim düzlemi servisleri (syslog, DNS, NTP, güncelleme) varsayılan olarak MGT arayüzünden çıkar. Toplayıcı yalnız veri ağındaysa service route ile kaynak arayüz değiştirilir; o zaman ilgili güvenlik kuralları da gerekebilir.',
+              hints: ['Syslog\'u yönetim düzlemi mi veri düzlemi mi gönderir?', 'Varsayılan kaynak arayüz hangisi?'] },
+        ],
+        verify: ['show log traffic direction equal backward', 'show config running | match log-setting'],
+        learn: ['Syslog profili = hedef; log iletim profili = hangi log nereye; kural = bağlama.', 'Sistem/config logları shared log-settings system|config altında.', 'Varsayılan kurallar loglamaz.', 'Syslog varsayılan olarak MGT\'den çıkar.'],
+        links: { tool: '#/paloalto/logfwd', cli: '#/cli/paloalto', wizard: '#/troubleshoot/paloalto/113' }, cert: 'Network Security Analyst · Logging'
     },
     ];
     // Çoktan seçmeli (ask) görevler ve adımlardan türetilen örnek çözüm (paloalto.js ile aynı kural)

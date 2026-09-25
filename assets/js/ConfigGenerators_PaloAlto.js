@@ -1750,8 +1750,13 @@ function cgPaLogFwdGen(data) {
     }
     if (rule) c += '# Kurala ata\nset rulebase security rules "' + rule + '" log-setting ' + lf + '\n\n';
     c += '# Commit gerekli!\n# commit\n\n';
-    c += '# Doğrulama:\n# show shared log-settings syslog ' + sp + '   (configure modu)\n# show shared log-settings profiles ' + lf + '   (configure modu)\n';
-    return c;
+    c += '# Doğrulama:\n# show shared log-settings syslog ' + sp + '   (configure modu)\n# show shared log-settings profiles ' + lf + '   (configure modu)\n# show log traffic direction equal backward\n';
+    const w = [];
+    if (!rule) w.push('⚠ Kural seçilmedi: log iletim profili bir güvenlik kuralına log-setting ile bağlanmadıkça hiçbir trafik logu iletilmez (pan-11).');
+    w.push('ℹ Varsayılan kurallar (intrazone-default, interzone-default) log yazmaz: reddedilen trafiği SIEM\'de görmek için interzone-default\'u override edip loglamayı açın ya da en alta loglayan bir deny kuralı ekleyin ve bu profili ona da bağlayın (pan-11).');
+    w.push('ℹ Syslog varsayılan olarak yönetim arayüzünden (MGT) gönderilir; toplayıcı yalnız veri ağındaysa syslog için service route ayarlayın.');
+    if (tr === 'UDP') w.push('ℹ UDP syslog iletimi garanti etmez; kayıp kabul edilemeyen loglar için TCP ya da SSL (6514) kullanın.');
+    return { config: c, warnings: w };
 }
 
 // ── Palo Alto: Device Setup (DNS / NTP / Banner / Management) ───────────────

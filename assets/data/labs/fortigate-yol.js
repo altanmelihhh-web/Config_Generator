@@ -200,7 +200,7 @@
         ],
         verify: ['show firewall policy 1', 'show firewall policy 2'],
         learn: ['utm-status enable → profiller.', 'certificate-inspection: kategori; deep-inspection: içerik.', 'deep-inspection için istemcide CA güveni.', 'Sunucu yayınına sunucu odaklı IPS.'],
-        links: { tool: '#/fortigate/utm', cli: '#/cli/fortigate' }, cert: 'NSE 4 · M7–M9'
+        links: { tool: '#/fortigate/secprofile', cli: '#/cli/fortigate' }, cert: 'NSE 4 · M7–M9'
     },
     // ═══ VLAN ve zone ═══
     {
@@ -263,7 +263,7 @@
         ],
         verify: ['show log syslogd setting', 'show firewall policy 1', 'diagnose log test'],
         learn: ['logtraffic: utm (varsayılan), all, disable.', 'syslogd setting: sunucu, port, biçim.', 'SIEM için CEF.', 'diagnose log test ile doğrulama.'],
-        links: { tool: '#/fortigate/log', cli: '#/cli/fortigate' }, cert: 'NSE 4 · M13'
+        links: { tool: '#/fortigate/logging', cli: '#/cli/fortigate' }, cert: 'NSE 4 · M13'
     },
     // ═══ Yönetim sertleştirme ═══
     {
@@ -325,7 +325,7 @@
         ],
         verify: ['execute revision list config', 'show firewall policy'],
         learn: ['Cihaz dışı yedek: execute backup config tftp.', 'Cihaz içi revizyon: backup config flash + revision list.', 'Restore = tam değiştirme + yeniden başlatma.', 'cfg-save revert: kopma riskli değişikliklerde can simidi.'],
-        links: { tool: '#/fortigate/system', cli: '#/cli/fortigate' }, cert: 'NSE 4 · M1'
+        links: { cli: '#/cli/fortigate' }, cert: 'NSE 4 · M1'
     },
     ];
     // Çoktan seçmeli (ask) görevler ve adımlardan türetilen örnek çözüm (fortigate.js ile aynı kural)

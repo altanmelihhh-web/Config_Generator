@@ -494,7 +494,7 @@
             'show ip dhcp binding', { answer: 4, v: 'in' }, 'configure terminal', 'interface vlan 30', 'ip helper-address 10.64.99.5', 'end', 'write memory'],
         verify: ['show ip dhcp binding', 'show running-configuration | find "ip dhcp server"', 'show running-configuration interface vlan 30'],
         learn: ['<code>ip dhcp server</code> → <code>no disable</code>.', 'pool: <code>network</code>, <code>default-router</code>, <code>dns-server</code>, <code>range</code>.', 'OS10\'da "hariç tut" yerine dağıtım aralığı (range).', 'Relay: istemci VLAN\'ının SVI\'sinde <code>ip helper-address</code>.'],
-        links: { tool: '#/dell/dhcp', cli: '#/cli/dell' }, cert: 'Dell OS10 servisler'
+        links: { cli: '#/cli/dell' }, cert: 'Dell OS10 servisler'
     },
     // Modül 9 — Arayüz ayarları
     {
@@ -544,7 +544,7 @@
             'show running-configuration interface ethernet 1/1/5', 'write memory'],
         verify: ['show interface status', 'show running-configuration interface ethernet 1/1/5', 'show vlan'],
         learn: ['<code>interface range ethernet 1/1/1-1/1/4</code> toplu yapılandırır.', 'Jumbo: <code>mtu 9216</code>, yol üzerindeki herkes aynı.', 'Boş portlar <code>shutdown</code>.', 'Tek port kanıtı: <code>show running-configuration interface …</code>.'],
-        links: { tool: '#/dell/interface', cli: '#/cli/dell' }, cert: 'Dell OS10 L2'
+        links: { tool: '#/dell/iface', cli: '#/cli/dell' }, cert: 'Dell OS10 L2'
     },
     // Modül 10 — Port güvenliği (varyantlı + sürpriz olay)
     {
@@ -593,7 +593,7 @@
             ['end', 'show mac address-table', { answer: 1, v: v.key }, 'configure terminal', 'interface ethernet 1/1/' + v.port, 'switchport port-security', 'mac-learn limit violation shutdown', 'exit', 'shutdown', 'no shutdown', 'end', 'write memory']),
         verify: ['show switchport port-security', 'show mac address-table', 'show running-configuration interface ethernet 1/1/2'],
         learn: ['<code>switchport port-security</code> → <code>no disable</code> → <code>mac-learn limit</code>.', 'İhlal: drop = sessiz, log = iz bırakır, shutdown = port kapanır.', 'Kurtarma: shutdown → no shutdown.', 'Korumayı kapatmak çözüm değildir.'],
-        links: { tool: '#/dell/security', cli: '#/cli/dell' }, cert: 'Dell OS10 güvenlik'
+        links: { cli: '#/cli/dell' }, cert: 'Dell OS10 güvenlik'
     },
     // Modül 11 — MAC tablosu
     {

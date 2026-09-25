@@ -76,7 +76,7 @@
         ],
         verify: ['show allowed-client all', 'show inactivity-timeout', 'show password-controls all', 'show rba user netops', 'show config-state'],
         learn: ['Önce kendi yönetim ağını ekle, sonra any-host\'u sil.', 'allowed-client yalnız SSH/WebUI\'ı sınırlar; politika ayrı.', 'inactivity-timeout dakika cinsinden.', 'Kullanıcı = add user + set user password + add rba user roles.', 'monitorRole yalnız okuma.'],
-        links: { tool: '#/checkpoint/system', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/108' }, cert: 'CCSA R81.20'
+        links: { tool: '#/checkpoint/gaiauser', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/108' }, cert: 'CCSA R81.20'
     },
     // ═══ VLAN alt arayüzleri ═══
     {
@@ -152,7 +152,7 @@
         ],
         verify: ['show timezone', 'show syslog log-remote-addresses', 'show ntp servers', 'show config-state'],
         learn: ['set timezone Bölge / Şehir (boşluklu).', 'Gaia syslog = işletim sistemi logları.', 'Trafik logu → Log Server → Log Exporter → SIEM.', 'Kapatılan hedefleri listeden silin.'],
-        links: { tool: '#/checkpoint/system', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/109' }, cert: 'CCSA R81.20'
+        links: { tool: '#/checkpoint/gaiasyslog', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/109' }, cert: 'CCSA R81.20'
     },
     // ═══ Yedekleme ve geri dönüş ═══
     {
@@ -184,7 +184,7 @@
         ],
         verify: ['show backups', 'show snapshots', 'show configuration'],
         learn: ['save configuration = clish ayarlarını dosyaya aktar.', 'add backup local = yapılandırma yedeği.', 'add snapshot = işletim sistemi dahil tam görüntü.', 'Politika yedeği yönetim sunucusundadır.'],
-        links: { tool: '#/checkpoint/system', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/112' }, cert: 'CCSA R81.20'
+        links: { cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/112' }, cert: 'CCSA R81.20'
     },
     // ═══ Arıza: bakım sonrası şubelere erişim yok ═══
     {

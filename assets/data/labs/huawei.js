@@ -927,7 +927,7 @@
             'display interface brief', { answer: 5, v: v.key }, 'error-down auto-recovery cause bpdu-protection interval 300', 'interface g0/0/' + v.port, 'shutdown', 'undo shutdown', 'return', 'save', 'y'],
         verify: ['display stp', 'display stp brief', 'display interface brief', 'display current-configuration | include stp'],
         learn: ['Kök = en küçük (öncelik, MAC); eşitlikte küçük MAC.', '<code>stp root primary</code> = öncelik 0.', 'Kenar port: <code>stp edged-port enable</code>; koruma: <code>stp bpdu-protection</code>.', 'error-down kurtarma: shutdown/undo shutdown ya da <code>error-down auto-recovery</code>.', 'Korumayı kapatmak çözüm değildir.'],
-        links: { tool: '#/huawei/stp', cli: '#/cli/huawei' }, cert: 'HCIA-Datacom (STP/RSTP)'
+        links: { tool: '#/huawei/mstp', cli: '#/cli/huawei' }, cert: 'HCIA-Datacom (STP/RSTP)'
     },
     // Modül 15 — Yedekleme ve geri dönüş (sürpriz olay)
     {

@@ -63,8 +63,9 @@ const CgLabSetCli = (() => {
     // Kısaltma: tam eşleşme ya da benzersiz önek
     function pick(word, list) {
         const w = String(word).toLowerCase();
-        if (list.includes(w)) return { ok: w };
-        const h = list.filter(x => x.startsWith(w));
+        // büyük harfli değerler (ör. PAN-OS UDP, BSD, LOG_USER) listedeki yazımıyla döner
+        const ex = list.find(x => x.toLowerCase() === w); if (ex !== undefined) return { ok: ex };
+        const h = list.filter(x => x.toLowerCase().startsWith(w));
         if (h.length === 1) return { ok: h[0] };
         return h.length ? { err: 'amb', hits: h } : { err: 'none' };
     }
@@ -2251,6 +2252,8 @@ const CgLabSetCli = (() => {
         const ifRef = st => { const r = physRef(); if (st && st.cand) for (const [n, o] of (getIn(st.cand.t, ['network', 'interface', 'ethernet']) || new Map())) for (const u of (getIn(o, ['layer3', 'units']) || new Map()).keys()) r.push(u); return r; };
         const mpRef = st => [...(getIn(st.cand.t, ['network', 'profiles', 'interface-management-profile']) || new Map()).keys()];
         const YN = ['yes', 'no'];
+        const slRef = st => [...(getIn(st.cand.t, ['shared', 'log-settings', 'syslog']) || new Map()).keys()];
+        const lfRef = st => [...(getIn(st.cand.t, ['shared', 'log-settings', 'profiles']) || new Map()).keys()];
         const ruleC = (nat) => Object.assign({
             from: V('word', 'Kaynak zone(lar)', { multi: 'brack', ref: zoneRef }),
             to: V('word', nat ? 'Hedef zone (NAT: pre-NAT hedef zone)' : 'Hedef zone(lar) (DNAT sonrası: post-NAT zone)', { multi: 'brack', ref: zoneRef }),
@@ -2270,6 +2273,7 @@ const CgLabSetCli = (() => {
             category: V('word', 'URL kategorisi', { multi: 'brack', ref: () => ['any'] }),
             action: V(['allow', 'deny', 'drop', 'reset-client', 'reset-server', 'reset-both'], 'Eylem'),
             'log-end': V(YN, 'Oturum sonunda logla'), 'log-start': V(YN, 'Oturum başında logla'),
+            'log-setting': V('word', 'Log iletim profili', { ref: lfRef }),
             'profile-setting': K({ group: V('word', 'Profil grubu', { multi: 'brack', grp: 'ps', ref: () => ['default'] }),
                 profiles: K({ virus: V('word', 'Antivirüs', { multi: 'brack', ref: () => ['default'] }), spyware: V('word', 'Anti-spyware', { multi: 'brack', ref: () => ['default', 'strict'] }),
                     vulnerability: V('word', 'Zafiyet koruması (IPS)', { multi: 'brack', ref: () => ['default', 'strict'] }), 'url-filtering': V('word', 'URL filtreleme', { multi: 'brack', ref: () => ['default'] }),
@@ -2307,7 +2311,15 @@ const CgLabSetCli = (() => {
                 security: K({ rules: L('name', ruleC(false), 'Güvenlik kuralı', { wrap: true, ref: st => [...(getIn(st.cand.t, ['rulebase', 'security', 'rules']) || new Map()).keys()], u: ['profile-setting', 'tag', 'negate-source', 'negate-destination', 'schedule', 'hip-profiles', 'rule-type', 'option'] }) }, 'Güvenlik kuralları', { u: ['default-security-rules'] }),
                 nat: K({ rules: L('name', ruleC(true), 'NAT kuralı', { wrap: true, ref: st => [...(getIn(st.cand.t, ['rulebase', 'nat', 'rules']) || new Map()).keys()], u: ['nat-type', 'tag', 'active-active-device-binding'] }) }, 'NAT kuralları'),
             }, 'Kural tabanları', { u: ['pbf', 'decryption', 'qos', 'application-override', 'authentication', 'dos', 'tunnel-inspect'] }),
-        }, '', { u: ['mgt-config', 'shared', 'vsys', 'application', 'application-group', 'profiles', 'profile-group', 'schedule', 'tag', 'external-list', 'region', 'user-id-agent', 'log-settings', 'import', 'reports'] });
+            shared: K({ 'log-settings': K({
+                syslog: L('name', { server: L('name', { server: V('ip', 'Syslog sunucusu IP'), transport: V(['UDP', 'TCP', 'SSL'], 'Taşıma'), port: V('port', 'Port (UDP/TCP 514, SSL 6514)'), format: V(['BSD', 'IETF'], 'Biçim'),
+                    facility: V(['LOG_USER', 'LOG_LOCAL0', 'LOG_LOCAL1', 'LOG_LOCAL2', 'LOG_LOCAL3', 'LOG_LOCAL4', 'LOG_LOCAL5', 'LOG_LOCAL6', 'LOG_LOCAL7'], 'Facility') }, 'Syslog sunucusu', { wrap: true }) }, 'Syslog sunucu profili', { wrap: true, ref: slRef }),
+                profiles: L('name', { 'match-list': L('name', { 'log-type': V(['traffic', 'threat', 'wildfire', 'url', 'data', 'tunnel', 'auth', 'decryption'], 'Log tipi'), filter: V('str', 'Filtre ("All Logs" = hepsi)'),
+                    'send-syslog': V('word', 'Gönderilecek syslog profili', { multi: 'brack', ref: slRef }) }, 'Eşleşme listesi', { wrap: true, u: ['send-to-panorama', 'send-email', 'send-snmptrap', 'send-http', 'quarantine', 'actions', 'action-desc'] }), description: V('str', 'Açıklama') }, 'Log iletim profili', { wrap: true, ref: lfRef, u: ['enhanced-application-logging'] }),
+                system: K({ 'match-list': L('name', { filter: V('str', 'Filtre ("All Logs" = hepsi)'), 'send-syslog': V('word', 'Syslog profili', { multi: 'brack', ref: slRef }) }, 'Eşleşme listesi', { wrap: true, u: ['send-to-panorama', 'send-email', 'send-snmptrap', 'send-http', 'actions'] }) }, 'Sistem logları'),
+                config: K({ 'match-list': L('name', { filter: V('str', 'Filtre ("All Logs" = hepsi)'), 'send-syslog': V('word', 'Syslog profili', { multi: 'brack', ref: slRef }) }, 'Eşleşme listesi', { wrap: true, u: ['send-to-panorama', 'send-email', 'send-snmptrap', 'send-http', 'actions'] }) }, 'Yapılandırma (config) logları'),
+            }, 'Log ayarları', { u: ['email', 'snmptrap', 'http', 'userid', 'hipmatch', 'globalprotect', 'iptag', 'correlation', 'gtp', 'sctp', 'decryption', 'tunnel'] }) }, 'Paylaşılan nesneler', { u: ['address', 'address-group', 'service', 'application', 'tag', 'profiles', 'certificate', 'ssl-tls-service-profile', 'server-profile', 'authentication-profile', 'admin-role', 'local-user-database', 'response-page', 'botnet', 'reports', 'content-preview', 'alarm'] }),
+        }, '', { u: ['mgt-config', 'vsys', 'application', 'application-group', 'profiles', 'profile-group', 'schedule', 'tag', 'external-list', 'region', 'user-id-agent', 'log-settings', 'import', 'reports'] });
     }
 
     function panSession(lab, opts) {
@@ -2378,6 +2390,21 @@ const CgLabSetCli = (() => {
                     if (si && !isL3(si)) ref(P2.concat(['source-translation', 'dynamic-ip-and-port', 'interface-address']), 'interface', si);
                 }
             }
+            // log ayarları: referanslar ve zorunlu alanlar
+            const ls = getIn(t, ['shared', 'log-settings']) || new Map(), sl = ls.get('syslog') || new Map(), lf = ls.get('profiles') || new Map();
+            for (const [pn, po] of sl) {
+                const sv = po.get('server') || new Map();
+                if (!sv.size) E2.push(' shared -> log-settings -> syslog -> ' + pn + ' -> server is missing  # [Simülatör] profilde en az bir sunucu olmalı');
+                for (const [sn, so] of sv) if (!so.get('server')) E2.push(' shared -> log-settings -> syslog -> ' + pn + ' -> server -> ' + sn + ' -> server is missing');
+            }
+            const sendRefs = (P3, ml) => (ml.get('send-syslog') || []).forEach(x => { if (!sl.has(x)) ref(P3, 'send-syslog', x); });
+            for (const [pn, po] of lf) for (const [mn, mo] of (po.get('match-list') || new Map())) {
+                const P3 = ['shared', 'log-settings', 'profiles', pn, 'match-list', mn];
+                if (!mo.get('log-type')) E2.push(' ' + P3.join(' -> ') + ' -> log-type is missing');
+                sendRefs(P3, mo);
+            }
+            for (const k of ['system', 'config']) for (const [mn, mo] of (getIn(ls, [k, 'match-list']) || new Map())) sendRefs(['shared', 'log-settings', k, 'match-list', mn], mo);
+            for (const [rn, r] of (getIn(t, ['rulebase', 'security', 'rules']) || new Map())) { const x = r.get('log-setting'); if (x && !lf.has(x)) ref(['rulebase', 'security', 'rules', rn], 'log-setting', x); }
             return E2;
         }
         function jobLine(j) { return pad(SIMCLK(j.n).replace(/-/g, '/'), 22) + pad(SIMCLK(j.n).slice(11), 13) + pad(String(j.id), 6) + pad('', 32) + pad(j.type, 22) + pad('FIN', 7) + pad(j.ok ? 'OK' : 'FAIL', 6) + SIMCLK(j.n + 1).slice(11); }
@@ -2660,6 +2687,55 @@ const CgLabSetCli = (() => {
             const d = diff(A, B, [], [], 2);
             return d.length ? '# [Simülatör] Fark özet biçimde gösterilir: "-" running, "+" candidate.\n' + d.join('\n') : '';
         }
+        // ── Trafik logu (lab.sim.flows running yapılandırmaya göre) ve syslog iletimi
+        function trafficLogs() {
+            const t = S.run.t, out = [];
+            (SIM.flows || []).forEach((f, k) => {
+                const d = decide(f);
+                if (!['allowed', 'denied', 'nonat'].includes(d.stage) || !d.rule) return;
+                const r = getIn(t, ['rulebase', 'security', 'rules', d.rule]);
+                // varsayılan kurallar (intrazone/interzone-default) varsayılan olarak loglamaz
+                if (!(r instanceof Map)) return;
+                if (r.get('log-end') === 'no' && r.get('log-start') !== 'yes') return;
+                out.push({ k, f: d.f, app: d.app, from: d.from, to: d.to, rule: d.rule, action: d.stage === 'denied' ? (r.get('action') || 'deny') : 'allow', lf: r.get('log-setting') || null,
+                    end: d.stage === 'denied' ? 'policy-deny' : d.stage === 'nonat' ? 'aged-out' : 'tcp-fin' });
+            });
+            return out;
+        }
+        function showLogTraffic(args) {
+            let dir = 'forward', q = null;
+            for (let i = 0; i < args.length; i += 3) {
+                const k = pick(args[i].t, ['direction', 'query']);
+                if (!k.ok || !args[i + 1] || args[i + 1].t !== 'equal' || !args[i + 2]) return { err: i };
+                if (k.ok === 'direction') { const d = pick(args[i + 2].t, ['forward', 'backward']); if (!d.ok) return { err: i + 2 }; dir = d.ok; }
+                else { const m = args[i + 2].t.replace(/^"|"$/g, '').match(/^\(\s*(addr\.src|addr\.dst|rule)\s+(in|eq)\s+([^\s)]+)\s*\)$/); if (!m) return { text: '# [Simülatör] Bu lab\'da sorgu olarak (addr.src in <ip>), (addr.dst in <ip>) ya da (rule eq <ad>) desteklenir.', errk: 'unsupported' }; q = m; }
+            }
+            let L = trafficLogs();
+            if (q) L = L.filter(x => q[1] === 'rule' ? x.rule === q[3] : (q[1] === 'addr.src' ? x.f.src : x.f.dst) === q[3]);
+            if (dir === 'backward') L = L.slice().reverse();
+            const H = [pad('Time', 20) + pad('App', 16) + pad('From', 12) + pad('Src Port', 10) + 'Source', pad('Rule', 20) + pad('Action', 16) + pad('To', 12) + pad('Dst Port', 10) + 'Destination', pad('', 20) + pad('Src User', 16) + pad('Dst User', 12) + 'End Reason', '='.repeat(84)];
+            L.forEach(x => H.push(pad('2026/09/24 10:2' + x.k + ':0' + (x.k % 9), 20) + pad(x.app, 16) + pad(x.from, 12) + pad(String(x.f.sport || 51234), 10) + x.f.src, pad(x.rule, 20) + pad(x.action, 16) + pad(x.to, 12) + pad(String(x.f.dport), 10) + x.f.dst, pad('', 48) + x.end));
+            if (!L.length) H.push('# [Simülatör] Kayıt yok. Varsayılan kurallar (interzone/intrazone-default) varsayılan olarak loglamaz.');
+            H.push('# [Simülatör] Sütunlar sadeleştirildi; kayıtlar lab akışlarından üretildi.');
+            log({ showlog: 'traffic', n: L.length, q: q ? q[0] : null });
+            return { text: H.join('\n') };
+        }
+        // Syslog iletimi: log tipi için match-list → send-syslog → sunucu yönetim arayüzünden (MGT) erişilebilir mi (lab.sim.mgmtReach)
+        function logFwd() {
+            const ls = getIn(S.run.t, ['shared', 'log-settings']) || new Map(), sl = ls.get('syslog') || new Map();
+            const srvOk = names => (names || []).some(n => [...((sl.get(n) || new Map()).get('server') || new Map()).values()].some(so => (SIM.mgmtReach || []).includes(so.get('server'))));
+            const res = { traffic: false, threat: false, system: false, config: false, rules: {} };
+            for (const [rn, r] of (getIn(S.run.t, ['rulebase', 'security', 'rules']) || new Map())) {
+                const pr = getIn(ls, ['profiles', r.get('log-setting') || '']); if (!(pr instanceof Map)) { res.rules[rn] = []; continue; }
+                const types = []; for (const mo of (pr.get('match-list') || new Map()).values()) if (srvOk(mo.get('send-syslog'))) types.push(mo.get('log-type'));
+                res.rules[rn] = types;
+            }
+            const any = ty => Object.values(res.rules).some(x => x.includes(ty));
+            res.traffic = any('traffic'); res.threat = any('threat');
+            for (const k of ['system', 'config']) res[k] = [...(getIn(ls, [k, 'match-list']) || new Map()).values()].some(mo => srvOk(mo.get('send-syslog')));
+            return res;
+        }
+
         // ── Yüksek erişilebilirlik (lab.sim.ha): aktif/pasif çift, operasyonel komutlar
         // SIM.ha: { peer, peerIp, pri, peerPri, preempt, active (yerel aktif mi), synced, peerUp }
         const HA = SIM.ha ? { local: SIM.ha.active === false ? 'passive' : 'active', peer: SIM.ha.active === false ? 'active' : 'passive', synced: SIM.ha.synced !== false, failovers: 0 } : null;
@@ -2737,8 +2813,9 @@ const CgLabSetCli = (() => {
                 clock: { d: 'Saat', run: () => SIMCLK(S.job).replace(' ', ' ') + ' UTC' },
                 ntp: { d: 'NTP eşitleme durumu', run: () => panNtp() },
                 dhcp: { d: 'DHCP', c: { server: { d: 'DHCP sunucusu', c: { lease: { d: 'Kiralar', c: { interface: { d: 'Arayüz', args: [['all', 'Tüm arayüzler'], ['<ethernet1/N>', 'Tek arayüz']], runArgs: a => ({ text: panLeases(a[0] && a[0].t) }) } } } } } } },
+                log: { d: 'Log sorgula', c: { traffic: { d: 'Trafik logları', run: () => showLogTraffic([]).text, args: [['direction', 'equal forward|backward'], ['query', 'equal "(addr.src in <ip>)"']], runArgs: a => showLogTraffic(a) } }, known: ['threat', 'system', 'config', 'url', 'wildfire', 'data', 'auth', 'userid', 'hipmatch', 'globalprotect', 'tunnel', 'decryption'] },
                 'high-availability': { d: 'HA durumu', c: { state: { d: 'Yerel ve eş durumu, öncelik, config eşitleme', run: () => haState(false) }, all: { d: 'Ayrıntılı HA bilgisi', run: () => haState(true) } }, known: ['link-monitoring', 'path-monitoring', 'state-synchronization', 'transitions', 'control-link', 'interface', 'flap-statistics', 'cluster'] },
-            }, known: ['counter', 'vpn', 'user', 'log', 'arp', 'mac', 'zone-protection', 'running', 'admins', 'ntp', 'dns-proxy', 'global-protect-gateway', 'neighbor', 'lldp', 'transceiver', 'rule-hit-count', 'advanced-routing', 'netstat', 'vlan', 'dos-protection', 'config-locks'] },
+            }, known: ['counter', 'vpn', 'user', 'arp', 'mac', 'zone-protection', 'running', 'admins', 'ntp', 'dns-proxy', 'global-protect-gateway', 'neighbor', 'lldp', 'transceiver', 'rule-hit-count', 'advanced-routing', 'netstat', 'vlan', 'dos-protection', 'config-locks'] },
             test: { d: 'Test (kural eşleşmesi, rota)', c: {
                 'security-policy-match': { d: 'Bir akışın eşleşeceği güvenlik kuralı (running)', args: [['from', '<zone>'], ['to', '<zone>'], ['source', '<IP>'], ['destination', '<IP>'], ['destination-port', '<port>'], ['protocol', '<6|17|1>'], ['application', '<app>']], runArgs: a => secTest(a) },
                 'nat-policy-match': { d: 'Bir akışın eşleşeceği NAT kuralı (running)', args: [['from', '<zone>'], ['to', '<zone> (pre-NAT)'], ['source', '<IP>'], ['destination', '<IP> (pre-NAT)'], ['destination-port', '<port>'], ['protocol', '<6|17|1>']], runArgs: a => natTest(a) },
@@ -3018,7 +3095,7 @@ const CgLabSetCli = (() => {
             mgmtAllows: (i, svc) => mgmtAllows(i, svc), hostname: () => host(), dhcpLeases: () => panDhcpLeases(), files: () => Object.keys(S.files || {}),
             rules: (kind, which) => [...((getIn((which === 'cand' ? S.cand : S.run).t, ['rulebase', kind || 'security', 'rules'])) || new Map()).keys()],
             route: (ip, vr) => { const r = view().lookup(vr || 'default', ip); return r ? { iface: r.iface, nh: r.nh, flags: r.flags } : null; },
-            iface: n => ifo(view(), n), ha: () => (HA ? Object.assign({}, HA) : null),
+            iface: n => ifo(view(), n), ha: () => (HA ? Object.assign({}, HA) : null), logFwd: () => logFwd(), trafficLogs: () => trafficLogs(),
             showRun: () => cfgShowText(S.run, [], 'default') + '\n' + cfgShowText(S.cand, [], 'set'),
         };
     }

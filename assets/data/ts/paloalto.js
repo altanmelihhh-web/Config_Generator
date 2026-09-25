@@ -188,5 +188,18 @@
                 { code: 'request high-availability state functional', desc: 'Bakım sonrası cihazı çifte geri katar. Unutulursa çift yedeksiz kalır. Preemptive kapalıysa (varsayılan) öncelikli cihaz geri dönünce passive kalır; bu normaldir, ikinci bir kesinti yaşanmaz.' },
             ]
         },
+        {
+            title: 'SIEM\'e Log Gelmiyor: Syslog Profili, Log İletim Profili ve Kural Bağlantısı', severity: 'warn', topic: 'ops', lab: 'pan-11',
+            symptom: 'Güvenlik ekibi SIEM toplayıcısına güvenlik duvarından hiç (ya da yalnız bazı) log gelmediğini bildiriyor.',
+            steps: [
+                { code: 'show log traffic direction equal backward', desc: 'Önce cihazda log oluşuyor mu? Kural beklenen trafik için kayıt yazmıyorsa sorun iletimde değil loglamadadır. Reddedilen trafik görünmüyorsa: varsayılan kurallar (interzone-default) loglamaz.',
+                  fix: [{ cause: 'Reddedilen trafik loglanmıyor: interzone-default\'u override edip loglamayı açın (ya da en alta loglayan açık bir deny kuralı ekleyin) ve log iletim profilini ona bağlayın' }] },
+                { code: 'show config running | match log-setting', desc: 'Kurallarda log-setting var mı? Log iletim profili tanımlanıp kurala bağlanmamışsa trafik logu iletilmez.',
+                  fix: [{ cause: 'Profil kurala bağlı değil', cmd: 'configure\nset rulebase security rules LAN-OUT log-setting LF-SIEM\ncommit\nexit' }] },
+                { code: 'show shared log-settings', desc: 'configure modunda. Syslog profilinde sunucu adresi, taşıma (UDP/TCP/SSL), port ve biçim doğru mu; log iletim profilinin match-list\'leri doğru log tipini (traffic, threat…) doğru syslog profiline mi yolluyor? Sistem ve config logları için shared log-settings system|config match-list gerekir.',
+                  fix: [{ cause: 'Sistem/config logları iletilmiyor', cmd: 'configure\nset shared log-settings system match-list SYS filter "All Logs" send-syslog SIEM\nset shared log-settings config match-list CFG filter "All Logs" send-syslog SIEM\ncommit\nexit' }] },
+                { code: 'ping host 10.240.0.20', desc: 'Kaynak verilmeyen ping yönetim arayüzünden (MGT) çıkar; syslog da varsayılan olarak oradan gönderilir. Toplayıcıya MGT\'den erişilemiyorsa syslog için service route ile veri arayüzü kullanılmalıdır. UDP syslog iletimi garanti etmez; toplayıcı tarafında port 514\'ün açık olduğunu da kontrol edin.' },
+            ]
+        },
     ];
 })();
