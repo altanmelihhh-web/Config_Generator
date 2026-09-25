@@ -24,7 +24,7 @@ const CgTroubleshoot = {
         'cisco-ios': ['cisco-ios', 'cisco-nxos'], 'cisco-asa': ['cisco-asa', 'cisco-ftd'],
         'juniper': ['juniper', 'juniper-srx', 'juniper-mx'], 'huawei': ['huawei', 'huawei-ce', 'huawei-usg'],
     },
-    TS_EXTRA: ['cisco-ios', 'huawei', 'dell', 'juniper'],   // assets/data/ts/<key>.js dosyası olan vendor'lar
+    TS_EXTRA: ['cisco-ios', 'huawei', 'dell', 'juniper', 'fortigate'],   // assets/data/ts/<key>.js dosyası olan vendor'lar
     _state: {},   // "<vendor>/<n>" → { ans: ['ok'|'bad'...], found: index|null }
 
     async render(root, arg1, arg2) {

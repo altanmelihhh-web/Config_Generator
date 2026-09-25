@@ -710,5 +710,6 @@
     const LABS_BY_ID = {};
     LABS.forEach(l => { LABS_BY_ID[l.id] = l; });
     const root = typeof window !== 'undefined' ? window : globalThis;
-    root.CG_LABS = (root.CG_LABS || []).filter(l => l.vendor !== 'fortigate').concat(LABS);
+    // Yalnız bu dosyanın lab'ları değiştirilir (fortigate-yol.js'teki lab'lar korunur)
+    root.CG_LABS = (root.CG_LABS || []).filter(l => !LABS_BY_ID[l.id]).concat(LABS);
 })();
