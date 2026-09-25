@@ -183,7 +183,7 @@
         solution: ['show version all', 'expert', PW, 'fw stat', { answer: 2, v: 'LAB-Policy' }, 'cpstat os -f cpu', { answer: 4, v: '93' }, 'cpview', 'fw tab -t connections -s', { answer: 7, v: 'core' }, 'exit'],
         verify: ['show version all', 'fw stat', 'cpstat os -f cpu', 'cpview', 'fw tab -t connections -s'],
         learn: ['<code>fw stat</code>: politika adı + kurulum zamanı + arayüzler.', 'InitialPolicy / defaultfilter = gerçek politika kurulmamış.', '<code>cpstat os -f cpu</code>: idle yüksekse darboğaz CPU değil.', 'cpview: canlı tek ekran özet.', '<code>fw tab -t connections -s</code>: #VALS / #PEAK.'],
-        links: { cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/3' }, cert: 'CCSA R81.20'
+        links: { cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/103' }, cert: 'CCSA R81.20'
     },
     {
         id: 'cp-05', vendor: 'checkpoint', level: 4, title: 'ClusterXL: durum okuma ve kontrollü failover', minutes: 20, kind: 'firewall', hostname: 'gw-a-1', pre: ['cp-06'], ordered: true,
@@ -232,7 +232,7 @@
         alts: [['expert', PW, 'cphaprob state', { answer: 1, v: 'active' }, 'cphaprob -a if', { answer: 3, v: 'eth3' }, 'clusterXL_admin down', 'exit', 'show cluster state', 'expert', PW, 'clusterXL_admin up', { answer: 7, v: 'maintain' }, { answer: 8, v: 'attn' }]],
         verify: ['cphaprob stat', 'cphaprob -a if', 'show cluster state'],
         learn: ['<code>cphaprob stat</code>: mod, üyeler, yük, durum, pnote.', '<code>cphaprob -a if</code>: izlenen arayüzler, sync (S), VIP\'ler.', 'Kontrollü failover: <code>clusterXL_admin down</code> / <code>up</code> (kalıcı için <code>-p</code>).', 'Varsayılan "Maintain current active": geri gelen üye STANDBY kalır.'],
-        links: { tool: '#/checkpoint/clusterxl', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/1' }, cert: 'CCSE R81.20'
+        links: { tool: '#/checkpoint/clusterxl', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/101' }, cert: 'CCSE R81.20'
     },
     {
         id: 'cp-03', vendor: 'checkpoint', level: 5, title: '"Trafik geçmiyor": zdebug drop ile düşme nedenini bulmak', minutes: 25, kind: 'firewall', hostname: 'gw-a', pre: ['cp-06'],
@@ -289,7 +289,7 @@
             { answer: 4, v: ({ rule: 'sc-rule', spoof: 'sc-topo', route: 'route' })[v.key] }, 'fw ctl debug 0', { answer: 6, v: 'short' }, 'exit'],
         verify: ['fw stat', 'fw ctl zdebug drop | grep <ip>', 'ip route get <ip>', 'show route'],
         learn: ['Önce <code>fw stat</code>: doğru politika kurulu mu?', '<code>fw ctl zdebug drop | grep &lt;ip&gt;</code>: düşme nedeni (kısa süre!).', 'Rulebase drop - rule N → kural; Address spoofing → arayüz topolojisi.', 'Düşme satırı yoksa: <code>ip route get</code>, <code>show route</code>, dönüş yolu.', 'Kural/topoloji SmartConsole\'da; rota clish\'te. <code>fw unloadlocal</code> çözüm değildir.'],
-        links: { cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/0', tool: '#/checkpoint/policy' }, cert: 'CCSE R81.20'
+        links: { cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/100', tool: '#/checkpoint/policy' }, cert: 'CCSE R81.20'
     },
     {
         id: 'cp-04', vendor: 'checkpoint', level: 5, title: 'fw monitor ve tcpdump: paket nerede kayboluyor?', minutes: 25, kind: 'firewall', hostname: 'gw-a', pre: ['cp-03'],
@@ -339,7 +339,7 @@
         solution: v => ['expert', PW, 'fw monitor -e "accept host(198.51.100.25);"', 'tcpdump -nni eth1 host 198.51.100.25', { answer: 2, v: v.key }, { answer: 3, v: ({ noarrive: 'client', drop: 'zdebug', noreply: 'upstream', nat: 'sc-nat' })[v.key] }, { answer: 4, v: 'req' }, 'exit'],
         verify: ['fw monitor -e "accept host(<ip>);"', 'fw monitor -F "<src>,<sport>,<dst>,<dport>,<proto>"', 'tcpdump -nni <arayüz> host <ip>'],
         learn: ['i → I arası: kural tabanı / anti-spoofing; o → O arası: kaynak NAT.', 'Filtreyi NAT\'tan etkilenmeyen adresle (sunucu) yazın.', '<code>-F</code> tek yönlüdür; dönüş için ikinci -F verin.', 'tcpdump kablodaki gerçeği gösterir; fw monitor gateway\'in içini.', 'Hiç i yok → istemci tarafı; O\'da özel IP → NAT eksik.'],
-        links: { cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/0', tool: '#/checkpoint/nat' }, cert: 'CCSE R81.20'
+        links: { cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/104', tool: '#/checkpoint/nat' }, cert: 'CCSE R81.20'
     },
     {
         id: 'cp-07', vendor: 'checkpoint', level: 5, title: 'Site-to-site VPN kurulmuyor: vpn tu ve IKE günlüğü', minutes: 25, kind: 'firewall', hostname: 'gw-a', pre: ['cp-03'],
@@ -385,7 +385,7 @@
         solution: v => ['expert', PW, 'vpn tu tlist', 'vpn debug trunc', 'cat $FWDIR/log/ikev2.xmll', { answer: 3, v: v.key === 'ts' ? 'p2down' : 'p1down' }, { answer: 4, v: v.key }, { answer: 5, v: 'sc' }, 'vpn debug ikeoff', 'vpn debug off', 'exit'],
         verify: ['vpn tu tlist', 'vpn tu', 'vpn debug trunc', 'cat $FWDIR/log/ikev2.xmll'],
         learn: ['<code>vpn tu tlist</code>: eş başına SA tablosu.', '<code>vpn debug trunc</code> → trafik → günlük → <code>vpn debug ikeoff</code>/<code>off</code>.', 'NO_PROPOSAL_CHOSEN / AUTHENTICATION_FAILED → faz 1; TS_UNACCEPTABLE → faz 2 seçicisi.', 'Supernetting: encryption domain\'i ve tünel paylaşımını karşı uçla eşleyin.', 'Düzeltme SmartConsole\'da; vpn tu yalnız SA siler.'],
-        links: { tool: '#/checkpoint/s2svpn', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/2' }, cert: 'CCSE R81.20'
+        links: { tool: '#/checkpoint/s2svpn', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/102' }, cert: 'CCSE R81.20'
     },
     { id: 'cp-sandbox', vendor: 'checkpoint', level: null, sandbox: true, title: 'Serbest terminal — Check Point Gaia', kind: 'firewall', hostname: 'gw-a', up: ['eth1', 'eth2', 'eth3'], hosts: ['203.0.113.1', '10.64.10.254'],
       start: BASE, sim: Object.assign({ rules: RULES(['10.64.10.0/24']), spoof: { eth2: ['10.64.10.0/24'], eth3: ['172.24.50.0/24'] }, nat: NAT, flows: [{ src: '10.64.10.60', dst: '198.51.100.25', dport: 443, in: 'eth2' }], noise: NOISE }, SIMBASE),

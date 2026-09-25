@@ -2,6 +2,43 @@
 
 const CheckPoint = {};
 
+// ── Ortak yardımcılar (uyarılar ve tırnaklı değerler) ────────────────────────
+// mgmt_cli değerleri bash çift tırnağı içinde yazılır: cgQ'nun \ ve " kaçışına ek olarak
+// $ ve ` de kaçırılır (aksi hâlde kabuk değişken/komut genişletmesi yapar). cgEsc bir kez uygulanır;
+// cgShowOutput çıktıyı bir kez çözer. Girdi ham (kaçırılmamış) değer olmalıdır.
+function _cpQ(v) {
+    return '"' + cgEsc(String(v == null ? '' : v).replace(/[\\"$`]/g, m => '\\' + m)) + '"';
+}
+// clish tırnaklı değerde (comments, description, banner, realname) \" kaçışına güvenilmez:
+// " ve \ çıkarılır ve uyarılır.
+function _cpClishQ(v, label, w) {
+    let s = String(v == null ? '' : v);
+    if (/["\\]/.test(s)) { s = s.replace(/["\\]/g, ''); w.push('⚠ ' + label + ': clish tırnaklı değerde çift tırnak ve ters bölü kullanılamaz; çıkarıldı.'); }
+    return '"' + cgEsc(s) + '"';
+}
+function _cpIp(s) {
+    const m = String(s || '').trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!m) return null;
+    const o = m.slice(1).map(Number);
+    return o.some(x => x > 255) ? null : ((o[0] * 16777216) + (o[1] << 16) + (o[2] << 8) + o[3]);
+}
+function _cpCidr(s) {
+    const m = String(s || '').trim().match(/^([\d.]+)\/(\d{1,2})$/);
+    if (!m || +m[2] > 32) return null;
+    const ip = _cpIp(m[1]);
+    return ip === null ? null : { ip, len: +m[2] };
+}
+function _cpMask(len) { return len === 0 ? 0 : ((0xFFFFFFFF << (32 - len)) >>> 0); }
+function _cpNet(ip, len) { return (ip & _cpMask(len)) >>> 0; }
+function _cpSameNet(a, b, len) { return _cpNet(a, len) === _cpNet(b, len); }
+function _cpOverlap(x, y) { const len = Math.min(x.len, y.len); return _cpSameNet(x.ip, y.ip, len); }
+function _cpIpStr(n) { return [n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.'); }
+// Arayüz adresi alt ağın ağ ya da yayın adresi mi (/31 ve /32 hariç)
+function _cpNetOrBcast(c) { return !!c && c.len < 31 && (_cpNet(c.ip, c.len) === c.ip || ((c.ip | ~_cpMask(c.len)) >>> 0) === c.ip); }
+// Gaia hostname kuralı (CLI Lab gaia.js ile aynı): harfle başlar; harf, rakam ve -
+function _cpHostOk(s) { return /^[A-Za-z][A-Za-z0-9-]{0,62}$/.test(String(s || '')); }
+const _CP_W_PUBLISH = 'ℹ publish değişikliği yalnız management veritabanına yazar; gateway\'e ulaşması için politika kurulmalıdır (SmartConsole Install Policy ya da mgmt_cli install-policy). Gateway\'de fw stat\'taki kurulum tarihiyle doğrulayın (cp-06).';
+
 // ── Check Point: Gaia Initial Setup ──────────────────────────────────────────
 CheckPoint.setup = {
     label: 'Gaia Initial Setup',
@@ -48,14 +85,31 @@ CheckPoint.setup = {
     }
 };
 function cgCpSetupGen(data) {
+    const w = [];
     const hn = cgEsc(data.hostname || ''), mgmtIp = cgEsc(data.mgmt_ip || ''), prefix = cgEsc(data.mgmt_prefix || '');
     const gw = cgEsc(data.gw || ''), dns = cgEsc(data.dns || ''), ntp = cgEsc(data.ntp || '');
-    const mgmtServer = cgEsc(data.mgmt_server || ''), sicKey = cgEsc(data.sic_key || '');
+    const mgmtServer = cgEsc(data.mgmt_server || ''), sicKey = String(data.sic_key || '');
+    if (data.hostname && !_cpHostOk(data.hostname)) w.push('⛔ Hostname harfle başlamalı ve yalnız harf, rakam ve - içermeli; Gaia set hostname komutunu reddeder.');
+    const pl = String(data.mgmt_prefix || '').trim(), plOk = /^\d{1,2}$/.test(pl) && +pl >= 1 && +pl <= 32;
+    if (pl && !plOk) w.push('⛔ Prefix uzunluğu 1-32 arası bir sayı olmalı (ör. 24); mask-length nokta-ondalık maske kabul etmez.');
+    const mi = _cpIp(data.mgmt_ip), gi = _cpIp(data.gw);
+    if (mi !== null && gi !== null && plOk) {
+        if (mi === gi) w.push('⛔ Varsayılan ağ geçidi yönetim IP\'siyle aynı.');
+        else if (!_cpSameNet(mi, gi, +pl)) w.push('⛔ Varsayılan ağ geçidi (' + String(data.gw).trim() + ') yönetim alt ağında değil: Gaia sonraki atlaması bağlı bir ağda olmayan rotayı etkin saymaz ve show route\'ta göstermez (cp-02).');
+        if (_cpNetOrBcast({ ip: mi, len: +pl })) w.push('⛔ Yönetim IP\'si alt ağın ağ ya da yayın adresi; arayüze kullanılabilir bir host adresi verin.');
+    }
+    if (!ntp) w.push('⚠ NTP tanımlı değil: saat kayarsa SIC sertifikası ve VPN doğrulaması başarısız olur, loglar yanlış zamanla gelir. En az bir, tercihen iki NTP sunucusu verin.');
+    else w.push('ℹ Tek NTP sunucusu tanımlandı: o sunucuya erişim kesilirse saat kaymaya başlar. İkinci sunucu için Gaia DNS / NTP aracını kullanın (set ntp server secondary).');
+    w.push('ℹ Tek DNS sunucusu tanımlandı: o sunucu düşerse lisans, imza güncellemesi ve URL/bulut sorguları durur. İkinci DNS için Gaia DNS / NTP aracını kullanın (set dns secondary).');
+    w.push('ℹ Expert parolası bu araçta ayarlanmaz. İlk kurulum sihirbazında verilmediyse clish\'te set expert-password (parola etkileşimli sorulur) ve save config ile tanımlayın; tanımsızsa fw, cphaprob gibi teşhis araçlarına erişilemez (cp-01).');
+    w.push('ℹ Gaia Portal ve SSH varsayılan olarak her kaynak adrese açıktır. Yönetimi yönetim ağıyla sınırlayın: add allowed-client network ipv4-address <ağ> mask-length <önek> (önce kendi adresinizin listede olduğundan emin olun).');
+    w.push('ℹ Arayüz adı eth0 varsayıldı; Check Point cihazlarında yönetim portu çoğunlukla Mgmt adını taşır. show interfaces all ile doğrulayın.');
+    if ((data.mgmt_server && !sicKey) || (!data.mgmt_server && sicKey)) w.push('⚠ SIC için Management Server IP\'si ve SIC anahtarı birlikte gerekir; biri boş olduğu için SIC adımı yazılmadı.');
     let c = '# ========================================\n# Check Point Gaia — Initial Setup (clish)\n# ========================================\n\n';
     c += 'set hostname ' + hn + '\n';
     c += 'set interface eth0 ipv4-address ' + mgmtIp + ' mask-length ' + prefix + '\n';
     c += 'set interface eth0 state on\n';
-    c += 'set defaultgw ' + gw + '\n';
+    c += 'set static-route default nexthop gateway address ' + gw + ' on\n';
     c += 'set dns primary ' + dns + '\n';
     if (ntp) {
         c += 'set ntp server primary ' + ntp + ' version 4\n';
@@ -63,13 +117,13 @@ function cgCpSetupGen(data) {
     }
     c += 'save config\n\n';
     if (mgmtServer && sicKey) {
-        c += '# FW Modülü — Management Server\'a kayıt (cpconfig arayüzünde yapılır):\n';
-        c += '# cpconfig → SIC → Initialize SIC: ' + sicKey + '\n';
-        c += '# Veya CLI:\n# cp_conf sic init ' + sicKey + '\n';
-        c += '# cp_conf mgmt add ' + mgmtServer + '\n\n';
+        c += '# SIC (Management Server ' + mgmtServer + ' ile güven), gateway üzerinde expert modda:\n';
+        c += '# cpconfig → Secure Internal Communication (etkileşimli) ya da:\n';
+        c += '# cp_conf sic init ' + _cpQ(sicKey) + '\n';
+        c += '# Ardından SmartConsole\'da gateway nesnesi → Communication → aynı anahtarla Initialize.\n\n';
     }
-    c += '# Doğrulama:\n# show hostname\n# show interface eth0\n# show route\n# cpstat os\n';
-    return c;
+    c += '# Doğrulama:\n# show hostname\n# show interface eth0\n# show route\n# show config-state\n# cpstat os\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: Interface + Bond ────────────────────────────────────────────
@@ -117,30 +171,46 @@ CheckPoint.interface = {
     }
 };
 function cgCpIfaceGen(data) {
-    const type = cgEsc(data._cgtype || 'single'), desc = cgEsc(data.desc || '');
+    const w = [];
+    const type = data._cgtype === 'bond' ? 'bond' : 'single';
+    const descQ = data.desc ? _cpClishQ(data.desc, 'Açıklama', w) : '';
+    const ipW = (raw, label) => {
+        const cd = _cpCidr(raw);
+        if (cd && _cpNetOrBcast(cd)) w.push('⛔ ' + label + ' alt ağın ağ ya da yayın adresi (' + String(raw).trim() + '); arayüze kullanılabilir bir host adresi verin.');
+    };
     let c = '# ========================================\n# Check Point Gaia — Interface / Bond\n# ========================================\n\n';
+    let verify = '# show interfaces all\n';
     if (type === 'single') {
         const iface = cgEsc(data.iface || ''), ip = cgEsc(data.iface_ip || '');
         const parts = ip.split('/');
+        ipW(data.iface_ip, 'Arayüz IP\'si');
+        if (/^(eth0|mgmt)$/i.test(String(data.iface || '').trim())) w.push('⚠ Yönetim arayüzünü değiştiriyorsunuz: SSH ve SmartConsole bağlantısı kopabilir. Konsol erişimi olmadan uygulamayın.');
         c += 'set interface ' + iface + ' ipv4-address ' + parts[0] + ' mask-length ' + (parts[1] || '') + '\n';
         c += 'set interface ' + iface + ' state on\n';
-        if (desc) c += 'set interface ' + iface + ' comments "' + desc + '"\n';
+        if (descQ) c += 'set interface ' + iface + ' comments ' + descQ + '\n';
+        verify = '# show interface ' + iface + '\n' + verify;
     } else {
         const bondId = cgEsc(data.bond_id || ''), bondIp = cgEsc(data.bond_ip || '');
         const m1 = cgEsc(data.bond_m1 || ''), m2 = cgEsc(data.bond_m2 || '');
         const parts = bondIp.split('/');
         const bondNum = bondId.replace('bond', '');
+        ipW(data.bond_ip, 'Bond IP\'si');
+        if (data.bond_id && !/^bond\d+$/.test(String(data.bond_id).trim())) w.push('⛔ Bond adı bondN biçiminde olmalı (ör. bond0); grup numarası addan çıkarılır, bu değerle komutlar geçersiz olur.');
+        if (m1 && m1 === m2) w.push('⛔ İki üye arayüz aynı: bond tek üyeyle yedeklilik sağlamaz.');
+        w.push('ℹ Üye arayüzlerde IP adresi olmamalı (varsa önce delete interface <üye> ipv4-address). Karşı anahtarda da aynı iki port LACP (802.3ad) port-channel olarak yapılandırılmalı; tek taraflı yapılandırmada bond kurulmaz.');
         c += 'add bonding group ' + bondNum + '\n';
-        c += 'set bonding group ' + bondNum + ' mode 802_3ad\n';
-        c += 'set bonding group ' + bondNum + ' interfaces add ' + m1 + '\n';
-        c += 'set bonding group ' + bondNum + ' interfaces add ' + m2 + '\n';
+        c += 'set bonding group ' + bondNum + ' mode 8023AD\n';
+        c += 'add bonding group ' + bondNum + ' interface ' + m1 + '\n';
+        c += 'add bonding group ' + bondNum + ' interface ' + m2 + '\n';
         c += 'set interface ' + bondId + ' ipv4-address ' + parts[0] + ' mask-length ' + (parts[1] || '') + '\n';
         c += 'set interface ' + bondId + ' state on\n';
-        if (desc) c += 'set interface ' + bondId + ' comments "' + desc + '"\n';
+        if (descQ) c += 'set interface ' + bondId + ' comments ' + descQ + '\n';
+        verify += '# show bonding group ' + bondNum + '\n# cat /proc/net/bonding/' + bondId + '   (expert)\n';
     }
+    w.push('ℹ Arayüzün arkasında yeni bir ağ varsa SmartConsole\'da gateway topolojisini (Get Interfaces) güncelleyip politikayı kurun; aksi hâlde o ağdan gelen trafik "Address spoofing" nedeniyle düşer (cp-03).');
     c += 'save config\n\n';
-    c += '# Doğrulama:\n# show interface all\n# show bonding group all\n';
-    return c;
+    c += '# Doğrulama:\n' + verify + '# show config-state\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: Static Route ─────────────────────────────────────────────────
@@ -171,12 +241,28 @@ CheckPoint.route = {
     }
 };
 function cgCpRouteGen(data) {
-    const dst = cgEsc(data.dst || ''), gw = cgEsc(data.gw || ''), priority = cgEsc(data.priority || '') || '1';
+    const w = [];
+    const dstRaw = String(data.dst || '').trim(), gwRaw = String(data.gw || '').trim();
+    let dst = cgEsc(dstRaw);
+    const gw = cgEsc(gwRaw), priority = cgEsc(data.priority || '') || '1';
+    const cd = _cpCidr(dstRaw);
+    if (/^(0\.0\.0\.0\/0|default)$/i.test(dstRaw)) {
+        dst = 'default';
+        w.push('ℹ Hedef 0.0.0.0/0: Gaia varsayılan rota için default anahtar sözcüğünü kullanır; çıktı buna göre yazıldı.');
+    } else if (dstRaw && !cd) {
+        w.push('⛔ Hedef ağ CIDR biçiminde olmalı (ör. 10.128.0.0/16); Gaia bu değeri reddeder.');
+    } else if (cd && _cpNet(cd.ip, cd.len) !== cd.ip) {
+        w.push('⛔ Hedefte host bitleri dolu (' + dstRaw + '): ağ adresini yazın (' + _cpIpStr(_cpNet(cd.ip, cd.len)) + '/' + cd.len + ').');
+    }
+    if (data.priority && !/^[1-8]$/.test(String(data.priority).trim())) w.push('⛔ Öncelik 1-8 arası olmalı; aynı hedefe birden çok sonraki atlamada düşük değer tercih edilir.');
+    if (cd && _cpIp(gwRaw) !== null && cd.len > 0 && _cpSameNet(cd.ip, _cpIp(gwRaw), cd.len)) w.push('⚠ Sonraki atlama hedef ağın içinde: rota kendi kendine işaret eder. Sonraki atlama, gateway\'in bağlı ağlarından birinde olmalı.');
+    w.push('ℹ Sonraki atlama gateway\'in bağlı (C) ağlarından birinde olmalı ve o arayüz açık (state on) olmalı; değilse Gaia rotayı etkin saymaz ve show route\'ta göstermez (cp-02).');
+    w.push('ℹ Rota tek başına trafiği geçirmez: güvenlik kuralı gerekir ve yeni ağ iç arayüzün anti-spoofing topolojisinde yoksa trafik "Address spoofing" ile düşer (cp-03).');
     let c = '# ========================================\n# Check Point Gaia — Static Route\n# ========================================\n\n';
     c += 'set static-route ' + dst + ' nexthop gateway address ' + gw + ' priority ' + priority + ' on\n';
     c += 'save config\n\n';
-    c += '# Doğrulama:\n# show route\n# show static-route\n';
-    return c;
+    c += '# Doğrulama:\n# show route\n# show route static\n# show config-state\n# ip route get <hedef-ip>   (expert)\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: OSPF ────────────────────────────────────────────────────────
@@ -212,16 +298,25 @@ CheckPoint.ospf = {
         });
     }
 };
+// Sözdizimi: R81.x Gaia Advanced Routing — router-id genel ayardır (set router-id); alan 0
+// "backbone" adıyla yazılır; alan ve arayüz satırları "on" ile etkinleşir.
 function cgCpOspfGen(data) {
-    const rid = cgEsc(data.rid || ''), iface = cgEsc(data.iface || ''), area = cgEsc(data.area || '');
+    const w = [];
+    const rid = cgEsc(data.rid || ''), iface = cgEsc(data.iface || '');
+    let areaRaw = String(data.area || '').trim();
+    if (/^\d+$/.test(areaRaw) && +areaRaw <= 4294967295) areaRaw = _cpIpStr(+areaRaw);
+    const area = /^(0\.0\.0\.0|backbone)$/i.test(areaRaw) ? 'backbone' : cgEsc(areaRaw);
+    if (areaRaw && area !== 'backbone' && _cpIp(areaRaw) === null) w.push('⛔ Alan kimliği sayı ya da nokta-ondalık olmalı (ör. 0.0.0.1).');
+    if (String(data.rid || '').trim() === '0.0.0.0') w.push('⛔ Router-ID 0.0.0.0 olamaz; komşular birbirini ayırt edemez.');
+    if (area !== 'backbone') w.push('ℹ Alan backbone değil: bu alanın backbone\'a (0.0.0.0) bağlı bir ABR üzerinden erişmesi gerekir; aksi hâlde alanlar arası rotalar gelmez.');
+    w.push('ℹ OSPF paketleri (IP protokol 89) gateway\'in kendisine gelir: güvenlik politikasında komşudan gateway\'e ospf servisine izin veren kural olmalı; yoksa komşuluk kurulmaz, zdebug\'da "Rulebase drop" görünür (cp-03).');
     let c = '# ========================================\n# Check Point Gaia — OSPF\n# ========================================\n\n';
-    c += 'set ospf on\n';
-    c += 'set ospf instance default router-id ' + rid + '\n';
-    c += 'set ospf instance default area ' + area + ' type normal\n';
-    c += 'set ospf interface ' + iface + ' area ' + area + '\n';
+    c += 'set router-id ' + rid + '\n';
+    c += 'set ospf area ' + area + ' on\n';
+    c += 'set ospf interface ' + iface + ' area ' + area + ' on\n';
     c += 'save config\n\n';
-    c += '# Doğrulama:\n# show ospf neighbors\n# show ospf routes\n# show ospf database\n';
-    return c;
+    c += '# Doğrulama:\n# show ospf neighbors\n# show route ospf\n# show ospf database\n# show config-state\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: Security Policy (mgmt_cli) ───────────────────────────────────
@@ -277,30 +372,39 @@ CheckPoint.policy = {
     }
 };
 function cgCpPolicyGen(data) {
-    const mgmtIp = cgEsc(data.mgmt_ip || ''), user = cgEsc(data.mgmt_user || ''), pass = cgEsc(data.mgmt_pass || '');
-    const hostName = cgEsc(data.host_name || ''), hostIp = cgEsc(data.host_ip || ''), ruleName = cgEsc(data.rule_name || '');
-    const source = cgEsc(data.source || ''), action = cgEsc(data.action || '');
-    const service = cgEsc(data.service || ''), policyPkg = cgEsc(data.policy_pkg || ''), gateway = cgEsc(data.gateway || '');
+    const w = [];
+    const Q = k => _cpQ(data[k] || '');
+    const mgmtIp = Q('mgmt_ip'), user = Q('mgmt_user'), pass = Q('mgmt_pass');
+    const hostName = Q('host_name'), hostIp = Q('host_ip'), ruleName = Q('rule_name');
+    const source = Q('source'), action = Q('action');
+    const service = Q('service'), policyPkg = Q('policy_pkg'), gateway = Q('gateway');
+    const isAny = v => /^any$/i.test(String(v || '').trim());
+    if (data.mgmt_pass) w.push('⚠ Parola komut satırında: kabuk geçmişine ve süreç listesine düşer. Management Server\'ın kendisinde expert modda çalışıyorsanız login satırını "mgmt_cli login -r true > /tmp/sid.txt" ile değiştirin; değilse betiği çalıştırdıktan sonra geçmişi temizleyin.');
+    if (isAny(data.source) && isAny(data.service) && data.action === 'Accept') w.push('⚠ Kaynak ve servis Any, eylem Accept: sunucu her kaynaktan her porta açılır. Gereken kaynak ağ ve servisle daraltın.');
+    else if (isAny(data.service) && data.action === 'Accept') w.push('⚠ Servis Any: sunucunun tüm portları açılır; yalnız gereken servisi yazın.');
+    else if (isAny(data.source) && data.action === 'Accept') w.push('ℹ Kaynak Any: kural her kaynağa açık. İnternete yayın değilse kaynak nesneyi daraltın.');
+    w.push('ℹ position top kuralı katmanın en üstüne, Stealth kuralının da üstüne ekler; ilk eşleşen kural uygulanır. Kural sırasını SmartConsole\'da gözden geçirin; Cleanup (sondaki drop) her zaman en altta kalmalı.');
+    w.push('ℹ install-policy tamamlandıktan sonra gateway\'de fw stat kurulum tarihini göstermeli (cp-06). Trafik yine düşüyorsa gateway\'de fw ctl zdebug drop | grep <ip> düşme nedenini söyler (cp-03).');
     let c = '#!/bin/bash\n# ========================================\n# Check Point — Security Rule (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli -r true login user "' + user + '" password "' + pass + '" management "' + mgmtIp + '" > /tmp/sid.txt\n\n';
-    c += '# Host nesnesi oluştur\nmgmt_cli add host name "' + hostName + '" ip-address "' + hostIp + '" -s /tmp/sid.txt\n\n';
+    c += 'mgmt_cli -r true login user ' + user + ' password ' + pass + ' management ' + mgmtIp + ' > /tmp/sid.txt\n\n';
+    c += '# Host nesnesi oluştur\nmgmt_cli add host name ' + hostName + ' ip-address ' + hostIp + ' -s /tmp/sid.txt\n\n';
     c += '# Güvenlik kuralı ekle\nmgmt_cli add access-rule layer "Network" \\\n';
-    c += '  name "' + ruleName + '" \\\n';
-    c += '  source "' + source + '" \\\n';
-    c += '  destination "' + hostName + '" \\\n';
-    c += '  service "' + service + '" \\\n';
-    c += '  action "' + action + '" \\\n';
-    c += '  track-settings.type "Log" \\\n';
+    c += '  name ' + ruleName + ' \\\n';
+    c += '  source ' + source + ' \\\n';
+    c += '  destination ' + hostName + ' \\\n';
+    c += '  service ' + service + ' \\\n';
+    c += '  action ' + action + ' \\\n';
+    c += '  track.type "Log" \\\n';
     c += '  position top \\\n';
     c += '  -s /tmp/sid.txt\n\n';
     c += '# Yayınla ve kur\nmgmt_cli publish -s /tmp/sid.txt\n';
-    c += 'mgmt_cli install-policy policy-package "' + policyPkg + '" \\\n';
+    c += 'mgmt_cli install-policy policy-package ' + policyPkg + ' \\\n';
     c += '  access true \\\n';
-    c += '  targets.1 "' + gateway + '" \\\n';
+    c += '  targets.1 ' + gateway + ' \\\n';
     c += '  -s /tmp/sid.txt\n\n';
     c += 'mgmt_cli logout -s /tmp/sid.txt\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show access-rule layer "Network" name "' + ruleName + '" -s /tmp/sid.txt\n';
-    return c;
+    c += '# Doğrulama:\n# mgmt_cli show access-rule layer "Network" name ' + ruleName + ' -s /tmp/sid.txt\n# fw stat   (gateway üzerinde, expert)\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: NAT Rule (mgmt_cli) ──────────────────────────────────────────
@@ -345,30 +449,51 @@ CheckPoint.nat = {
     }
 };
 function cgCpNatGen(data) {
-    const mgmtIp = cgEsc(data.mgmt_ip || ''), user = cgEsc(data.mgmt_user || ''), pass = cgEsc(data.mgmt_pass || '');
-    const natType = cgEsc(data.nat_type || 'hide'), srcObj = cgEsc(data.src_obj || '');
-    const transIp = cgEsc(data.trans_ip || ''), pkg = cgEsc(data.policy_pkg || '');
-    const dstObj = cgEsc(data.dst_obj || '');
+    const w = [];
+    const Q = k => _cpQ(data[k] || '');
+    const mgmtIp = Q('mgmt_ip'), user = Q('mgmt_user'), pass = Q('mgmt_pass');
+    const natType = data.nat_type === 'static' ? 'static' : 'hide', srcObj = Q('src_obj');
+    const transRaw = String(data.trans_ip || '').trim(), pkg = Q('policy_pkg');
+    const dstObj = Q('dst_obj');
+    const isAny = v => /^any$/i.test(String(v || '').trim());
+    if (data.mgmt_pass) w.push('⚠ Parola komut satırında: kabuk geçmişine ve süreç listesine düşer. Management Server\'ın kendisinde expert modda çalışıyorsanız login satırını "mgmt_cli login -r true > /tmp/sid.txt" ile değiştirin.');
+    if (isAny(data.src_obj)) w.push('⚠ Kaynak nesne Any: kural her kaynağı çevirir (gateway\'in kendi trafiği dahil). Yalnız çevrilecek iç ağı yazın.');
+    if (natType === 'hide' && isAny(data.dst_obj)) w.push('⚠ Hedef Any: site-to-site VPN\'e giden trafik de çevrilir ve faz 2 seçicisine uymaz; tünel kurulur ama trafik akmaz. VPN ağları için bu kuralın üstüne çevirmesiz (No-NAT) bir kural ekleyin.');
+    if (natType === 'hide') w.push('ℹ Manuel Hide kuralında translated-source, çevrilecek adresin nesne adıdır ("Hide" adlı bir nesne yoksa API reddeder: gateway\'in dış IP\'si için bir host nesnesi yazın). Daha basit yol, ağ nesnesinde otomatik NAT: mgmt_cli set network name <ağ> nat-settings.auto-rule true nat-settings.method hide nat-settings.hide-behind gateway.');
+    else w.push('ℹ Statik NAT adresi gateway\'in kendi adresi değilse üst yönlendiricinin ARP isteklerini gateway yanıtlamalıdır: otomatik NAT\'ta Global Properties → NAT → Automatic ARP configuration, manuel kuralda Gaia\'da proxy ARP gerekir. Gateway\'de fw ctl arp ile doğrulayın (cp-04).');
+    w.push(_CP_W_PUBLISH);
+    w.push('ℹ NAT\'ın uygulandığını gateway\'de fw monitor -e "accept host(<hedef>);" ile görün: O noktasında kaynak adres çevrilmiş olmalı (cp-04).');
     let c = '#!/bin/bash\n# ========================================\n# Check Point — NAT Rule (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli -r true login user "' + user + '" password "' + pass + '" management "' + mgmtIp + '" > /tmp/sid.txt\n\n';
+    c += 'mgmt_cli -r true login user ' + user + ' password ' + pass + ' management ' + mgmtIp + ' > /tmp/sid.txt\n\n';
     if (natType === 'hide') {
-        c += 'mgmt_cli add nat-rule package "' + pkg + '" \\\n';
-        c += '  original-source "' + srcObj + '" \\\n';
-        c += '  original-destination "' + dstObj + '" \\\n';
+        c += 'mgmt_cli add nat-rule package ' + pkg + ' position "top" \\\n';
+        c += '  original-source ' + srcObj + ' \\\n';
+        c += '  original-destination ' + dstObj + ' \\\n';
         c += '  translated-source "Hide" \\\n';
         c += '  method "hide" \\\n';
         c += '  -s /tmp/sid.txt\n\n';
     } else {
-        c += 'mgmt_cli add nat-rule package "' + pkg + '" \\\n';
-        c += '  original-source "' + srcObj + '" \\\n';
-        c += '  original-destination "' + dstObj + '" \\\n';
-        c += '  translated-source "' + transIp + '" \\\n';
+        // translated-source/-destination nesne adı bekler: çevrilmiş IP için host nesnesi oluşturulur
+        const tn = _cpQ('NAT-' + transRaw), ti = _cpQ(transRaw);
+        c += '# Çevrilmiş (genel) adres için host nesnesi\n';
+        c += 'mgmt_cli add host name ' + tn + ' ip-address ' + ti + ' -s /tmp/sid.txt\n\n';
+        c += '# Giden yön: kaynak nesne → genel adres\n';
+        c += 'mgmt_cli add nat-rule package ' + pkg + ' position "top" \\\n';
+        c += '  original-source ' + srcObj + ' \\\n';
+        c += '  original-destination ' + dstObj + ' \\\n';
+        c += '  translated-source ' + tn + ' \\\n';
+        c += '  method "static" \\\n';
+        c += '  -s /tmp/sid.txt\n\n';
+        c += '# Gelen yön: genel adres → kaynak nesne (sunucu yayını)\n';
+        c += 'mgmt_cli add nat-rule package ' + pkg + ' position "top" \\\n';
+        c += '  original-destination ' + tn + ' \\\n';
+        c += '  translated-destination ' + srcObj + ' \\\n';
         c += '  method "static" \\\n';
         c += '  -s /tmp/sid.txt\n\n';
     }
     c += 'mgmt_cli publish -s /tmp/sid.txt\nmgmt_cli logout -s /tmp/sid.txt\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show nat-rulebase package "' + pkg + '" -s /tmp/sid.txt\n';
-    return c;
+    c += '# Doğrulama:\n# mgmt_cli show nat-rulebase package ' + pkg + ' -s /tmp/sid.txt\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: BGP (Gaia clish) ────────────────────────────────────────────
@@ -403,18 +528,27 @@ CheckPoint.bgp = {
         });
     }
 };
+// Sözdizimi: R81.x Gaia Advanced Routing — yerel AS genel ayardır (set as); eBGP eşleri
+// "bgp external remote-as <AS>" grubunda, iBGP eşleri "bgp internal" grubunda tanımlanır;
+// yeniden dağıtım route-redistribution ile yapılır.
 function cgCpBgpGen(data) {
+    const w = [];
     const localAs = cgEsc(data.local_as || ''), neighborIp = cgEsc(data.neighbor_ip || ''), remoteAs = cgEsc(data.remote_as || '');
-    const description = cgEsc(data.description || ''), redistStatic = cgEsc(data.redistribute_static || 'no');
+    const redistStatic = data.redistribute_static === 'yes';
+    const ibgp = !!localAs && localAs === remoteAs;
+    const grp = ibgp ? 'bgp internal' : 'bgp external remote-as ' + remoteAs;
+    if (ibgp) w.push('ℹ Yerel ve uzak AS aynı: iBGP. iBGP eşinden öğrenilen rotalar başka bir iBGP eşine duyurulmaz (tam örgü ya da route reflector gerekir).');
+    if (redistStatic) w.push('⚠ Statik rotaların tümü BGP\'ye dağıtılıyor (varsayılan rota ve iç ağlar dahil). Karşı tarafa yalnız duyurulacak önekleri gönderin; gerekirse route-redistribution satırını belirli bir önekle sınırlayın.');
+    w.push('ℹ BGP oturumu (TCP 179) gateway\'in kendisine gelir: güvenlik politikasında komşudan gateway\'e bgp servisine izin veren kural olmalı; yoksa oturum Active\'de kalır ve zdebug\'da "Rulebase drop" görünür (cp-03).');
     let c = '# ========================================\n# Check Point Gaia — BGP (clish)\n# ========================================\n\n';
-    c += 'set bgp as ' + localAs + '\n';
-    c += 'set bgp peer ' + neighborIp + ' remote-as ' + remoteAs + '\n';
-    c += 'set bgp peer ' + neighborIp + ' on\n';
-    if (description) c += 'set bgp peer ' + neighborIp + ' description "' + description + '"\n';
-    if (redistStatic === 'yes') c += 'set bgp redistribute static\n';
+    c += 'set as ' + localAs + '\n';
+    c += 'set ' + grp + ' on\n';
+    if (data.description) c += 'set ' + grp + ' description ' + _cpClishQ(data.description, 'Açıklama', w) + '\n';
+    c += 'set ' + grp + ' peer ' + neighborIp + ' on\n';
+    if (redistStatic) c += 'set route-redistribution to bgp-as ' + remoteAs + ' from static-route all-ipv4-routes on\n';
     c += 'save config\n\n';
-    c += '# Doğrulama:\n# show bgp peer ' + neighborIp + '\n# show route bgp\n';
-    return c;
+    c += '# Doğrulama:\n# show bgp peers\n# show bgp peer ' + neighborIp + ' detailed\n# show route bgp\n# show config-state\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: VLAN Interface (Gaia clish) ──────────────────────────────────
@@ -453,14 +587,18 @@ function cgCpVlanIntfGen(data) {
     // '# ...' yorumu yaziyordu. cgMaskLen tum bitisik maskeleri cevirir.
     const cidr = cgMaskLen(mask);
     const vlanIface = parentBond + '.' + vlanId;
+    const w = [];
+    if (mask && !cidr) w.push('⛔ Maske bitişik değil ya da geçersiz; mask-length hesaplanamadı. 255.255.255.0 gibi geçerli bir maske girin.');
+    if (cidr && _cpNetOrBcast({ ip: _cpIp(data.ip), len: +cidr })) w.push('⛔ IP alt ağın ağ ya da yayın adresi; arayüze kullanılabilir bir host adresi verin.');
+    w.push('ℹ Üst arayüz (' + String(data.parent_bond || '').trim() + ') açık olmalı ve karşı anahtar portu bu VLAN\'a izin veren trunk olmalı. Yeni VLAN ağını SmartConsole\'da gateway topolojisine ekleyip politikayı kurun; aksi hâlde trafik "Address spoofing" ile düşer (cp-03).');
     let c = '# ========================================\n# Check Point Gaia — VLAN Interface (clish)\n# ========================================\n\n';
-    c += 'add interface ' + vlanIface + ' vlan-id ' + vlanId + '\n';
+    c += 'add interface ' + parentBond + ' vlan ' + vlanId + '\n';
     c += 'set interface ' + vlanIface + ' ipv4-address ' + ip + ' mask-length ' + cidr + '\n';
     c += 'set interface ' + vlanIface + ' state on\n';
-    if (comment) c += 'set interface ' + vlanIface + ' comments "' + comment + '"\n';
+    if (comment) c += 'set interface ' + vlanIface + ' comments ' + _cpClishQ(data.comment, 'Açıklama', w) + '\n';
     c += 'save config\n\n';
-    c += '# Doğrulama:\n# show interface ' + vlanIface + '\n';
-    return c;
+    c += '# Doğrulama:\n# show interface ' + vlanIface + '\n# show config-state\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: Host Object (mgmt_cli) ───────────────────────────────────────
@@ -498,19 +636,19 @@ CheckPoint.hostobj = {
     }
 };
 function cgCpHostObjGen(data) {
-    const name = cgEsc(data.name || ''), ip = cgEsc(data.ip || ''), color = cgEsc(data.color || 'blue');
-    const groupsRaw = cgEsc(data.groups || ''), comment = cgEsc(data.comment || '');
-    const groups = groupsRaw ? groupsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
-    let c = '# ========================================\n# Check Point — Host Object (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli add host name "' + name + '" ip-address "' + ip + '" color "' + color + '"';
-    if (comment) c += ' comments "' + comment + '"';
-    c += '\n';
+    // Değerler ham alınır, _cpQ bir kez kaçırır (eski sürümde grup adları iki kez cgEsc'den geçiyordu).
+    const name = _cpQ(data.name || ''), ip = _cpQ(data.ip || ''), color = _cpQ(data.color || 'blue');
+    const groups = String(data.groups || '').split(',').map(s => s.trim()).filter(Boolean);
+    let body = 'mgmt_cli add host name ' + name + ' ip-address ' + ip + ' color ' + color;
+    if (data.comment) body += ' comments ' + _cpQ(data.comment);
+    body += ' -s id.txt\n';
     groups.forEach(grp => {
-        c += 'mgmt_cli set group name "' + cgEsc(grp) + '" members.add "' + name + '"\n';   // API: set-group members.add
+        body += 'mgmt_cli set group name ' + _cpQ(grp) + ' members.add ' + name + ' -s id.txt\n';   // API: set-group members.add
     });
-    c += 'mgmt_cli publish\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show host name "' + name + '"\n';
-    return c;
+    const w = [];
+    if (groups.length) w.push('ℹ Grup içeriğini değiştirmek o grubu kullanan tüm kuralları etkiler; eklemeden önce SmartConsole\'da grubun nerede kullanıldığına (Where Used) bakın. Gruplar önceden var olmalı.');
+    w.push(_CP_W_PUBLISH);
+    return { config: cgCpSession('Host Object', body, '# mgmt_cli show host name ' + name + '\n'), warnings: w };
 }
 
 // ── Check Point: Network Object (mgmt_cli) ────────────────────────────────────
@@ -548,22 +686,26 @@ CheckPoint.netobj = {
     }
 };
 function cgCpNetObjGen(data) {
-    const name = cgEsc(data.name || ''), subnet = cgEsc(data.subnet || ''), mask = cgEsc(data.mask || '');
-    const color = cgEsc(data.color || 'green'), groupsRaw = cgEsc(data.groups || ''), comment = cgEsc(data.comment || '');
-    const groups = groupsRaw ? groupsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const name = _cpQ(data.name || ''), subnet = _cpQ(data.subnet || ''), mask = cgEsc(data.mask || '');
+    const color = _cpQ(data.color || 'green');
+    const groups = String(data.groups || '').split(',').map(s => s.trim()).filter(Boolean);
     // Tablo /13-/30 disini bilmiyordu ve bilinmeyen maskede komut satirinin ortasina
     // '# ...' yorumu yaziyordu. cgMaskLen tum bitisik maskeleri cevirir.
     const cidr = cgMaskLen(mask);
-    let c = '# ========================================\n# Check Point — Network Object (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli add network name "' + name + '" subnet "' + subnet + '" mask-length ' + cidr + ' color "' + color + '"';
-    if (comment) c += ' comments "' + comment + '"';
-    c += '\n';
+    const w = [];
+    if (mask && !cidr) w.push('⛔ Maske bitişik değil ya da geçersiz; mask-length hesaplanamadı.');
+    const si = _cpIp(data.subnet);
+    if (cidr && si !== null && _cpNet(si, +cidr) !== si) w.push('⛔ Subnet adresinde host bitleri dolu: /' + cidr + ' için ağ adresi ' + _cpIpStr(_cpNet(si, +cidr)) + ' olmalı; API reddeder.');
+    if (cidr && +cidr < 8) w.push('⚠ Çok geniş ağ nesnesi (/' + cidr + '): kuralda kullanıldığında istenmeyen ağları da kapsar.');
+    let body = 'mgmt_cli add network name ' + name + ' subnet ' + subnet + ' mask-length ' + cidr + ' color ' + color;
+    if (data.comment) body += ' comments ' + _cpQ(data.comment);
+    body += ' -s id.txt\n';
     groups.forEach(grp => {
-        c += 'mgmt_cli set group name "' + cgEsc(grp) + '" members.add "' + name + '"\n';   // API: set-group members.add
+        body += 'mgmt_cli set group name ' + _cpQ(grp) + ' members.add ' + name + ' -s id.txt\n';   // API: set-group members.add
     });
-    c += 'mgmt_cli publish\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show network name "' + name + '"\n';
-    return c;
+    if (groups.length) w.push('ℹ Grup içeriğini değiştirmek o grubu kullanan tüm kuralları etkiler; eklemeden önce grubun nerede kullanıldığına (Where Used) bakın.');
+    w.push(_CP_W_PUBLISH);
+    return { config: cgCpSession('Network Object', body, '# mgmt_cli show network name ' + name + '\n'), warnings: w };
 }
 
 // ── Check Point: Service Object (mgmt_cli) ────────────────────────────────────
@@ -599,20 +741,19 @@ CheckPoint.serviceobj = {
     }
 };
 function cgCpServiceObjGen(data) {
-    const name = cgEsc(data.name || ''), protocol = cgEsc(data.protocol || 'tcp'), port = cgEsc(data.port || '');
-    const groupsRaw = cgEsc(data.groups || ''), comment = cgEsc(data.comment || '');
-    const groups = groupsRaw ? groupsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
-    const svcType = protocol === 'udp' ? 'service-udp' : 'service-tcp';
-    let c = '# ========================================\n# Check Point — Service Object (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli add ' + svcType + ' name "' + name + '" port "' + port + '"';
-    if (comment) c += ' comments "' + comment + '"';
-    c += '\n';
+    const name = _cpQ(data.name || ''), port = _cpQ(data.port || '');
+    const groups = String(data.groups || '').split(',').map(s => s.trim()).filter(Boolean);
+    const svcType = data.protocol === 'udp' ? 'service-udp' : 'service-tcp';
+    let body = 'mgmt_cli add ' + svcType + ' name ' + name + ' port ' + port;
+    if (data.comment) body += ' comments ' + _cpQ(data.comment);
+    body += ' -s id.txt\n';
     groups.forEach(grp => {
-        c += 'mgmt_cli set service-group name "' + cgEsc(grp) + '" members.add "' + name + '"\n';   // API: set-service-group members.add
+        body += 'mgmt_cli set service-group name ' + _cpQ(grp) + ' members.add ' + name + ' -s id.txt\n';   // API: set-service-group members.add
     });
-    c += 'mgmt_cli publish\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show ' + svcType + ' name "' + name + '"\n';
-    return c;
+    const w = [];
+    if (groups.length) w.push('ℹ Servis grubunu değiştirmek o grubu kullanan tüm kuralları etkiler; eklemeden önce grubun nerede kullanıldığına (Where Used) bakın.');
+    w.push(_CP_W_PUBLISH);
+    return { config: cgCpSession('Service Object', body, '# mgmt_cli show ' + svcType + ' name ' + name + '\n'), warnings: w };
 }
 
 // ── Check Point: ClusterXL HA ─────────────────────────────────────────────────
@@ -659,20 +800,32 @@ function cgCpClusterXLGen(data) {
     const mode = cgEsc(data.mode || 'New High Availability'), clusterIp = cgEsc(data.cluster_ip || '');
     const member1Ip = cgEsc(data.member1_ip || ''), member2Ip = cgEsc(data.member2_ip || '');
     const syncIntf = cgEsc(data.sync_intf || ''), clusterIntf = cgEsc(data.cluster_intf || '');
+    // Gaia clish'te küme topolojisi (VIP, sync, izlenen arayüz) komutu yoktur: bunlar SmartConsole'daki
+    // küme nesnesinde tanımlanır. Eski sürümdeki "set cluster member interface … main/sync/cluster-ip"
+    // satırları gerçek Gaia komutu değildi; burada yalnız gerçek adımlar komut olarak yazılır.
+    const w = [];
+    const v = _cpIp(data.cluster_ip), a = _cpIp(data.member1_ip), b = _cpIp(data.member2_ip);
+    if (a !== null && a === b) w.push('⛔ İki üyenin IP\'si aynı: her üyenin kendi benzersiz adresi olmalı.');
+    if (v !== null && (v === a || v === b)) w.push('⛔ Küme IP\'si (VIP) bir üyenin IP\'siyle aynı: VIP ayrı bir adres olmalı; üye devre dışı kalınca VIP de onunla gider.');
+    if (v !== null && a !== null && b !== null && !(_cpSameNet(v, a, 24) && _cpSameNet(v, b, 24))) w.push('⚠ VIP ile üye IP\'leri aynı /24 içinde değil (önek bilinmiyor, /24 varsayıldı). VIP ve üye adresleri aynı alt ağda olmalı.');
+    if (clusterIntf && clusterIntf === syncIntf) w.push('⛔ Küme arayüzü ile sync arayüzü aynı: sync trafiği ayrı, tercihen üyeler arasında doğrudan bir hatta taşınmalı.');
+    if (/Load Sharing/.test(data.mode || '')) w.push('⚠ Load Sharing Multicast: anahtarların küme MAC\'ine gelen multicast trafiği iki üyeye birden iletmesi gerekir ve asimetrik yönlendirmeye açıktır. Özel bir gerekçe yoksa High Availability seçin.');
+    w.push('ℹ Varsayılan "Maintain current active Cluster Member": bakımdan dönen üye STANDBY kalır, gereksiz ikinci failover yapılmaz. Planlı bakımda kablo çekmek yerine clusterXL_admin down / up kullanın (cp-05).');
+    const modeKey = /Load Sharing/.test(data.mode || '') ? 'cluster-ls-multicast' : 'cluster-xl-ha';
     let c = '# ========================================\n# Check Point Gaia — ClusterXL HA\n# ========================================\n\n';
-    c += '# Her iki üyede de çalıştırın:\n';
-    c += 'set cluster member interface ' + clusterIntf + ' main on\n';
-    c += 'set cluster member interface ' + syncIntf + ' sync on\n';
-    c += 'set cluster member interface ' + clusterIntf + ' cluster-ip ' + clusterIp + '\n';
+    c += '# 1) Her iki üyede (clish): arayüzlere ÜYENİN KENDİ adresi verilir; VIP hiçbir üyeye yazılmaz.\n';
+    c += '#    Üye 1 ' + clusterIntf + ': ' + member1Ip + '   Üye 2 ' + clusterIntf + ': ' + member2Ip + '\n';
+    c += '#    ' + syncIntf + ': iki üyede aynı ayrık alt ağdan birer adres (sync)\n';
+    c += 'set interface ' + clusterIntf + ' state on\n';
+    c += 'set interface ' + syncIntf + ' state on\n';
     c += 'save config\n\n';
-    c += '# SmartConsole / mgmt_cli ile küme yapılandırması:\n';
-    c += 'mgmt_cli set cluster name "FW-CLUSTER" cluster-mode "cluster-xl-ha" \\\n';
-    c += '  topology.members.add.name "MEMBER-1" topology.members.add.ip-address "' + member1Ip + '" \\\n';
-    c += '  topology.members.add.name "MEMBER-2" topology.members.add.ip-address "' + member2Ip + '"\n';
-    c += 'mgmt_cli publish\n\n';
-    c += '# Mod: ' + mode + '\n\n';
-    c += '# Doğrulama:\n# cphaprob -a if\n# cphaprob stat\n# fw hastat\n';
-    return c;
+    c += '# 2) Her iki üyede (expert): cpconfig → "Enable cluster membership for this gateway", ardından yeniden başlatma.\n\n';
+    c += '# 3) SmartConsole: yeni Cluster nesnesi (mod ' + mode + ', API değeri ' + modeKey + ')\n';
+    c += '#    Üyeler: ' + member1Ip + ', ' + member2Ip + ' (SIC ile)\n';
+    c += '#    Network Management: ' + clusterIntf + ' tipi Cluster, sanal IP ' + clusterIp + '; ' + syncIntf + ' tipi Sync\n';
+    c += '#    Ardından politikayı kümeye kurun.\n\n';
+    c += '# Doğrulama (expert):\n# cphaprob stat\n# cphaprob -a if\n# cphaprob syncstat\n# show cluster state   (clish)\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: VSX Virtual System ───────────────────────────────────────────
@@ -705,15 +858,18 @@ CheckPoint.vsx = {
     }
 };
 function cgCpVsxGen(data) {
-    const vsName = cgEsc(data.vs_name || ''), vsId = cgEsc(data.vs_id || ''), vsIntf = cgEsc(data.vs_intf || '');
+    const vsId = cgEsc(data.vs_id || ''), vsIntf = cgEsc(data.vs_intf || '');
     const vsIp = cgEsc(data.vs_ip || ''), vsMask = cgEsc(data.vs_mask || '');
+    const w = ['⚠ Doğrulanmamış taslak: Management API başvurusunda "add virtual-system" komutu yoktur. Virtual System\'ler SmartConsole\'da VSX Gateway nesnesi üzerinden (New Virtual System sihirbazı) ya da Management Server\'da vsx_provisioning_tool ile oluşturulur; VSID\'yi sistem atar. Aşağıdaki satırları kurulumunuzun VSX kılavuzuyla karşılaştırmadan çalıştırmayın.'];
+    if (data.vs_mask && !/^\d{1,2}$/.test(String(data.vs_mask).trim())) w.push('⛔ Mask length 1-32 arası bir sayı olmalı.');
     let c = '# ========================================\n# Check Point — VSX Virtual System (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli add virtual-system name "' + vsName + '" vsid ' + vsId + ' ipv4-address "' + vsIp + '" mask-length ' + vsMask + ' main-ip-address "' + vsIp + '"\n';
+    c += '# UYARI: doğrulanmamış taslak (uyarılara bakın)\n';
+    c += 'mgmt_cli add virtual-system name ' + _cpQ(data.vs_name || '') + ' vsid ' + vsId + ' ipv4-address "' + vsIp + '" mask-length ' + vsMask + ' main-ip-address "' + vsIp + '"\n';
     c += 'mgmt_cli publish\n\n';
     c += '# Interface bağlama (VSX gateway üzerinde):\n';
     c += '# vsx_util add_if -v ' + vsId + ' -i ' + vsIntf + ' -t regular\n\n';
     c += '# Doğrulama:\n# vsx stat -v ' + vsId + '\n# vsx_util show_vs\n';
-    return c;
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: Site-to-Site VPN (mgmt_cli) ──────────────────────────────────
@@ -762,33 +918,52 @@ CheckPoint.s2svpn = {
         });
     }
 };
+// Sözdizimi: Management API örneği "add-vpn-community-meshed" (encryption-method, encryption-suite custom,
+// ike-phase-1/2.* küçük harfli değerler). Karşı uç başka marka olduğu için "interoperable-device" nesnesi
+// kullanılır (simple-gateway, bu management'ın SIC ile yönettiği Check Point gateway'i içindir).
 function cgCpS2sVpnGen(data) {
-    const communityName = cgEsc(data.community_name || ''), peerGwName = cgEsc(data.peer_gw_name || ''), peerIp = cgEsc(data.peer_ip || '');
-    const localNet = cgEsc(data.local_net || ''), remoteNet = cgEsc(data.remote_net || '');
-    const presharedKey = cgEsc(data.preshared_key || ''), ikeVersion = cgEsc(data.ike_version || 'IKEv2');
-    const ikeVersionNum = ikeVersion === 'IKEv2' ? '2' : '1';
-    const remoteNetParts = remoteNet.split('/');
-    const remoteNetIp = remoteNetParts[0] || remoteNet;
-    const remoteNetCidr = remoteNetParts[1] || '24';
+    const w = [];
+    const communityName = _cpQ(data.community_name || ''), peerRaw = String(data.peer_gw_name || '').trim();
+    const peerGw = _cpQ(peerRaw), peerIp = _cpQ(data.peer_ip || '');
+    const ikeV2 = (data.ike_version || 'IKEv2') === 'IKEv2';
+    const splitNet = raw => { const p = String(raw || '').trim().split('/'); return { ip: p[0] || '', len: p[1] || '24' }; };
+    const rn = splitNet(data.remote_net), ln = splitNet(data.local_net);
+    const remObj = _cpQ('NET-REMOTE-' + peerRaw), locObj = _cpQ('NET-LOCAL-' + peerRaw);
+    const lc = _cpCidr(data.local_net), rc = _cpCidr(data.remote_net);
+    if (lc && rc && _cpOverlap(lc, rc)) w.push('⛔ Yerel ve uzak ağ çakışıyor: aynı adres iki tarafta olamaz; trafik tünele girmez. Çakışma kaçınılmazsa iki uçta NAT gerekir.');
+    [[lc, 'Yerel ağ', data.local_net], [rc, 'Uzak ağ', data.remote_net]].forEach(([x, l, raw]) => { if (x && _cpNet(x.ip, x.len) !== x.ip) w.push('⛔ ' + l + ' (' + String(raw).trim() + ') host bitleri dolu: ağ adresi ' + _cpIpStr(_cpNet(x.ip, x.len)) + '/' + x.len + ' olmalı.'); });
+    const psk = String(data.preshared_key || '');
+    if (psk && psk.length < 20) w.push('⚠ Paylaşılan anahtar kısa (' + psk.length + ' karakter): en az 20 karakterlik rastgele bir değer kullanın. İki uçta birebir aynı olmalı; farklıysa IKE günlüğünde AUTHENTICATION_FAILED görünür (cp-07).');
+    if (psk.indexOf('!') !== -1) w.push('ℹ Anahtarda ! var: komutları betik yerine etkileşimli kabuğa yapıştırırsanız bash geçmiş genişletmesi yapabilir; önce set +H çalıştırın.');
+    if (/^\s|\s$/.test(psk)) w.push('⚠ Paylaşılan anahtarın başında ya da sonunda boşluk var: karşı uca kopyalanırken kaybolur ve kimlik doğrulama başarısız olur.');
+    if (!ikeV2) w.push('⚠ IKEv1 seçildi: yalnız karşı uç IKEv2 desteklemiyorsa kullanın. İki uçta sürüm farklıysa faz 1 hiç başlamaz.');
+    w.push('ℹ Öneriler karşı uçla birebir eşleşmeli: bu çıktı ' + (ikeV2 ? 'IKEv2, ' : 'IKEv1, ') + 'faz 1 AES-256 / SHA-256 / DH 14, faz 2 AES-256 / SHA-256 yazar. Uyuşmazlıkta IKE günlüğünde NO_PROPOSAL_CHOSEN görünür (vpn debug trunc → $FWDIR/log/ikev2.xmll, cp-07).');
+    w.push('ℹ Check Point bitişik ağları birleştirip daha geniş bir faz 2 seçicisi önerebilir; başka marka uçlar bunu TS_UNACCEPTABLE ile reddeder. Bu yüzden tunnel-granularity "per-subnet" yazıldı; yerel encryption domain\'i de karşı uçtaki tanımla birebir eşleyin (cp-07).');
+    w.push('ℹ Yerel gateway\'i community\'ye ekleyin (SmartConsole ya da gateways.add) ve encryption domain\'ini NET-LOCAL-' + peerRaw + ' olarak ayarlayın; ardından politikayı kurun. publish tek başına gateway\'e hiçbir şey göndermez.');
     let c = '#!/bin/bash\n# ========================================\n# Check Point — Site-to-Site VPN (mgmt_cli)\n# ========================================\n\n';
-    c += '# Peer gateway nesnesi oluştur\n';
-    c += 'mgmt_cli add simple-gateway name "' + peerGwName + '" ip-address "' + peerIp + '"\n\n';
-    c += '# VPN Community oluştur\n';
-    c += 'mgmt_cli add vpn-community-meshed name "' + communityName + '" \\\n';
-    c += '  ike-phase-1.encryption-algorithm AES-256 \\\n';
-    c += '  ike-phase-1.data-integrity SHA-256 \\\n';
-    c += '  ike-phase-1.ike-p1-use-suite-b-flag false \\\n';
-    c += '  ike-version ' + ikeVersionNum + '\n\n';
-    c += '# Remote network nesnesi oluştur\n';
-    c += 'mgmt_cli add network name "NET-REMOTE-' + peerGwName + '" subnet "' + remoteNetIp + '" mask-length ' + remoteNetCidr + '\n\n';
-    c += '# Preshared key ata\n';
-    c += 'mgmt_cli set vpn-community-meshed name "' + communityName + '" \\\n';
-    c += '  shared-secrets.add.external-gateway "' + peerGwName + '" \\\n';
-    c += '  shared-secrets.add.shared-secret "' + presharedKey + '"\n\n';
-    c += '# Yerel ağ: ' + localNet + '\n';
-    c += 'mgmt_cli publish\n\n';
-    c += '# Doğrulama:\n# vpn tu\n# vpn debug ikeon\n';
-    return c;
+    c += 'mgmt_cli login -r true > id.txt\n\n';
+    c += '# Encryption domain ağ nesneleri\n';
+    c += 'mgmt_cli add network name ' + remObj + ' subnet ' + _cpQ(rn.ip) + ' mask-length ' + cgEsc(rn.len) + ' -s id.txt\n';
+    c += 'mgmt_cli add network name ' + locObj + ' subnet ' + _cpQ(ln.ip) + ' mask-length ' + cgEsc(ln.len) + ' -s id.txt\n\n';
+    c += '# Karşı uç (başka marka) — encryption domain\'i uzak ağ\n';
+    c += 'mgmt_cli add interoperable-device name ' + peerGw + ' ip-address ' + peerIp + ' \\\n';
+    c += '  vpn-settings.vpn-domain-type "manual" vpn-settings.vpn-domain ' + remObj + ' -s id.txt\n\n';
+    c += '# VPN Community\n';
+    c += 'mgmt_cli add vpn-community-meshed name ' + communityName + ' \\\n';
+    c += '  encryption-method ' + (ikeV2 ? '"ikev2 only"' : '"ikev1 for ipv4 and ikev2 for ipv6 only"') + ' \\\n';
+    c += '  encryption-suite "custom" \\\n';
+    c += '  ike-phase-1.encryption-algorithm "aes-256" \\\n';
+    c += '  ike-phase-1.data-integrity "sha256" \\\n';
+    c += '  ike-phase-1.diffie-hellman-group "group-14" \\\n';
+    c += '  ike-phase-2.encryption-algorithm "aes-256" \\\n';
+    c += '  ike-phase-2.data-integrity "sha256" \\\n';
+    c += '  tunnel-granularity "per-subnet" \\\n';
+    c += '  gateways.1 ' + peerGw + ' \\\n';
+    c += '  shared-secrets.1.external-gateway ' + peerGw + ' \\\n';
+    c += '  shared-secrets.1.shared-secret ' + _cpQ(psk) + ' -s id.txt\n\n';
+    c += 'mgmt_cli publish -s id.txt\nmgmt_cli logout -s id.txt\n\n';
+    c += '# Doğrulama (gateway, expert):\n# vpn tu tlist\n# vpn debug trunc   (sonra trafik üretin, günlük: $FWDIR/log/ikev2.xmll)\n# vpn debug ikeoff ; vpn debug off\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: Remote Access VPN ────────────────────────────────────────────
@@ -837,17 +1012,20 @@ CheckPoint.ravpn = {
     }
 };
 function cgCpRaVpnGen(data) {
-    const profileName = cgEsc(data.profile_name || ''), authMethod = cgEsc(data.auth_method || '');
-    const userGroup = cgEsc(data.user_group || ''), encryption = cgEsc(data.encryption || 'AES-256'), topology = cgEsc(data.topology || 'Hub');
+    const topology = cgEsc(data.topology || 'Hub');
+    const w = ['⚠ Doğrulanmamış taslak: bu satırdaki remote-access-community parametreleri Management API başvurusuyla eşleşmiyor olabilir. Uzaktan erişim topluluğu (RemoteAccess) çoğunlukla SmartConsole\'da düzenlenir; API ile yapılacaksa sürümünüzün API başvurusundaki vpn-community-remote-access komutunu kontrol edin.'];
+    if (data.encryption === '3DES') w.push('⚠ 3DES eski ve zayıftır; AES-256 kullanın.');
+    if (data.auth_method === 'RADIUS') w.push('ℹ RADIUS: gateway\'den RADIUS sunucusuna (UDP 1812) erişim ve sunucuda gateway\'in istemci olarak tanımlı olması gerekir.');
     let c = '# ========================================\n# Check Point — Remote Access VPN (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli set remote-access-community name "' + profileName + '" \\\n';
-    c += '  user-encryption.method "' + authMethod + '" \\\n';
-    c += '  participant-user-groups.add.name "' + userGroup + '" \\\n';
-    c += '  encryption-method.ike-p2.transform-algorithm "' + encryption + '"\n';
+    c += '# UYARI: doğrulanmamış taslak (uyarılara bakın)\n';
+    c += 'mgmt_cli set remote-access-community name ' + _cpQ(data.profile_name || '') + ' \\\n';
+    c += '  user-encryption.method ' + _cpQ(data.auth_method || '') + ' \\\n';
+    c += '  participant-user-groups.add.name ' + _cpQ(data.user_group || '') + ' \\\n';
+    c += '  encryption-method.ike-p2.transform-algorithm ' + _cpQ(data.encryption || 'AES-256') + '\n';
     c += 'mgmt_cli publish\n\n';
     c += '# Topoloji: ' + topology + '\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show remote-access-community name "' + profileName + '"\n# SmartConsole > VPN Communities > Remote Access\n';
-    return c;
+    c += '# Doğrulama:\n# mgmt_cli show remote-access-community name ' + _cpQ(data.profile_name || '') + '\n# SmartConsole > VPN Communities > Remote Access\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: IPS Profile ──────────────────────────────────────────────────
@@ -889,18 +1067,23 @@ CheckPoint.ips = {
     }
 };
 function cgCpIpsGen(data) {
-    const profileName = cgEsc(data.profile_name || ''), scope = cgEsc(data.scope || '');
-    const performanceImpact = cgEsc(data.performance_impact || 'medium-or-lower'), updateSchedule = cgEsc(data.update_schedule || 'daily');
+    const scope = cgEsc(data.scope || ''), updateSchedule = cgEsc(data.update_schedule || 'daily');
+    // API enum değerleri (Threat Prevention Profile aracıyla aynı): performance-impact high|medium|low|very_low,
+    // severity "Medium or above". Form değerleri (medium-or-lower …) API'ye bu eşlemeyle yazılır.
+    const perfApi = { 'medium-or-lower': 'medium', 'low-or-lower': 'low', high: 'high' }[data.performance_impact] || 'medium';
+    const w = [];
+    if (perfApi === 'high') w.push('⚠ Performans etkisi high: tüm korumalar etkinleşir ve gateway CPU\'su ciddi yüklenir. Önce medium ile başlayıp cpview ile yükü ölçün (cp-06).');
+    w.push('ℹ set threat-profile var olan bir profili değiştirir; profil yoksa aynı parametrelerle add threat-profile kullanın. Profil, Threat Prevention politikasındaki kuralın Action sütununda seçilip politika kurulmadıkça hiçbir şeyi korumaz.');
     let c = '# ========================================\n# Check Point — IPS Profile (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli set threat-profile name "' + profileName + '" \\\n';
-    c += '  active-protections-performance-impact "' + performanceImpact + '" \\\n';
-    c += '  active-protections-severity medium-or-above \\\n';
+    c += 'mgmt_cli set threat-profile name ' + _cpQ(data.profile_name || '') + ' \\\n';
+    c += '  active-protections-performance-impact "' + perfApi + '" \\\n';
+    c += '  active-protections-severity "Medium or above" \\\n';
     c += '  use-extended-attributes true\n';
     c += 'mgmt_cli publish\n\n';
     c += '# Kapsam: ' + scope + '\n';
     c += '# Güncelleme: ' + updateSchedule + '\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show threat-profile name "' + profileName + '"\n# SmartConsole > Threat Prevention Profiles\n';
-    return c;
+    c += '# Doğrulama:\n# mgmt_cli show threat-profile name ' + _cpQ(data.profile_name || '') + '\n# SmartConsole > Threat Prevention Profiles\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: Anti-Bot + Anti-Virus ────────────────────────────────────────
@@ -942,19 +1125,27 @@ CheckPoint.antibot = {
         });
     }
 };
+// threat-profile'da blade başına action / confidence alanı yoktur (eski sürüm anti-bot.action yazıyordu):
+// aksiyon güven seviyesine göre verilir (confidence-level-high|medium|low), blade'ler true/false açılır.
+// Eşik ve üstündeki seviyelere seçilen aksiyon, altındakilere Detect yazılır.
 function cgCpAntiBotGen(data) {
-    const profileName = cgEsc(data.profile_name || ''), confidence = cgEsc(data.confidence || 'Medium');
-    const action = cgEsc(data.action || 'Prevent'), updateSchedule = cgEsc(data.update_schedule || 'Scheduled');
+    const w = [];
+    const action = ['Prevent', 'Detect', 'Ask'].includes(data.action) ? data.action : 'Prevent';
+    const thr = { Medium: 1, High: 2, Critical: 2 }[data.confidence] || 1;
+    const lv = ['low', 'medium', 'high'].map((l, i) => ' confidence-level-' + l + ' "' + (i >= thr ? action : 'Detect') + '"').join('');
+    const updateSchedule = cgEsc(data.update_schedule || 'Scheduled');
+    if (data.confidence === 'Critical') w.push('ℹ API\'de güven seviyeleri low, medium ve high\'tır; Critical eşiği high olarak yazıldı.');
+    if (action === 'Detect') w.push('⚠ Aksiyon Detect: tehditler yalnız loglanır, engellenmez. Başlangıç izlemesi için uygundur; kalıcı olmamalı.');
+    if (action === 'Ask') w.push('ℹ Ask kullanıcıya bir sayfa gösterir; yalnız web (HTTP/HTTPS) trafiğinde anlamlıdır.');
+    w.push('ℹ set threat-profile var olan bir profili değiştirir; profil yoksa add threat-profile kullanın. Anti-Bot ve Anti-Virus blade\'leri gateway nesnesinde de etkin ve lisanslı olmalı; ardından politikayı kurun.');
     let c = '# ========================================\n# Check Point — Anti-Bot + Anti-Virus (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli set threat-profile name "' + profileName + '" \\\n';
-    c += '  anti-bot.action "' + action + '" \\\n';
-    c += '  anti-bot.confidence-level "' + confidence + '" \\\n';
-    c += '  anti-virus.action "' + action + '" \\\n';
-    c += '  anti-virus.confidence-level "' + confidence + '"\n';
+    c += 'mgmt_cli set threat-profile name ' + _cpQ(data.profile_name || '') + ' \\\n';
+    c += '  anti-bot true anti-virus true \\\n';
+    c += ' ' + lv + '\n';
     c += 'mgmt_cli publish\n\n';
     c += '# Güncelleme takvimi: ' + updateSchedule + '\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show threat-profile name "' + profileName + '"\n';
-    return c;
+    c += '# Doğrulama:\n# mgmt_cli show threat-profile name ' + _cpQ(data.profile_name || '') + '\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: HTTPS Inspection Policy ──────────────────────────────────────
@@ -989,26 +1180,30 @@ CheckPoint.httpsinspect = {
         });
     }
 };
+// Sözdizimi: Management API (R81+) "add-https-rule": layer (HTTPS Inspection katmanı), position, name,
+// source, destination, site-category, action (Inspect|Bypass), certificate, track. Eski sürümdeki
+// "set https-inspection-rule" ve kategori başına application-site oluşturma API karşılığı olmayan satırlardı;
+// kategoriler bypass kuralının site-category listesine yazılır.
 function cgCpHttpsInspectGen(data) {
-    const policyName = cgEsc(data.policy_name || ''), caCert = cgEsc(data.ca_cert || '');
-    const bypassCategoriesRaw = cgEsc(data.bypass_categories || ''), action = cgEsc(data.action || 'Inspect'), srcZone = cgEsc(data.src_zone || '');
-    const bypassCategories = bypassCategoriesRaw ? bypassCategoriesRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
-    let c = '# ========================================\n# Check Point — HTTPS Inspection Policy (mgmt_cli)\n# ========================================\n\n';
-    c += 'mgmt_cli set https-inspection-rule name "' + policyName + '" \\\n';
-    c += '  source ' + srcZone + ' \\\n';
-    c += '  track log \\\n';
-    c += '  action "' + action + '" \\\n';
-    c += '  certificate "' + caCert + '"\n\n';
-    if (bypassCategories.length > 0) {
-        c += '# Bypass kategorileri:\n';
-        bypassCategories.forEach(cat => {
-            c += 'mgmt_cli add application-site name "' + cgEsc(cat) + '-BYPASS" primary-category "' + cgEsc(cat) + '"\n';
-        });
-        c += '\n';
+    const w = [];
+    const action = data.action === 'Bypass' ? 'Bypass' : 'Inspect';
+    const cats = String(data.bypass_categories || '').split(',').map(x => x.trim()).filter(Boolean);
+    const name = _cpQ(data.policy_name || ''), src = _cpQ(data.src_zone || ''), cert = _cpQ(data.ca_cert || '');
+    const layer = '"Default Layer"';
+    w.push('⚠ API sözdizimi (add https-rule, katman adı "Default Layer") sürüme göre değişebilir; HTTPS Inspection katmanınızın adını SmartConsole\'da ya da mgmt_cli show https-layers ile doğrulayın.');
+    w.push('ℹ Kaynak, SmartConsole\'daki bir ağ ya da güvenlik bölgesi (ör. InternalZone) nesnesinin adı olmalı; "trust" gibi başka markaların zone adları Check Point\'te tanımlı değildir.');
+    w.push('ℹ CA sertifikası tüm istemcilere güvenilir kök olarak dağıtılmalı (ör. GPO); dağıtılmazsa her HTTPS sitesinde sertifika uyarısı çıkar.');
+    if (cats.length) w.push('ℹ Kategori adları Check Point URL kategorisi adlarıyla birebir aynı olmalı (ör. Financial Services, Health); eşleşmeyen ad API tarafından reddedilir.');
+    else if (action === 'Inspect') w.push('⚠ Bypass kategorisi yok: bankacılık, sağlık gibi hassas trafik ve sertifika sabitleyen (pinning) uygulamalar denetime girer; yasal sorun ve bozulan uygulamalar beklenir.');
+    let body = '';
+    if (cats.length) {
+        body += '# Hassas kategoriler: denetim dışı (bypass kuralı, denetim kuralının üstünde)\n';
+        body += 'mgmt_cli add https-rule layer ' + layer + ' position "top" name ' + _cpQ(String(data.policy_name || '') + '-BYPASS') + ' source ' + src;
+        body += cats.map((x, i) => ' site-category.' + (i + 1) + ' ' + _cpQ(x)).join('') + ' action "Bypass" track "Log" -s id.txt\n\n';
     }
-    c += 'mgmt_cli publish\n\n';
-    c += '# Doğrulama:\n# mgmt_cli show https-inspection-rule name "' + policyName + '"\n';
-    return c;
+    body += 'mgmt_cli add https-rule layer ' + layer + ' position ' + (cats.length ? '"bottom"' : '"top"') + ' name ' + name + ' source ' + src + ' action "' + action + '" certificate ' + cert + ' track "Log" -s id.txt\n';
+    body += '# NOT: HTTPS Inspection politikası da kurulmalı (Install Policy).\n';
+    return { config: cgCpSession('HTTPS Inspection Policy', body, '# mgmt_cli show https-rulebase name ' + layer + '\n'), warnings: w };
 }
 
 // ── Check Point: Logging / SmartEvent ────────────────────────────────────────
@@ -1058,7 +1253,10 @@ function cgCpLoggingGen(data) {
     c += 'cp_log_export add name ' + name + ' target-server ' + serverIp + ' target-port ' + port + ' protocol ' + protocol + ' format ' + fmt + '\n';
     c += 'cp_log_export restart name ' + name + '\n\n';
     c += '# Doğrulama:\n# cp_log_export show name ' + name + '\n# cp_log_export status name ' + name + '\n';
-    return c;
+    const w = [];
+    if (protocol === 'udp') w.push('⚠ UDP ile gönderilen log, ağ tıkanıklığında ya da SIEM yeniden başlarken sessizce kaybolur. Denetim kaydı gerekiyorsa TCP seçin.');
+    w.push('ℹ Log Server\'dan SIEM\'e giden trafik (' + String(data.port || '514') + '/' + (protocol === 'tcp' ? 'tcp' : 'udp') + ') aradaki güvenlik duvarlarında açık olmalı. SIEM\'de log görünmüyorsa Log Server\'da tcpdump -nni <arayüz> host <siem-ip> ile paketlerin çıktığını doğrulayın.');
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: SNMP v3 ──────────────────────────────────────────────────────
@@ -1103,16 +1301,35 @@ CheckPoint.snmp = {
         });
     }
 };
+// Sözdizimi: R81.x Gaia Administration Guide — SNMP: USM kullanıcısı "add snmp usm user", v3 trap alıcısı
+// "add snmp traps receiver … version v3" ve "set snmp traps trap-user". Eski sürümdeki "set snmp user …
+// auth-proto" ve community'li notif target satırları Gaia komutu değildi. Kesin seçenek adlarını
+// sürümünüzde "add snmp usm user ?" ile doğrulayın.
 function cgCpSnmpGen(data) {
-    const username = cgEsc(data.username || ''), authProto = cgEsc(data.auth_proto || 'SHA'), authPass = cgEsc(data.auth_pass || '');
-    const privProto = cgEsc(data.priv_proto || 'AES'), privPass = cgEsc(data.priv_pass || ''), trapTarget = cgEsc(data.trap_target || '');
+    const w = [];
+    const username = cgEsc(data.username || ''), authPass = cgEsc(data.auth_pass || '');
+    const privPass = cgEsc(data.priv_pass || ''), trapTarget = cgEsc(data.trap_target || '');
+    const authType = data.auth_proto === 'MD5' ? 'MD5' : 'SHA256';
+    const privType = data.priv_proto === 'DES' ? 'DES' : 'AES128';
+    [['Auth şifresi', data.auth_pass], ['Priv şifresi', data.priv_pass]].forEach(([l, p]) => {
+        const s = String(p || '');
+        if (s && s.length < 8) w.push('⛔ ' + l + ' en az 8 karakter olmalı; SNMPv3 daha kısasını reddeder.');
+        if (/[\s"'\\]/.test(s)) w.push('⛔ ' + l + ' boşluk, tırnak ya da ters bölü içeriyor: clish satırında tırnaksız yazıldığı için komut bölünür. Bu karakterleri kullanmayın.');
+    });
+    if (data.auth_pass && data.auth_pass === data.priv_pass) w.push('⚠ Auth ve priv şifreleri aynı: biri ele geçerse ikisi de açığa çıkar; farklı değerler kullanın.');
+    if (authType === 'MD5') w.push('⚠ MD5 zayıftır; SHA256 kullanın.');
+    else w.push('ℹ SHA seçimi SHA256 olarak yazıldı; eski NMS SHA256 desteklemiyorsa SHA1 yazın.');
+    if (privType === 'DES') w.push('⚠ DES kırılabilir; AES kullanın.');
+    w.push('ℹ Şifreler clish komut satırında görünür: komutu yazdıktan sonra ekran ve oturum kayıtlarını temizleyin. NMS\'den gateway\'e UDP 161 politikada izinli olmalı.');
     let c = '# ========================================\n# Check Point Gaia — SNMP v3 (clish)\n# ========================================\n\n';
     c += 'set snmp agent on\n';
-    c += 'set snmp user ' + username + ' auth-pass ' + authPass + ' auth-proto ' + authProto + ' priv-pass ' + privPass + ' priv-proto ' + privProto + '\n';
-    c += 'set snmp notif target ' + trapTarget + ' port 162 community "' + username + '"\n';
+    c += 'set snmp agent-version v3-Only\n';
+    c += 'add snmp usm user ' + username + ' security-level authPriv auth-pass-type ' + authType + ' auth-pass-phrase ' + authPass + ' privacy-pass-type ' + privType + ' privacy-pass-phrase ' + privPass + '\n';
+    c += 'add snmp traps receiver ' + trapTarget + ' version v3\n';
+    c += 'set snmp traps trap-user ' + username + '\n';
     c += 'save config\n\n';
-    c += '# Doğrulama:\n# show snmp agent\n# show snmp user ' + username + '\n';
-    return c;
+    c += '# Doğrulama:\n# show snmp agent\n# show snmp usm users\n# show snmp traps receivers\n# show config-state\n';
+    return { config: c, warnings: w };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1127,7 +1344,7 @@ function cgCpSnmpGen(data) {
 // Virgülle ayrılmış listeyi mgmt_cli indeksli parametreye çevirir: 'A, B' → ' key.1 "A" key.2 "B"'
 function cgCpIdx(key, s) {
     return String(s || '').split(',').map(x => x.trim()).filter(Boolean)
-        .map((x, i) => ' ' + key + '.' + (i + 1) + ' "' + cgEsc(x) + '"').join('');
+        .map((x, i) => ' ' + key + '.' + (i + 1) + ' ' + _cpQ(x)).join('');
 }
 // mgmt_cli oturum sarmalı: tek oturumda değişiklik → publish → logout.
 // (Oturumsuz her mgmt_cli çağrısı kendi oturumunda otomatik publish edilir.)
@@ -1172,15 +1389,19 @@ CheckPoint.addrrange = {
     }
 };
 function cgCpAddrRangeGen(data) {
-    const n = cgEsc(data.ar_name || ''), a = cgEsc(data.ar_first || ''), b = cgEsc(data.ar_last || '');
-    const com = cgEsc(data.ar_comment || '');
+    const n = _cpQ(data.ar_name || ''), a = _cpQ(data.ar_first || ''), b = _cpQ(data.ar_last || '');
     const num = ip => String(ip).split('.').reduce((x, o) => x * 256 + (+o || 0), 0);
     let body = '';
     if (num(data.ar_first || '') > num(data.ar_last || '')) body += '# UYARI: ilk IP son IP\'den büyük — API isteği reddeder.\n';
-    body += 'mgmt_cli add address-range name "' + n + '" ip-address-first "' + a + '" ip-address-last "' + b + '" color "' + cgEsc(data.ar_color || 'black') + '"';
-    if (com) body += ' comments "' + com + '"';
+    body += 'mgmt_cli add address-range name ' + n + ' ip-address-first ' + a + ' ip-address-last ' + b + ' color ' + _cpQ(data.ar_color || 'black');
+    if (data.ar_comment) body += ' comments ' + _cpQ(data.ar_comment);
     body += cgCpIdx('groups', data.ar_groups) + ' -s id.txt\n';
-    return cgCpSession('Address Range', body, '# mgmt_cli show address-range name "' + n + '"\n');
+    const w = [];
+    const fa = _cpIp(data.ar_first), la = _cpIp(data.ar_last);
+    if (fa !== null && la !== null && fa > la) w.push('⛔ İlk IP son IP\'den büyük: API isteği reddeder.');
+    else if (fa !== null && la !== null && la - fa > 65535) w.push('⚠ Aralık çok geniş (' + (la - fa + 1) + ' adres): bir ağ nesnesi daha okunaklı olabilir; aralık aradaki kullanılmayan adresleri de kapsar.');
+    w.push(_CP_W_PUBLISH);
+    return { config: cgCpSession('Address Range', body, '# mgmt_cli show address-range name ' + n + '\n'), warnings: w };
 }
 
 // ── Check Point: Network Group ───────────────────────────────────────────────
@@ -1206,11 +1427,12 @@ CheckPoint.netgroup = {
     }
 };
 function cgCpNetGroupGen(data) {
-    const n = cgEsc(data.ng_name || ''), com = cgEsc(data.ng_comment || '');
-    let body = 'mgmt_cli add group name "' + n + '"' + cgCpIdx('members', data.ng_members) + cgCpIdx('groups', data.ng_parent);
-    if (com) body += ' comments "' + com + '"';
+    const n = _cpQ(data.ng_name || '');
+    let body = 'mgmt_cli add group name ' + n + cgCpIdx('members', data.ng_members) + cgCpIdx('groups', data.ng_parent);
+    if (data.ng_comment) body += ' comments ' + _cpQ(data.ng_comment);
     body += ' -s id.txt\n';
-    return cgCpSession('Network Group', body, '# mgmt_cli show group name "' + n + '"\n');
+    const w = ['ℹ Üyeler ve üst gruplar önceden var olmalı; olmayan nesne adı tüm isteği reddettirir.', _CP_W_PUBLISH];
+    return { config: cgCpSession('Network Group', body, '# mgmt_cli show group name ' + n + '\n'), warnings: w };
 }
 
 // ── Check Point: Service Group ───────────────────────────────────────────────
@@ -1236,11 +1458,14 @@ CheckPoint.svcgroup = {
     }
 };
 function cgCpSvcGroupGen(data) {
-    const n = cgEsc(data.sg_name || ''), com = cgEsc(data.sg_comment || '');
-    let body = 'mgmt_cli add service-group name "' + n + '"' + cgCpIdx('members', data.sg_members) + cgCpIdx('groups', data.sg_parent);
-    if (com) body += ' comments "' + com + '"';
+    const n = _cpQ(data.sg_name || '');
+    let body = 'mgmt_cli add service-group name ' + n + cgCpIdx('members', data.sg_members) + cgCpIdx('groups', data.sg_parent);
+    if (data.sg_comment) body += ' comments ' + _cpQ(data.sg_comment);
     body += ' -s id.txt\n';
-    return cgCpSession('Service Group', body, '# mgmt_cli show service-group name "' + n + '"\n');
+    const w = [];
+    if (/(^|,)\s*any\s*(,|$)/i.test(String(data.sg_members || ''))) w.push('⚠ Üyelerde any var: grup tüm servisleri kapsar ve onu kullanan kural her porta açılır.');
+    w.push(_CP_W_PUBLISH);
+    return { config: cgCpSession('Service Group', body, '# mgmt_cli show service-group name ' + n + '\n'), warnings: w };
 }
 
 // ── Check Point: Time Object ─────────────────────────────────────────────────
@@ -1293,21 +1518,22 @@ CheckPoint.timeobj = {
     }
 };
 function cgCpTimeObjGen(data) {
-    const n = cgEsc(data.to_name || ''), pat = ['Daily', 'Weekly', 'Monthly'].includes(data.to_pattern) ? data.to_pattern : 'Weekly';
+    const n = _cpQ(data.to_name || ''), pat = ['Daily', 'Weekly', 'Monthly'].includes(data.to_pattern) ? data.to_pattern : 'Weekly';
     const hf = cgEsc(data.to_hr_from || ''), ht = cgEsc(data.to_hr_to || '');
-    let body = 'mgmt_cli add time name "' + n + '"';
-    if (data.to_start === 'date') body += ' start.date "' + cgEsc(data.to_start_date || '') + '" start.time "' + cgEsc(data.to_start_time || '') + '"';
+    let body = 'mgmt_cli add time name ' + n;
+    if (data.to_start === 'date') body += ' start.date ' + _cpQ(data.to_start_date || '') + ' start.time ' + _cpQ(data.to_start_time || '');
     else body += ' start-now "true"';
     if (data.to_end === 'never') body += ' end-never "true"';
-    else body += ' end-never "false" end.date "' + cgEsc(data.to_end_date || '') + '" end.time "' + cgEsc(data.to_end_time || '') + '"';
-    if (hf && ht) body += ' hours-ranges.1.from "' + hf + '" hours-ranges.1.to "' + ht + '" hours-ranges.1.enabled true hours-ranges.1.index 1';
+    else body += ' end-never "false" end.date ' + _cpQ(data.to_end_date || '') + ' end.time ' + _cpQ(data.to_end_time || '');
+    if (hf && ht) body += ' hours-ranges.1.from ' + _cpQ(data.to_hr_from) + ' hours-ranges.1.to ' + _cpQ(data.to_hr_to) + ' hours-ranges.1.enabled true hours-ranges.1.index 1';
     body += ' recurrence.pattern "' + pat + '"';
     if (pat === 'Weekly') body += cgCpIdx('recurrence.weekdays', data.to_weekdays);
-    if (pat === 'Monthly') body += cgCpIdx('recurrence.days', data.to_days) + ' recurrence.month "' + cgEsc(data.to_month || '') + '"';
+    if (pat === 'Monthly') body += cgCpIdx('recurrence.days', data.to_days) + ' recurrence.month ' + _cpQ(data.to_month || '');
     body += ' -s id.txt\n';
     let pre = '';
     if ((hf && !ht) || (!hf && ht)) pre = '# UYARI: saat aralığı için başlangıç ve bitişin ikisi de gerekli — aralık yazılmadı.\n';
-    return cgCpSession('Time Object', pre + body, '# mgmt_cli show time name "' + n + '"\n');
+    const w = ['ℹ Gateway saatleri kendi saat dilimine göre yorumlar: Gaia\'da NTP ve saat dilimi doğru olmalı (show clock, show timezone). Zaman nesnesi kuralın Time sütununa eklenip politika kurulmadıkça etkisizdir.'];
+    return { config: cgCpSession('Time Object', pre + body, '# mgmt_cli show time name ' + n + '\n'), warnings: w };
 }
 
 // ── Check Point: Threat Prevention Profile ───────────────────────────────────
@@ -1385,23 +1611,26 @@ CheckPoint.tpprofile = {
     }
 };
 function cgCpTpProfileGen(data) {
-    const n = cgEsc(data.tp_name || ''), com = cgEsc(data.tp_comment || '');
+    const n = _cpQ(data.tp_name || '');
     const tf = v => (v ? 'true' : 'false');
     let body = '';
     if (!data.tp_ips && !data.tp_ab && !data.tp_av && !data.tp_te) body += '# UYARI: hiçbir blade seçilmedi — profil hiçbir tehdidi engellemez.\n';
     if (data.tp_cl_high && data.tp_cl_high !== 'Prevent') body += '# UYARI: yüksek güvenli korumalar Prevent değil — bilinen saldırılar engellenmez.\n';
-    body += 'mgmt_cli add threat-profile name "' + n + '"';
-    body += ' active-protections-performance-impact "' + cgEsc(data.tp_perf || '') + '"';
-    body += ' active-protections-severity "' + cgEsc(data.tp_sev || '') + '"';
-    body += ' confidence-level-high "' + cgEsc(data.tp_cl_high || '') + '"';
-    body += ' confidence-level-medium "' + cgEsc(data.tp_cl_med || '') + '"';
-    body += ' confidence-level-low "' + cgEsc(data.tp_cl_low || '') + '"';
+    body += 'mgmt_cli add threat-profile name ' + n;
+    body += ' active-protections-performance-impact ' + _cpQ(data.tp_perf || '') + '';
+    body += ' active-protections-severity ' + _cpQ(data.tp_sev || '') + '';
+    body += ' confidence-level-high ' + _cpQ(data.tp_cl_high || '') + '';
+    body += ' confidence-level-medium ' + _cpQ(data.tp_cl_med || '') + '';
+    body += ' confidence-level-low ' + _cpQ(data.tp_cl_low || '') + '';
     body += ' ips ' + tf(data.tp_ips) + ' anti-bot ' + tf(data.tp_ab) + ' anti-virus ' + tf(data.tp_av) + ' threat-emulation ' + tf(data.tp_te);
-    if (data.tp_ips) body += ' ips-settings.newly-updated-protections "' + cgEsc(data.tp_newprot || '') + '"';
-    if (com) body += ' comments "' + com + '"';
+    if (data.tp_ips) body += ' ips-settings.newly-updated-protections ' + _cpQ(data.tp_newprot || '') + '';
+    if (data.tp_comment) body += ' comments ' + _cpQ(data.tp_comment);
     body += ' -s id.txt\n';
     body += '# NOT: profil, Threat Prevention politikasındaki bir kuralın Action sütununda seçilmeli ve politika install edilmeli.\n';
-    return cgCpSession('Threat Prevention Profile', body, '# mgmt_cli show threat-profile name "' + n + '"\n');
+    const w = [];
+    if (data.tp_perf === 'high') w.push('⚠ Performans etkisi high: tüm korumalar etkinleşir ve gateway CPU\'su ciddi yüklenir. Değişiklikten sonra cpview ile yükü izleyin (cp-06).');
+    if (data.tp_cl_low === 'Prevent') w.push('⚠ Düşük güvenli korumalar Prevent: yanlış pozitifler meşru trafiği keser. Önce Detect ile loglardan etkisini ölçün.');
+    return { config: cgCpSession('Threat Prevention Profile', body, '# mgmt_cli show threat-profile name ' + n + '\n'), warnings: w };
 }
 
 // ── Check Point: Gaia System (DNS / NTP / Timezone / Banner / Session) ───────
@@ -1453,6 +1682,14 @@ CheckPoint.gaiasys = {
 function cgCpGaiaSysGen(data) {
     const v = k => cgEsc(data[k] || '');
     const ver = data.gs_ntpver === '4' ? '4' : '3';
+    const w = [];
+    if (!v('gs_dns2')) w.push('ℹ Tek DNS sunucusu: o sunucu düşerse lisans, imza güncellemesi ve URL/bulut sorguları durur. İkincil DNS ekleyin.');
+    if (v('gs_dns2') && v('gs_dns1') === v('gs_dns2')) w.push('⚠ Birincil ve ikincil DNS aynı: yedeklilik sağlamaz.');
+    if (!v('gs_ntp2')) w.push('ℹ Tek NTP sunucusu: o sunucuya erişim kesilirse saat kaymaya başlar; SIC, VPN sertifika doğrulaması ve log sıralaması bozulur. İkincil NTP ekleyin.');
+    if (v('gs_ntp2') && v('gs_ntp1') === v('gs_ntp2')) w.push('⚠ Birincil ve ikincil NTP aynı: yedeklilik sağlamaz.');
+    const to = String(data.gs_timeout || '').trim();
+    if (to && !(/^\d+$/.test(to) && +to >= 1 && +to <= 720)) w.push('⛔ Inactivity timeout 1-720 dakika arası bir sayı olmalı.');
+    w.push('ℹ Gateway\'in kendi DNS (53) ve NTP (123/udp) trafiği de politikadan geçer; düşüyorsa expert\'te fw ctl zdebug drop ile görün. Senkronu show ntp current ile doğrulayın (cp-02).');
     let c = '# ========================================\n# Check Point Gaia — DNS / NTP / Banner (clish)\n# ========================================\n\n';
     c += 'set dns primary ' + v('gs_dns1') + '\n';
     if (v('gs_dns2')) c += 'set dns secondary ' + v('gs_dns2') + '\n';
@@ -1466,11 +1703,11 @@ function cgCpGaiaSysGen(data) {
     if (tz.length === 2) c += 'set timezone ' + cgEsc(tz[0]) + ' / ' + cgEsc(tz[1]) + '\n';
     else if (tz.length) c += '# UYARI: saat dilimi "Area/Region" biçiminde olmalı — yazılmadı.\n';
     if (v('gs_banner') || v('gs_timeout')) c += '\n';
-    if (v('gs_banner')) c += 'set message banner on msgvalue "' + v('gs_banner') + '"\n';
+    if (v('gs_banner')) c += 'set message banner on msgvalue ' + _cpClishQ(data.gs_banner, 'Banner', w) + '\n';
     if (v('gs_timeout')) c += 'set inactivity-timeout ' + v('gs_timeout') + '\n';
     c += 'save config\n\n';
-    c += '# Doğrulama:\n# show dns primary\n# show ntp servers\n# show ntp current\n# show timezone\n# show message banner\n# show inactivity-timeout\n';
-    return c;
+    c += '# Doğrulama:\n# show dns primary\n# show ntp servers\n# show ntp current\n# show timezone\n# show message banner\n# show inactivity-timeout\n# show config-state\n';
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: Gaia Remote Syslog ──────────────────────────────────────────
@@ -1524,8 +1761,12 @@ function cgCpGaiaSyslogGen(data) {
     c += 'add syslog log-remote-address ' + ip + ' level ' + lvl + (port ? ' port ' + port : '') + ' protocol ' + proto + '\n';
     if (data.gl_cplogs) c += 'set syslog cplogs on\n';
     c += 'save config\n\n';
-    c += '# Doğrulama:\n# show syslog log-remote-addresses\n# show syslog all\n';
-    return c;
+    c += '# Doğrulama:\n# show syslog log-remote-addresses\n# show syslog all\n# show config-state\n';
+    const w = [];
+    if (proto === 'udp') w.push('ℹ UDP ile gönderilen log, ağ tıkanıklığında sessizce kaybolur; denetim kaydı gerekiyorsa TCP seçin.');
+    if (['err', 'crit', 'alert', 'emerg'].includes(data.gl_level)) w.push('⚠ Seviye ' + data.gl_level + ': giriş/çıkış ve yapılandırma değişikliği kayıtları (info/notice) gönderilmez; denetim için info seçin.');
+    if (data.gl_level === 'debug' || data.gl_level === 'all') w.push('⚠ Seviye ' + data.gl_level + ': çok yüksek log hacmi üretir; sorun giderme sonrası info\'ya geri alın.');
+    return { config: c, warnings: w };
 }
 
 // ── Check Point: Gaia Local User + RBA Role + Password Policy ────────────────
@@ -1579,14 +1820,20 @@ CheckPoint.gaiauser = {
     }
 };
 function cgCpGaiaUserGen(data) {
-    const u = cgEsc(data.gu_name || ''), uid = cgEsc(data.gu_uid || ''), rn = cgEsc(data.gu_realname || '');
+    const u = cgEsc(data.gu_name || ''), uid = cgEsc(data.gu_uid || '');
+    const w = [];
+    if (data.gu_name && !/^[A-Za-z0-9_-]{1,32}$/.test(String(data.gu_name))) w.push('⛔ Kullanıcı adı 1-32 karakter olmalı ve yalnız harf, rakam, - ve _ içermeli.');
+    if (/^(admin|monitor)$/.test(String(data.gu_name || ''))) w.push('⚠ ' + data.gu_name + ' Gaia\'nın varsayılan hesabıdır; add user hata verir. Kişiye özel bir ad kullanın.');
+    const ui = String(data.gu_uid || '').trim();
+    if (ui && ui !== '0' && !(/^\d+$/.test(ui) && +ui >= 103 && +ui <= 65533)) w.push('⛔ UID 0 (yönetici) ya da 103-65533 arası olmalı.');
+    if (data.gu_role === 'adminRole') w.push('ℹ adminRole tüm Gaia ayarlarını değiştirebilir; en az yetki ilkesine göre izleme hesaplarını monitorRole ile açın.');
     const role = data.gu_role === 'adminRole' ? 'adminRole' : 'monitorRole';
     const acc = ['Web-UI,CLI', 'CLI', 'Web-UI'].includes(data.gu_access) ? data.gu_access : 'Web-UI,CLI';
     const shell = data.gu_shell === '/bin/bash' ? '/bin/bash' : '/etc/cli.sh';
     let c = '# ========================================\n# Check Point Gaia — Local User + RBA (clish)\n# ========================================\n\n';
     if (uid === '0' && role === 'monitorRole') c += '# UYARI: UID 0 yönetici kimliğidir — salt-okur (monitorRole) hesap için 103-65533 arası verin.\n';
     c += 'add user ' + u + (uid ? ' uid ' + uid : '') + ' homedir /home/' + u + '\n';
-    if (rn) c += 'set user ' + u + ' realname "' + rn + '"\n';
+    if (data.gu_realname) c += 'set user ' + u + ' realname ' + _cpClishQ(data.gu_realname, 'Gerçek ad', w) + '\n';
     c += 'add rba user ' + u + ' roles ' + role + '\n';
     c += 'add rba user ' + u + ' access-mechanisms ' + acc + '\n';
     c += 'set user ' + u + ' shell ' + shell + '\n';
@@ -1600,6 +1847,6 @@ function cgCpGaiaUserGen(data) {
         c += 'set password-controls history-length 10\n\n';
     }
     c += 'save config\n\n';
-    c += '# Doğrulama:\n# show user ' + u + '\n# show rba user ' + u + '\n# show password-controls all\n';
-    return c;
+    c += '# Doğrulama:\n# show user ' + u + '\n# show rba user ' + u + '\n# show password-controls all\n# show config-state\n';
+    return { config: c, warnings: w };
 }

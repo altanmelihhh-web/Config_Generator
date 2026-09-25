@@ -61,7 +61,7 @@
         ],
         verify: ['show allowed-client all', 'show inactivity-timeout', 'show password-controls all', 'show rba user netops', 'show config-state'],
         learn: ['Önce kendi yönetim ağını ekle, sonra any-host\'u sil.', 'allowed-client yalnız SSH/WebUI\'ı sınırlar; politika ayrı.', 'inactivity-timeout dakika cinsinden.', 'Kullanıcı = add user + set user password + add rba user roles.', 'monitorRole yalnız okuma.'],
-        links: { tool: '#/checkpoint/system', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/aaa' }, cert: 'CCSA R81.20'
+        links: { tool: '#/checkpoint/system', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/108' }, cert: 'CCSA R81.20'
     },
     // ═══ VLAN alt arayüzleri ═══
     {
@@ -102,7 +102,7 @@
         ],
         verify: ['show interfaces', 'show interface eth4.20', 'show route', 'show config-state'],
         learn: ['add interface &lt;fiziksel&gt; vlan &lt;id&gt; → &lt;fiziksel&gt;.&lt;id&gt;.', 'IP alt arayüze verilir; fiziksel arayüz açık olmalı.', 'Gaia değişikliği SmartConsole topolojisine kendiliğinden geçmez.', 'delete interface … vlan … ile silinir.'],
-        links: { tool: '#/checkpoint/interface', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/iface' }, cert: 'CCSA R81.20'
+        links: { tool: '#/checkpoint/interface', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/111' }, cert: 'CCSA R81.20'
     },
     // ═══ Log ve saat ═══
     {
@@ -137,7 +137,7 @@
         ],
         verify: ['show timezone', 'show syslog log-remote-addresses', 'show ntp servers', 'show config-state'],
         learn: ['set timezone Bölge / Şehir (boşluklu).', 'Gaia syslog = işletim sistemi logları.', 'Trafik logu → Log Server → Log Exporter → SIEM.', 'Kapatılan hedefleri listeden silin.'],
-        links: { tool: '#/checkpoint/system', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/ops' }, cert: 'CCSA R81.20'
+        links: { tool: '#/checkpoint/system', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/109' }, cert: 'CCSA R81.20'
     },
     // ═══ Yedekleme ve geri dönüş ═══
     {
@@ -169,7 +169,7 @@
         ],
         verify: ['show backups', 'show snapshots', 'show configuration'],
         learn: ['save configuration = clish ayarlarını dosyaya aktar.', 'add backup local = yapılandırma yedeği.', 'add snapshot = işletim sistemi dahil tam görüntü.', 'Politika yedeği yönetim sunucusundadır.'],
-        links: { tool: '#/checkpoint/system', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/ops' }, cert: 'CCSA R81.20'
+        links: { tool: '#/checkpoint/system', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/112' }, cert: 'CCSA R81.20'
     },
     // ═══ Arıza: bakım sonrası şubelere erişim yok ═══
     {
@@ -211,7 +211,7 @@
         ],
         verify: ['show route', 'show route inactive', 'show interface eth2', 'ping 10.128.5.10', 'show config-state'],
         learn: ['Nexthop bağlı ağda değilse rota etkin olmaz.', 'show route inactive tanımlı ama kullanılamayan rotaları gösterir.', 'Önce arayüz, sonra rota.', 'Düzeltmeden sonra save config.'],
-        links: { tool: '#/checkpoint/route', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/routing' }, cert: 'CCSA R81.20 · Troubleshooting'
+        links: { tool: '#/checkpoint/route', cli: '#/cli/checkpoint', wizard: '#/troubleshoot/checkpoint/110' }, cert: 'CCSA R81.20 · Troubleshooting'
     },
     ];
     // Çoktan seçmeli (ask) görevler ve adımlardan türetilen örnek çözüm (checkpoint.js ile aynı kural)
