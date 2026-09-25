@@ -1052,7 +1052,7 @@ const CgLabTmsh = (function () {
         // ═══ LTM simülasyonu: sunucular, monitörler, durum, trafik ═══════════
         // lab.sim.servers: [{ ip, name, gw, ports: { 80: { paths: { '/': 200, '/health': 200, '/old': { code: 301, loc: '/new' } }, body }, 8080: … } }]
         const srvOf = ip => (SIM.servers || []).find(x => x.ip === ip) || null;
-        const REASON = { 200: 'OK', 201: 'Created', 204: 'No Content', 301: 'Moved Permanently', 302: 'Found', 304: 'Not Modified', 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed', 500: 'Internal Server Error', 501: 'Not Implemented', 502: 'Bad Gateway', 503: 'Service Unavailable', 504: 'Gateway Timeout' };
+        const REASON = { 200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No Content', 206: 'Partial Content', 301: 'Moved Permanently', 302: 'Found', 303: 'See Other', 304: 'Not Modified', 307: 'Temporary Redirect', 308: 'Permanent Redirect', 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed', 406: 'Not Acceptable', 408: 'Request Timeout', 409: 'Conflict', 410: 'Gone', 411: 'Length Required', 413: 'Payload Too Large', 414: 'URI Too Long', 415: 'Unsupported Media Type', 422: 'Unprocessable Entity', 429: 'Too Many Requests', 451: 'Unavailable For Legal Reasons', 500: 'Internal Server Error', 501: 'Not Implemented', 502: 'Bad Gateway', 503: 'Service Unavailable', 504: 'Gateway Timeout' };
         // sunucunun bir isteğe yanıtı (yol + metot)
         function serverResp(srv, port, path, method, hdrs) {
             const P = srv.ports && srv.ports[port]; if (!P) return null;
@@ -1583,7 +1583,7 @@ const CgLabTmsh = (function () {
                 const url0 = base.find(x => /^https?:\/\//.test(x)); let url = url0, out = [], n = 0;
                 for (;;) {
                     const r = curl(base.map(x => (x === url0 ? url : x)), 1);
-                    if (r.err) return r;
+                    if (r.err) { if (n === 0) return r; out.push(String(r.msg).split('\n')[0]); break; }   // izlenen adres çözülemedi: curl (6) yazar ve durur
                     const txt = r.out; out.push(txt);
                     const ev = S.ev.slice().reverse().find(e => e.curl); const c = ev && ev.curl;
                     if (!c || !c.loc || !/^30[1237]$/.test(String(c.code))) break;
