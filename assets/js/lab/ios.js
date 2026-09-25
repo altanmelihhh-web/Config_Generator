@@ -81,7 +81,7 @@ const CgLabIos = (() => {
     function newIf(sw, name) {
         return { desc: '', shutdown: !sw && isPhys(name), mode: null, accessVlan: 1, voiceVlan: null, native: 1, allowed: null,
             nonegotiate: false, ip: null, mask: null, portfast: false, bpduguard: false, speed: 'auto', duplex: 'auto', errdis: false, errReason: null, accessIn: null, accessOut: null, nat: null,
-            helpers: [], ps: null, stpCost: null, ospf: { hello: null, dead: null, cost: null, pri: 1, net: null, pid: null, area: null }, mtu: 1500 };
+            helpers: [], ps: null, stpCost: null, chan: null, ospf: { hello: null, dead: null, cost: null, pri: 1, net: null, pid: null, area: null }, mtu: 1500 };
     }
     function baseModel(lab) {
         const sw = lab.kind !== 'router';
@@ -146,6 +146,7 @@ const CgLabIos = (() => {
         ];
         const SHOW_PRIV = [
             { p: 'show running-config', run: () => runText(true) },
+            { p: 'show running-config interface IFNAME$i', run: (a) => runIf(a.i) },
             { p: 'show startup-config', run: () => S.startup ? 'Using ' + startText().length + ' out of 65536 bytes\n' + startText() : 'startup-config is not present' },
             { p: 'show ip route', run: () => showIpRoute() },
             { p: 'show ip route static', run: () => showIpRoute('static') },
@@ -164,6 +165,7 @@ const CgLabIos = (() => {
             { p: 'show spanning-tree', sw: 1, run: () => stpVlans().map(showStp).join('\n') },
             { p: 'show spanning-tree vlan (1-4094)$v', sw: 1, run: (a) => M().vlans[a.v] ? showStp(a.v) : 'Spanning tree instance(s) for vlan ' + a.v + ' does not exist.' },
             { p: 'show spanning-tree root', sw: 1, run: () => showStpRoot() },
+            { p: 'show etherchannel summary', sw: 1, run: () => showEcSummary() },
             { p: 'show interfaces IFNAME$if switchport', sw: 1, run: (a) => showIfSwitchport(a.if) },
             { p: 'show ip ssh', run: showIpSsh },
             { p: 'show aaa servers', run: showAaaServers },
@@ -292,14 +294,16 @@ const CgLabIos = (() => {
         const IFC = [
             { p: 'description !LINE$d', run: (a) => secsIf().forEach(i => { i.desc = a.d.slice(0, 240); }), no: () => secsIf().forEach(i => { i.desc = ''; }) },
             { p: 'shutdown', run: () => secsIf().forEach(i => { i.shutdown = true; }), no: () => secsIf().forEach(i => { i.shutdown = false; i.errdis = false; i.errReason = null; }) },
-            { p: 'switchport mode !<access|trunk>$m', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { i.mode = a.m; }), no: () => secsIf().forEach(i => { i.mode = null; }) },
-            { p: 'switchport access vlan !(1-4094)$v', sw: 1, phys: 1, run: accessVlan, no: () => secsIf().forEach(i => { i.accessVlan = 1; }) },
+            { p: 'switchport mode !<access|trunk>$m', sw: 1, l2: 1, run: (a) => secsIf().forEach(i => { i.mode = a.m; }), no: () => secsIf().forEach(i => { i.mode = null; }) },
+            { p: 'switchport access vlan !(1-4094)$v', sw: 1, l2: 1, run: accessVlan, no: () => secsIf().forEach(i => { i.accessVlan = 1; }) },
             { p: 'switchport voice vlan !(1-4094)$v', sw: 1, phys: 1, run: voiceVlan, no: () => secsIf().forEach(i => { i.voiceVlan = null; }) },
-            { p: 'switchport trunk native vlan !(1-4094)$v', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { i.native = a.v; }), no: () => secsIf().forEach(i => { i.native = 1; }) },
-            { p: 'switchport trunk allowed vlan all', sw: 1, phys: 1, run: () => secsIf().forEach(i => { i.allowed = null; }), neg: false },
-            { p: 'switchport trunk allowed vlan add VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { if (i.allowed) i.allowed = [...new Set(i.allowed.concat(vlanList(a.l)))].sort((x, y) => x - y); }), neg: false },
-            { p: 'switchport trunk allowed vlan remove VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { const all = i.allowed || range('', 1, 4094).map(Number); const rm = vlanList(a.l); i.allowed = all.filter(v => !rm.includes(v)); }), neg: false },
-            { p: 'switchport trunk allowed vlan !VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { i.allowed = vlanList(a.l); }), no: () => secsIf().forEach(i => { i.allowed = null; }) },
+            { p: 'switchport trunk native vlan !(1-4094)$v', sw: 1, l2: 1, run: (a) => secsIf().forEach(i => { i.native = a.v; }), no: () => secsIf().forEach(i => { i.native = 1; }) },
+            { p: 'switchport trunk allowed vlan all', sw: 1, l2: 1, run: () => secsIf().forEach(i => { i.allowed = null; }), neg: false },
+            { p: 'switchport trunk allowed vlan add VLIST$l', sw: 1, l2: 1, run: (a) => secsIf().forEach(i => { if (i.allowed) i.allowed = [...new Set(i.allowed.concat(vlanList(a.l)))].sort((x, y) => x - y); }), neg: false },
+            { p: 'switchport trunk allowed vlan remove VLIST$l', sw: 1, l2: 1, run: (a) => secsIf().forEach(i => { const all = i.allowed || range('', 1, 4094).map(Number); const rm = vlanList(a.l); i.allowed = all.filter(v => !rm.includes(v)); }), neg: false },
+            { p: 'switchport trunk allowed vlan !VLIST$l', sw: 1, l2: 1, run: (a) => secsIf().forEach(i => { i.allowed = vlanList(a.l); }), no: () => secsIf().forEach(i => { i.allowed = null; }) },
+            { p: 'channel-group (1-48)$g mode !<active|passive|on|desirable|auto>$m', sw: 1, phys: 1, run: (a) => chanJoin(a.g, a.m), no: () => secsIf().forEach(i => { i.chan = null; }) },
+            { p: 'channel-group', noOnly: 1, sw: 1, phys: 1, no: () => secsIf().forEach(i => { i.chan = null; }) },
             { p: 'spanning-tree cost !(1-200000000)$v', sw: 1, run: (a) => secsIf().forEach(i => { i.stpCost = a.v; }), no: () => secsIf().forEach(i => { i.stpCost = null; }) },
             { p: 'ip ospf hello-interval !(1-65535)$v', run: (a) => secsIf().forEach(i => { i.ospf.hello = a.v; }), no: () => secsIf().forEach(i => { i.ospf.hello = null; }) },
             { p: 'ip ospf dead-interval !(1-65535)$v', run: (a) => secsIf().forEach(i => { i.ospf.dead = a.v; }), no: () => secsIf().forEach(i => { i.ospf.dead = null; }) },
@@ -314,7 +318,7 @@ const CgLabIos = (() => {
             { p: 'switchport port-security violation !<protect|restrict|shutdown>$v', sw: 1, phys: 1, run: (a) => psecSet(i => { i.ps.violation = a.v; }), no: () => psecSet(i => { i.ps.violation = 'shutdown'; }) },
             { p: 'switchport port-security mac-address sticky', sw: 1, phys: 1, run: () => psecSet(i => { i.ps.sticky = true; }), no: () => psecSet(i => { i.ps.sticky = false; i.ps.stickyMacs = []; }) },
             { p: 'switchport port-security mac-address WORD$m', sw: 1, phys: 1, run: (a) => { if (!/^[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}$/i.test(a.m)) return { err: 'invalid', col: 38 }; return psecSet(i => { if (!i.ps.macs.includes(a.m.toLowerCase())) i.ps.macs.push(a.m.toLowerCase()); }); }, no: (a) => psecSet(i => { i.ps.macs = i.ps.macs.filter(x => x !== a.m.toLowerCase()); }) },
-            { p: 'switchport nonegotiate', sw: 1, phys: 1, run: nonegotiate, no: () => secsIf().forEach(i => { i.nonegotiate = false; }) },
+            { p: 'switchport nonegotiate', sw: 1, l2: 1, run: nonegotiate, no: () => secsIf().forEach(i => { i.nonegotiate = false; }) },
             { p: 'ip address !A.B.C.D$ip !MASK$mask', run: ipAddr, no: () => secsIf().forEach(i => { i.ip = null; i.mask = null; }) },
             { p: 'ip access-group WORD$acl !<in|out>$d', run: (a) => secsIf().forEach(i => { if (a.d === 'in') i.accessIn = a.acl; else i.accessOut = a.acl; }), no: (a) => secsIf().forEach(i => { if (!a.d || a.d === 'in') { if (!a.acl || i.accessIn === a.acl) i.accessIn = null; } if (!a.d || a.d === 'out') { if (!a.acl || i.accessOut === a.acl) i.accessOut = null; } }) },
             { p: 'ip nat !<inside|outside>$n', run: (a) => { if (M().sw && S.ctx.some(isPhys)) return { err: 'invalid', col: 0 }; secsIf().forEach(i => { i.nat = a.n; }); }, no: () => secsIf().forEach(i => { i.nat = null; }) },
@@ -418,6 +422,7 @@ const CgLabIos = (() => {
                 if (c.vty && S.ctx[0] === 'con') return false;
                 if (c.aaa && !M().aaaNew) return false;   // IOS: aaa new-model olmadan bu komutlar yoktur
                 if (c.phys && (S.mode === 'if' || S.mode === 'range') && S.ctx.some(n => !isPhys(n))) return false;
+                if (c.l2 && (S.mode === 'if' || S.mode === 'range') && S.ctx.some(n => !isPhys(n) && !n.startsWith('Port-channel'))) return false;
                 return true;
             });
         }
@@ -619,6 +624,7 @@ const CgLabIos = (() => {
             if (!i || i.shutdown || i.errdis) return false;
             if (isPhys(n)) return !!M().links[n];
             if (n.startsWith('Loopback')) return true;
+            if (n.startsWith('Port-channel')) { const c = chanState()[+n.slice(12)]; return !!c && c.up; }
             if (n.startsWith('Vlan')) { const v = +n.slice(4); return !!M().vlans[v] && Object.entries(M().ifs).some(([k, j]) => isPhys(k) && ifUp(k) && (j.mode === 'trunk' ? true : j.accessVlan === v)); }
             return false;
         };
@@ -692,6 +698,16 @@ const CgLabIos = (() => {
         function startText() { const cur = S.m; S.m = S.startup; const t = runBody(); S.m = cur; return t; }
 
         // ═══ show çıktıları ══════════════════════════════════════════════════
+        // Tek arayüzün bloğu (IOS biçimi: başlık + blok + end)
+        function runIf(n) {
+            if (!M().ifs[n]) return '                               ^\n% Invalid input detected at \'^\' marker.';
+            const lines = runBody().split('\n'), i = lines.indexOf('interface ' + n);
+            if (i < 0) return '';
+            let j = i + 1; while (j < lines.length && lines[j].startsWith(' ')) j++;
+            const b = lines.slice(i, j).join('\n') + '\nend';
+            log({ runif: n });
+            return 'Building configuration...\n\nCurrent configuration : ' + (b.length + 1) + ' bytes\n!\n' + b;
+        }
         function runBody() {
             const m = M(), L = ['!', 'version 15.2', 'no service pad', 'service timestamps debug datetime msec', 'service timestamps log datetime msec',
                 m.servicePwEnc ? 'service password-encryption' : 'no service password-encryption', '!', 'hostname ' + m.hostname, '!', 'boot-start-marker', 'boot-end-marker', '!'];
@@ -727,7 +743,7 @@ const CgLabIos = (() => {
                 const i = m.ifs[n];
                 L.push('interface ' + n);
                 if (i.desc) L.push(' description ' + i.desc);
-                if (m.sw && isPhys(n)) {
+                if (m.sw && (isPhys(n) || n.startsWith('Port-channel'))) {   // L2 port-channel de switchport'tur
                     if (i.accessVlan !== 1) L.push(' switchport access vlan ' + i.accessVlan);
                     if (i.native !== 1) L.push(' switchport trunk native vlan ' + i.native);
                     if (i.allowed) L.push(' switchport trunk allowed vlan ' + (i.allowed.length ? vlanCompress(i.allowed) : 'none'));
@@ -743,6 +759,7 @@ const CgLabIos = (() => {
                 i.helpers.forEach(h => L.push(' ip helper-address ' + h));
                 if (i.mtu !== 1500) L.push(' ip mtu ' + i.mtu);
                 if (i.stpCost) L.push(' spanning-tree cost ' + i.stpCost);
+                if (i.chan) L.push(' channel-group ' + i.chan.g + ' mode ' + i.chan.m);
                 if (i.ospf.pid) L.push(' ip ospf ' + i.ospf.pid + ' area ' + i.ospf.area);
                 if (i.ospf.net) L.push(' ip ospf network ' + i.ospf.net);
                 if (i.ospf.hello) L.push(' ip ospf hello-interval ' + i.ospf.hello);
@@ -866,9 +883,11 @@ const CgLabIos = (() => {
                 const spd = i.speed === 'auto' ? (up ? 'a-' + nego(n).spd : 'auto') : i.speed;
                 L.push(pad(ifShort(n), 10) + pad(i.desc.slice(0, 18), 19) + pad(st, 13) + pad(i.mode === 'trunk' ? 'trunk' : i.accessVlan, 11) + padL(dup, 6) + padL(spd, 7) + ' 10/100/1000BaseTX');
             }
+            Object.keys(M().ifs).filter(n => n.startsWith('Port-channel')).sort(ifCmp).forEach(n => { const i = M().ifs[n], up = ifUp(n);
+                L.push(pad(ifShort(n), 10) + pad(i.desc.slice(0, 18), 19) + pad(i.errdis ? 'err-disabled' : i.shutdown ? 'disabled' : up ? 'connected' : 'notconnect', 13) + pad(i.mode === 'trunk' ? 'trunk' : i.accessVlan, 11) + padL(up ? 'a-full' : 'auto', 6) + padL(up ? 'a-1000' : 'auto', 7)); });
             return L.join('\n');
         }
-        function trunkPorts() { return Object.keys(M().ifs).filter(n => isPhys(n) && M().ifs[n].mode === 'trunk' && ifUp(n)).sort(ifCmp); }
+        function trunkPorts() { const cs = chanState(); return Object.keys(M().ifs).filter(n => (isPhys(n) || n.startsWith('Port-channel')) && M().ifs[n].mode === 'trunk' && ifUp(n) && !(M().ifs[n].chan && cs[M().ifs[n].chan.g] && cs[M().ifs[n].chan.g].st[n] === 'P')).sort(ifCmp); }
         function showIntTrunk() {
             const t = trunkPorts();
             if (!t.length) return '';
@@ -1325,6 +1344,86 @@ const CgLabIos = (() => {
         // RIB: connected + local + static (next-hop bağlı ağda ve arayüz up ise)
         // RIB: connected + local + static. Aynı önekte en düşük AD kazanır (eşitse ECMP);
         // next-hop bağlı bir ağda ve arayüz up değilse rota kurulmaz (yüzen rota böyle devreye girer).
+        // ═══ EtherChannel (lab.sim.lacp: { PORT: { mode } } karşı uç) ═════════
+        const PROTO = m => m === 'on' ? 'on' : (m === 'active' || m === 'passive') ? 'lacp' : 'pagp';
+        function chanJoin(g, m) {
+            const po = 'Port-channel' + g, ex = Object.entries(M().ifs).find(([n, i]) => i.chan && i.chan.g === g && !S.ctx.includes(n));
+            if (ex && PROTO(ex[1].chan.m) !== PROTO(m))
+                return 'Command rejected (Channel protocol mismatch for interface ' + S.ctx[0] + ' in group ' + g + '): the interface can not be added to the channel group';
+            let out = '';
+            if (!M().ifs[po]) {
+                const i0 = M().ifs[S.ctx[0]], n0 = newIf(M().sw, po);
+                ['mode', 'accessVlan', 'native', 'allowed', 'nonegotiate'].forEach(k => { n0[k] = Array.isArray(i0[k]) ? i0[k].slice() : i0[k]; });
+                M().ifs[po] = n0; out = 'Creating a port-channel interface Port-channel ' + g;
+            }
+            secsIf().forEach(i => { i.chan = { g, m }; });
+            return out;
+        }
+        // Port-channel'a yapılan L2 ayarı üyelere yayılır
+        function chanSync() {
+            if (!(S.mode === 'if' || S.mode === 'range')) return;
+            S.ctx.filter(n => n.startsWith('Port-channel')).forEach(po => {
+                const g = +po.slice(12), P = M().ifs[po]; if (!P) return;
+                Object.values(M().ifs).filter(i => i.chan && i.chan.g === g).forEach(i => ['mode', 'accessVlan', 'native', 'allowed', 'nonegotiate'].forEach(k => { i[k] = Array.isArray(P[k]) ? P[k].slice() : P[k]; }));
+            });
+        }
+        const physUp = n => { const i = M().ifs[n]; return !!i && !i.shutdown && !i.errdis && !!M().links[n]; };
+        const sameArr = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
+        // Üye durumu: P bundled, s suspended, I stand-alone, D down. Ayrıca port-channel'ın err-disable nedeni.
+        function chanState() {
+            const res = {}, peers = (S.lab.sim && S.lab.sim.lacp) || {};
+            const groups = [...new Set(Object.values(M().ifs).filter(i => i.chan).map(i => i.chan.g))];
+            groups.forEach(g => {
+                const po = 'Port-channel' + g, P = M().ifs[po], mem = Object.keys(M().ifs).filter(n => M().ifs[n].chan && M().ifs[n].chan.g === g).sort(ifCmp);
+                const st = {}, why = {};
+                let misconf = false;
+                mem.forEach(n => {
+                    const i = M().ifs[n], my = i.chan.m, pe = peers[n];
+                    if (!physUp(n) || (P && (P.shutdown || P.errdis))) { st[n] = 'D'; return; }
+                    if (!pe) { st[n] = my === 'on' ? 'P' : 'I'; return; }
+                    const a = PROTO(my), b = PROTO(pe.mode);
+                    if (a === 'on' && b !== 'on') { misconf = true; st[n] = 'D'; return; }
+                    if (a !== b || (a === 'lacp' && my === 'passive' && pe.mode === 'passive') || (a === 'pagp' && my === 'auto' && pe.mode === 'auto')) { st[n] = 'I'; return; }
+                    st[n] = 'ok';
+                });
+                const cand = mem.filter(n => st[n] === 'ok'), ref = cand[0];
+                cand.forEach(n => {
+                    const i = M().ifs[n], r = M().ifs[ref], gSp = x => nego(x).spd, gDu = x => nego(x).dup;
+                    let w = null;
+                    if (n !== ref && gSp(n) !== gSp(ref)) w = 'speed of ' + ifShort(n) + ' is ' + gSp(n) + 'M, ' + ifShort(ref) + ' is ' + gSp(ref) + 'M';
+                    else if (n !== ref && gDu(n) !== gDu(ref)) w = 'duplex of ' + ifShort(n) + ' is ' + gDu(n) + ', ' + ifShort(ref) + ' is ' + gDu(ref);
+                    else if (P && P.mode === 'trunk' && i.mode === 'trunk' && !sameArr(i.allowed, P.allowed)) w = 'vlan mask is different';
+                    else if (P && (i.mode !== P.mode || (i.mode !== 'trunk' && i.accessVlan !== P.accessVlan) || (i.mode === 'trunk' && i.native !== P.native))) w = 'sim';
+                    if (w) { st[n] = 's'; why[n] = w; } else st[n] = 'P';
+                });
+                res[g] = { po, mem, st, why, ref, misconf, up: mem.some(n => st[n] === 'P') && !misconf };
+            });
+            return res;
+        }
+        function chanEvents() {
+            const now = chanState(), prev = S.chanPrev || {}, out = [], ts = () => '*' + new Date().toTimeString().slice(0, 8) + '.207: ';
+            Object.values(now).forEach(c => {
+                const pv = prev[c.po.slice(12)] || { st: {}, up: false };
+                c.mem.forEach(n => { if (c.st[n] === 's' && (pv.st[n] !== 's' || (pv.why || {})[n] !== c.why[n])) out.push(c.why[n] === 'sim'
+                    ? '% [Simülatör] ' + ifShort(n) + ' askıya alındı (s): switchport ayarı (mod / access VLAN / native VLAN) ' + c.po + ' ile aynı değil.'
+                    : ts() + '%EC-5-CANNOT_BUNDLE2: ' + ifShort(n) + ' is not compatible with ' + ifShort(c.ref) + ' and will be suspended (' + c.why[n] + ')'); });
+                if (c.misconf && !pv.misconf) out.push('% [Simülatör] ' + c.po + ': bu uç "on", karşı uç LACP/PAgP konuşuyor. Catalyst\'te EtherChannel yanlış yapılandırma koruması (STP) bu durumda port-channel\'ı err-disable yapar (channel-misconfig).');
+                if (c.up !== pv.up) out.push(ts() + '%LINK-3-UPDOWN: Interface ' + c.po + ', changed state to ' + (c.up ? 'up' : 'down'), ts() + '%LINEPROTO-5-UPDOWN: Line protocol on Interface ' + c.po + ', changed state to ' + (c.up ? 'up' : 'down'));
+            });
+            S.chanPrev = now;
+            if (out.length) log({ event: 'etherchannel' });
+            return out.join('\n');
+        }
+        function showEcSummary() {
+            const cs = chanState(), L = ['Flags:  D - down        P - bundled in port-channel', '        I - stand-alone s - suspended', '        H - Hot-standby (LACP only)', '        R - Layer3      S - Layer2',
+                '        U - in use      f - failed to allocate aggregator', '', '        M - not in use, minimum links not met', '        u - unsuitable for bundling', '        w - waiting to be aggregated', '        d - default port', '', '        A - formed by Auto LAG', '', ''];
+            const gs = Object.keys(cs).map(Number).sort((a, b) => a - b);
+            L.push('Number of channel-groups in use: ' + gs.length, 'Number of aggregators:           ' + gs.length, '', 'Group  Port-channel  Protocol    Ports', '------+-------------+-----------+-----------------------------------------------');
+            gs.forEach(g => { const c = cs[g], pr = PROTO(M().ifs[c.mem[0]].chan.m);
+                L.push(pad(g, 7) + pad('Po' + g + '(S' + (c.up ? 'U' : 'D') + ')', 16) + pad(pr === 'on' ? '-' : pr.toUpperCase(), 10) + c.mem.map(n => pad(ifShort(n) + '(' + c.st[n] + ')', 12)).join('')); });
+            log({ ecshow: true });
+            return L.join('\n');
+        }
         // ═══ STP (lab.sim.stp: sanal komşu köprüler) ═══════════════════════════
         // sim.stp = { me: 'MAC', bridges: { AD: { pri, mac, pris?: { vlan: pri } } }, links: [['self:PORT', 'AD'], ['AD1', 'AD2'], …] }
         // 802.1D: kök = en düşük (öncelik+VLAN, MAC); kök port = en düşük yol maliyeti, eşitlikte komşu BID;
@@ -1650,9 +1749,9 @@ const CgLabIos = (() => {
         }
         // Gerçek cihazda var, bu lab sürümünde yok → dürüst mesaj (desteklenen kökler buraya yazılmaz; yazım hatası gerçek %Invalid verir)
         const UNSUP = ['snmp-server', 'ntp', 'logging host', 'logging trap', 'clock timezone', 'cdp', 'lldp', 'ip dhcp snooping', 'ip arp inspection',
-            'router eigrp', 'router bgp', 'router rip', 'standby', 'channel-group', 'crypto isakmp', 'crypto ipsec', 'crypto map', 'ipv6', 'vtp', 'monitor session',
+            'router eigrp', 'router bgp', 'router rip', 'standby', 'crypto isakmp', 'crypto ipsec', 'crypto map', 'ipv6', 'vtp', 'monitor session',
             'ip ospf authentication', 'ip ospf message-digest-key', 'area', 'encapsulation', 'show cdp', 'show lldp', 'show ip ospf database', 'show ip protocols',
-            'show etherchannel', 'show spanning-tree summary', 'show spanning-tree blockedports', 'show spanning-tree detail', 'show spanning-tree interface', 'show standby', 'spanning-tree port-priority', 'spanning-tree uplinkfast', 'spanning-tree backbonefast', 'spanning-tree loopguard', 'spanning-tree guard', 'show interfaces counters', 'show arp', 'show ip dhcp snooping', 'debug', 'traceroute',
+            'show etherchannel detail', 'show etherchannel port-channel', 'show lacp', 'show pagp', 'lacp', 'port-channel load-balance', 'channel-protocol', 'show spanning-tree summary', 'show spanning-tree blockedports', 'show spanning-tree detail', 'show spanning-tree interface', 'show standby', 'spanning-tree port-priority', 'spanning-tree uplinkfast', 'spanning-tree backbonefast', 'spanning-tree loopguard', 'spanning-tree guard', 'show interfaces counters', 'show arp', 'show ip dhcp snooping', 'debug', 'traceroute',
             'clear counters', 'clear arp-cache', 'clear logging', 'clear line', 'clear ip ospf', 'clear ip route', 'clear access-list', 'clear spanning-tree', 'clear port-security'];
         function unsupported(raw) {
             const t = C.tokenize(raw.replace(/^\s*(no|do)\s+/i, '')).map(x => x.t.toLowerCase());
@@ -1698,7 +1797,8 @@ const CgLabIos = (() => {
             log({ raw: line, canon: (isNo ? 'no ' : '') + r.canon, mode: S.mode, no: isNo, ctx: S.ctx.slice() });
             const out = isNo ? (r.cmd.no ? r.cmd.no(r.args) : undefined) : r.cmd.run(r.args);
             if (out && typeof out === 'object') { S.mode = prevMode; S.ctx = prevCtx; S.ev.pop(); return errText(Object.assign({}, out, { col: (out.col || 0) + off }), line, 0, S.mode); }
-            const evs = [bpduEvents(), psecEvents(), ospfEvents()].filter(Boolean).join('\n');
+            chanSync();
+            const evs = [bpduEvents(), psecEvents(), chanEvents(), ospfEvents()].filter(Boolean).join('\n');
             return [out || '', evs].filter(Boolean).join('\n');
         }
         function help(raw) {
@@ -1776,7 +1876,7 @@ const CgLabIos = (() => {
             mode: () => S.mode,
             run: (n) => ({ up: ifUp(n) }),
             rib, lookup, forward: f => forward(f, false), acl: n => M().acls[n] || null,
-            stp: v => stpCalc(v), stpPri: v => myPri(v),
+            stp: v => stpCalc(v), stpPri: v => myPri(v), chan: () => chanState(),
             ospfNbrs: () => ospfNbrs(), ospfIf: n => ospfIf(n), ospfPassive: n => { const o = ospfIf(n); return !!o && ospfPassive(n, o.pid); },
             dhcpLeases: () => dhcpLeases(), psec: n => psecEval(n), macRows: () => macRows(), flash: () => Object.keys(S.flash), archives: () => S.archives.map(a => a.name),
             aaaAuth: (list, u, p) => aaaAuth(M().authn[list] || [], u, p),
