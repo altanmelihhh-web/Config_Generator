@@ -760,7 +760,11 @@ F5LTM.vlanself = {
                     fields: [
                         { name: 'vlan_name', why: "VLAN adı self IP, route domain ve trunk atamalarında referans edilir; isim değişirse bağlı nesnelerin referansı kopar ve ağ katmanı sessizce bozulur.", label: 'VLAN Adı', type: 'text', required: true, placeholder: 'vlan-dmz', hint: 'VLAN için benzersiz bir isim.' },
                         { name: 'vlan_tag', why: "VLAN tag üst switch'teki tag ile birebir aynı olmalı; uyuşmazlıkta arayüz up görünür ama hiç paket geçmez ve sorun boşuna fiziksel katmanda aranır.", label: 'VLAN Tag', type: 'text', validate: 'vlan', required: true, placeholder: '200', hint: 'IEEE 802.1Q VLAN kimliği.' },
-                        { name: 'interfaces', why: "Tagged arayüzde tag belirtilmezse trafik untagged kabul edilir ve düşer. Aynı arayüz birden çok VLAN'da tagged kullanılabilir, ancak untagged yalnızca tek VLAN'da olabilir.", label: 'Interface\'ler (virgülle ayrılmış)', type: 'text', required: true, placeholder: '1.1,1.2', hint: 'VLAN\'a dahil edilecek fiziksel arayüzler.' }
+                        { name: 'interfaces', why: "Tagged arayüzde tag belirtilmezse trafik untagged kabul edilir ve düşer. Aynı arayüz birden çok VLAN'da tagged kullanılabilir, ancak untagged yalnızca tek VLAN'da olabilir.", label: 'Interface\'ler (virgülle ayrılmış)', type: 'text', required: true, placeholder: '1.1,1.2', hint: 'VLAN\'a dahil edilecek fiziksel arayüzler.' },
+                        { name: 'intf_mode', why: "Switch portu <b>trunk</b> ise <code>tagged</code>, <b>access</b> ise <code>untagged</code> seçin. Uyuşmazlıkta arayüz up görünür ama ARP çözülmez ve trafik geçmez (f5-05). Bir arayüz yalnız bir VLAN'da untagged olabilir.", label: 'Arayüz modu', type: 'select', options: [
+                            { value: 'tagged', label: 'tagged (switch portu trunk, 802.1Q)', selected: true },
+                            { value: 'untagged', label: 'untagged (switch portu access)' }
+                        ]},
                     ]
                 },
                 {
@@ -780,17 +784,25 @@ F5LTM.vlanself = {
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
             const { vlan_name, vlan_tag, interfaces: intfsRaw, self_ip, self_prefix, allow_service } = data;
+            const mode = data.intf_mode === 'untagged' ? 'untagged' : 'tagged';
             const intfs = intfsRaw.split(',').map(s => s.trim()).filter(Boolean);
             // Eskiden her oktetteki 1 bitlerini sayiyordu: '24' girilince /2 uretiyordu.
             const cidr = cgMaskLen(self_prefix);
+            const w = [];
+            if (mode === 'untagged' && intfs.length > 1) w.push('⚠ Birden çok arayüz untagged eklendi: aynı VLAN\'da birden çok untagged arayüz köprü gibi davranır ve döngü riski yaratır; iki arayüz tek bağlantı olacaksa trunk (LAG) kullanın.');
+            if (allow_service === 'all') w.push('⛔ allow-service all: bu self IP\'ye gelen her port açılır. Dışa bakan VLAN\'da none, iç/HA VLAN\'ında default kullanın (f5-03).');
+            else if (allow_service === 'default') w.push('ℹ allow-service default: SSH (22), HTTPS (443), SNMP, DNS ve HA portları (4353, 1026) açılır. İnternete bakan self IP\'de none olmalı; HA self IP\'sinde none HA\'yı bozar.');
+            w.push('ℹ Tag, switch\'teki VLAN numarasıyla aynı olmalı; tag verilmezse BIG-IP 4094\'ten geriye otomatik bir numara seçer. Değişiklikten sonra "tmsh save sys config" ile kaydedin; aksi halde yeniden başlatmada kaybolur (f5-01).');
+            const selfName = 'self_' + vlan_name;
             let c = '# ========================================\n# F5 BIG-IP LTM — VLAN + Self IP\n# ========================================\n\n';
-            c += 'tmsh create net vlan ' + vlan_name + ' tag ' + vlan_tag + ' interfaces replace-all-with {';
-            intfs.forEach(i => { c += ' ' + i + ' { }'; });
-            c += ' }\n\n';
-            c += 'tmsh create net self /Common/' + self_ip + '/' + cidr + ' vlan /Common/' + vlan_name + ' allow-service ' + allow_service + '\n\n';
+            c += 'tmsh create net vlan ' + vlan_name + ' interfaces add {';
+            intfs.forEach(i => { c += ' ' + i + ' { ' + mode + ' }'; });
+            c += ' } tag ' + vlan_tag + '\n\n';
+            c += 'tmsh create net self ' + selfName + ' address ' + self_ip + '/' + cidr + ' vlan ' + vlan_name + ' allow-service ' + allow_service + '\n\n';
+            c += 'tmsh save sys config\n\n';
             c += '# Not: Subnet mask ' + self_prefix + ' → /' + cidr + ' CIDR\'a dönüştürüldü\n\n';
-            c += '# Doğrulama:\n# tmsh list net vlan ' + vlan_name + '\n# tmsh list net self\n';
-            return c;
+            c += '# Doğrulama:\n# tmsh list net vlan ' + vlan_name + '\n# tmsh list net self ' + selfName + '\n# tmsh show net arp   (incomplete = L2 sorunu: mod/tag/switch portu)\n';
+            return { config: c, warnings: w };
         });
     }
 };
@@ -1276,14 +1288,18 @@ F5LTM.mgmtaccess = {
             if (!data.do_ssh && !data.do_gui) c += '# UYARI: SSH ve GUI seçilmedi — izinli ağ listesi hiçbir servise uygulanmadı.\n\n';
             if (data.do_ssh) c += 'tmsh modify sys sshd allow replace-all-with { ' + nets.join(' ') + ' }\n';
             if (sshTo) c += 'tmsh modify sys sshd inactivity-timeout ' + sshTo + '\n';
-            if (banner) c += 'tmsh modify sys sshd banner enabled banner-text "' + banner + '"\n';
+            if (banner) c += 'tmsh modify sys sshd banner enabled banner-text ' + cgQ(data.banner) + '\n';
             if (data.do_gui) c += 'tmsh modify sys httpd allow replace-all-with { ' + nets.join(' ') + ' }\n';
             if (guiTo) c += 'tmsh modify sys httpd auth-pam-idle-timeout ' + guiTo + '\n';
-            if (banner) c += 'tmsh modify sys global-settings gui-security-banner enabled gui-security-banner-text "' + banner + '"\n';
+            if (banner) c += 'tmsh modify sys global-settings gui-security-banner enabled gui-security-banner-text ' + cgQ(data.banner) + '\n';
             if (conTo) c += 'tmsh modify sys global-settings console-inactivity-timeout ' + conTo + '\n';
             c += '\ntmsh save sys config\n\n';
             c += '# Doğrulama:\n# tmsh list sys sshd allow inactivity-timeout\n# tmsh list sys httpd allow auth-pam-idle-timeout\n';
-            return c;
+            const w = [];
+            if (data.do_ssh && data.do_gui) w.push('⚠ Sıra: önce GUI (httpd) listesini değiştirip GUI\'ye hâlâ girebildiğinizi, sonra SSH listesini değiştirip yeni bir SSH oturumu açabildiğinizi doğrulayın. Kendi yönetim ağınız listede yoksa iki erişimi birden kaybedersiniz ve yalnız konsol kalır (f5-03).');
+            else if (data.do_ssh || data.do_gui) w.push('⚠ replace-all-with mevcut listeyi tamamen değiştirir: kendi yönetim istasyonunuzun adresi yeni listede olmalı; yalnız eklemek için "allow add { … }" kullanın.');
+            w.push('ℹ httpd/sshd allow listeleri yönetim IP\'si kadar self IP\'lere gelen yönetim bağlantılarını da süzer. Self IP\'lerde ayrıca port lockdown (allow-service) geçerlidir: dışa bakan self IP\'de none olmalı (f5-03).');
+            return { config: c, warnings: w };
         });
     }
 };
