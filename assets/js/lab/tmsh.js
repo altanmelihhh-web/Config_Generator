@@ -8,6 +8,7 @@
 // Hata metinleri: kodu bilinenler gerçek biçimde, diğerleri "[Simülatör]" etiketiyle.
 const CgLabTmsh = (function () {
     const C = (typeof CgLabCore !== 'undefined') ? CgLabCore : require('./core.js');
+    const IR = (typeof CgIRule !== 'undefined') ? CgIRule : require('./irule.js');
     const { pad, isIp, ip2n, n2ip, netOf } = C;
     const VER = { product: 'BIG-IP', version: '17.1.1.3', build: '0.0.5', edition: 'Point Release 3', date: 'Thu Mar  7 12:31:10 PST 2024' };
     const clone = o => JSON.parse(JSON.stringify(o));
@@ -92,7 +93,7 @@ const CgLabTmsh = (function () {
             return { hostname: lab.hostname || 'bigip-a.lab.example', guiSetup: 'enabled', mgmtIp: null, mgmtRoutes: {}, ifs, vlans: {}, selfs: {}, routes: {},
                 httpd: { allow: ['ALL'], idle: 1200 }, sshd: { allow: ['ALL'], idle: 0, banner: 'disabled', bannerText: '' }, dns: { servers: [], search: [] }, ntp: { servers: [], tz: 'America/Los_Angeles' },
                 prov, users: { admin: { role: 'admin', shell: 'tmsh', pw: true } }, pwpol: { enf: 'disabled', min: 6, up: 0, low: 0, num: 0, spec: 0, fail: 0, maxdur: 99999 },
-                nodes: {}, pools: {}, monitors: {}, virtuals: {}, snatpools: {}, persists: {}, httpProfiles: {}, cssl: {}, sssl: {},
+                nodes: {}, pools: {}, monitors: {}, virtuals: {}, snatpools: {}, persists: {}, httpProfiles: {}, cssl: {}, sssl: {}, rules: {}, dgroups: {},
                 certs: { 'default.crt': { cn: 'localhost.localdomain', issuer: 'localhost.localdomain', self: true, san: [], pair: 'default', bits: 2048, nb: 'Jan 15 09:12:44 2024 GMT', na: 'Jan 12 09:12:44 2034 GMT' }, 'ca-bundle.crt': { bundle: true, cn: 'ca-bundle' } }, keys: { 'default.key': { bits: 2048, pair: 'default' } },
                 cm: { cs: null, uni: [], mirror: null, trusted: [], dgs: {}, tgMac: null },
                 db: { 'tm.rstcause.log': { value: 'disable' }, 'tm.rstcause.pkt': { value: 'disable' } } };
@@ -501,7 +502,7 @@ const CgLabTmsh = (function () {
                     else if (p.k === 'source') { const c = p.v === 'any' ? { ip: '0.0.0.0', len: 0 } : cidr(p.v || ''); if (!c || ip2n(c.ip) !== netOf(c.ip, c.len)) return SYNx('"' + p.v + '" invalid source (A.B.C.D/len)'); o.source = c.ip + '/' + c.len; }
                     else if (p.k === 'connection-limit') { if (!/^\d{1,9}$/.test(p.v || '')) return SYNx('"' + p.v + '" invalid connection-limit'); o.limit = +p.v; }
                     else if (p.k === 'description') o.desc = p.v;
-                    else if (p.k === 'rules') return E('# [Simülatör] iRule\'lar ileri seviye modülde gelecek; bu lab sürümünde rules desteklenmiyor.', 'unsupported');
+                    else if (p.k === 'rules') { const cur = (o.rules || []).slice(); const r = listOp(cur, { op: p.op, v: p.v, items: (p.items || []).map(x => ({ k: x.k })) }, x => (M().rules[x] ? x : null)); if (r.bad) return NF('rule', r.bad); if (r.missing) return E('# [Simülatör] ' + r.missing + ' kuralı bu virtual server\'da yok.'); o.rules = r.list; }
                     else return SYN(p.k);
                 }
                 if (isCreate && !o.dest) return E('# [Simülatör] Virtual server için destination gerekli (ör. destination 203.0.113.100:80).');
@@ -510,6 +511,7 @@ const CgLabTmsh = (function () {
                 if (dup) return E('01070333:3: Virtual Server /Common/' + name + ' illegally shares destination address, source address, service port, ip-protocol, and vlan with Virtual Server /Common/' + dup[0]);
                 { const cs = o.profiles.filter(x => profType(x) === 'client-ssl'); if (cs.length > 1 && !cs.some(x => (M().cssl[x] || {}).sniDefault === 'true')) return E('0107149c:3: Virtual server /Common/' + name + ' has more than one clientssl/serverssl profile but none of them is default for SNI'); }
                 const hasHttp = o.profiles.some(x => profType(x) === 'http');
+                { const hr = (o.rules || []).find(x => M().rules[x] && ruleHttpEv(M().rules[x])); if (hr && !hasHttp) return E('01070394:3: ' + ruleHttpEv(M().rules[hr]).name + ' event in rule (/Common/' + hr + ') requires an associated HTTP or FASTHTTP profile on the virtual server (/Common/' + name + ').'); }
                 if (o.persist.some(x => persistType(x) === 'cookie') && !hasHttp) return E('Cookie persistence requires an HTTP or FastHTTP profile to be associated with the virtual server.\n# [Simülatör] Önce profiles add { http }.');
                 if (o.profiles.some(x => profType(x) === 'http') && !o.profiles.some(x => ['tcp', 'fastl4'].includes(profType(x)))) return E('# [Simülatör] HTTP profili bir TCP profili gerektirir.');
                 return null;
@@ -522,14 +524,14 @@ const CgLabTmsh = (function () {
                 L.push('    ip-protocol ' + o.proto, '    last-modified-time 2026-09-24:10:21:07', '    mask ' + (o.mask === '0.0.0.0' ? 'any' : o.mask));
                 if (o.persist.length) { L.push('    persist {'); o.persist.forEach(x => L.push('        ' + x + ' {', '            default yes', '        }')); L.push('    }'); }
                 if (o.pool) L.push('    pool ' + o.pool);
-                L.push('    profiles {'); o.profiles.forEach(x => L.push('        ' + x + ' { }')); L.push('    }');
+                L.push('    profiles {'); o.profiles.forEach(x => L.push('        ' + x + ' { }')); L.push('    }'); if ((o.rules || []).length) { L.push('    rules {'); o.rules.forEach(x => L.push('        ' + x)); L.push('    }'); }
                 L.push('    serverssl-use-sni disabled', '    source ' + (o.source || '0.0.0.0/0'));
                 L.push('    source-address-translation {', '        ' + (o.sat.type === 'snat' ? 'pool ' + o.sat.pool : '') + (o.sat.type === 'snat' ? '\n        ' : '') + 'type ' + o.sat.type, '    }');
                 if (o.taddr !== 'enabled') L.push('    translate-address ' + o.taddr); else L.push('    translate-address enabled');
                 L.push('    translate-port ' + o.tport, '    vs-index ' + o.idx, '}');
                 return L;
             },
-            props: ['destination', 'ip-protocol', 'pool', 'profiles', 'persist', 'connection-limit', 'fallback-persistence', 'source-address-translation', 'translate-port', 'translate-address', 'mask', 'source', 'description', 'enabled', 'disabled'],
+            props: ['destination', 'ip-protocol', 'pool', 'profiles', 'persist', 'connection-limit', 'fallback-persistence', 'source-address-translation', 'translate-port', 'translate-address', 'mask', 'source', 'rules', 'description', 'enabled', 'disabled'],
         };
         // ═══ HA: cihazlar, güven, device group, traffic group ════════════════
         // Eş cihaz lab.sim.peer: { name, mgmt, ha (HA/configsync self IP'si), timeSkew?, garpBlocked? } — eşin kendi taban ağı hazır kabul edilir.
@@ -729,6 +731,83 @@ const CgLabTmsh = (function () {
             if (!hit) return { code: 62, host: true, msg: 'no alternative certificate subject name matches target host name \'' + host + '\'' };
             return { ok: true, matched: hit };
         }
+        // ═══ iRule ve data group ═══════════════════════════════════════════
+        const ruleHttpEv = r => (r.events || []).find(e => /^HTTP_/.test(e.name));
+        function ruleErr(name, c) {
+            // 01070151: kural doğrulama hatası (biçim notes/f5-irule-arastirma.md)
+            if (c.kind === 'pool') return E('01070151:3: Rule [/Common/' + name + '] error: Unable to find pool (' + c.pool + ') referenced at line ' + c.line + ': [' + c.text + ']');
+            if (c.kind === 'dg') return E('01070151:3: Rule [/Common/' + name + '] error: Unable to find value_list (' + c.dg + ') referenced at line ' + c.line + ': [' + c.text + ']');
+            const at = '/Common/' + name + ':' + (c.line || 1) + ': error: ';
+            const msg = c.kind === 'proc' ? '[undefined procedure: ' + c.cmd + '][' + (c.text || c.cmd) + ']' : c.kind === 'ctx' ? '[command is not valid in current event context (' + c.event + ')][' + c.cmd + ']' : c.kind === 'event' ? '[unknown event (' + c.event + ')][when ' + c.event + ' {]' : c.kind === 'toplevel' ? '[command is not valid in the current scope][' + c.cmd + ']' : '[parse error: ' + c.err + ']';
+            return E('01070151:3: Rule [/Common/' + name + '] error: ' + at + msg);
+        }
+        function ruleInit(name, r) {
+            S.rstatic[name] = {};
+            (r.events || []).filter(e => e.name === 'RULE_INIT').forEach(e => { const X = { vars: {}, statics: S.rstatic[name], act: { off: new Set() }, table: S.rtable, log: (f, m) => S.ltmlog.push(lstamp() + ' ' + lh() + ' info tmm[11925]: Rule /Common/' + name + ' <RULE_INIT>: ' + m), note: () => {}, dg: n => { const d = M().dgroups[n]; return d ? { type: d.type, records: d.records } : null; }, hasPool: n => !!M().pools[n], activeMembers: n => eligible(n).length }; IR.runEvent(X, e); });
+        }
+        function ruleChange(verb, rest, line) {
+            const nameT = rest[0]; if (!nameT) return E('Syntax Error: ltm rule requires a name', 'incomplete');
+            const name = nameT.t; const coll = M().rules;
+            if (verb === 'delete') { if (!coll[name]) return NF('rule', name); const u = Object.entries(M().virtuals).find(([, v]) => (v.rules || []).includes(name)); if (u) return E('01070621:3: Rule /Common/' + name + ' is in use by virtual server /Common/' + u[0] + '.\n# [Simülatör] Önce virtual server\'dan kaldırın: modify ltm virtual ' + u[0] + ' rules delete { ' + name + ' }'); delete coll[name]; delete S.rstatic[name]; auditLog(line); return { out: '', ok: true }; }
+            if (verb === 'create' && coll[name]) return EX('rule', name);
+            if (verb === 'modify' && !coll[name]) return NF('rule', name);
+            if (verb === 'create' && !/^[A-Za-z_][A-Za-z0-9_.-]{0,62}$/.test(name)) return SYNx('"' + name + '" invalid name');
+            let def = line.slice(nameT.o + name.length).trim();
+            if (/^definition\b/.test(def)) def = def.replace(/^definition\s*/, '');
+            let braceNote = '';
+            if (def.startsWith('{') && def.endsWith('}')) { const inner = def.slice(1, -1).trim(); if (!inner || /^(when|priority|#)/.test(inner)) { def = inner; braceNote = '# [Simülatör] Kabul edildi; gerçek tmsh\'te dış süslü parantezli biçim hata verir. Tek satırda gövdeyi doğrudan yazın (create ltm rule ' + name + ' when HTTP_REQUEST { … }) ya da edit ltm rule ' + name + ' (vi) kullanın.'; } }
+            if (verb === 'modify' && !def) return E('Syntax Error: modify requires a rule definition', 'incomplete');
+            const c = IR.compile(def);
+            if (c.err) return ruleErr(name, c);
+            for (const r of c.refs || []) { if (r.type === 'pool' && !M().pools[r.name.replace(/^\/Common\//, '')]) return ruleErr(name, { kind: 'pool', pool: r.name, line: r.line, text: r.text }); if (r.type === 'dg' && !M().dgroups[r.name.replace(/^\/Common\//, '')]) return ruleErr(name, { kind: 'dg', dg: r.name, line: r.line, text: r.text }); }
+            const prev = coll[name];
+            coll[name] = { src: def, events: c.events };
+            // kural bir VS'de ve HTTP olayı kullanıyorsa o VS'de HTTP profili olmalı
+            const bad = Object.entries(M().virtuals).find(([, v]) => (v.rules || []).includes(name) && ruleHttpEv(coll[name]) && !v.profiles.some(x => profType(x) === 'http'));
+            if (bad) { if (prev) coll[name] = prev; else delete coll[name]; return E('01070394:3: ' + ruleHttpEv(c).name + ' event in rule (/Common/' + name + ') requires an associated HTTP or FASTHTTP profile on the virtual server (/Common/' + bad[0] + ').'); }
+            ruleInit(name, coll[name]); auditLog(line); log({ rule: name, verb });
+            return { out: braceNote, ok: true };
+        }
+        T['ltm rule'] = {
+            kind: 'rule', named: true, coll: () => M().rules, rawDef: true,
+            list(n, o) { const L2 = o.src ? String(o.src).split('\n') : []; if (L2.length) L2[0] = '    ' + L2[0]; return ['ltm rule ' + n + ' {'].concat(L2, ['}']); },
+            props: [],
+        };
+        T['ltm data-group internal'] = {
+            kind: 'data group', named: true, coll: () => M().dgroups,
+            fresh: () => ({ type: null, records: [], desc: '' }),
+            set(o, P, name, isCreate) {
+                for (const p of P) {
+                    if (p.k === 'type') { if (!['string', 'ip', 'integer'].includes(p.v)) return SYNx('"' + p.v + '" invalid type (string | ip | integer)'); if (!isCreate && o.type && p.v !== o.type) return E('# [Simülatör] Data group tipi sonradan değiştirilemez.'); o.type = p.v; }
+                    else if (p.k === 'description') o.desc = p.v;
+                    else if (p.k === 'records') {
+                        if (p.v === 'none') { o.records = []; continue; }
+                        const ents = (p.items || []).map(it => { const b = it.b || []; let data = ''; for (let i = 0; i < b.length; i += 2) { if (b[i].k === 'data') data = b[i + 1] ? b[i + 1].k : ''; else return { bad: b[i].k }; } return { key: it.k, data }; });
+                        const bad = ents.find(e => e.bad); if (bad) return SYN(bad.bad);
+                        if (p.op === 'replace-all-with') o.records = [];
+                        if (p.op === 'delete') { for (const e of ents) { const k = o.records.findIndex(r => r[0] === e.key); if (k < 0) return E('# [Simülatör] ' + e.key + ' kaydı yok.'); o.records.splice(k, 1); } continue; }
+                        for (const e of ents) { const k = o.records.findIndex(r => r[0] === e.key); if (k >= 0) { if (p.op === 'add') return E('# [Simülatör] ' + e.key + ' kaydı zaten var.'); o.records[k] = [e.key, e.data]; } else o.records.push([e.key, e.data]); }
+                    }
+                    else return SYN(p.k);
+                }
+                if (!o.type) return E('# [Simülatör] Data group için type gerekli (string | ip | integer).', 'incomplete');
+                for (const r of o.records) {
+                    if (o.type === 'ip') { const c2 = cidr(r[0]) || (isIp(r[0]) ? { ip: r[0], len: 32 } : null); if (!c2) return SYNx('"' + r[0] + '" invalid IP address or network'); if (!r[0].includes('/')) r[0] = r[0] + '/32'; }
+                    if (o.type === 'integer' && !/^-?\d+$/.test(r[0])) return SYNx('"' + r[0] + '" invalid integer');
+                }
+                return null;
+            },
+            del(name) { const u = Object.entries(M().rules).find(([, r]) => new RegExp('\\b' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(r.src)); if (u) return E('# [Simülatör] Data group /Common/' + u[0] + ' kuralında kullanılıyor olabilir; önce kuralı düzenleyin.'); return null; },
+            list(n, o) { const L = ['ltm data-group internal ' + n + ' {']; if (o.desc) L.push('    description "' + o.desc + '"'); if (o.records.length) { L.push('    records {'); o.records.forEach(r => { L.push('        ' + (/\s/.test(r[0]) ? '"' + r[0] + '"' : r[0]) + ' {'); if (r[1] !== '') L.push('            data ' + (/\s/.test(r[1]) ? '"' + r[1] + '"' : r[1])); L.push('        }'); }); L.push('    }'); } L.push('    type ' + o.type, '}'); return L; },
+            props: ['type', 'records', 'description'],
+        };
+        function showRule(a) {
+            const names = a[0] ? [a[0]] : Object.keys(M().rules); if (a[0] && !M().rules[a[0]]) return NF('rule', a[0]);
+            const L = [];
+            names.forEach(n => (M().rules[n].events || []).forEach(e => { const st = S.rstat[n + '|' + e.name] || { exec: 0, fail: 0, abort: 0 }; L.push('-'.repeat(60), 'Ltm::Rule Event: ' + n + ':' + e.name, '-'.repeat(60), 'Priority' + String(e.priority).padStart(28), 'Executions', '  Total' + String(st.exec).padStart(29), '  Failures' + String(st.fail).padStart(26), '  Aborts' + String(st.abort).padStart(28), 'CPU Cycles on Executing', '  Average' + '0'.padStart(27), '  Maximum' + '0'.padStart(27), '  Minimum' + '0'.padStart(27), ''); }));
+            log({ show: 'ltm rule', name: a[0] || null });
+            return { out: L.join('\n') + (L.length ? '# [Simülatör] CPU sayaçları gösterilmez.' : ''), ok: true };
+        }
         // sys db (BigDB değişkenleri; yalnız modify/list). RST nedeni: tm.rstcause.log → /var/log/ltm, tm.rstcause.pkt → RST paketinin yükü
         T['sys db'] = {
             kind: 'BigDB variable', named: true, fixed: true, coll: () => M().db || (M().db = base().db),
@@ -749,6 +828,9 @@ const CgLabTmsh = (function () {
         const stamp = k => { const t = 10 * 3600 + 21 * 60 + k; return 'Sep 24 ' + [Math.floor(t / 3600), Math.floor(t / 60) % 60, t % 60].map(x => String(x).padStart(2, '0')).join(':'); };
         function auditLog(line) { S.audit.push(stamp(S.audit.length) + ' ' + short() + ' notice tmsh[' + (7310 + S.audit.length) + ']: 01420002:5: AUDIT - pid=' + (7310 + S.audit.length) + ' user=root folder=/Common module=(tmos)# status=[Command OK] cmd_data=' + line); }
         function run(line, viaBash) {
+            // iRule tanımı serbest Tcl metnidir: tmsh sözcük ayırıcısına girmeden işlenir
+            const rm = line.match(/^\s*(create|modify|delete|edit)\s+\/?ltm\s+rule\s+(\S+)/);
+            if (rm) { if (rm[1] === 'edit') return E('# [Simülatör] "edit ltm rule" gerçekte vi editörünü açar. Bu lab\'da kuralı tek satırda ya da çok satırlı yazın: create ltm rule ' + rm[2] + ' { when HTTP_REQUEST { … } }', 'unsupported'); if (S.inop) return E('The configuration has not yet loaded.', 'value'); return ruleChange(rm[1], [{ t: rm[2], o: line.indexOf(rm[2], line.indexOf('rule') + 4) }], line); }
             const TK = tok(line);
             if (TK.err) return E('Syntax Error: missing closing quote', 'invalid');
             if (!TK.length) return '';
@@ -789,6 +871,7 @@ const CgLabTmsh = (function () {
             return change(verb, r.type, t, r.rest, line);
         }
         function change(verb, key, t, rest, line) {
+            if (t.rawDef) return ruleChange(verb, rest, line);
             if (t.special === 'mgmtip') {
                 const a = rest[0] && rest[0].t;
                 if (verb === 'modify') return E('# [Simülatör] Yönetim IP\'si modify ile değiştirilmez: eskisini delete, yenisini create edin (K15040).', 'value');
@@ -886,6 +969,7 @@ const CgLabTmsh = (function () {
                     log({ show: 'ltm node' }); return { out: L.join('\n'), ok: true };
                 }
                 if (comp === 'persistence' && a[0] === 'persist-records') return persistRecs(a.slice(1), false);
+                if (comp === 'rule') return showRule(a);
                 if (comp === 'persistence-old' && a[0] === 'persist-records') {
                     const L = ['Sys::Persistent Connections'];
                     Object.entries(S.rt.persist || {}).forEach(([k, mk]) => { const [pn, src] = k.split('|'); const vn = (Object.entries(M().virtuals).find(([, v]) => v.pool === pn) || ['?'])[0], vd = vn !== '?' ? M().virtuals[vn].dest : '?'; L.push('source-address  ' + src + '  ' + vd + '  ' + mk + '  (tmm: 1)'); });
@@ -970,8 +1054,11 @@ const CgLabTmsh = (function () {
         const srvOf = ip => (SIM.servers || []).find(x => x.ip === ip) || null;
         const REASON = { 200: 'OK', 201: 'Created', 204: 'No Content', 301: 'Moved Permanently', 302: 'Found', 304: 'Not Modified', 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed', 500: 'Internal Server Error', 501: 'Not Implemented', 502: 'Bad Gateway', 503: 'Service Unavailable', 504: 'Gateway Timeout' };
         // sunucunun bir isteğe yanıtı (yol + metot)
-        function serverResp(srv, port, path, method) {
+        function serverResp(srv, port, path, method, hdrs) {
             const P = srv.ports && srv.ports[port]; if (!P) return null;
+            path = String(path || '/').split('?')[0];
+            // /headers: sunucu aldığı istek başlıklarını gövdede geri yazar (iRule ile eklenen başlıkları görmek için)
+            if (path === '/headers' && P.echo !== false) return { code: 200, headers: ['Content-Type: text/plain'], body: (hdrs || [['Host', srv.ip]]).map(h => h[0] + ': ' + h[1]).join('\n') };
             const allow = P.methods || ['GET', 'HEAD', 'POST'];
             if (method === 'OPTIONS') return { code: 200, headers: ['Allow: ' + allow.concat(['OPTIONS']).join(', ')], body: '' };
             if (!allow.includes(method)) return { code: method === 'TRACE' ? 405 : 501, headers: [], body: '' };
@@ -1113,6 +1200,69 @@ const CgLabTmsh = (function () {
             if (/fastest|predictive/.test(lb)) return L.slice().sort((a, b) => ((SIM.latency || {})[a] || 5) - ((SIM.latency || {})[b] || 5))[0];
             const i = (rr[pn] || 0) % L.length; rr[pn] = (rr[pn] || 0) + 1; return L[i];
         }
+        // ═══ iRule çalıştırma ═══════════════════════════════════════════════
+        // Biçimler: notes/f5-irule-arastirma.md. Kurallar M().rules[ad] = { src, events }, data group M().dgroups[ad] = { type, records }
+        S.rstat = {};   // show ltm rule sayaçları: 'kural|olay' → { exec, fail, abort }
+        S.rtable = {};  // table komutunun oturum tablosu
+        S.rstatic = {}; // RULE_INIT ile kurulan static:: değişkenleri (kural başına)
+        const irIds = { HTTP_REQUEST: 0 };
+        function irCtx(v, vn, o) {
+            const rules = (v.rules || []).filter(n => M().rules[n]);
+            const vars = {}; rules.forEach(n => Object.assign(vars, {}));
+            return { rules, vars, statics: {}, client: { ip: o.src || SIM.client || '198.51.100.20', port: 51514 + (S.ev.length % 97) }, vs: { name: vn, ip: o.ip, port: o.port }, act: { off: new Set() }, table: S.rtable, sni: o.sni || '', test: !!o.test,
+                dg: n => { const d = M().dgroups[String(n).replace(/^\/Common\//, '')]; return d ? { type: d.type, records: d.records } : null; },
+                hasPool: n => !!M().pools[String(n).replace(/^\/Common\//, '')], activeMembers: (n, list) => { const L = eligible(String(n).replace(/^\/Common\//, '')); return list ? L : L.length; },
+                now: () => 1790000000000 + S.ev.length * 7 };
+        }
+        const irLog = (x, line) => { if (!x.test) S.ltmlog.push(line); };
+        // bir olayı, VS'deki kural sırasıyla ve priority'ye göre çalıştırır; bağlantıyı bitiren sonuç döner (yoksa null)
+        function irFire(X, ev) {
+            if (!X.rules.length) return null;
+            const list = [];
+            X.rules.forEach((rn, ri) => (M().rules[rn].events || []).filter(e => e.name === ev).forEach(e => list.push({ rn, ri, e })));
+            list.sort((a, b) => a.e.priority - b.e.priority || a.ri - b.ri);
+            for (const { rn, e } of list) {
+                if (X.act.off.has(rn + '|*') || X.act.off.has(rn + '|' + ev)) continue;
+                const st = S.rstat[rn + '|' + ev] || (S.rstat[rn + '|' + ev] = { exec: 0, fail: 0, abort: 0 });
+                if (!X.test) st.exec++;
+                X.statics = S.rstatic[rn] || (S.rstatic[rn] = {}); X.rule = rn;
+                X.log = (fac, msg) => { const lv = (String(fac).split('.')[1] || 'info') || 'info'; const lvl = { emerg: 'emerg', alert: 'alert', crit: 'crit', err: 'err', error: 'err', warn: 'warning', warning: 'warning', notice: 'notice', info: 'info', debug: 'debug' }[lv] || 'info'; irLog(X, lstamp() + ' ' + lh() + ' ' + lvl + ' tmm[11925]: Rule /Common/' + rn + ' <' + ev + '>: ' + msg); };
+                X.note = m => { (X.notes || (X.notes = [])).push(m); };
+                const offBefore = new Set(X.act.off); X.act.off = new Set();
+                const r = IR.runEvent(X, e);
+                X.act.off.forEach(k => offBefore.add(rn + '|' + k)); X.act.off = offBefore;
+                if (!r.ok) {
+                    if (!X.test) { st.fail++; if (r.abort) st.abort++; }
+                    const cmdText = r.cmd || String(e.body).split('\n')[Math.max(0, (r.line || e.line) - e.line)].trim();
+                    irLog(X, lstamp() + ' ' + lh() + ' err tmm[11925]: 01220001:3: TCL error: /Common/' + rn + ' <' + ev + '> - ' + r.err + (/\(line \d+\)$/.test(r.err) ? '     invoked from within "' : '     while executing "') + cmdText + '"');
+                    if (!X.test && dbOn('tm.rstcause.log')) S.ltmlog.push(lstamp() + ' ' + lh() + ' err tmm[11925]: 01230140:3: RST sent from ' + X.vs.ip + ':' + X.vs.port + ' to ' + X.client.ip + ':' + X.client.port + ', [0x2a155c4:1878] iRule execution error');
+                    return { kind: 'reset', why: 'irule-err', rule: rn, event: ev, notes: X.notes };
+                }
+            }
+            if (X.act.reject) return { kind: 'reset', why: 'irule-reject', notes: X.notes };
+            if (X.act.drop) return { kind: 'timeout', why: 'irule-drop' };
+            if (X.act.respond && (ev === 'HTTP_REQUEST' || ev === 'LB_FAILED' || ev === 'LB_SELECTED')) return Object.assign(irRespond(X), { notes: X.notes });
+            return null;
+        }
+        // BIG-IP'nin kendisinin ürettiği yanıt (HTTP::respond / HTTP::redirect)
+        function irRespond(X) {
+            const R = X.act.respond; const headers = R.headers.map(h => h[0] + ': ' + h[1]);
+            if (!R.noserver && !R.headers.some(h => /^server$/i.test(h[0]))) headers.push('Server: BigIP');
+            return { kind: 'ok', byF5: true, resp: { code: R.code, headers, body: R.body, noServerHdr: true, version: R.redirect ? '1.0' : '1.0' } };
+        }
+        // sunucu yanıtından sonra HTTP_RESPONSE
+        function irResponse(X, fire, res) {
+            if (!X.rules.length || !X.req) return res;
+            X.resp = { status: res.resp.code, headers: [['Server', 'Apache']].concat(res.resp.headers.map(h => { const m = h.match(/^([^:]+):\s*(.*)$/); return [m[1], m[2]]; })), body: res.resp.body };
+            X.act.respond = null;
+            const f = fire('HTTP_RESPONSE');
+            if (f && f.kind !== 'ok') return Object.assign(f, { vs: res.vs, tls: res.tls });
+            if (X.act.respond) return Object.assign(irRespond(X), { vs: res.vs, tls: res.tls, member: res.member });
+            res.resp = { code: X.resp.status, headers: X.resp.headers.filter(h => !/^server$/i.test(h[0]) || false).map(h => h[0] + ': ' + h[1]), body: res.resp.body, noServerHdr: true, server: (X.resp.headers.find(h => /^server$/i.test(h[0])) || [])[1] || null };
+            if (res.resp.server) res.resp.headers.unshift('Server: ' + res.resp.server);
+            res.notes = X.notes;
+            return res;
+        }
         // K14800: birden çok virtual server eşleşirse öncelik hedef adres (en uzun maske) > kaynak adres (en uzun önek) > port (belirli > any)
         const vsNet = v => v.dest.split(':')[0] + '/' + C.maskLen(v.mask || '255.255.255.255');
         function vsMatch(ip, port, src) {
@@ -1127,31 +1277,42 @@ const CgLabTmsh = (function () {
             if (!vn) return vipOwned(o.ip) ? { kind: 'refused', why: 'novs' } : { kind: 'timeout', why: 'noaddr' };
             const v = M().virtuals[vn];
             if (!v.enabled) return { kind: 'refused', why: 'disabled', vs: vn };
+            // iRule bağlamı (bağlantı başına değişkenler); olaylar sırasıyla tetiklenir
+            const X = irCtx(v, vn, o), fire = ev => irFire(X, ev);
+            if (X.rules.length && !o.tlsOnly) { const f = fire('CLIENT_ACCEPTED'); if (f) return Object.assign(f, { vs: vn }); }
             if (v.limit && vsConn(vn) >= v.limit) { if (!o.test) S.ltmlog.push(lstamp() + ' ' + lh() + ' warning tmm[11925]: 01200009:4: Packet rejected remote IP ' + o.src + ' port 51514 local IP ' + o.ip + ' port ' + o.port + ' proto TCP: Connection limit exceeded.'); return { kind: 'reset', why: 'vslimit', vs: vn }; }
             const hasCssl = v.profiles.some(x => profType(x) === 'client-ssl');
             if (o.https && !hasCssl) return { kind: 'sslerr', vs: vn };
             if (!o.https && hasCssl) return { kind: 'reset', why: 'plain-to-ssl', vs: vn };
             const tls = o.https ? tlsFor(vn, o.sni) : null;
             if (tls && o.tlsOnly) return { kind: 'tls', vs: vn, tls };
-            if (!v.pool) return { kind: 'reset', why: 'nopool', vs: vn };
-            const L = eligible(v.pool);
-            const hasPersisted = (S.rt.persist || {})[v.pool + '|' + o.src];
-            if (!L.length && !hasPersisted) return { kind: 'reset', why: 'nomember', vs: vn };
-            const pl = M().pools[v.pool], pers = v.persist[0] && persistType(v.persist[0]);
             const hasHttp = v.profiles.some(x => profType(x) === 'http');
+            if (X.rules.length && hasHttp) {
+                X.req = { method: o.method || 'GET', uri: o.path || '/', version: '1.1', headers: [['Host', o.host || o.ip + (o.port === 80 || o.port === 443 ? '' : ':' + o.port)], ['User-Agent', 'curl/7.81.0'], ['Accept', '*/*']].concat(o.cookie && Object.keys(o.cookie).length ? [['Cookie', Object.entries(o.cookie).map(([k, x]) => k + '=' + x).join('; ')]] : [], (o.hdrs || []).map(h => { const m = h.match(/^([^:]+):\s*(.*)$/); return m ? [m[1], m[2]] : null; }).filter(Boolean)) };
+                { const hh = X.req.headers.filter(h => /^host$/i.test(h[0])); if (hh.length > 1) X.req.headers.splice(X.req.headers.indexOf(hh[0]), 1); }
+                const f = fire('HTTP_REQUEST'); if (f) return Object.assign(f, { vs: vn, tls });
+            }
+            const PN = X.act.pool || v.pool;
+            if (X.act.node) { const [nip, npt] = X.act.node.split(':'); const srvN = srvOf(nip); const npo = +(npt || o.port); if (!srvN || !reach(nip).ok) return { kind: 'timeout', why: 'l2', vs: vn }; const rN = serverResp(srvN, npo, X.req ? X.req.uri : o.path, o.method, X.req ? X.req.headers : null); if (!rN) return { kind: 'reset', why: 'srvrefused', vs: vn }; return irResponse(X, fire, { kind: 'ok', resp: rN, tls, vs: vn, member: nip + ':' + npo, src: 'client' }); }
+            if (!PN) return { kind: 'reset', why: 'nopool', vs: vn };
+            const L = eligible(PN);
+            const hasPersisted = (S.rt.persist || {})[PN + '|' + o.src];
+            if (!L.length && !hasPersisted) { if (X.rules.length) { X.lb = { pool: PN }; const f = fire('LB_FAILED'); if (f) return Object.assign(f, { vs: vn, tls }); if (X.act.reselect) { X.act.pool = X.act.reselect; X.act.reselect = null; return vipRequestPool(o, X, vn, tls); } } return { kind: 'reset', why: 'nomember', vs: vn }; }
+            const pl = M().pools[PN], pers = v.persist[0] && persistType(v.persist[0]);
             let key = null, setCookie = null, persisted = false;
-            const cname = pers === 'cookie' ? ((M().persists[v.persist[0]] || {}).cookieName || 'BIGipServer' + v.pool) : null;
+            const cname = pers === 'cookie' ? ((M().persists[v.persist[0]] || {}).cookieName || 'BIGipServer' + PN) : null;
             // devre dışı (session user-disabled) üye yeni bağlantı almaz ama kalıcılık kaydı olan istemcileri kabul eder; forced offline kabul etmez
-            const persistOk = k => { if (!pl.members[k]) return false; if (L.includes(k)) return true; const st = memberStatus(v.pool, k); return (st.avail === 'available' || st.avail === 'unknown') && st.session === 'user-disabled'; };
+            const persistOk = k => { if (!pl.members[k]) return false; if (L.includes(k)) return true; const st = memberStatus(PN, k); return (st.avail === 'available' || st.avail === 'unknown') && st.session === 'user-disabled'; };
             if (pers === 'cookie' && o.cookie && o.cookie[cname]) { key = pl.order.find(k => f5cookie(pl.members[k].ip, pl.members[k].port) === o.cookie[cname] && persistOk(k)) || null; persisted = !!key; }
-            if (pers === 'source-addr' || (!key && pers === 'cookie' && v.fallback && persistType(v.fallback) === 'source-addr')) { const pr = (S.rt.persist || (S.rt.persist = {}))[v.pool + '|' + o.src]; if (pr && persistOk(pr)) { key = pr; persisted = true; } }
-            if (!key) key = lbPick(v.pool, L);
+            if (pers === 'source-addr' || (!key && pers === 'cookie' && v.fallback && persistType(v.fallback) === 'source-addr')) { const pr = (S.rt.persist || (S.rt.persist = {}))[PN + '|' + o.src]; if (pr && persistOk(pr)) { key = pr; persisted = true; } }
+            if (!key) key = lbPick(PN, L);
             const m = pl.members[key];
-            if (pers === 'source-addr' || (pers === 'cookie' && v.fallback)) { S.rt.persist[v.pool + '|' + o.src] = key; (S.rt.pmeta || (S.rt.pmeta = {}))[v.pool + '|' + o.src] = { vs: vn, age: 12 + (ip2n(o.src) % 150) }; }
+            if (pers === 'source-addr' || (pers === 'cookie' && v.fallback)) { S.rt.persist[PN + '|' + o.src] = key; (S.rt.pmeta || (S.rt.pmeta = {}))[PN + '|' + o.src] = { vs: vn, age: 12 + (ip2n(o.src) % 150) }; }
             if (pers === 'cookie' && hasHttp && !persisted) { const mt = (M().persists[v.persist[0]] || {}).method || 'insert'; if (mt === 'insert') setCookie = cname + '=' + f5cookie(m.ip, m.port) + '; path=/; Httponly'; }
-            (S.rt.conns || (S.rt.conns = {}))[v.pool + '|' + key] = ((S.rt.conns || {})[v.pool + '|' + key] || 0);
-            (S.rt.hits || (S.rt.hits = {}))[v.pool + '|' + key] = (S.rt.hits[v.pool + '|' + key] || 0) + 1;
+            (S.rt.conns || (S.rt.conns = {}))[PN + '|' + key] = ((S.rt.conns || {})[PN + '|' + key] || 0);
+            (S.rt.hits || (S.rt.hits = {}))[PN + '|' + key] = (S.rt.hits[PN + '|' + key] || 0) + 1;
             const sport = v.tport === 'enabled' ? m.port : o.port, sip = v.taddr === 'enabled' ? m.ip : o.ip;
+            if (X.rules.length) { X.lb = { pool: PN, ip: m.ip, port: sport }; const f = fire('LB_SELECTED'); if (f) return Object.assign(f, { vs: vn, tls }); }
             const srv = srvOf(sip), r = reach(m.ip);
             if (!srv || !r.ok) return { kind: 'timeout', why: 'l2', vs: vn, member: key };
             if (!srv.ports || !srv.ports[sport]) return { kind: 'reset', why: 'srvrefused', vs: vn, member: key, sport, tls };
@@ -1160,11 +1321,14 @@ const CgLabTmsh = (function () {
             // dönüş yolu: SNAT yoksa sunucu istemciye kendi ağ geçidi üzerinden döner
             if (v.sat.type === 'none') { const back = Object.values(M().selfs).some(s => s.address && s.address.split('/')[0] === srv.gw); if (!back) return { kind: 'timeout', why: 'asym', vs: vn, member: key }; }
             if (v.sat.type === 'snat') { const ok = M().snatpools[v.sat.pool].members.some(ip => Object.values(M().selfs).some(s => s.address && inNet(ip, s.address) && inNet(m.ip, s.address))); if (!ok) return { kind: 'timeout', why: 'snatroute', vs: vn, member: key }; }
-            const resp = srv.ports[sport].tls && !hasSssl ? { code: 400, headers: ['Connection: close'], body: '<p>Your browser sent a request that this server could not understand.<br />\nReason: You\'re speaking plain HTTP to an SSL-enabled server port.<br />\n Instead use the HTTPS scheme to access this URL, please.<br />\n</p>' } : serverResp(srv, sport, o.path, o.method);
+            const resp = srv.ports[sport].tls && !hasSssl ? { code: 400, headers: ['Connection: close'], body: '<p>Your browser sent a request that this server could not understand.<br />\nReason: You\'re speaking plain HTTP to an SSL-enabled server port.<br />\n Instead use the HTTPS scheme to access this URL, please.<br />\n</p>' } : serverResp(srv, sport, X.req ? X.req.uri : o.path, o.method, X.req ? X.req.headers : null);
             if (!resp) return { kind: 'reset', why: 'srvrefused', vs: vn, member: key };
             if (setCookie) resp.headers = resp.headers.concat(['Set-Cookie: ' + setCookie]);
-            return { kind: 'ok', resp, tls, vs: vn, member: key, persisted, src: v.sat.type === 'automap' ? 'self' : v.sat.type === 'snat' ? 'snat' : 'client' };
+            if (X.rules.length) { const selfIn = Object.values(M().selfs).find(x => x.address && inNet(m.ip, x.address)); X.lb.snat = v.sat.type === 'automap' && selfIn ? selfIn.address.split('/')[0] : null; }
+            return irResponse(X, fire, { kind: 'ok', resp, tls, vs: vn, member: key, persisted, src: v.sat.type === 'automap' ? 'self' : v.sat.type === 'snat' ? 'snat' : 'client' });
         }
+        // LB::reselect sonrası yeni pool ile tekrar dene (tek sefer)
+        function vipRequestPool(o, X, vn, tls) { const L = eligible(X.act.pool); if (!L.length) return { kind: 'reset', why: 'nomember', vs: vn }; const k = lbPick(X.act.pool, L), m = M().pools[X.act.pool].members[k], srv = srvOf(m.ip); if (!srv || !reach(m.ip).ok) return { kind: 'timeout', why: 'l2', vs: vn }; const resp = serverResp(srv, m.port, X.req ? X.req.uri : o.path, o.method, X.req ? X.req.headers : null); if (!resp) return { kind: 'reset', why: 'srvrefused', vs: vn }; return irResponse(X, e => irFire(X, e), { kind: 'ok', resp, tls, vs: vn, member: k, src: 'self' }); }
         // ═══ Bağlantı tablosu (show/delete sys connection) ═══════════════════
         // lab.sim.clients: [{ ip, vs, n }] sürekli bağlı istemciler. Kurulu bağlantı yapılandırma değişikliğinden etkilenmez (K13253);
         // silinen bağlantının istemcisi yeniden bağlanır ve o anki dağıtım/kalıcılık kararıyla yeni üyeye gider.
@@ -1231,7 +1395,7 @@ const CgLabTmsh = (function () {
         }
         // ═══ HA durumu, config sync, failover ═══════════════════════════════
         const HA = { st: 'active', syncKey: null, peerCfg: null };
-        const syncKey = m => JSON.stringify([m.nodes, m.pools, m.monitors, m.virtuals, m.snatpools, m.persists, m.httpProfiles, m.cssl, m.sssl, m.certs, m.keys]);
+        const syncKey = m => JSON.stringify([m.nodes, m.pools, m.monitors, m.virtuals, m.snatpools, m.persists, m.httpProfiles, m.cssl, m.sssl, m.certs, m.keys, m.rules, m.dgroups]);
         const haDg = () => Object.entries(M().cm.dgs).find(([, g]) => g.type === 'sync-failover' && PEER && g.devices.includes(PEER.name) && g.devices.includes(M().hostname));
         const selfOfIp = ip => Object.entries(M().selfs).find(([, x]) => x.address && x.address.split('/')[0] === ip);
         const selfAllowsSvc = (sn, pr, port) => { const x = M().selfs[sn]; if (!x) return false; if (x.allow === 'all') return true; if (x.allow === 'none') return false; const L = x.allow === 'default' ? ALLOW_DEFAULT : x.allow; return L.some(y => { const [p2, t2] = y.split(':'); return p2 === pr && (t2 === 'any' || +t2 === port || SVC_PORT[t2] === port); }); };
@@ -1256,7 +1420,7 @@ const CgLabTmsh = (function () {
         function doSync(dir, dg) {
             const g = M().cm.dgs[dg]; if (!g) return NF('device group', dg);
             const l = haLink(); if (!l.ok) return E('# [Simülatör] Eşitleme yapılamadı: eşe bağlantı yok (' + { trust: 'güven kurulmamış', time: 'saatler uyuşmuyor', csip: 'configsync-ip tanımlı değil', lockdown: 'ConfigSync self IP\'sinde TCP 4353 kapalı (port lockdown)', reach: 'eşin HA adresine ulaşılamıyor' }[l.why] + ').', 'value');
-            if (dir === 'from' && HA.peerCfg) { ['nodes', 'pools', 'monitors', 'virtuals', 'snatpools', 'persists', 'httpProfiles', 'cssl', 'sssl', 'certs', 'keys'].forEach(k => { M()[k] = clone(HA.peerCfg[k]); }); }
+            if (dir === 'from' && HA.peerCfg) { ['nodes', 'pools', 'monitors', 'virtuals', 'snatpools', 'persists', 'httpProfiles', 'cssl', 'sssl', 'certs', 'keys', 'rules', 'dgroups'].forEach(k => { M()[k] = clone(HA.peerCfg[k]); }); }
             HA.syncKey = syncKey(M()); HA.peerCfg = clone(M()); log({ haSync: dir });
             return { out: '', ok: true };
         }
@@ -1433,7 +1597,7 @@ const CgLabTmsh = (function () {
             let tlsI = null, ver = null;
             if (isVip && https) { const t = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni, tlsOnly: true, test: true })); if (t.kind === 'tls') { tlsI = t.tls; ver = tlsVerify(tlsI, sni || ip); } }
             if (isVip && tlsI && !ver.ok && !insecure) { res = { kind: 'tlsfail', vs: null }; if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi.'); }
-            else if (isVip) { res = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni })); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi' + (res.vs ? '; karşılayan virtual server: /Common/' + res.vs : '') + '.'); }
+            else if (isVip) { res = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni, host: hostN + (port === 80 || port === 443 ? '' : ':' + port), hdrs: hdr.filter(h => !/^Cookie:/i.test(h)) })); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi' + (res.vs ? '; karşılayan virtual server: /Common/' + res.vs : '') + '.'); }
             else {
                 const r = reach(ip), srv = srvOf(ip);
                 if (iface && !Object.values(M().selfs).some(s => s.address && s.address.split('/')[0] === iface) && !(M().mgmtIp && M().mgmtIp.split('/')[0] === iface)) return E('curl: (45) bind failed with errno 99: Cannot assign requested address', 'value');
@@ -1443,14 +1607,15 @@ const CgLabTmsh = (function () {
                 else if (https && !srv.ports[port].tls) res = { kind: 'sslerr' };
                 else res = { kind: 'ok', resp: serverResp(srv, port, path, method) };
             }
+            if (res.notes && !silent) res.notes.forEach(n => L.push('# ' + n));
             if (isVip) { const rc = rstCauseOf(res); if (rc) rstSent(ip + ':' + port, (SIM.client || '198.51.100.20') + ':' + (52100 + S.ev.length), rc.cause, rc.peer); }
-            log({ curl: { vs: res.vs || null, ip, host: hostN, https, port, path, method, vip: isVip, kind: res.kind, code: res.resp ? res.resp.code : null, member: res.member || null, persisted: !!res.persisted, tlsErr: ver && !ver.ok ? ver.code : null, insecure, prof: tlsI ? tlsI.prof : null } });
+            log({ curl: { vs: res.vs || null, ip, host: hostN, https, port, path, method, vip: isVip, byF5: !!res.byF5, why: res.why || null, loc: ((res.resp && (res.resp.headers || []).find(h => /^Location:/i.test(h))) || '').replace(/^Location:\s*/i, '') || null, rhdrs: res.resp ? (res.resp.headers || []).slice() : null, body: res.resp ? String(res.resp.body || '').slice(0, 400) : null, kind: res.kind, code: res.resp ? res.resp.code : null, member: res.member || null, persisted: !!res.persisted, tlsErr: ver && !ver.ok ? ver.code : null, insecure, prof: tlsI ? tlsI.prof : null } });
             // curl 7.81 biçimi (notes/f5-tmsh-cikti-ornekleri.md §9)
             const T12 = ['* ALPN, offering h2', '* ALPN, offering http/1.1', '*  CAfile: /etc/ssl/certs/ca-certificates.crt', '*  CApath: /etc/ssl/certs', '* TLSv1.0 (OUT), TLS header, Certificate Status (22):', '* TLSv1.3 (OUT), TLS handshake, Client hello (1):', '* TLSv1.2 (IN), TLS header, Certificate Status (22):', '* TLSv1.2 (IN), TLS handshake, Server hello (2):', '* TLSv1.2 (IN), TLS handshake, Certificate (11):'];
             const T12b = ['* TLSv1.2 (IN), TLS handshake, Server key exchange (12):', '* TLSv1.2 (IN), TLS handshake, Server finished (14):', '* TLSv1.2 (OUT), TLS handshake, Client key exchange (16):', '* TLSv1.2 (OUT), TLS change cipher, Change cipher spec (1):', '* TLSv1.2 (OUT), TLS handshake, Finished (20):', '* TLSv1.2 (IN), TLS handshake, Finished (20):', '* SSL connection using TLSv1.2 / ECDHE-RSA-AES128-GCM-SHA256', '* ALPN, server accepted to use http/1.1'];
             const certBlock = () => { const c = tlsI.leaf, ic = issuerCert(c); const L2 = ['* Server certificate:', '*  subject: ' + certSubj(c), '*  start date: ' + c.nb, '*  expire date: ' + c.na]; if (ver.host) L2.push('*  subjectAltName does not match ' + (sni || ip)); else if (ver.matched) L2.push('*  subjectAltName: host "' + (sni || ip) + '" matched cert\'s "' + ver.matched + '"'); L2.push('*  issuer: ' + (c.self ? certSubj(c) : ic ? certSubj(ic) : 'C=TR; O=Lab; CN=' + c.issuer)); L2.push(ver.ok ? '*  SSL certificate verify ok.' : '*  SSL certificate verify result: ' + ver.msg.replace(/ '.*$/, '') + ' (' + ver.code + '), continuing anyway.'); return L2; };
             const TAIL = ['More details here: https://curl.se/docs/sslcerts.html', '', 'curl failed to verify the legitimacy of the server and therefore could not', 'establish a secure connection to it. To learn more about this situation and', 'how to fix it, please visit the web page mentioned above.'];
-            const reqLines = () => ['* Connected to ' + hostN + ' (' + ip + ') port ' + port + ' (#0)'].concat(tlsI ? T12.concat(T12b, certBlock()) : [], ['> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + hostN, '> User-Agent: curl/7.81.0', '> Accept: */*', '> ']);
+            const reqLines = () => ['* Connected to ' + hostN + ' (' + ip + ') port ' + port + ' (#0)'].concat(tlsI ? T12.concat(T12b, certBlock()) : [], ['> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + hostN, '> User-Agent: curl/7.81.0', '> Accept: */*'], hdr.filter(h => !/^Cookie:/i.test(h)).map(h => '> ' + h), ['> ']);
             if (verbose) { Object.entries(resolve).forEach(([k, v]) => L.push('* Added ' + k + ':' + v + ' to DNS cache')); if (sni && resolve[sni + ':' + port]) L.push('* Hostname ' + sni + ' was found in DNS cache'); L.push('*   Trying ' + ip + ':' + port + '...'); }
             if (res.kind === 'tlsfail') {
                 if (verbose) { L.push('* Connected to ' + hostN + ' (' + ip + ') port ' + port + ' (#0)', ...T12); if (ver.host) L.push(...T12b, ...certBlock().slice(0, -2), '* SSL: ' + ver.msg); else L.push('* TLSv1.2 (OUT), TLS alert, ' + (ver.code === 10 ? 'certificate expired (557)' : 'unknown CA (560)') + ':', '* SSL certificate problem: ' + ver.msg); L.push('* Closing connection 0'); }
@@ -1467,10 +1632,10 @@ const CgLabTmsh = (function () {
                 else { if (verbose) L.push('* Connection timed out after 5001 milliseconds', '* Closing connection 0'); L.push('curl: (28) Connection timed out after 5001 milliseconds'); }
                 return { out: L.join('\n') };
             }
-            const r = res.resp, st = 'HTTP/1.1 ' + r.code + ' ' + (REASON[r.code] || '');
+            const r = res.resp, st = 'HTTP/' + (r.version || '1.1') + ' ' + r.code + ' ' + (REASON[r.code] || '');
             if (jarW) { const sc = r.headers.find(h => /^Set-Cookie:/i.test(h)); if (sc) { const m = sc.match(/^Set-Cookie:\s*([^=]+)=([^;]+)/i); JARS[jarW] = Object.assign(JARS[jarW] || {}, { [m[1]]: m[2] }); } }
-            if (verbose) { L.push(...reqLines().slice(0, -1)); Object.keys(cookie).length && L.push('> Cookie: ' + Object.entries(cookie).map(([k, v]) => k + '=' + v).join('; ')); L.push('> ', '< ' + st, '< Server: Apache'); r.headers.forEach(h => L.push('< ' + h)); L.push('< Content-Length: ' + r.body.length, '<'); }
-            else if (head) { L.push(st, 'Server: Apache'); r.headers.forEach(h => L.push(h)); L.push('Content-Length: ' + r.body.length); }
+            if (verbose) { L.push(...reqLines().slice(0, -1)); Object.keys(cookie).length && L.push('> Cookie: ' + Object.entries(cookie).map(([k, v]) => k + '=' + v).join('; ')); L.push('> ', '< ' + st); if (!r.noServerHdr) L.push('< Server: Apache'); r.headers.forEach(h => L.push('< ' + h)); L.push('< Content-Length: ' + r.body.length, '<'); }
+            else if (head) { L.push(st); if (!r.noServerHdr) L.push('Server: Apache'); r.headers.forEach(h => L.push(h)); L.push('Content-Length: ' + r.body.length); }
             if (!head && out !== '/dev/null' && r.body) L.push(r.body);
             if (verbose) L.push('* Connection #0 to host ' + hostN + ' left intact');
             if (wfmt) L.push(wfmt.replace(/%\{http_code\}/g, String(r.code)).replace(/\\n/g, '\n').replace(/\n$/, ''));
@@ -1815,7 +1980,10 @@ const CgLabTmsh = (function () {
             raw = String(raw).replace(/\r/g, '');
             if (S.pending) { const p = S.pending; S.pending = null; return p.fn(raw.trim()); }
             if (S.loggedOut) { S.loggedOut = false; S.mode = 'bash'; return lab.loginBanner || 'Last login: Thu Sep 24 10:02:11 2026 from ' + ADMIN; }
-            const line = raw.trim(); if (!line) return '';
+            let line = raw.trim(); if (!line && !S.cont) return '';
+            // çok satırlı iRule: süslü parantezler kapanana kadar satırlar birleştirilir
+            if (S.cont) { S.cont.buf += '\n' + raw.replace(/\s+$/, ''); if (braceDepth(S.cont.buf) > 0) return ''; line = S.cont.buf.trim(); S.cont = null; }
+            else if (/^(tmsh\s+)?(create|modify)\s+\/?ltm\s+rule\b/.test(line) && braceDepth(line) > 0) { S.cont = { buf: raw.replace(/\s+$/, '') }; return ''; }
             S.hist.push(line);
             const mode = S.mode;
             const r = mode === 'tmsh' ? run(line.replace(/^tmsh\s+/, ''), false) : bashLine(line, false);
@@ -1827,6 +1995,8 @@ const CgLabTmsh = (function () {
             { const g = haDg(); if (g && g[1].autoSync === 'enabled' && HA.syncKey !== null && haLink().ok && HA.syncKey !== syncKey(M()) && HA.st === 'active') { HA.syncKey = syncKey(M()); HA.peerCfg = clone(M()); } }
             return (out || '') + (S.warn ? (out ? '\n' : '') + S.warn : '');
         }
+        // süslü parantez derinliği (tırnak ve \ kaçışları dikkate alınır)
+        function braceDepth(t) { let d = 0, q = false; for (let i = 0; i < t.length; i++) { const c = t[i]; if (c === '\\') { i++; continue; } if (c === '"' && d === 0) q = !q; else if (!q && c === '{') d++; else if (!q && c === '}') d--; } return d; }
         // yönetim erişimini kendine kapatma uyarısı (gerçek cihaz uyarmaz; bağlantı kopar)
         function warnAccess() {
             S.warn = '';
@@ -1838,6 +2008,7 @@ const CgLabTmsh = (function () {
             S.warn = S.warn.trim();
         }
         function prompt() {
+            if (S.cont) return '> ';
             if (S.pending) return S.pending.prompt;
             if (S.loggedOut) return '';
             const st = haPromptSt(), ss = syncStatus().status;
@@ -1903,7 +2074,7 @@ const CgLabTmsh = (function () {
         return {
             vendor: 'f5-ltm',
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
-            _toPriv: () => { S.mode = lab.startMode === 'tmsh' ? 'tmsh' : 'bash'; S.pending = null; S.loggedOut = false; S.fromTmsh = false; },
+            _toPriv: () => { S.mode = lab.startMode === 'tmsh' ? 'tmsh' : 'bash'; S.pending = null; S.cont = null; S.loggedOut = false; S.fromTmsh = false; },
             get answers() { return S.answers; }, set answers(v) { S.answers = v || {}; },
             variant: () => VAR,
             get model() { return S.m; }, get savedModel() { return S.saved; },

@@ -170,5 +170,18 @@
                 { code: 'tmsh list ltm profile client-ssl app_clientssl cert-key-chain', desc: 'Profilde doğru cert, key ve chain üçlüsü var mı? Başka sertifikanın anahtarı seçilirse "01070317:3: profile …\'s key and certificate do not match". Aynı VS\'de birden çok client-ssl profili varsa biri sni-default true olmalı (0107149c).' },
             ]
         },
+        {
+            title: 'iRule Çalışmıyor, Kaydedilmiyor ya da Bağlantıyı Sıfırlıyor: 01070151, 01070394 ve 01220001', severity: 'err', topic: 'adc', lab: 'f5-31',
+            symptom: 'Yeni iRule kaydedilmiyor, virtual server\'a bağlanmıyor, hiç tetiklenmiyor gibi görünüyor ya da bağlandıktan sonra bazı istekler "connection reset" alıyor.',
+            steps: [
+                { code: 'tmsh list ltm virtual vs_web rules profiles', desc: 'Kural gerçekten bu VS\'ye bağlı mı? HTTP_* olayı kullanan kural HTTP profili olmayan VS\'ye bağlanamaz: "01070394:3: HTTP_REQUEST event in rule (/Common/x) requires an associated HTTP or FASTHTTP profile on the virtual server (/Common/vs)."',
+                  fix: [{ cause: 'VS\'de HTTP profili yok', cmd: 'tmsh modify ltm virtual vs_web profiles add { http }' }, { cause: 'Kural VS\'ye bağlı değil (mevcutları koruyarak ekle)', cmd: 'tmsh modify ltm virtual vs_web rules add { r_kural }' }] },
+                { code: 'tmsh show ltm rule r_kural', desc: 'Executions Total artıyor mu? Artmıyorsa olay tetiklenmiyor (yanlış olay, VS\'ye trafik gelmiyor ya da başka bir kural önce yanıt veriyor). Failures artıyorsa kural çalışırken hata veriyor.' },
+                { code: 'grep -E "01220001|01070151" /var/log/ltm', desc: '01070151 kayıt hatasıdır: [undefined procedure: X] yazım hatası; [command is not valid in current event context (HTTP_RESPONSE)] istek komutunun yanıt olayında kullanılması (HTTP::uri\'yi HTTP_REQUEST\'te bir değişkene alın); Unable to find pool (p) olmayan pool adı. 01220001 TCL error çalışma hatasıdır ve bağlantı sıfırlanır: "no such variable" tanımsız değişken; "Multiple redirect/respond invocations not allowed" aynı istekte ikinci yanıt.',
+                  fix: [{ cause: 'Tanımsız değişken (bazı yollarda set edilmiyor)', cmd: '# değişkeni her yolda başlatın ya da okumadan önce sınayın:\nif { [info exists user] } { log local0. "kullanıcı: $user" }' }, { cause: 'İkinci respond/redirect', cmd: '# ilk yanıttan sonra olaydan çıkın:\nHTTP::respond 403 content "Erişim yok"\nreturn' }] },
+                { code: 'tmsh modify sys db tm.rstcause.log value enable', desc: 'Sıfırlamaların nedeni loga yazılır: "01230140:3: RST sent from … iRule execution error" satırı sorunun iRule\'da olduğunu kanıtlar. İş bitince disable yapın.' },
+                { code: 'tmsh list ltm rule r_kural', desc: 'Birden çok kural aynı olayı kullanıyorsa sırayı priority belirler (küçük önce, varsayılan 500; eşitse VS\'deki sıra). Bir kuralın verdiği pool kararını sonraki kural ezebilir.' },
+            ]
+        },
 ];
 })();

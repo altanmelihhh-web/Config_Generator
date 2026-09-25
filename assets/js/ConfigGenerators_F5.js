@@ -260,50 +260,90 @@ F5LTM.irule = {
         cgFormBuilder(container, {
             topic: {
                 icon: 'fas fa-code',
-                title: 'iRule',
-                desc: 'Trafik akışını kontrol etmek için TCL tabanlı iRule oluşturur; başlık ekleme, HTTPS yönlendirme veya header bazlı pool seçimi desteklenir.'
+                title: 'iRule Şablonları (doğrulanmış)',
+                desc: 'CLI Lab\'daki iRule simülatöründe denenmiş şablonlardan kural üretir; tmsh ile yükleme ve virtual server\'a bağlama adımlarını verir.<br>Örnek: <code>when HTTP_REQUEST { HTTP::respond 301 Location "https://[getfield [HTTP::host] ":" 1][HTTP::uri]" }</code>',
+                badge: { text: 'iRule', cls: 'info' }
             },
             sections: [
                 {
-                    title: 'iRule Tipi',
+                    title: 'Şablon',
                     icon: 'fas fa-random',
                     fields: [
-                        { name: 'irule_name', why: "iRule adı VS'ye bağlanırken kullanılır ve partition duyarlıdır; adı sonradan değiştirmek bağlı tüm VS'lerde referansı koparır ve iRule sessizce çalışmaz hale gelir.", label: 'iRule Adı', type: 'text', required: true, placeholder: 'IRULE_XFORWARD', hint: 'iRule için benzersiz bir isim.' },
-                        { name: 'irule_type', why: "Seçilen olay iRule'un trafiğin hangi aşamasında çalışacağını belirler; <code>HTTP_REQUEST</code> içinde SSL bilgisine erişilemez, bunun için <code>CLIENTSSL_HANDSHAKE</code> gerekir. Yanlış event seçimi iRule'un hiç tetiklenmemesine yol açar.", label: 'iRule Tipi', type: 'select', options: [
-                            { value: 'xforward', label: 'X-Forwarded-For Insert' },
-                            { value: 'redirect', label: 'HTTP → HTTPS Redirect' },
-                            { value: 'pool_select', label: 'Header\'a göre Pool Seç' }
-                        ]}
+                        { name: 'irule_name', label: 'iRule Adı', type: 'text', required: true, placeholder: 'r_https', hint: 'Harf, rakam, _ . - ' },
+                        { name: 'irule_type', why: "Her şablon CLI Lab'da (f5-30 … f5-35) simülatörde çalıştırılarak doğrulandı. HTTP olayı kullanan kural HTTP profili olmayan VS'ye bağlanamaz (01070394).", label: 'Şablon', type: 'select', options: [
+                            { value: 'redirect', label: 'HTTP → HTTPS yönlendirme' },
+                            { value: 'xff', label: 'X-Forwarded-For (gerçek istemci IP\'si)' },
+                            { value: 'sechdr', label: 'Güvenlik başlıkları + Server gizleme' },
+                            { value: 'path', label: 'Yola göre pool seçimi' },
+                            { value: 'host', label: 'Host adına göre pool seçimi' },
+                            { value: 'header', label: 'Başlık değerine göre pool seçimi' },
+                            { value: 'acl', label: 'Yola erişimi IP listesiyle kısıtla (data group)' },
+                            { value: 'sorry', label: 'Özür sayfası (LB_FAILED, 503)' },
+                            { value: 'method', label: 'HTTP metodu kısıtlama (TRACE vb.)' },
+                            { value: 'log', label: 'İstek / yanıt loglama (test için)' }
+                        ]},
+                        { name: 'vs', label: 'Bağlanacak virtual server (opsiyonel)', type: 'text', optional: true, placeholder: 'vs_web', hint: 'VS\'de HTTP profili olmalı.' }
                     ]
                 },
                 {
-                    title: 'Pool Seçimi Ayarları',
-                    icon: 'fas fa-filter',
+                    title: 'Şablon ayarları',
+                    icon: 'fas fa-sliders-h',
                     fields: [
-                        { name: 'hdr_name', why: "Header adı büyük/küçük harf duyarsızdır, ancak istemci bu başlığı hiç göndermezse koşul sessizce false döner ve trafik default pool'a gider. Güvenlik kararı istemci başlığına dayandırılıyorsa başlık dışarıdan sahte gönderilebileceği için önce temizlenmelidir.", label: 'Header Adı', type: 'text', requiredIf: { field: 'irule_type', in: ['pool_select'] }, placeholder: 'X-Tenant', hint: 'Eşleştirilecek HTTP header adı.' },
-                        { name: 'hdr_val', why: "Değer karşılaştırması birebir yapılır; büyük/küçük harf veya boşluk farkı eşleşmeyi sessizce bozar. Beklenmeyen değerler için mutlaka bir varsayılan davranış tanımlanmalıdır.", label: 'Header Değeri', type: 'text', requiredIf: { field: 'irule_type', in: ['pool_select'] }, placeholder: 'tenant-a', hint: 'Eşleşme koşulu değeri.' },
-                        { name: 'target_pool', why: "Hedef pool iRule çalıştığı anda mevcut değilse bağlantı düşer ve LTM log'una <code>no pool member available</code> yazılır. Pool seçimi iRule ile yapılsa bile VS'in default pool'u yedek olarak tanımlanmalıdır.", label: 'Hedef Pool', type: 'text', requiredIf: { field: 'irule_type', in: ['pool_select'] }, placeholder: 'POOL_TENANT_A', hint: 'Eşleşme durumunda trafiğin gönderileceği pool.' }
+                        { name: 'code', label: 'Yönlendirme kodu', type: 'select', options: [{ value: '301', label: '301 kalıcı (HTTP::respond)' }, { value: '302', label: '302 geçici (HTTP::redirect)' }] },
+                        { name: 'prefix', label: 'Yol öneki', type: 'text', optional: true, placeholder: '/api/', hint: 'Yol / erişim şablonları için.' },
+                        { name: 'host', label: 'Host adı', type: 'text', optional: true, placeholder: 'api.lab.example' },
+                        { name: 'hdr_name', label: 'Başlık adı', type: 'text', optional: true, placeholder: 'X-Tenant' },
+                        { name: 'hdr_val', label: 'Başlık değeri', type: 'text', optional: true, placeholder: 'tenant-a' },
+                        { name: 'pool_a', why: "Kuralda adıyla yazılan pool kayıt sırasında doğrulanır: yoksa kural reddedilir (<code>01070151 … Unable to find pool</code>).", label: 'Hedef pool', type: 'text', optional: true, placeholder: 'api_pool' },
+                        { name: 'dg', label: 'Data group adı (IP listesi)', type: 'text', optional: true, placeholder: 'dg_yonetim' },
+                        { name: 'nets', label: 'İzinli ağlar (virgülle)', type: 'text', optional: true, placeholder: '10.240.0.0/16' },
+                        { name: 'msg', label: 'Özür sayfası metni', type: 'text', optional: true, placeholder: 'Bakımdayız, kısa süre sonra dönüyoruz.' }
                     ]
                 }
             ],
-            submit: 'Konfigürasyon Oluştur'
-        }, (data) => {
-            const { irule_type, irule_name, hdr_name, hdr_val, target_pool } = data;
-            let iruleBody = '';
-            if (irule_type === 'xforward') {
-                iruleBody = 'when HTTP_REQUEST {\n    HTTP::header insert "X-Forwarded-For" [IP::client_addr]\n}';
-            } else if (irule_type === 'redirect') {
-                iruleBody = 'when HTTP_REQUEST {\n    HTTP::redirect "https://[HTTP::host][HTTP::uri]"\n}';
-            } else {
-                iruleBody = 'when HTTP_REQUEST {\n    if { [HTTP::header value "' + hdr_name + '"] eq "' + hdr_val + '" } {\n        pool ' + target_pool + '\n    }\n}';
-            }
-            let c = '# ========================================\n# F5 BIG-IP LTM — iRule\n# ========================================\n\n';
-            c += 'tmsh create ltm rule ' + irule_name + ' {\n' + iruleBody + '\n}\n\n';
-            c += '# Doğrulama:\n# tmsh show ltm rule ' + irule_name + '\n';
-            return c;
-        });
+            submit: 'iRule Oluştur'
+        }, (data) => cgF5IruleGen(data));
     }
 };
+function cgF5IruleGen(data) {
+    const w = [], v = k => String(data[k] || '').trim(), q = x => x.replace(/["\\\[\]$]/g, '\\$&');
+    const name = v('irule_name'), t = data.irule_type, vs = v('vs');
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,62}$/.test(name)) w.push('⛔ Kural adı harfle başlamalı; harf, rakam, _ . - kullanın.');
+    const pool = v('pool_a') || '<pool>', pre = v('prefix') || '/api/', host = v('host').toLowerCase() || '<host>', dg = v('dg') || 'dg_izinli';
+    let body = '', extra = '';
+    switch (t) {
+        case 'redirect':
+            body = data.code === '302' ? 'when HTTP_REQUEST {\n    HTTP::redirect "https://[getfield [HTTP::host] ":" 1][HTTP::uri]"\n}' : 'when HTTP_REQUEST {\n    HTTP::respond 301 Location "https://[getfield [HTTP::host] ":" 1][HTTP::uri]"\n}';
+            w.push('⚠ Yalnız 80\'deki HTTP virtual server\'a bağlayın; HTTPS VS\'ye bağlanırsa sonsuz yönlendirme döngüsü olur.');
+            if (data.code === '302') w.push('ℹ HTTP::redirect her zaman 302 döner ve kod parametresi almaz; kalıcı yönlendirme için 301 seçin (HTTP::respond).');
+            break;
+        case 'xff': body = 'when HTTP_REQUEST {\n    # replace: istemcinin gönderdiği sahte değeri gerçek adresle değiştirir\n    HTTP::header replace X-Forwarded-For [IP::client_addr]\n}'; w.push('ℹ Aynı işi HTTP profilinde insert-xforwarded-for enabled da yapar; ikisini birlikte kullanmayın.'); break;
+        case 'sechdr': body = 'when HTTP_RESPONSE {\n    HTTP::header remove Server\n    HTTP::header remove X-Powered-By\n    HTTP::header replace Strict-Transport-Security "max-age=31536000; includeSubDomains"\n    HTTP::header replace X-Frame-Options SAMEORIGIN\n    HTTP::header replace X-Content-Type-Options nosniff\n}'; w.push('⚠ HSTS yalnız HTTPS sitelerinde anlamlıdır; tarayıcı bir yıl boyunca HTTP\'ye dönmez. Önce kısa max-age ile deneyin.'); break;
+        case 'path': body = 'when HTTP_REQUEST {\n    switch -glob -- [string tolower [HTTP::path]] {\n        "' + q(pre.toLowerCase()) + '*" { pool ' + pool + ' }\n        default { }\n    }\n}'; w.push('ℹ default dalı boş: diğer istekler VS\'nin varsayılan pool\'una gider.'); if (!/\/$/.test(pre)) w.push('⚠ Önek "/" ile bitmiyor: ' + pre + 'xyz gibi yollar da eşleşir.'); break;
+        case 'host': body = 'when HTTP_REQUEST {\n    if { [string tolower [getfield [HTTP::host] ":" 1]] eq "' + q(host) + '" } {\n        pool ' + pool + '\n        return\n    }\n}'; break;
+        case 'header': body = 'when HTTP_REQUEST {\n    if { [HTTP::header value "' + q(v('hdr_name') || 'X-Tenant') + '"] eq "' + q(v('hdr_val') || 'tenant-a') + '" } {\n        pool ' + pool + '\n        return\n    }\n}'; w.push('⚠ Başlık istemciden gelir ve sahte gönderilebilir: güvenlik kararı için kullanmayın.'); break;
+        case 'acl': {
+            const nets = v('nets').split(/[\s,]+/).filter(Boolean);
+            if (!nets.length) w.push('⛔ En az bir izinli ağ girin (ör. 10.240.0.0/16).');
+            extra = 'tmsh create ltm data-group internal ' + dg + ' type ip records add { ' + (nets.length ? nets.map(n => n + ' { }').join(' ') : '10.240.0.0/16 { }') + ' }\n';
+            body = 'when HTTP_REQUEST {\n    if { [HTTP::path] starts_with "' + q(pre) + '" and ![class match [IP::client_addr] equals ' + dg + '] } {\n        HTTP::respond 403 content "Erisim yok" Content-Type "text/plain"\n        return\n    }\n}';
+            w.push('ℹ Liste data group\'ta: yeni ağ eklemek için kuralı değil listeyi değiştirin (modify ltm data-group internal ' + dg + ' records add { … }).');
+            break;
+        }
+        case 'sorry': body = 'when LB_FAILED {\n    HTTP::respond 503 content "<html><body><h1>' + q(v('msg') || 'Bakımdayız') + '</h1></body></html>" Content-Type "text/html" Retry-After 600\n}'; w.push('ℹ Yalnız pool\'da gönderilecek üye kalmadığında çalışır; 503 + Retry-After arama motorları için doğru koddur.'); break;
+        case 'method': body = 'when HTTP_REQUEST {\n    switch -- [HTTP::method] {\n        GET - HEAD - POST - PUT - DELETE - OPTIONS { }\n        default {\n            HTTP::respond 405 content "Method Not Allowed" Allow "GET, HEAD, POST, PUT, DELETE, OPTIONS"\n            return\n        }\n    }\n}'; break;
+        case 'log': body = 'when HTTP_REQUEST {\n    set uri [HTTP::uri]\n    log local0. "[IP::client_addr] [HTTP::method] [HTTP::host]$uri"\n}\nwhen HTTP_RESPONSE {\n    # HTTP::uri burada geçersiz: değer HTTP_REQUEST\'te saklandı\n    log local0. "$uri -> [HTTP::status]"\n}'; w.push('⚠ Her istek /var/log/ltm\'e yazılır: yalnız test süresince bağlı tutun.'); break;
+    }
+    if (['path', 'host', 'header'].includes(t) && !v('pool_a')) w.push('⛔ Hedef pool adını girin; kuraldaki pool kayıtta doğrulanır.');
+    let c = '# ========================================\n# F5 BIG-IP LTM — iRule: ' + name + '\n# ========================================\n\n';
+    if (extra) c += '# 1) Data group\n' + extra + '\n';
+    c += '# ' + (extra ? '2' : '1') + ') Kuralı yükle: tmsh\'e yapıştırın, sonra Ctrl+D (ya da GUI: Local Traffic > iRules > Create / tmsh edit ltm rule ' + name + ')\n';
+    c += 'tmsh load sys config merge from-terminal\nltm rule ' + name + ' {\n' + body + '\n}\n\n';
+    if (vs) c += '# Virtual server\'a ekle (mevcut kurallar korunur)\ntmsh modify ltm virtual ' + vs + ' rules add { ' + name + ' }\n\n';
+    c += '# Doğrulama\ntmsh list ltm rule ' + name + '\ntmsh show ltm rule ' + name + '   # Executions / Failures\ngrep "' + name + '" /var/log/ltm   # TCL error (01220001) var mı?\ntmsh save sys config\n';
+    w.push('ℹ Bu şablonu CLI Lab\'da iRule simülatöründe deneyebilirsiniz (Lab > F5 > Seviye 7).');
+    return { config: c.replace(/ {2,}#/g, ' #'), warnings: w };
+}
 
 // ── F5 LTM: Persistence ──────────────────────────────────────────────────────
 F5LTM.persistence = {
