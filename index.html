@@ -24,9 +24,9 @@
 </head>
 <body>
   <header class="app-topbar">
-    <a class="app-brand" href="#" onclick="ConfigGenerator.goHome();return false">
+    <a class="app-brand" href="#" aria-label="Config Generator — ana sayfa" onclick="ConfigGenerator.goHome();return false">
       <span class="app-brand-logo"><i class="fas fa-terminal"></i></span>
-      <span>Config Generator<small>Network konfigürasyon üretici &amp; dönüştürücü</small></span>
+      <span class="app-brand-txt">Config Generator<small>Network konfigürasyon üretici &amp; dönüştürücü</small></span>
     </a>
     <nav class="app-nav" id="app-nav">
       <button class="app-nav-tab active" data-nav="tools" title="Araçlar" aria-label="Araçlar" onclick="ConfigGenerator.goHome()">
@@ -34,6 +34,9 @@
       </button>
       <button class="app-nav-tab" data-nav="cli" title="Komutlar" aria-label="Komutlar" onclick="location.hash='#/cli'">
         <i class="fas fa-terminal"></i> <span class="app-nav-l">Komutlar</span>
+      </button>
+      <button class="app-nav-tab" data-nav="lab" title="Laboratuvar" aria-label="Laboratuvar" onclick="location.hash='#/lab'">
+        <i class="fas fa-flask"></i> <span class="app-nav-l">Lab</span>
       </button>
       <button class="app-nav-tab" data-nav="ts" title="Sorun Giderme" aria-label="Sorun Giderme" onclick="location.hash='#/troubleshoot'">
         <i class="fas fa-stethoscope"></i> <span class="app-nav-l">Sorun Giderme</span>
@@ -100,6 +103,7 @@
   <script src="assets/js/cg-brands.js"></script>
   <script src="assets/js/CgCli.js"></script>
   <script src="assets/js/CgTroubleshoot.js"></script>
+  <script src="assets/js/CgLab.js"></script>
   <script src="assets/js/ConfigGeneratorManagement.js"></script>
   <script src="assets/js/app.js"></script>
 </body>

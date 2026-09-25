@@ -1795,6 +1795,8 @@ const ConfigGenerator = {
         const h = location.hash || '';
         const cli = h.match(/^#\/cli(?:\/([a-z0-9-]+))?$/);
         if (cli) { this._renderCli(cli[1]); return; }
+        const lab = h.match(/^#\/lab(?:\/([a-z0-9-]+))?$/);
+        if (lab) { this._renderLab(lab[1]); return; }
         const ts = h.match(/^#\/troubleshoot(?:\/([a-z0-9-]+))?(?:\/(\d+))?$/);
         if (ts) { this._renderTs(ts[1], ts[2]); return; }
         const m = h.match(/^#\/([^/]+)\/([^/]+)$/);
@@ -2055,6 +2057,15 @@ const ConfigGenerator = {
         this._vendor = this._type = null;
         if (typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Komut kütüphanesi yüklenemedi.</p></div>'; return; }
         CgCli.render(this._root, vendor);
+    },
+
+    // ── CLI LABORATUVARI: görevli terminal simülatörü ────────────────────
+    _renderLab(id) {
+        this._setNav('lab');
+        this._vendor = this._type = null;
+        if (typeof CgLab === 'undefined' || typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Laboratuvar yüklenemedi.</p></div>'; return; }
+        CgLab.render(this._root, id);
+        window.scrollTo(0, 0);
     },
 
     // ── SORUN GİDERME: senaryo tabanlı adım adım sihirbaz ────────────────
