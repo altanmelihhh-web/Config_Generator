@@ -161,7 +161,7 @@ const CgIRule = (() => {
             if (c === '[') { let d = 0, j = i; for (; j < n; j++) { if (s[j] === '\\') { j++; continue; } if (s[j] === '[') d++; else if (s[j] === ']') { d--; if (!d) break; } else if (s[j] === '{') { let bd = 0; for (; j < n; j++) { if (s[j] === '{') bd++; else if (s[j] === '}') { bd--; if (!bd) break; } } } } const r = I.evalScript(parse(s.slice(i + 1, j))); i = j + 1; return r; }
             if (c === '"') { let j = i + 1; while (j < n && s[j] !== '"') { if (s[j] === '\\') j++; j++; } const v = I.subst(s.slice(i + 1, j)); i = j + 1; return v; }
             if (c === '{') { let d = 0, j = i; for (; j < n; j++) { if (s[j] === '{') d++; else if (s[j] === '}') { d--; if (!d) break; } } const v = s.slice(i + 1, j); i = j + 1; return v; }
-            const m = s.slice(i).match(/^(0x[0-9a-fA-F]+|\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+)/); if (m) { i += m[0].length; return Number(m[0]); }
+            const m = s.slice(i).match(/^-?(0x[0-9a-fA-F]+|\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+)/); if (m) { i += m[0].length; return Number(m[0]); }
             const f = s.slice(i).match(/^([a-z]+)\s*\(/); if (f) { i += f[0].length; const args = []; ws(); if (s[i] !== ')') { for (;;) { args.push(orE()); ws(); if (s[i] === ',') { i++; continue; } break; } } if (s[i] !== ')') throw new TclError('missing close parenthesis'); i++; return mathFn(f[1], args.map(a => num(a) === null ? 0 : num(a))); }
             const w = s.slice(i).match(/^[A-Za-z_][A-Za-z0-9_]*/); if (w && ['true', 'false', 'yes', 'no', 'on', 'off'].includes(w[0])) { i += w[0].length; return ['true', 'yes', 'on'].includes(w[0]) ? 1 : 0; }
             throw new TclError('syntax error in expression "' + s + '"' + (w ? ': variable references require preceding $' : ''));
@@ -242,7 +242,11 @@ const CgIRule = (() => {
             call(args, c) {
                 const name = args[0];
                 const f = CORE[name] || F5[name] || (ctx.cmds && ctx.cmds[name]);
-                if (f) return String(f(I, args.slice(1), c) ?? '');
+                if (f) {
+                    // komut uygulamasındaki JS hatası labı çökertmesin: Tcl hatasına çevir (eksik argüman en sık neden)
+                    try { return String(f(I, args.slice(1), c) ?? ''); }
+                    catch (e) { if (e instanceof TclError || e instanceof Flow) throw e; throw new TclError('wrong # args: ' + name + ' [Simülatör]'); }
+                }
                 if (DISABLED.includes(name)) throw new TclError('invalid command name "' + name + '"', 'disabled');
                 const ns = String(name).match(/^([A-Z][A-Za-z0-9]*)::/);
                 if (ns && F5_NS.includes(ns[1])) { ctx.note('[Simülatör] ' + name + ' bu lab sürümünde etkisiz (desteklenmiyor).'); return ''; }
@@ -424,12 +428,12 @@ const CgIRule = (() => {
         C['HTTP::payload'] = (I) => (isResp(I) ? I.ctx.resp.body || '' : '');
         C['HTTP::is_redirect'] = (I) => (isResp(I) && /^30[1237]$/.test(String(I.ctx.resp.status)) ? '1' : '0');
         C['HTTP::disable'] = (I) => { I.ctx.act.httpOff = true; return ''; };
-        C['URI::path'] = (I, a) => { const p = splitUri(a[0])[0]; const k = p.lastIndexOf('/'); return k < 0 ? '/' : p.slice(0, k + 1); };
-        C['URI::basename'] = (I, a) => { const p = splitUri(a[0])[0]; return p.slice(p.lastIndexOf('/') + 1); };
-        C['URI::query'] = (I, a) => { const q = splitUri(a[0])[1]; if (a.length === 1) return q; const m = q.split('&').map(x => x.split('=')).find(x => x[0] === a[1]); return m ? (m[1] || '') : ''; };
-        C['URI::decode'] = (I, a) => { try { return decodeURIComponent(a[0].replace(/\+/g, ' ')); } catch (e) { return a[0]; } };
-        C['URI::encode'] = (I, a) => encodeURIComponent(a[0]);
-        C['URI::protocol'] = (I, a) => { const m = a[0].match(/^([a-z]+):/i); return m ? m[1] : ''; };
+        C['URI::path'] = (I, a) => { need(a, 1, 1, 'URI::path uri'); const p = splitUri(a[0])[0]; const k = p.lastIndexOf('/'); return k < 0 ? '/' : p.slice(0, k + 1); };
+        C['URI::basename'] = (I, a) => { need(a, 1, 1, 'URI::basename uri'); const p = splitUri(a[0])[0]; return p.slice(p.lastIndexOf('/') + 1); };
+        C['URI::query'] = (I, a) => { need(a, 1, 2, 'URI::query uri ?name?'); const q = splitUri(a[0])[1]; if (a.length === 1) return q; const m = q.split('&').map(x => x.split('=')).find(x => x[0] === a[1]); return m ? (m[1] || '') : ''; };
+        C['URI::decode'] = (I, a) => { need(a, 1, 1, 'URI::decode string'); try { return decodeURIComponent(a[0].replace(/\+/g, ' ')); } catch (e) { return a[0]; } };
+        C['URI::encode'] = (I, a) => (need(a, 1, 1, 'URI::encode string'), 0) || encodeURIComponent(a[0]);
+        C['URI::protocol'] = (I, a) => { need(a, 1, 1, 'URI::protocol uri'); const m = a[0].match(/^([a-z]+):/i); return m ? m[1] : ''; };
         C['IP::client_addr'] = (I) => I.ctx.client.ip;
         C['IP::remote_addr'] = (I) => (/^(SERVER_|HTTP_RESPONSE|LB_SELECTED)/.test(ev(I)) && I.ctx.lb && I.ctx.lb.ip ? I.ctx.lb.ip : I.ctx.client.ip);
         C['IP::local_addr'] = (I) => (/^(SERVER_|HTTP_RESPONSE)/.test(ev(I)) && I.ctx.lb && I.ctx.lb.snat ? I.ctx.lb.snat : I.ctx.vs.ip);
@@ -543,6 +547,8 @@ const CgIRule = (() => {
     // ifade içindeki [komut] parçalarını tara
     function scanExpr(text, line) {
         for (let i = 0; i < text.length; i++) {
+            // süslü parantezli işlenen (ör. matches_regex {…[A-Z]…}) değişmezdir: içinde komut aranmaz
+            if (text[i] === '{') { let d = 0; for (; i < text.length; i++) { if (text[i] === '\\') { i++; continue; } if (text[i] === '{') d++; else if (text[i] === '}' && !--d) break; } continue; }
             if (text[i] !== '[') continue;
             let d = 0, j = i; for (; j < text.length; j++) { if (text[j] === '\\') { j++; continue; } if (text[j] === '[') d++; else if (text[j] === ']') { d--; if (!d) break; } }
             if (j >= text.length) return null;
