@@ -81,7 +81,7 @@ const CgLabIos = (() => {
     function newIf(sw, name) {
         return { desc: '', shutdown: !sw && isPhys(name), mode: null, accessVlan: 1, voiceVlan: null, native: 1, allowed: null,
             nonegotiate: false, ip: null, mask: null, portfast: false, bpduguard: false, speed: 'auto', duplex: 'auto', errdis: false, errReason: null, accessIn: null, accessOut: null, nat: null,
-            helpers: [], ps: null };
+            helpers: [], ps: null, ospf: { hello: null, dead: null, cost: null, pri: 1, net: null, pid: null, area: null }, mtu: 1500 };
     }
     function baseModel(lab) {
         const sw = lab.kind !== 'router';
@@ -150,6 +150,12 @@ const CgLabIos = (() => {
             { p: 'show ip route', run: () => showIpRoute() },
             { p: 'show ip route static', run: () => showIpRoute('static') },
             { p: 'show ip route connected', run: () => showIpRoute('connected') },
+            { p: 'show ip route ospf', run: () => showIpRoute('ospf') },
+            { p: 'show ip ospf', run: () => showOspf() },
+            { p: 'show ip ospf neighbor', run: () => showOspfNbr() },
+            { p: 'show ip ospf interface', run: () => ospfIfList().map(showOspfIf).join('\n') },
+            { p: 'show ip ospf interface brief', run: () => showOspfIfBrief() },
+            { p: 'show ip ospf interface IFNAME$i', run: (a) => showOspfIf(a.i) },
             { p: 'show ip route A.B.C.D$ip', run: (a) => showRouteFor(a.ip) },
             { p: 'show interfaces IFNAME$if', run: (a) => showIfDetail(a.if) },
             { p: 'show interfaces status err-disabled', sw: 1, run: showErrDis },
@@ -289,6 +295,13 @@ const CgLabIos = (() => {
             { p: 'switchport trunk allowed vlan add VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { if (i.allowed) i.allowed = [...new Set(i.allowed.concat(vlanList(a.l)))].sort((x, y) => x - y); }), neg: false },
             { p: 'switchport trunk allowed vlan remove VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { const all = i.allowed || range('', 1, 4094).map(Number); const rm = vlanList(a.l); i.allowed = all.filter(v => !rm.includes(v)); }), neg: false },
             { p: 'switchport trunk allowed vlan !VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { i.allowed = vlanList(a.l); }), no: () => secsIf().forEach(i => { i.allowed = null; }) },
+            { p: 'ip ospf hello-interval !(1-65535)$v', run: (a) => secsIf().forEach(i => { i.ospf.hello = a.v; }), no: () => secsIf().forEach(i => { i.ospf.hello = null; }) },
+            { p: 'ip ospf dead-interval !(1-65535)$v', run: (a) => secsIf().forEach(i => { i.ospf.dead = a.v; }), no: () => secsIf().forEach(i => { i.ospf.dead = null; }) },
+            { p: 'ip ospf cost !(1-65535)$v', run: (a) => secsIf().forEach(i => { i.ospf.cost = a.v; }), no: () => secsIf().forEach(i => { i.ospf.cost = null; }) },
+            { p: 'ip ospf priority !(0-255)$v', run: (a) => secsIf().forEach(i => { i.ospf.pri = a.v; }), no: () => secsIf().forEach(i => { i.ospf.pri = 1; }) },
+            { p: 'ip ospf network !<point-to-point|broadcast>$t', run: (a) => secsIf().forEach(i => { i.ospf.net = a.t === 'broadcast' ? null : a.t; }), no: () => secsIf().forEach(i => { i.ospf.net = null; }) },
+            { p: 'ip ospf (1-65535)$pid area (0-4294967295)$a', run: (a) => secsIf().forEach(i => { i.ospf.pid = a.pid; i.ospf.area = a.a; }), no: () => secsIf().forEach(i => { i.ospf.pid = null; i.ospf.area = null; }) },
+            { p: 'ip mtu !(68-1500)$v', run: (a) => secsIf().forEach(i => { i.mtu = a.v; }), no: () => secsIf().forEach(i => { i.mtu = 1500; }) },
             { p: 'ip helper-address A.B.C.D$ip', run: (a) => secsIf().forEach(i => { if (!i.helpers.includes(a.ip)) i.helpers.push(a.ip); }), no: (a) => secsIf().forEach(i => { i.helpers = i.helpers.filter(x => x !== a.ip); }) },
             { p: 'switchport port-security', sw: 1, phys: 1, run: () => psecOn(), no: () => secsIf().forEach(i => { i.ps = null; }) },
             { p: 'switchport port-security maximum !(1-8192)$n', sw: 1, phys: 1, run: (a) => psecSet(i => { i.ps.max = a.n; }), no: () => psecSet(i => { i.ps.max = 1; }) },
@@ -324,8 +337,9 @@ const CgLabIos = (() => {
             { p: 'router-id !A.B.C.D$r', run: (a) => { osp().rid = a.r; return '% OSPF: Reload or use "clear ip ospf process" command, for this to take effect'; }, no: () => { osp().rid = null; } },
             { p: 'network A.B.C.D$n WILD$w area (0-4294967295)$a', run: (a) => { const o = osp(); if (!o.nets.some(x => x.n === a.n && x.w === a.w)) o.nets.push({ n: a.n, w: a.w, a: a.a }); }, no: (a) => { const o = osp(); o.nets = o.nets.filter(x => !(x.n === a.n && x.w === a.w)); } },
             { p: 'passive-interface default', run: () => { osp().passiveDefault = true; osp().passive = []; }, no: () => { osp().passiveDefault = false; osp().passive = []; } },
-            { p: 'passive-interface IFNAME$i', run: (a) => { const o = osp(); if (!o.passive.includes(a.i)) o.passive.push(a.i); }, no: (a) => { const o = osp(); o.passive = o.passive.filter(x => x !== a.i); if (o.passiveDefault && !o.passive.includes('!' + a.i)) o.passive.push('!' + a.i); } },
+            { p: 'passive-interface IFNAME$i', run: (a) => { const o = osp(); if (o.passiveDefault) { o.passive = o.passive.filter(x => x !== '!' + a.i); return; } if (!o.passive.includes(a.i)) o.passive.push(a.i); }, no: (a) => { const o = osp(); o.passive = o.passive.filter(x => x !== a.i); if (o.passiveDefault && !o.passive.includes('!' + a.i)) o.passive.push('!' + a.i); } },
             { p: 'default-information originate', run: () => { osp().dio = true; }, no: () => { osp().dio = false; } },
+            { p: 'auto-cost reference-bandwidth !(1-4294967)$b', run: (a) => { osp().refbw = a.b; return '% OSPF: Reference bandwidth is changed.\n        Please ensure reference bandwidth is consistent across all routers.'; }, no: () => { osp().refbw = null; } },
         ].concat(COMMON));
         const DHCPM = X([
             { p: 'network A.B.C.D$n MASK$m', run: (a) => { if (netOf(a.n, maskLen(a.m)) !== ip2n(a.n)) return '% [Simülatör] Ağ adresi maskeyle uyumlu değil (ör. 10.64.10.0 255.255.255.0).'; Object.assign(pool(), { network: a.n, mask: a.m }); }, no: () => Object.assign(pool(), { network: null, mask: null }) },
@@ -718,6 +732,13 @@ const CgLabIos = (() => {
                 if (i.accessOut) L.push(' ip access-group ' + i.accessOut + ' out');
                 if (i.nat) L.push(' ip nat ' + i.nat);
                 i.helpers.forEach(h => L.push(' ip helper-address ' + h));
+                if (i.mtu !== 1500) L.push(' ip mtu ' + i.mtu);
+                if (i.ospf.pid) L.push(' ip ospf ' + i.ospf.pid + ' area ' + i.ospf.area);
+                if (i.ospf.net) L.push(' ip ospf network ' + i.ospf.net);
+                if (i.ospf.hello) L.push(' ip ospf hello-interval ' + i.ospf.hello);
+                if (i.ospf.dead) L.push(' ip ospf dead-interval ' + i.ospf.dead);
+                if (i.ospf.pri !== 1) L.push(' ip ospf priority ' + i.ospf.pri);
+                if (i.ospf.cost) L.push(' ip ospf cost ' + i.ospf.cost);
                 if (i.ps) {
                     if (!i.ps.off) L.push(' switchport port-security');
                     if (i.ps.max !== 1) L.push(' switchport port-security maximum ' + i.ps.max);
@@ -736,6 +757,7 @@ const CgLabIos = (() => {
             for (const [pid, o] of Object.entries(m.ospf)) {
                 L.push('router ospf ' + pid);
                 if (o.rid) L.push(' router-id ' + o.rid);
+                if (o.refbw) L.push(' auto-cost reference-bandwidth ' + o.refbw);
                 if (o.passiveDefault) L.push(' passive-interface default');
                 o.passive.forEach(p => L.push(p[0] === '!' ? ' no passive-interface ' + p.slice(1) : ' passive-interface ' + p));
                 o.nets.forEach(x => L.push(' network ' + x.n + ' ' + x.w + ' area ' + x.a));
@@ -1293,6 +1315,125 @@ const CgLabIos = (() => {
         // RIB: connected + local + static (next-hop bağlı ağda ve arayüz up ise)
         // RIB: connected + local + static. Aynı önekte en düşük AD kazanır (eşitse ECMP);
         // next-hop bağlı bir ağda ve arayüz up değilse rota kurulmaz (yüzen rota böyle devreye girer).
+        // ═══ OSPF (lab.sim.ospf: sanal komşular) ═══════════════════════════════
+        // Komşu: { ifn, ip, rid, area, hello, dead, mtu, pri, net, routes: [{ net, len, cost, ia?, e2? }] }
+        // Komşuluk kuralları: arayüz up + OSPF'te + pasif değil + aynı alt ağ + aynı alan + aynı hello/dead;
+        // MTU farkı → EXSTART'ta takılır; iki taraf da öncelik 0 → 2WAY.
+        function ospfIf(n) {
+            const i = M().ifs[n];
+            if (!i || !i.ip) return null;
+            if (i.ospf.pid && M().ospf[i.ospf.pid]) return { pid: String(i.ospf.pid), area: i.ospf.area, how: 'Interface Config' };
+            let best = null;
+            for (const [pid, o] of Object.entries(M().ospf))
+                for (const x of o.nets) if (sameNet(x.n, i.ip, C.wildLen(x.w)) && (!best || C.wildLen(x.w) > best.l)) best = { pid, area: x.a, how: 'Network Statement', l: C.wildLen(x.w) };
+            return best;
+        }
+        const ospfPassive = (n, pid) => { const o = M().ospf[pid]; return o.passiveDefault ? !o.passive.includes('!' + n) : o.passive.includes(n); };
+        const ospfHello = i => i.ospf.hello || 10;
+        const ospfDead = i => i.ospf.dead || (i.ospf.hello ? i.ospf.hello * 4 : 40);
+        function ospfCost(n, pid) {
+            const i = M().ifs[n]; if (i.ospf.cost) return i.ospf.cost;
+            if (n.startsWith('Loopback')) return 1;
+            const bw = /^Gigabit/.test(n) ? 1000 : /^TenGig/.test(n) ? 10000 : 100, ref = (M().ospf[pid] && M().ospf[pid].refbw) || 100;
+            return Math.max(1, Math.floor(ref / bw));
+        }
+        function ospfRid(pid) {
+            const o = M().ospf[pid]; if (o && o.rid) return o.rid;
+            const up = Object.entries(M().ifs).filter(([n, i]) => i.ip && ifUp(n)), lo = up.filter(([n]) => n.startsWith('Loopback'));
+            const pick = (lo.length ? lo : up).map(([, i]) => i.ip).sort((a, b) => ip2n(b) - ip2n(a))[0];
+            return pick || '0.0.0.0';
+        }
+        function ospfNbrs() {
+            const out = [];
+            for (const nb0 of ((S.lab.sim && S.lab.sim.ospf) || [])) {
+                const nb = Object.assign({ area: 0, hello: 10, dead: 40, mtu: 1500, pri: 1, net: null, routes: [] }, nb0);
+                const i = M().ifs[nb.ifn], oi = ospfIf(nb.ifn);
+                if (!i || !ifUp(nb.ifn) || !oi || nb.down) continue;
+                if (ospfPassive(nb.ifn, oi.pid)) continue;
+                if (!sameNet(i.ip, nb.ip, maskLen(i.mask))) continue;
+                if (+oi.area !== +nb.area || ospfHello(i) !== nb.hello || ospfDead(i) !== nb.dead) continue;
+                let state = 'FULL';
+                if (i.mtu !== nb.mtu) state = 'EXSTART';
+                else if (!i.ospf.net && i.ospf.pri === 0 && nb.pri === 0) state = '2WAY';
+                const rid = ospfRid(oi.pid);
+                let role = '-', myRole = 'P2P';
+                if (i.ospf.net !== 'point-to-point') {
+                    const nbDR = nb.pri > i.ospf.pri || (nb.pri === i.ospf.pri && ip2n(nb.rid) > ip2n(rid));
+                    role = nb.pri === 0 ? 'DROTHER' : (i.ospf.pri === 0 || nbDR) ? 'DR' : 'BDR';
+                    myRole = i.ospf.pri === 0 ? 'DROTHER' : role === 'DR' ? 'BDR' : 'DR';
+                    if (state === '2WAY') { role = 'DROTHER'; myRole = 'DROTHER'; }
+                }
+                out.push(Object.assign({}, nb, { state, role, myRole, pid: oi.pid, myRid: rid }));
+            }
+            return out;
+        }
+        function ospfRoutes() {
+            const R = [];
+            ospfNbrs().filter(x => x.state === 'FULL').forEach(nb => nb.routes.forEach(r => {
+                const metric = ospfCost(nb.ifn, nb.pid) + (r.cost || 1);
+                R.push({ net: r.net, len: r.len, ad: 110, metric, nh: nb.ip, ifn: nb.ifn, ospf: true, code: r.e2 ? (r.len === 0 ? 'O*E2' : 'O E2') : r.ia ? 'O IA' : 'O' });
+            }));
+            return R;
+        }
+        // Komşuluk değişim olayları (gerçek IOS log biçimi)
+        function ospfEvents() {
+            const now = {}; ospfNbrs().forEach(nb => { now[nb.rid + '@' + nb.ifn] = nb; });
+            const prev = S.ospfPrev || {}, out = [], ts = () => '*' + new Date().toTimeString().slice(0, 8) + '.512: ';
+            for (const [k, nb] of Object.entries(now)) if (nb.state === 'FULL' && (!prev[k] || prev[k].state !== 'FULL')) { out.push(ts() + '%OSPF-5-ADJCHG: Process ' + nb.pid + ', Nbr ' + nb.rid + ' on ' + nb.ifn + ' from LOADING to FULL, Loading Done'); log({ event: 'ospf-full', nbr: nb.rid }); }
+            for (const [k, nb] of Object.entries(prev)) if (nb.state === 'FULL' && (!now[k] || now[k].state !== 'FULL')) { out.push(ts() + '%OSPF-5-ADJCHG: Process ' + nb.pid + ', Nbr ' + nb.rid + ' on ' + nb.ifn + ' from FULL to DOWN, Neighbor Down: ' + (M().ifs[nb.ifn] && ifUp(nb.ifn) && ospfIf(nb.ifn) && !ospfPassive(nb.ifn, ospfIf(nb.ifn).pid) ? 'Dead timer expired' : 'Interface down or detached')); log({ event: 'ospf-down', nbr: nb.rid }); }
+            S.ospfPrev = now;
+            return out.join('\n');
+        }
+        const dtime = d => '00:00:' + String(Math.max(0, d - 4)).padStart(2, '0');
+        function showOspfNbr() {
+            const L = ['', 'Neighbor ID     Pri   State           Dead Time   Address         Interface'];
+            ospfNbrs().forEach(nb => L.push(pad(nb.rid, 16) + padL(nb.pri, 3) + '   ' + pad(nb.state + '/' + (nb.role === '-' ? '  -' : nb.role), 16) + pad(dtime(nb.dead), 12) + pad(nb.ip, 16) + nb.ifn));
+            log({ ospfnbr: true });
+            return L.join('\n');
+        }
+        function ospfIfList() { return Object.keys(M().ifs).sort(ifCmp).filter(n => ospfIf(n)); }
+        function showOspfIfBrief() {
+            const L = ['Interface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C'], nbs = ospfNbrs();
+            ospfIfList().forEach(n => {
+                const i = M().ifs[n], oi = ospfIf(n), mine = nbs.filter(x => x.ifn === n);
+                const st = !ifUp(n) ? 'DOWN' : n.startsWith('Loopback') ? 'LOOP' : i.ospf.net === 'point-to-point' ? 'P2P' : mine.length ? mine[0].myRole : 'DR';
+                L.push(pad(ifShort(n), 13) + pad(oi.pid, 6) + pad(oi.area, 16) + pad(i.ip + '/' + maskLen(i.mask), 19) + pad(ospfCost(n, oi.pid), 6) + pad(st, 6) + mine.filter(x => x.state === 'FULL').length + '/' + mine.length);
+            });
+            return L.join('\n');
+        }
+        function showOspfIf(n) {
+            const i = M().ifs[n], oi = ospfIf(n);
+            if (!i) return '% Invalid interface';
+            if (!oi) return n + ' is ' + ifLine(n)[0] + ', line protocol is ' + ifLine(n)[1] + '\n  OSPF not enabled on this interface';
+            const nbs = ospfNbrs().filter(x => x.ifn === n), rid = ospfRid(oi.pid), p2p = i.ospf.net === 'point-to-point', pas = ospfPassive(n, oi.pid);
+            const L = [n + ' is ' + ifLine(n)[0] + ', line protocol is ' + ifLine(n)[1], '  Internet Address ' + i.ip + '/' + maskLen(i.mask) + ', Area ' + oi.area + ', Attached via ' + oi.how,
+                '  Process ID ' + oi.pid + ', Router ID ' + rid + ', Network Type ' + (n.startsWith('Loopback') ? 'LOOPBACK' : p2p ? 'POINT_TO_POINT' : 'BROADCAST') + ', Cost: ' + ospfCost(n, oi.pid)];
+            if (n.startsWith('Loopback')) { L.push('  Loopback interface is treated as a stub Host'); return L.join('\n'); }
+            const me = nbs[0];
+            L.push('  Transmit Delay is 1 sec, State ' + (p2p ? 'POINT_TO_POINT' : me ? me.myRole : 'DR') + (p2p ? '' : ', Priority ' + i.ospf.pri));
+            if (!p2p) {
+                const dr = me && me.role === 'DR' ? [me.rid, me.ip] : [rid, i.ip], bdr = me && me.role === 'DR' ? [rid, i.ip] : me && me.role === 'BDR' ? [me.rid, me.ip] : null;
+                L.push('  Designated Router (ID) ' + dr[0] + ', Interface address ' + dr[1]);
+                L.push(bdr ? '  Backup Designated router (ID) ' + bdr[0] + ', Interface address ' + bdr[1] : '  No backup designated router on this network');
+            }
+            L.push('  Timer intervals configured, Hello ' + ospfHello(i) + ', Dead ' + ospfDead(i) + ', Wait ' + ospfDead(i) + ', Retransmit 5');
+            L.push(pas ? '    No Hellos (Passive interface)' : '    Hello due in 00:00:0' + Math.min(9, ospfHello(i) - 3));
+            L.push('  Neighbor Count is ' + nbs.length + ', Adjacent neighbor count is ' + nbs.filter(x => x.state === 'FULL').length);
+            nbs.filter(x => x.state === 'FULL').forEach(x => L.push('    Adjacent with neighbor ' + x.rid + (x.role === 'DR' ? '  (Designated Router)' : x.role === 'BDR' ? '  (Backup Designated Router)' : '')));
+            L.push('  Suppress hello for 0 neighbor(s)');
+            log({ ospfif: n });
+            return L.join('\n');
+        }
+        function showOspf() {
+            const L = [];
+            for (const pid of Object.keys(M().ospf)) {
+                const ifs = ospfIfList().filter(n => ospfIf(n).pid === pid), areas = [...new Set(ifs.map(n => String(ospfIf(n).area)))].sort((a, b) => a - b);
+                L.push(' Routing Process "ospf ' + pid + '" with ID ' + ospfRid(pid), ' Start time: 00:00:04.212, Time elapsed: 01:12:44.108', ' Supports only single TOS(TOS0) routes',
+                    ' Reference bandwidth unit is ' + (M().ospf[pid].refbw || 100) + ' mbps', ' Number of areas in this router is ' + areas.length + '. ' + areas.length + ' normal 0 stub 0 nssa');
+                areas.forEach(a => { L.push('    Area ' + (a === '0' ? 'BACKBONE(0)' : a), '        Number of interfaces in this area is ' + ifs.filter(n => String(ospfIf(n).area) === a).length); });
+            }
+            return L.join('\n') || '%OSPF: Router process not running';
+        }
         function rib() {
             const R = [];
             for (const n of Object.keys(M().ifs)) {
@@ -1308,16 +1449,19 @@ const CgLabIos = (() => {
                 let ifn = null;
                 if (isIp(r.nh)) { const c = R.find(x => x.c === 'C' && sameNet(x.net, r.nh, x.len)); if (!c) continue; ifn = c.ifn; }
                 else { if (!ifUp(r.nh)) continue; ifn = r.nh; }
-                cands.push({ net: r.net, len, ad: r.ad, nh: r.nh, ifn });
+                cands.push({ net: r.net, len, ad: r.ad, nh: r.nh, ifn, metric: 0 });
             }
+            ospfRoutes().forEach(x => cands.push(x));
             const seen = {};
             for (const r of cands) {
                 const k = r.net + '/' + r.len;
                 if (seen[k]) continue;
                 if (R.some(x => x.c === 'C' && x.net === r.net && x.len === r.len)) continue;
-                const same = cands.filter(x => x.net === r.net && x.len === r.len), best = Math.min(...same.map(x => x.ad));
-                same.filter(x => x.ad === best).forEach((x, idx) => R.push({ c: x.len === 0 ? 'S*' : 'S', net: x.net, len: x.len, ad: x.ad, nh: x.nh, ifn: x.ifn, cont: idx > 0,
-                    via: isIp(x.nh) ? '[' + x.ad + '/0] via ' + x.nh : 'is directly connected, ' + x.nh }));
+                // En düşük AD, eşitse en düşük metrik; eşit metrikte ECMP
+                const same = cands.filter(x => x.net === r.net && x.len === r.len), best = Math.min(...same.map(x => x.ad)), bm = Math.min(...same.filter(x => x.ad === best).map(x => x.metric));
+                same.filter(x => x.ad === best && x.metric === bm).forEach((x, idx) => R.push(x.ospf
+                    ? { c: x.code, net: x.net, len: x.len, ad: x.ad, metric: x.metric, nh: x.nh, ifn: x.ifn, cont: idx > 0, ospf: true, via: '[' + x.ad + '/' + x.metric + '] via ' + x.nh + ', 00:0' + (3 + idx) + ':12, ' + x.ifn }
+                    : { c: x.len === 0 ? 'S*' : 'S', net: x.net, len: x.len, ad: x.ad, nh: x.nh, ifn: x.ifn, cont: idx > 0, via: isIp(x.nh) ? '[' + x.ad + '/0] via ' + x.nh : 'is directly connected, ' + x.nh }));
                 seen[k] = true;
             }
             return R.sort((a, b) => ip2n(a.net) - ip2n(b.net) || a.len - b.len || (a.cont ? 1 : 0) - (b.cont ? 1 : 0));
@@ -1328,6 +1472,8 @@ const CgLabIos = (() => {
             if (!r) return '% Network not in table';
             const all = rib().filter(x => x.net === r.net && x.len === r.len && x.c === r.c);
             if (r.c === 'C' || r.c === 'L') return 'Routing entry for ' + r.net + '/' + r.len + '\n  Known via "connected", distance 0, metric 0 (connected, via interface)\n  Routing Descriptor Blocks:\n  * directly connected, via ' + r.ifn + '\n      Route metric is 0, traffic share count is 1';
+            if (r.ospf) return ['Routing entry for ' + r.net + '/' + r.len, '  Known via "ospf ' + (Object.keys(M().ospf)[0] || 1) + '", distance 110, metric ' + r.metric + ', type ' + (/E2/.test(r.c) ? 'extern 2, forward metric ' + r.metric : /IA/.test(r.c) ? 'inter area' : 'intra area'), '  Routing Descriptor Blocks:']
+                .concat(...all.map((x, k) => [(k === 0 ? '  * ' : '    ') + x.nh + ', from ' + ((ospfNbrs().find(n => n.ip === x.nh) || {}).rid || x.nh) + ', 00:03:12 ago, via ' + x.ifn, '      Route metric is ' + x.metric + ', traffic share count is 1'])).join('\n');
             return ['Routing entry for ' + r.net + '/' + r.len, '  Known via "static", distance ' + r.ad + ', metric 0', '  Routing Descriptor Blocks:']
                 .concat(...all.map((x, k) => [(k === 0 ? '  * ' : '    ') + (isIp(x.nh) ? x.nh : 'directly connected, via ' + x.nh), '      Route metric is 0, traffic share count is 1'])).join('\n');
         }
@@ -1343,7 +1489,7 @@ const CgLabIos = (() => {
                 '       * - candidate default, U - per-user static route, o - ODR',
                 '       P - periodic downloaded static route, + - replicated route', '',
                 d ? 'Gateway of last resort is ' + d.nh + ' to network 0.0.0.0' : 'Gateway of last resort is not set', ''];
-            R.filter(r => !filter || (filter === 'static' ? /^S/.test(r.c) : /^[CL]$/.test(r.c))).forEach(r => L.push(r.cont ? ' '.repeat(9 + (r.net + '/' + r.len).length + 1) + r.via.replace(/^\[/, '[') : pad(r.c, 9) + r.net + '/' + r.len + ' ' + r.via));
+            R.filter(r => !filter || (filter === 'static' ? /^S/.test(r.c) : filter === 'ospf' ? /^O/.test(r.c) : /^[CL]$/.test(r.c))).forEach(r => L.push(r.cont ? ' '.repeat(9 + (r.net + '/' + r.len).length + 1) + r.via.replace(/^\[/, '[') : pad(r.c, 9) + r.net + '/' + r.len + ' ' + r.via));
             return L.join('\n');
         }
         function ping(ip) {
@@ -1415,10 +1561,12 @@ const CgLabIos = (() => {
                 return (M().domainLookup ? 'Translating "' + raw.trim() + '"...domain server (255.255.255.255)\n' : '') + '% Unknown command or computer name, or unable to find computer address';
             return ' '.repeat(pl + (r.col || 0)) + '^\n% Invalid input detected at \'^\' marker.';
         }
-        const UNSUP = ['snmp-server', 'ntp', 'logging host', 'logging trap', 'clock timezone', 'cdp', 'lldp', 'ip dhcp',
-            'router eigrp', 'router bgp', 'router rip', 'standby', 'channel-group', 'crypto isakmp', 'crypto ipsec', 'crypto map', 'ipv6', 'vtp', 'monitor session', 'archive',
-            'switchport port-security', 'ip helper-address', 'ip ospf', 'encapsulation', 'show cdp', 'show lldp', 'show ip ospf',
-            'show etherchannel', 'show spanning-tree', 'show port-security', 'show ip dhcp', 'show standby', 'show interfaces counters', 'show mac address-table', 'show arp', 'debug', 'traceroute', 'clear'];
+        // Gerçek cihazda var, bu lab sürümünde yok → dürüst mesaj (desteklenen kökler buraya yazılmaz; yazım hatası gerçek %Invalid verir)
+        const UNSUP = ['snmp-server', 'ntp', 'logging host', 'logging trap', 'clock timezone', 'cdp', 'lldp', 'ip dhcp snooping', 'ip arp inspection',
+            'router eigrp', 'router bgp', 'router rip', 'standby', 'channel-group', 'crypto isakmp', 'crypto ipsec', 'crypto map', 'ipv6', 'vtp', 'monitor session',
+            'ip ospf authentication', 'ip ospf message-digest-key', 'area', 'encapsulation', 'show cdp', 'show lldp', 'show ip ospf database', 'show ip protocols',
+            'show etherchannel', 'show spanning-tree', 'show standby', 'show interfaces counters', 'show arp', 'show ip dhcp snooping', 'debug', 'traceroute',
+            'clear counters', 'clear arp-cache', 'clear logging', 'clear line', 'clear ip ospf', 'clear ip route', 'clear access-list', 'clear spanning-tree', 'clear port-security'];
         function unsupported(raw) {
             const t = C.tokenize(raw.replace(/^\s*(no|do)\s+/i, '')).map(x => x.t.toLowerCase());
             // yazılan kelime tam kelimeyse (ör. 'ip') daha uzun köke ('ipv6') eşlenmez
@@ -1463,7 +1611,7 @@ const CgLabIos = (() => {
             log({ raw: line, canon: (isNo ? 'no ' : '') + r.canon, mode: S.mode, no: isNo, ctx: S.ctx.slice() });
             const out = isNo ? (r.cmd.no ? r.cmd.no(r.args) : undefined) : r.cmd.run(r.args);
             if (out && typeof out === 'object') { S.mode = prevMode; S.ctx = prevCtx; S.ev.pop(); return errText(Object.assign({}, out, { col: (out.col || 0) + off }), line, 0, S.mode); }
-            const evs = [bpduEvents(), psecEvents()].filter(Boolean).join('\n');
+            const evs = [bpduEvents(), psecEvents(), ospfEvents()].filter(Boolean).join('\n');
             return [out || '', evs].filter(Boolean).join('\n');
         }
         function help(raw) {
@@ -1541,6 +1689,7 @@ const CgLabIos = (() => {
             mode: () => S.mode,
             run: (n) => ({ up: ifUp(n) }),
             rib, lookup, forward: f => forward(f, false), acl: n => M().acls[n] || null,
+            ospfNbrs: () => ospfNbrs(), ospfIf: n => ospfIf(n), ospfPassive: n => { const o = ospfIf(n); return !!o && ospfPassive(n, o.pid); },
             dhcpLeases: () => dhcpLeases(), psec: n => psecEval(n), macRows: () => macRows(), flash: () => Object.keys(S.flash), archives: () => S.archives.map(a => a.name),
             aaaAuth: (list, u, p) => aaaAuth(M().authn[list] || [], u, p),
             aclTest: (n, f) => aclEval(n, Object.assign({ sport: 50000, proto: 'tcp', n: 0 }, f), false),

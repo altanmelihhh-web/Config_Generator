@@ -18,6 +18,9 @@
         && (r => r.stage === 'ok' && !!r.dnat && r.dnat.to === '10.64.50.10')(s.forward({ src: '198.51.100.99', dst: '203.0.113.10', dport: 443, in: 'GigabitEthernet0/1' }));
     const ACL_FLOWS = [{ src: '10.64.10.50', dst: '10.64.50.10', dport: 443, in: 'GigabitEthernet0/0' }, { src: '10.64.10.50', dst: '10.64.50.10', dport: 22, in: 'GigabitEthernet0/0' }, { src: '10.64.10.50', dst: '10.64.50.10', proto: 'icmp', in: 'GigabitEthernet0/0' }, { src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'GigabitEthernet0/0' }];
     const aclOk = s => { const F = ACL_FLOWS.map(f => s.forward(f).stage), i = s.model.ifs['GigabitEthernet0/0']; return F[0] === 'ok' && F[1] === 'acl-in' && F[2] === 'ok' && F[3] === 'ok' && i.accessIn === 'LAN-IN' && !i.accessOut && !!s.acl('LAN-IN'); };
+    // OSPF: çekirdek R2 (sanal komşu); pri ve rota maliyeti varyantla değişir
+    const ospfCore = (pri, cost) => ({ ifn: 'GigabitEthernet0/0', ip: '10.64.12.2', rid: '10.240.255.2', pri, routes: [{ net: '10.128.20.0', len: 24, cost }, { net: '0.0.0.0', len: 0, cost: 1, e2: true }] });
+    const ospfFixed = s => s.ospfNbrs().some(n => n.state === 'FULL') && s.rib().some(r => r.ospf && r.net === '10.128.20.0') && s.ospfPassive('GigabitEthernet0/1') && s.model.ifs['GigabitEthernet0/0'].mtu === 1500 && !s.model.ifs['GigabitEthernet0/0'].ospf.hello && !s.model.ospf['1'].nets.some(x => x.n === '10.64.21.0' || +x.a !== 0);
     const mtMacs = prn => { const m = {}; for (let p = 1; p <= 10; p++) m['GigabitEthernet0/' + p] = [p === prn ? '0050.56a1.0c05' : p === 10 ? '0050.56a1.0a10' : '0050.56a1.04' + String(p).padStart(2, '0')]; m['GigabitEthernet0/24'] = ['0050.56a1.0d01@10', '0050.56a1.0d02@10', '0050.56a1.0d03@10', '0050.56a1.0e01@20', '0050.56a1.0e02@20']; return m; };
 
     const LABS = [
@@ -840,6 +843,84 @@
         verify: ['show access-lists LAN-IN', 'show ip interface g0/0', 'show running-config | section access-list'],
         learn: ['Yasak olan geçiyor → sıra ya da yön.', 'İzinli olan geçmiyor → örtük deny ya da satır içeriği.', 'Sayaçlar ve Inbound/Outgoing satırı ayırt eder.', 'Uygulanmış ACL\'yi silmek korumayı kaldırır.'],
         links: { tool: '#/cisco-ios/acl', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/traffic' }, cert: 'CCNA 5.6'
+    },
+    // ═══ Y3-A: OSPF ═══
+    {
+        id: 'ios-18', vendor: 'cisco-ios', level: 3, title: 'OSPF tek alan: komşuluk, pasif arayüz, DR/BDR ve metrik', minutes: 25, kind: 'router', pre: ['ios-17'],
+        up: ['GigabitEthernet0/0', 'GigabitEthernet0/1'], hosts: ['10.64.12.2', '10.128.20.10'],
+        start: ['hostname R1', 'interface g0/0', 'description CORE-R2', 'ip address 10.64.12.1 255.255.255.252', 'no shutdown', 'interface g0/1', 'description LAN', 'ip address 10.64.10.1 255.255.255.0', 'no shutdown'],
+        variants: [[1, 1], [0, 10], [1, 20]].map(([pri, cost]) => ({ key: 'p' + pri + 'c' + cost, pri, cost, sim: { ospf: [ospfCore(pri, cost)] } })),
+        story: 'Şube router\'ı R1, çekirdek router R2\'ye (Gi0/0, 10.64.12.0/30) bağlı. R2 OSPF ile sunucu ağını (10.128.20.0/24) ve varsayılan rotayı duyuruyor. Statik rota yazmak yerine R1\'i <b>OSPF alan 0</b>\'a katın: yönetim için Loopback0, LAN\'ı duyurun ama LAN\'a hello göndermeyin. <small>Her turda R2\'nin önceliği ve rota maliyeti farklı — "Yeni tur".</small>',
+        lesson: L('<b>OSPF</b> bağlantı durumlu bir iç yönlendirme protokolüdür. Router\'lar arayüzden <b>hello</b> gönderir; alan (area), hello/dead süreleri, alt ağ ve MTU uyuşursa komşu olur ve bağlantı durumu veritabanını eşitler (<b>FULL</b>). Yayın ağlarında trafiği azaltmak için bir <b>DR</b> ve yedeği <b>BDR</b> seçilir: en yüksek öncelik, eşitse en yüksek router-id. Rota maliyeti = yol üzerindeki arayüz maliyetlerinin toplamı (referans 100 Mb/s ÷ bant genişliği; Gig = 1).',
+            'Statik rotalar her değişiklikte elle güncellenir; OSPF yeni ağı kendiliğinden öğrenir ve yol kopunca alternatife geçer. Kullanıcı LAN\'ına hello göndermek hem gereksiz hem risklidir (LAN\'a takılan sahte bir router komşu olabilir) — bu yüzden LAN <b>passive</b> yapılır.',
+            'interface loopback 0\n ip address 10.240.255.1 255.255.255.255\n!\nrouter ospf 1\n router-id 10.240.255.1\n network 10.64.12.0 0.0.0.3 area 0\n network 10.64.10.0 0.0.0.255 area 0\n network 10.240.255.1 0.0.0.0 area 0\n passive-interface g0/1\n!\nshow ip ospf neighbor\nshow ip ospf interface brief\nshow ip route ospf',
+            ['network ifadesine maske yazmak (0.0.0.3 yerine 255.255.255.252).', 'Komşuya bakan arayüzü passive yapmak: komşuluk düşer.', 'router-id\'yi sonradan değiştirip süreci yeniden başlatmamak (clear ip ospf process).']),
+        goals: ['Loopback ve router-id', 'network ifadesi (wildcard + area)', 'passive-interface', 'Komşu durumu ve DR/BDR', 'OSPF metriğini okumak'],
+        tasks: [
+            { t: '<code>Loopback0</code>: 10.240.255.1/32.', why: 'Loopback hiç düşmez; router-id ve yönetim adresi için idealdir. /32 tek bir host adresidir.',
+              hints: ['interface loopback 0', '<code>interface loopback 0</code> → <code>ip address 10.240.255.1 255.255.255.255</code>'], steps: ['interface loopback 0', 'ip address 10.240.255.1 255.255.255.255', 'exit'],
+              check: s => { const i = s.model.ifs['Loopback0']; return !!i && i.ip === '10.240.255.1' && i.mask === '255.255.255.255'; } },
+            { t: 'OSPF süreci 1, router-id 10.240.255.1.', why: 'Router-id, OSPF\'te router\'ın kimliğidir; elle vermek adres değişikliklerinde kimliğin sabit kalmasını sağlar.',
+              hints: ['router ospf 1 → router-id', '<code>router ospf 1</code> → <code>router-id 10.240.255.1</code>'], steps: ['router ospf 1', 'router-id 10.240.255.1', 'exit'],
+              check: s => !!s.model.ospf['1'] && s.model.ospf['1'].rid === '10.240.255.1' },
+            { t: 'Üç ağı alan 0\'a katın: R2 bağlantısı (10.64.12.0/30), LAN (10.64.10.0/24), Loopback0. R2 ile komşuluk FULL olmalı.', why: '<code>network</code> ifadesi hangi arayüzlerde OSPF çalışacağını seçer: ağ adresi + <b>wildcard</b> + alan. Arayüz eşleşince hello göndermeye başlar ve o ağı duyurur.',
+              hints: ['network AĞ WILDCARD area 0', '<code>network 10.64.12.0 0.0.0.3 area 0</code> · <code>network 10.64.10.0 0.0.0.255 area 0</code> · <code>network 10.240.255.1 0.0.0.0 area 0</code>'],
+              steps: ['router ospf 1', 'network 10.64.12.0 0.0.0.3 area 0', 'network 10.64.10.0 0.0.0.255 area 0', 'network 10.240.255.1 0.0.0.0 area 0', 'exit'], needs: [0],
+              check: s => s.ospfNbrs().some(n => n.state === 'FULL') && !!s.ospfIf('GigabitEthernet0/1') && !!s.ospfIf('Loopback0'),
+              fb: s => { const o = s.model.ospf['1']; if (o && o.nets.some(x => /^255\./.test(x.w))) return 'network ifadesinde maske değil wildcard kullanılır: /30 → 0.0.0.3, /24 → 0.0.0.255.'; if (o && o.nets.some(x => +x.a !== 0)) return 'Tüm ağlar alan 0\'da olmalı; R2 alan 0\'da.'; return null; } },
+            { t: 'LAN (Gi0/1) duyurulmaya devam etsin ama o arayüzden hello gitmesin.', why: '<code>passive-interface</code> hello göndermeyi durdurur ama ağı duyurmaya devam eder: kullanıcılar ulaşılabilir kalır, LAN\'da sahte komşu oluşamaz.',
+              hints: ['router ospf 1 → passive-interface', '<code>passive-interface g0/1</code>'], steps: ['router ospf 1', 'passive-interface g0/1', 'exit'], needs: [2],
+              check: s => s.ospfPassive('GigabitEthernet0/1') && s.ospfNbrs().some(n => n.state === 'FULL'),
+              fb: s => s.ospfPassive('GigabitEthernet0/0') ? 'R2\'ye bakan Gi0/0 pasif oldu: komşuluk düştü. Yalnız LAN (Gi0/1) pasif olmalı.' : null },
+            { t: 'Komşu tablosuna bakın: Gi0/0 segmentinde roller ne?', ask: { choices: [['nbDR', 'R2 DR, R1 BDR'], ['meDR', 'R1 DR; R2 DROTHER (önceliği 0)'], ['none', 'DR yok, iki router da DROTHER']], correct: v => v.pri === 0 ? 'meDR' : 'nbDR' },
+              why: 'DR seçimi: önce öncelik (0 = seçilemez), eşitse yüksek router-id. <code>show ip ospf neighbor</code>\'daki "FULL/DR" komşunun rolünü gösterir; kendi rolünüz <code>show ip ospf interface brief</code>\'te.', hints: ['show ip ospf neighbor', 'Pri sütunu 0 mı?'],
+              steps: v => ['show ip ospf neighbor', { answer: 4, v: v.pri === 0 ? 'meDR' : 'nbDR' }], from: 'priv', needs: [2] },
+            { t: 'OSPF rotalarına bakın: 10.128.20.0/24 rotasının metriği kaç?', ask: { choices: [['2', '2'], ['11', '11'], ['21', '21'], ['110', '110']], correct: v => String(1 + v.cost) },
+              why: 'Köşeli parantez [AD/metrik]: 110 OSPF\'in yönetimsel uzaklığıdır, metrik değildir. Metrik = R1\'in Gi0/0 maliyeti (1) + R2\'nin duyurduğu maliyet.', hints: ['show ip route ospf', '[110/X] içindeki X.'],
+              steps: v => ['show ip route ospf', { answer: 5, v: String(1 + v.cost) }], from: 'priv', needs: [2] },
+            { t: 'Kaydedin.', why: 'OSPF yapılandırması kaydedilmezse reload sonrası şube çekirdekten kopar.', hints: ['write', '<code>wr</code>'], steps: ['write memory'], from: 'priv', needs: [0, 1, 2, 3],
+              check: s => s.saved() && s.ospfNbrs().some(n => n.state === 'FULL') && s.ospfPassive('GigabitEthernet0/1') },
+        ],
+        verify: ['show ip ospf neighbor', 'show ip ospf interface brief', 'show ip route ospf', 'show ip ospf'],
+        learn: ['network = ağ + wildcard + area.', 'Komşuluk için alan, hello/dead, alt ağ ve MTU uyuşmalı.', 'DR: yüksek öncelik, sonra yüksek router-id; 0 seçilemez.', '[110/X]: 110 AD, X metrik (maliyet toplamı).', 'Kullanıcı LAN\'ı passive.'],
+        links: { tool: '#/cisco-ios/ospf', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/routing' }, cert: 'CCNA 3.4'
+    },
+    {
+        id: 'ios-44', vendor: 'cisco-ios', level: 5, title: '"OSPF komşusu gelmiyor" — arıza kaydı', minutes: 20, kind: 'router', pre: ['ios-18'],
+        up: ['GigabitEthernet0/0', 'GigabitEthernet0/1'], hosts: ['10.64.12.2', '10.128.20.10'],
+        start: ['hostname R1', 'interface loopback 0', 'ip address 10.240.255.1 255.255.255.255', 'interface g0/0', 'description CORE-R2', 'ip address 10.64.12.1 255.255.255.252', 'no shutdown', 'interface g0/1', 'description LAN', 'ip address 10.64.10.1 255.255.255.0', 'no shutdown', 'exit',
+            'router ospf 1', 'router-id 10.240.255.1', 'passive-interface default', 'no passive-interface g0/0', 'network 10.64.12.0 0.0.0.3 area 0', 'network 10.64.10.0 0.0.0.255 area 0', 'network 10.240.255.1 0.0.0.0 area 0', 'exit'],
+        sim: { ospf: [ospfCore(1, 1)] },
+        variants: [
+            { key: 'area', start: ['router ospf 1', 'no network 10.64.12.0 0.0.0.3 area 0', 'network 10.64.12.0 0.0.0.3 area 1', 'exit'], fix: ['router ospf 1', 'no network 10.64.12.0 0.0.0.3 area 1', 'network 10.64.12.0 0.0.0.3 area 0', 'exit'] },
+            { key: 'hello', start: ['interface g0/0', 'ip ospf hello-interval 5', 'exit'], fix: ['interface g0/0', 'no ip ospf hello-interval', 'exit'] },
+            { key: 'passive', start: ['router ospf 1', 'passive-interface g0/0', 'exit'], fix: ['router ospf 1', 'no passive-interface g0/0', 'exit'] },
+            { key: 'mtu', start: ['interface g0/0', 'ip mtu 1400', 'exit'], fix: ['interface g0/0', 'no ip mtu', 'exit'] },
+            { key: 'net', start: ['router ospf 1', 'no network 10.64.12.0 0.0.0.3 area 0', 'network 10.64.21.0 0.0.0.3 area 0', 'exit'], fix: ['router ospf 1', 'no network 10.64.21.0 0.0.0.3 area 0', 'network 10.64.12.0 0.0.0.3 area 0', 'exit'] },
+        ],
+        story: '<b>Arıza kaydı:</b> "Gece yapılan değişiklikten sonra şube sunuculara (10.128.20.0/24) ulaşamıyor." R1 ile çekirdek R2 arasında OSPF komşuluğu kurulmuyor ya da tamamlanmıyor. R2 tarafı doğru (alan 0, hello 10 / dead 40, MTU 1500). Komşu tablosundan başlayın, farkı bulun, en küçük değişiklikle düzeltin. <small>Her turda farklı arıza — "Yeni tur".</small>',
+        lesson: L('Komşuluk kurulmuyorsa sırayla: (1) Arayüz OSPF\'te mi? <code>show ip ospf interface brief</code> — listede yoksa <code>network</code> ifadesi eşleşmiyor. (2) Pasif mi? <code>show ip ospf interface</code> → "No Hellos (Passive interface)". (3) Alan ve süreler aynı mı? Aynı çıktıda "Area" ve "Hello/Dead". (4) Komşu görünüyor ama <b>EXSTART/EXCHANGE</b>\'te takılıyorsa: MTU farkı (<code>ip mtu</code>).',
+            'OSPF sessizce başarısız olur: yanlış alan ya da farklı hello süresi hata mesajı üretmeden komşuluğu engeller. Çıktılarda karşı tarafın beklediği değerle kendi değerinizi yan yana koymak kök nedeni dakikalar içinde gösterir.',
+            'show ip ospf neighbor\nshow ip ospf interface brief\nshow ip ospf interface g0/0\nshow running-config | section ospf\n!\ninterface g0/0\n no ip ospf hello-interval\n no ip mtu',
+            ['Karşı tarafı da değiştirip iki tarafı birden bozmak (tek taraflı düzeltme yeterli).', 'passive-interface default\'u kaldırıp tüm LAN\'lara hello göndermek.', 'Yanlış network ifadesini silmeden doğrusunu eklemek.']),
+        goals: ['Komşu tablosunu ve arayüz ayrıntısını okumak', 'Alan / süre / pasif / MTU / network ayrımı', 'Tek satırlık düzeltme'],
+        tasks: [
+            { t: 'Belirti: komşu tablosu ve OSPF arayüz özeti.', why: 'Komşu hiç yoksa (1)–(3), varsa ama FULL değilse (4) dalına gidersiniz.',
+              hints: ['show ip ospf neighbor / interface brief', '<code>show ip ospf neighbor</code> → <code>show ip ospf interface brief</code>'], steps: ['show ip ospf neighbor', 'show ip ospf interface brief'], from: 'priv',
+              check: s => s.ev.ran(/^(do )?show ip ospf neighbor$/) && s.ev.ran(/^(do )?show ip ospf interface brief$/) },
+            { t: 'Kök neden hangisi?', ask: { choices: [['area', 'Gi0/0 yanlış alanda (area 1)'], ['hello', 'Gi0/0\'da hello/dead süresi R2\'den farklı'], ['passive', 'Gi0/0 pasif: hello gitmiyor'], ['mtu', 'MTU farkı: komşuluk EXSTART\'ta takılı'], ['net', 'network ifadesi Gi0/0\'ın ağını kapsamıyor']], correct: v => v.key },
+              why: 'Gi0/0 brief listesinde yoksa: network. Varsa ayrıntıda Area, Timer ve "Passive" satırlarına bakın. Komşu EXSTART görünüyorsa: MTU.', hints: ['show ip ospf interface g0/0', 'show running-config | section ospf'],
+              steps: v => ['show ip ospf interface g0/0', { answer: 1, v: v.key }], from: 'priv', needs: [0] },
+            { t: 'En küçük değişiklikle düzeltin: komşuluk FULL, sunucu ağı OSPF\'ten öğrenilsin, LAN pasif kalsın.', why: 'Yalnız farklı olan değeri R2 ile eşitleyin; diğer ayarlara dokunmayın.',
+              hints: ['Kök nedene göre tek satır.', 'area: network\'ü area 0 ile yeniden · hello: <code>no ip ospf hello-interval</code> · passive: <code>no passive-interface g0/0</code> · mtu: <code>no ip mtu</code> · net: yanlış network\'ü silip doğrusunu yazın'],
+              steps: v => v.fix, check: s => ospfFixed(s),
+              fb: s => { const o = s.model.ospf['1']; if (o && o.nets.some(x => x.n === '10.64.21.0')) return 'Yanlış network ifadesi (10.64.21.0) hâlâ duruyor.'; if (o && o.nets.some(x => +x.a === 1)) return 'Alan 1 ifadesi hâlâ duruyor.'; if (!s.ospfPassive('GigabitEthernet0/1')) return 'Çalışır ama LAN\'a da hello gidiyor: Gi0/1 pasif kalmalı.'; return null; } },
+            { t: 'Doğrulayıp kaydedin.', why: 'Komşuluk FULL oldu mu, rota tabloya geldi mi — ikisini de görün.', hints: ['show ip route ospf → write', '<code>show ip route ospf</code> → <code>wr</code>'], steps: ['show ip route ospf', 'write memory'], from: 'priv', needs: [2],
+              check: s => s.saved() && ospfFixed(s) },
+        ],
+        verify: ['show ip ospf neighbor', 'show ip ospf interface brief', 'show ip ospf interface g0/0', 'show ip route ospf'],
+        learn: ['Brief listesinde yok → network ifadesi.', '"No Hellos (Passive interface)" → pasif.', 'Area / Hello / Dead karşı tarafla aynı olmalı.', 'EXSTART/EXCHANGE → MTU.'],
+        links: { tool: '#/cisco-ios/ospf', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/routing' }, cert: 'CCNA 3.4 · ENARSI 1.x'
     },
     // ═══ Serbest terminal ══════════════════════════════════════════════════
     { id: 'ios-sandbox-sw', vendor: 'cisco-ios', level: null, sandbox: true, title: 'Serbest terminal — Switch', kind: 'switch', up: P(1, 4),
