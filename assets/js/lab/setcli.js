@@ -110,14 +110,15 @@ const CgLabSetCli = (() => {
         ports: s => (portsOk(s) ? s : null),
         metric: s => (/^\d{1,5}$/.test(s) && +s <= 65535 ? String(+s) : null),
         adist: s => (/^\d{1,3}$/.test(s) && +s >= 10 && +s <= 240 ? String(+s) : null),
-        pif: s => (/^ethernet1\/([1-9]|1[0-9]|2[0-4])$|^(loopback|tunnel)\.\d{1,4}$/.test(s) ? s : null),
+        pif: s => (/^ethernet1\/([1-9]|1[0-9]|2[0-4])(\.([1-9]\d{0,3}))?$|^(loopback|tunnel)\.\d{1,4}$/.test(s) && !(+String(s).split('.')[1] > 9999) ? s : null),
+        pphys: s => (/^ethernet1\/([1-9]|1[0-9]|2[0-4])$/.test(s) ? s : null),
         paddr: s => (pfx(s) ? s : /^\d{1,3}(\.\d{1,3}){3}-\d{1,3}(\.\d{1,3}){3}$/.test(s) ? s : /^\d+[.\d]*$/.test(s) ? null : VT.name(s)),
     };
     const vcheck = (ty, s) => {
         if (Array.isArray(ty)) { const r = pick(s, ty); return r.ok || null; }
         const f = VT[ty]; return f ? f(String(s)) : null;
     };
-    const VLABEL = { jifx: '<arayüz[.birim]>', mac: '<xx:xx:xx:xx:xx:xx>', area: '<alan-kimliği>', vrid: '<0-255>', prio: '<1-254>', cnt: '<1-128>', maclim: '<1-131071>', secs: '<saniye>', jport: '<port|ad>', file: '<dosya>', word: '<değer>', name: '<ad>', str: '<metin>', ip: '<A.B.C.D>', prefix: '<A.B.C.D/uz>', host: '<A.B.C.D[/uz]>', jif: '<arayüz>', jifl: '<arayüz.birim>', unit: '<0-16385>', vid: '<1-4094>', pref: '<tercih>', port: '<1-65535>', ports: '<port[-port]>', metric: '<0-65535>', adist: '<10-240>', pif: '<ethernetX/Y>', paddr: '<ad|IP/uz>' };
+    const VLABEL = { jifx: '<arayüz[.birim]>', mac: '<xx:xx:xx:xx:xx:xx>', area: '<alan-kimliği>', vrid: '<0-255>', prio: '<1-254>', cnt: '<1-128>', maclim: '<1-131071>', secs: '<saniye>', jport: '<port|ad>', file: '<dosya>', word: '<değer>', name: '<ad>', str: '<metin>', ip: '<A.B.C.D>', prefix: '<A.B.C.D/uz>', host: '<A.B.C.D[/uz]>', jif: '<arayüz>', jifl: '<arayüz.birim>', unit: '<0-16385>', vid: '<1-4094>', pref: '<tercih>', port: '<1-65535>', ports: '<port[-port]>', metric: '<0-65535>', adist: '<10-240>', pif: '<ethernetX/Y>', paddr: '<ad|IP/uz>', pphys: '<ethernetX/Y>' };
 
     // ── Şema kurucuları
     //  K: kapsayıcı · L: adlı liste (örnekler) · V: değer · F: bayrak · KV: ad+değer eşlemesi · PW: parola istemi
@@ -2246,7 +2247,8 @@ const CgLabSetCli = (() => {
         const addrRef = st => ['any'].concat([...(getIn(st.cand.t, ['address']) || new Map()).keys()], [...(getIn(st.cand.t, ['address-group']) || new Map()).keys()]);
         const appRef = () => ['any'].concat(Object.keys(PAPPS));
         const svcRef = st => ['any', 'application-default'].concat(Object.keys(PSVC), [...(getIn(st.cand.t, ['service']) || new Map()).keys()]);
-        const ifRef = () => { const r = []; for (let i = 1; i <= 8; i++) r.push('ethernet1/' + i); return r; };
+        const physRef = () => { const r = []; for (let i = 1; i <= 8; i++) r.push('ethernet1/' + i); return r; };
+        const ifRef = st => { const r = physRef(); if (st && st.cand) for (const [n, o] of (getIn(st.cand.t, ['network', 'interface', 'ethernet']) || new Map())) for (const u of (getIn(o, ['layer3', 'units']) || new Map()).keys()) r.push(u); return r; };
         const mpRef = st => [...(getIn(st.cand.t, ['network', 'profiles', 'interface-management-profile']) || new Map()).keys()];
         const YN = ['yes', 'no'];
         const ruleC = (nat) => Object.assign({
@@ -2282,11 +2284,12 @@ const CgLabSetCli = (() => {
                     'admin-lockout': K({ 'failed-attempts': V('pfail', 'Kilitlenmeden önceki hatalı giriş'), 'lockout-time': V('plock', 'Kilit süresi (dk)') }, 'Hatalı girişte hesap kilidi') }, 'Yönetim ayarları', { u: ['hostname-type-in-syslog', 'api', 'auto-acquire-commit-lock'] }) }, 'Cihaz ayarları', { u: ['session', 'config', 'application'] }) }, 'Cihaz ayarları', { u: ['high-availability'] }),
             network: K({
                 interface: K({
-                    ethernet: L('pif', {
-                        layer3: K({ ip: V('prefix', 'IP adresi/önek', { multi: 'brack' }), 'interface-management-profile': V('word', 'Yönetim profili (ping/ssh/https)', { ref: mpRef }) }, 'Katman 3 arayüz', { pres: true, u: ['dhcp-client', 'mtu', 'units', 'ipv6', 'lldp', 'ndp-proxy', 'adjust-tcp-mss'] }),
+                    ethernet: L('pphys', {
+                        layer3: K({ ip: V('prefix', 'IP adresi/önek', { multi: 'brack' }), 'interface-management-profile': V('word', 'Yönetim profili (ping/ssh/https)', { ref: mpRef }),
+                            units: L('pif', { tag: V('vid', '802.1Q VLAN etiketi (1-4094)'), ip: V('prefix', 'IP adresi/önek', { multi: 'brack' }), 'interface-management-profile': V('word', 'Yönetim profili', { ref: mpRef }), comment: V('str', 'Açıklama') }, 'Alt arayüz (ethernet1/N.M)', { wrap: true, u: ['dhcp-client', 'mtu', 'ipv6', 'adjust-tcp-mss'] }) }, 'Katman 3 arayüz', { pres: true, u: ['dhcp-client', 'mtu', 'ipv6', 'lldp', 'ndp-proxy', 'adjust-tcp-mss'] }),
                         comment: V('str', 'Açıklama'),
                         'link-state': V(['auto', 'up', 'down'], 'Bağlantı durumu'),
-                    }, 'Ethernet arayüzü', { wrap: true, ref: ifRef, u: ['layer2', 'virtual-wire', 'tap', 'ha', 'aggregate-group'] }),
+                    }, 'Ethernet arayüzü', { wrap: true, ref: physRef, u: ['layer2', 'virtual-wire', 'tap', 'ha', 'aggregate-group'] }),
                 }, 'Arayüzler', { u: ['loopback', 'tunnel', 'vlan', 'aggregate-ethernet'] }),
                 profiles: K({ 'interface-management-profile': L('name', { ping: V(YN, 'Ping yanıtı'), ssh: V(YN, 'SSH yönetimi'), https: V(YN, 'HTTPS yönetimi'), http: V(YN, 'HTTP yönetimi'), telnet: V(YN, 'Telnet yönetimi (şifresiz; kapalı tutun)'), 'permitted-ip': L('prefix', {}, 'İzinli kaynak ağ', { wrap: true }) }, 'Arayüz yönetim profili', { wrap: true, ref: mpRef, u: ['snmp', 'telnet', 'response-pages', 'userid-service'] }) }, 'Profiller', { u: ['zone-protection-profile', 'monitor-profile'] }),
                 'virtual-router': L('name', {
@@ -2334,13 +2337,29 @@ const CgLabSetCli = (() => {
             const ref = (path, field, v) => E2.push(' ' + path.concat([field]).join(' -> ') + " '" + v + "' is not a valid reference", ' ' + path.concat([field]).join(' -> ') + ' is invalid');
             const addrOk = v => v === 'any' || addrs.has(v) || grps.has(v) || !!pfx(v) || /^\d{1,3}(\.\d{1,3}){3}-\d{1,3}(\.\d{1,3}){3}$/.test(v);
             for (const [n, o] of eth) { const mp = getIn(o, ['layer3', 'interface-management-profile']); if (mp && !mps.has(mp)) ref(['network', 'interface', 'ethernet', n, 'layer3'], 'interface-management-profile', mp); }
+            const allL3 = new Set();
+            for (const [n, o] of eth) {
+                if (getIn(o, ['layer3']) instanceof Map) allL3.add(n);
+                const tags = {};
+                for (const [u, uo] of (getIn(o, ['layer3', 'units']) || new Map())) {
+                    const P3 = ['network', 'interface', 'ethernet', n, 'layer3', 'units', u];
+                    allL3.add(u);
+                    if (u.split('.')[0] !== n) E2.push(' ' + P3.join(' -> ') + '  # [Simülatör] alt arayüz adı üst arayüzle başlamalı (' + n + '.<sayı>)');
+                    const tg = uo.get('tag');
+                    if (!tg) E2.push(' ' + P3.join(' -> ') + ' -> tag is missing  # [Simülatör] 802.1Q etiketi zorunlu');
+                    else if (tags[tg]) E2.push(' ' + P3.join(' -> ') + ' -> tag  # [Simülatör] etiket ' + tg + ' zaten ' + tags[tg] + ' alt arayüzünde');
+                    else tags[tg] = u;
+                    const mp2 = uo.get('interface-management-profile'); if (mp2 && !mps.has(mp2)) ref(P3, 'interface-management-profile', mp2);
+                }
+            }
+            const isL3 = i => allL3.has(i);
             const seen = {};
             for (const [z, zo] of zones) for (const i of (getIn(zo, ['network', 'layer3']) || [])) {
-                if (!(getIn(eth, [i, 'layer3']) instanceof Map)) E2.push(' zone -> ' + z + ' -> network -> layer3 -> ' + i + '  # [Simülatör] arayüz katman 3 olarak yapılandırılmamış');
+                if (!isL3(i)) E2.push(' zone -> ' + z + ' -> network -> layer3 -> ' + i + '  # [Simülatör] arayüz katman 3 olarak yapılandırılmamış');
                 if (seen[i]) E2.push(' zone -> ' + z + ' -> network -> layer3  # [Simülatör] ' + i + ' zaten ' + seen[i] + ' zone\'unda');
                 seen[i] = z;
             }
-            for (const [vr, vo] of (getIn(t, ['network', 'virtual-router']) || new Map())) (vo.get('interface') || []).forEach(i => { if (!(getIn(eth, [i, 'layer3']) instanceof Map)) ref(['network', 'virtual-router', vr], 'interface', i); });
+            for (const [vr, vo] of (getIn(t, ['network', 'virtual-router']) || new Map())) (vo.get('interface') || []).forEach(i => { if (!isL3(i)) ref(['network', 'virtual-router', vr], 'interface', i); });
             for (const [g, go] of grps) (go.get('static') || []).forEach(m => { if (!addrs.has(m)) ref(['address-group', g], 'static', m); });
             for (const kind of ['security', 'nat']) for (const [rn, r] of (getIn(t, ['rulebase', kind, 'rules']) || new Map())) {
                 const P2 = ['rulebase', kind, 'rules', rn];
@@ -2356,7 +2375,7 @@ const CgLabSetCli = (() => {
                     const s = r.get('service'); if (s && s !== 'any' && !PSVC[s] && !svcs.has(s)) ref(P2, 'service', s);
                     if ((r.get('to') || []).length > 1) E2.push(' ' + P2.join(' -> ') + ' -> to  # [Simülatör] NAT kuralında yalnız bir hedef zone olabilir');
                     const si = getIn(r, ['source-translation', 'dynamic-ip-and-port', 'interface-address', 'interface']);
-                    if (si && !(getIn(eth, [si, 'layer3']) instanceof Map)) ref(P2.concat(['source-translation', 'dynamic-ip-and-port', 'interface-address']), 'interface', si);
+                    if (si && !isL3(si)) ref(P2.concat(['source-translation', 'dynamic-ip-and-port', 'interface-address']), 'interface', si);
                 }
             }
             return E2;
@@ -2385,6 +2404,8 @@ const CgLabSetCli = (() => {
             const zoneOf = i => { for (const [z, zo] of zones) if ((getIn(zo, ['network', 'layer3']) || []).includes(i)) return z; return null; };
             const ifUp = i => up.has(i) && getIn(eth, [i, 'link-state']) !== 'down';
             const ifs = []; for (let k = 1; k <= PORTS; k++) { const n = 'ethernet1/' + k, o = eth.get(n); ifs.push({ name: n, l3: o && o.get('layer3') instanceof Map, ips: (o && getIn(o, ['layer3', 'ip'])) || [], mp: o && getIn(o, ['layer3', 'interface-management-profile']), vr: vrOf(n), zone: zoneOf(n), up: ifUp(n), comment: o && o.get('comment') }); }
+            // alt arayüzler (ethernet1/N.M): fiziksel arayüz bağlıysa ve etiket tanımlıysa çalışır
+            for (const [n, o] of eth) for (const [u, uo] of (getIn(o, ['layer3', 'units']) || new Map())) ifs.push({ name: u, parent: n, tag: uo.get('tag') || null, l3: true, ips: uo.get('ip') || [], mp: uo.get('interface-management-profile'), vr: vrOf(u), zone: zoneOf(u), up: ifUp(n) && !!uo.get('tag'), comment: uo.get('comment') });
             const R = {};
             for (const [v, vo] of vrs) {
                 const list = R[v] = [];
@@ -2453,6 +2474,8 @@ const CgLabSetCli = (() => {
                 const zin = r.get('from') || [], zout = r.get('to') || [];
                 if (!(zin.includes('any') || zin.includes(f.from)) || !(zout.includes('any') || zout.includes(f.to))) continue;
                 if (!addrMatch(t, r.get('source'), f.src) || !addrMatch(t, r.get('destination'), f.dst)) continue;
+                // to-interface: kural yalnız bu çıkış arayüzü için geçerli (yedek hatta ayrı NAT kuralı gerekir)
+                if (r.get('to-interface') && f.oif && r.get('to-interface') !== f.oif) continue;
                 const s = r.get('service') || 'any';
                 if (s !== 'any' && !svcMatch(t, [s], null, f.proto, f.dport)) continue;
                 return { name: rn, idx, r, st: getIn(r, ['source-translation']), dt: getIn(r, ['destination-translation']) };
@@ -2504,7 +2527,7 @@ const CgLabSetCli = (() => {
             if (!r1) return { stage: 'noroute', f, from: inIf.zone };
             const zpre = ifo(W, r1.iface).zone;
             if (!zpre) return { stage: 'nozone', f, iface: r1.iface };
-            const nat = natMatch(t, { from: inIf.zone, to: zpre, src: f.src, dst: f.dst, proto: f.proto, dport: f.dport });
+            const nat = natMatch(t, { from: inIf.zone, to: zpre, src: f.src, dst: f.dst, proto: f.proto, dport: f.dport, oif: r1.iface });
             let dst2 = f.dst, dport2 = f.dport;
             if (nat && nat.dt instanceof Map && nat.dt.get('translated-address')) { const ta = nat.dt.get('translated-address'); const o = (t.get('address') || new Map()).get(ta); dst2 = o && o.get('ip-netmask') ? pfx(o.get('ip-netmask')).ip : pfx(ta) ? pfx(ta).ip : ta; dport2 = +(nat.dt.get('translated-port') || f.dport); }
             const r2 = dst2 === f.dst ? r1 : W.lookup(inIf.vr, dst2);
@@ -2529,15 +2552,15 @@ const CgLabSetCli = (() => {
         }
         function ifAll() {
             const W = view(), L2 = ['total configured hardware interfaces: ' + PORTS, '', 'name                    id    speed/duplex/state            mac address', '--------------------------------------------------------------------------------'];
-            W.ifs.forEach((x, i) => L2.push(pad(x.name, 24) + pad(String(16 + i), 6) + pad(x.up ? '1000/full/up' : 'ukn/ukn/down(autoneg)', 30) + macOf(x.name)));
+            W.ifs.filter(x => !x.parent).forEach((x, i) => L2.push(pad(x.name, 24) + pad(String(16 + i), 6) + pad(x.up ? '1000/full/up' : 'ukn/ukn/down(autoneg)', 30) + macOf(x.name)));
             L2.push('', 'aggregation groups: 0', '', '', 'total configured logical interfaces: ' + W.ifs.filter(x => x.l3).length, '', 'name                id    vsys zone             forwarding               tag    address', '------------------- ----- ---- ---------------- ------------------------ ------ ------------------');
-            W.ifs.filter(x => x.l3).forEach((x, i) => L2.push(pad(x.name, 20) + pad(String(16 + W.ifs.indexOf(x)), 6) + pad('1', 5) + pad(x.zone || '', 17) + pad(x.vr ? 'vr:' + x.vr : 'N/A', 25) + pad('0', 7) + (x.ips[0] || 'N/A')));
+            W.ifs.filter(x => x.l3).forEach((x, i) => L2.push(pad(x.name, 20) + pad(String(16 + W.ifs.indexOf(x)), 6) + pad('1', 5) + pad(x.zone || '', 17) + pad(x.vr ? 'vr:' + x.vr : 'N/A', 25) + pad(x.tag || '0', 7) + (x.ips[0] || 'N/A')));
             return L2.join('\n');
         }
         function ifOne(n) {
             const W = view(), x = ifo(W, n); if (!x) return null;
             return ['--------------------------------------------------------------------------------', 'Name: ' + n + ', ID: ' + (16 + W.ifs.indexOf(x)), 'Link status:', '  Runtime link speed/duplex/state: ' + (x.up ? '1000/full/up' : 'unknown/unknown/down'), '  Configured link speed/duplex/state: auto/auto/auto', 'MAC address:', '  Port MAC address ' + macOf(n), 'Operation mode: ' + (x.l3 ? 'layer3' : 'none'),
-                '--------------------------------------------------------------------------------', '', 'Name: ' + n + ', ID: ' + (16 + W.ifs.indexOf(x)), 'Operation mode: ' + (x.l3 ? 'layer3' : 'none'), 'Virtual router ' + (x.vr || 'N/A'), 'Interface MTU 1500', 'Interface IP address: ' + (x.ips.join(', ') || 'N/A'), 'Interface management profile: ' + (x.mp || 'N/A'), 'Zone: ' + (x.zone || 'N/A') + ', virtual system: vsys1',
+                '--------------------------------------------------------------------------------', '', 'Name: ' + n + ', ID: ' + (16 + W.ifs.indexOf(x)), 'Operation mode: ' + (x.l3 ? 'layer3' : 'none') + (x.parent ? ', tag ' + (x.tag || 'N/A') + ' (alt arayüz, üst: ' + x.parent + ')' : ''), 'Virtual router ' + (x.vr || 'N/A'), 'Interface MTU 1500', 'Interface IP address: ' + (x.ips.join(', ') || 'N/A'), 'Interface management profile: ' + (x.mp || 'N/A'), 'Zone: ' + (x.zone || 'N/A') + ', virtual system: vsys1',
                 '# [Simülatör] Özet görünüm; sayaçlar gösterilmez.'].join('\n');
         }
         function routeTable(filterStatic) {
@@ -2593,7 +2616,7 @@ const CgLabSetCli = (() => {
             const A = r.A, miss = ['from', 'to', 'source', 'destination', 'protocol'].filter(k => !A[k]);
             if (miss.length) return { text: '# [Simülatör] Eksik parametre: ' + miss.join(', '), errk: 'incomplete' };
             if (!isIp(A.source) || !isIp(A.destination) || !PNUM[A.protocol]) return { text: INV, errk: 'value' };
-            const f = { from: A.from, to: A.to, src: A.source, dst: A.destination, proto: PNUM[A.protocol], dport: +(A['destination-port'] || 0) };
+            const f = { from: A.from, to: A.to, src: A.source, dst: A.destination, proto: PNUM[A.protocol], dport: +(A['destination-port'] || 0), oif: A['to-interface'] || null };
             const m = natMatch(S.run.t, f), W = view();
             log({ nattest: f, res: m ? m.name : null });
             if (!m) return { text: '# [Simülatör] Eşleşen NAT kuralı yok: adresler çevrilmez.', res: null };
@@ -2637,6 +2660,45 @@ const CgLabSetCli = (() => {
             const d = diff(A, B, [], [], 2);
             return d.length ? '# [Simülatör] Fark özet biçimde gösterilir: "-" running, "+" candidate.\n' + d.join('\n') : '';
         }
+        // ── Yüksek erişilebilirlik (lab.sim.ha): aktif/pasif çift, operasyonel komutlar
+        // SIM.ha: { peer, peerIp, pri, peerPri, preempt, active (yerel aktif mi), synced, peerUp }
+        const HA = SIM.ha ? { local: SIM.ha.active === false ? 'passive' : 'active', peer: SIM.ha.active === false ? 'active' : 'passive', synced: SIM.ha.synced !== false, failovers: 0 } : null;
+        if (HA && SIM.ha.peerUp === false) HA.peer = 'unknown';
+        function haState(all) {
+            if (!HA) return '# [Simülatör] HA bu cihazda yapılandırılmamış.';
+            const h = SIM.ha, since = st => st + ' (' + (HA.failovers ? 'last 1 minutes' : 'last 2 days') + ')';
+            const L2 = ['', 'Group 1:', '  Mode: Active-Passive', '  Local Information:', '    Version: 1', '    Mode: Active-Passive', '    State: ' + since(HA.local), '    Device Information:', '      Management IPv4 Address: 192.0.2.10/24',
+                '    Priority: ' + (h.pri || 100), '    Preemptive: ' + (h.preempt ? 'yes' : 'no'), '  Peer Information:', '    Connection status: ' + (HA.peer === 'unknown' ? 'down' : 'up'), '    Version: 1', '    Mode: Active-Passive', '    State: ' + since(HA.peer),
+                '    Device Information:', '      Management IPv4 Address: ' + (h.peerIp || '192.0.2.11') + '/24', '    Priority: ' + (h.peerPri || 110), '    Preemptive: ' + (h.preempt ? 'yes' : 'no'),
+                '  Configuration Synchronization:', '    Enabled: yes', '    Running Configuration: ' + (HA.synced ? 'synchronized' : 'not synchronized')];
+            if (all) L2.push('# [Simülatör] "all" çıktısının bağlantı (HA1/HA2) ve izleme bölümleri gösterilmiyor.');
+            L2.push('# [Simülatör] Çıktı sadeleştirildi.');
+            log({ hastate: HA.local });
+            return L2.join('\n');
+        }
+        function haSuspend() {
+            if (!HA) return { text: '# [Simülatör] HA bu cihazda yapılandırılmamış.', errk: 'value' };
+            if (HA.local === 'suspended') return { text: '# [Simülatör] Cihaz zaten askıda (suspended).', errk: 'value' };
+            if (HA.local === 'active' && HA.peer === 'unknown') return { text: '# [Simülatör] Eş cihaz erişilemez: askıya alırsanız trafiği devralacak kimse yok. Önce eşin durumunu düzeltin.', errk: 'value' };
+            if (HA.local === 'active') { HA.peer = 'active'; HA.failovers++; }
+            HA.local = 'suspended'; log({ ha: 'suspend' });
+            return { text: 'Successfully changed HA state to suspended\n# [Simülatör] Yerel cihaz askıda; trafik eşte.' };
+        }
+        function haFunctional() {
+            if (!HA) return { text: '# [Simülatör] HA bu cihazda yapılandırılmamış.', errk: 'value' };
+            if (HA.local !== 'suspended') return { text: '# [Simülatör] Cihaz zaten işlevsel (' + HA.local + ').', errk: 'value' };
+            const h = SIM.ha, better = (h.pri || 100) < (h.peerPri || 110);   // PAN-OS: küçük sayı = yüksek öncelik
+            if (h.preempt && better) { HA.local = 'active'; HA.peer = 'passive'; HA.failovers++; } else HA.local = 'passive';
+            log({ ha: 'functional' });
+            return { text: 'Successfully changed HA state to functional' };
+        }
+        function haSync() {
+            if (!HA) return { text: '# [Simülatör] HA bu cihazda yapılandırılmamış.', errk: 'value' };
+            if (HA.peer === 'unknown') return { text: '# [Simülatör] Eş cihaz erişilemez; eşitleme yapılamaz.', errk: 'value' };
+            HA.synced = true; log({ ha: 'sync' });
+            return { text: 'HA synchronization job has been queued on peer. Please check job status on peer.\n# [Simülatör] Eşitleme hemen tamamlandı kabul edildi.' };
+        }
+
         function ping(args) {
             // ping [source <ip>] host <ip> [count N]
             let src = null, h = null, count = 5;
@@ -2675,7 +2737,8 @@ const CgLabSetCli = (() => {
                 clock: { d: 'Saat', run: () => SIMCLK(S.job).replace(' ', ' ') + ' UTC' },
                 ntp: { d: 'NTP eşitleme durumu', run: () => panNtp() },
                 dhcp: { d: 'DHCP', c: { server: { d: 'DHCP sunucusu', c: { lease: { d: 'Kiralar', c: { interface: { d: 'Arayüz', args: [['all', 'Tüm arayüzler'], ['<ethernet1/N>', 'Tek arayüz']], runArgs: a => ({ text: panLeases(a[0] && a[0].t) }) } } } } } } },
-            }, known: ['counter', 'high-availability', 'vpn', 'user', 'log', 'arp', 'mac', 'zone-protection', 'running', 'admins', 'ntp', 'dns-proxy', 'global-protect-gateway', 'neighbor', 'lldp', 'transceiver', 'rule-hit-count', 'advanced-routing', 'netstat', 'vlan', 'dos-protection', 'config-locks'] },
+                'high-availability': { d: 'HA durumu', c: { state: { d: 'Yerel ve eş durumu, öncelik, config eşitleme', run: () => haState(false) }, all: { d: 'Ayrıntılı HA bilgisi', run: () => haState(true) } }, known: ['link-monitoring', 'path-monitoring', 'state-synchronization', 'transitions', 'control-link', 'interface', 'flap-statistics', 'cluster'] },
+            }, known: ['counter', 'vpn', 'user', 'log', 'arp', 'mac', 'zone-protection', 'running', 'admins', 'ntp', 'dns-proxy', 'global-protect-gateway', 'neighbor', 'lldp', 'transceiver', 'rule-hit-count', 'advanced-routing', 'netstat', 'vlan', 'dos-protection', 'config-locks'] },
             test: { d: 'Test (kural eşleşmesi, rota)', c: {
                 'security-policy-match': { d: 'Bir akışın eşleşeceği güvenlik kuralı (running)', args: [['from', '<zone>'], ['to', '<zone>'], ['source', '<IP>'], ['destination', '<IP>'], ['destination-port', '<port>'], ['protocol', '<6|17|1>'], ['application', '<app>']], runArgs: a => secTest(a) },
                 'nat-policy-match': { d: 'Bir akışın eşleşeceği NAT kuralı (running)', args: [['from', '<zone>'], ['to', '<zone> (pre-NAT)'], ['source', '<IP>'], ['destination', '<IP> (pre-NAT)'], ['destination-port', '<port>'], ['protocol', '<6|17|1>']], runArgs: a => natTest(a) },
@@ -2689,9 +2752,15 @@ const CgLabSetCli = (() => {
                 'scripting-mode': { d: 'Toplu yapıştırma modu', args: [['on', 'Açık'], ['off', 'Kapalı']], runArgs: a => (pick(a[0].t, ['on', 'off']).ok && a.length === 1 ? { text: '' } : { err: 0 }) },
                 'terminal': { d: 'Terminal', run: () => UNSUP, unsup: true },
             } } }, known: ['session', 'system', 'clock', 'management-server', 'panorama', 'ssh-key'] },
+            request: { d: 'İşlem iste', c: {
+                'high-availability': { d: 'HA işlemleri', c: {
+                    state: { d: 'Yerel HA durumunu değiştir', c: { suspend: { d: 'Askıya al (trafik eşe geçer)', args: [], runArgs: () => haSuspend(), run: () => { const r = haSuspend(); return r.text; } }, functional: { d: 'Askıdan çıkar', run: () => haFunctional().text } } },
+                    'sync-to-remote': { d: 'Eşe eşitle', c: { 'running-config': { d: 'Çalışan yapılandırmayı eşe gönder', run: () => haSync().text } }, known: ['candidate-config', 'clock', 'id-manager'] },
+                }, known: ['session-reestablish'] },
+            }, known: ['system', 'restart', 'license', 'content', 'anti-virus', 'certificate', 'commit-lock', 'config-lock', 'password-hash', 'support', 'global-protect-gateway', 'wildfire', 'url-filtering', 'shutdown'] },
             exit: { d: 'Oturumu kapat', run: () => { S.loggedOut = true; return '\n[Simülatör] Oturum kapatıldı. Yeniden bağlanmak için Enter.'; } },
             quit: { d: 'Oturumu kapat', run: () => { S.loggedOut = true; return '\n[Simülatör] Oturum kapatıldı. Yeniden bağlanmak için Enter.'; } },
-        }, known: ['request', 'debug', 'clear', 'less', 'tail', 'traceroute', 'scp', 'tftp', 'ssh', 'telnet', 'view-pcap', 'tcpdump', 'grep', 'find', 'delete', 'show-counter', 'schedule', 'target', 'save', 'load'] };
+        }, known: ['debug', 'clear', 'less', 'tail', 'traceroute', 'scp', 'tftp', 'ssh', 'telnet', 'view-pcap', 'tcpdump', 'grep', 'find', 'delete', 'show-counter', 'schedule', 'target', 'save', 'load'] };
 
         function opWalk(toks) {
             let node = OP, i = 0; const words = [];
@@ -2949,7 +3018,7 @@ const CgLabSetCli = (() => {
             mgmtAllows: (i, svc) => mgmtAllows(i, svc), hostname: () => host(), dhcpLeases: () => panDhcpLeases(), files: () => Object.keys(S.files || {}),
             rules: (kind, which) => [...((getIn((which === 'cand' ? S.cand : S.run).t, ['rulebase', kind || 'security', 'rules'])) || new Map()).keys()],
             route: (ip, vr) => { const r = view().lookup(vr || 'default', ip); return r ? { iface: r.iface, nh: r.nh, flags: r.flags } : null; },
-            iface: n => ifo(view(), n),
+            iface: n => ifo(view(), n), ha: () => (HA ? Object.assign({}, HA) : null),
             showRun: () => cfgShowText(S.run, [], 'default') + '\n' + cfgShowText(S.cand, [], 'set'),
         };
     }

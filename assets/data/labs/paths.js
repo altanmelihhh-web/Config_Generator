@@ -53,7 +53,7 @@
           modules: FW({ 1: ['fgt-00', 'fgt-01'], 2: ['fgt-17'], 3: ['fgt-02'], 4: ['fgt-13'], 5: ['fgt-03'], 6: ['fgt-04', 'fgt-05'], 7: ['fgt-26'], 8: ['fgt-06'], 9: ['fgt-07', 'fgt-08'],
               10: ['fgt-09'], 11: ['fgt-10'], 12: ['fgt-14', 'fgt-20'], 13: ['fgt-11', 'fgt-23'], 14: ['fgt-12', 'fgt-24'], 15: ['fgt-18'], 16: ['fgt-25', 'fgt-27'], 17: ['fgt-15', 'fgt-16', 'fgt-21', 'fgt-22'] }) },
         { id: 'paloalto-fw', vendor: 'paloalto', title: 'Palo Alto: sıfırdan üretime', desc: 'PAN-OS güvenlik duvarını kurulumdan güvenlik profillerine ve arıza teşhisine adım adım üretime hazırlayın.',
-          modules: FW({ 1: ['pan-01'], 2: ['pan-07'], 3: ['pan-08'], 4: ['pan-02'], 5: ['pan-03'], 6: ['pan-05'], 9: ['pan-04'], 11: ['pan-10'], 15: ['pan-12'], 17: ['pan-06', 'pan-13'] },
+          modules: FW({ 1: ['pan-01'], 2: ['pan-07'], 3: ['pan-08'], 4: ['pan-02', 'pan-09'], 5: ['pan-03'], 6: ['pan-05'], 8: ['pan-14'], 9: ['pan-04'], 11: ['pan-10'], 15: ['pan-12'], 16: ['pan-15'], 17: ['pan-06', 'pan-13'] },
               { 1: 'configure/set/commit akışı, arayüzler ve yönetim erişimi.', 2: 'Yönetim profili, izinli IP\'ler, güçlü şifreleme, giriş kilidi.', 15: 'Yapılandırma dışa aktarma, sürüm ve geri yükleme.' }) },
         { id: 'checkpoint-fw', vendor: 'checkpoint', title: 'Check Point: sıfırdan üretime', desc: 'Gaia gateway\'ini clish ile kurulumdan ClusterXL\'e ve arıza teşhisine adım adım üretime hazırlayın. Politika SmartConsole\'da yazılır; burada gateway tarafı çalışılır.',
           modules: FW({ 1: ['cp-01', 'cp-02'], 2: ['cp-08'], 4: ['cp-09'], 5: ['cp-13'], 9: ['cp-14'], 12: ['cp-10', 'cp-06'], 13: ['cp-07'], 15: ['cp-11'], 16: ['cp-05'], 17: ['cp-03', 'cp-04', 'cp-12', 'cp-15'] },

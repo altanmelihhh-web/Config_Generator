@@ -193,7 +193,7 @@ function cgPaAddrGen(data) {
         if (r.length === 2 && _paWIsIp(r[0]) && _paWIsIp(r[1]) && _paWN(r[0]) > _paWN(r[1])) w.push('⛔ IP aralığının başlangıcı bitişinden büyük (' + r[0] + ' > ' + r[1] + '): commit reddeder.');
         c += 'set address "' + name + '" ip-range ' + cgEsc(data.ip_range || '') + '\n';
     }
-    if (desc) c += 'set address "' + name + '" description "' + desc + '"\n';
+    if (desc) c += 'set address "' + name + '" description ' + cgQ(data.desc) + '\n';
     c += '\n';
     if (grp) {
         c += '# Adres Grubuna Ekle (set üye listesine ekler, mevcut üyeler korunur)\nset address-group "' + grp + '" static [ "' + name + '" ]\n\n';
@@ -770,6 +770,7 @@ function cgPaHaGen(data) {
     if (n1 && n2 && _paWOverlap(n1, n2)) w.push('⚠ HA1 ve HA2 aynı alt ağda: iki bağlantıyı ayrı alt ağlara koyun.');
     if (ha1Iface && ha1Iface === ha2Iface) w.push('⛔ HA1 ve HA2 aynı arayüz olamaz.');
     w.push('ℹ PAN-OS\'ta DÜŞÜK device-priority kazanır: bu araç primary\'ye 10, secondary\'ye 100 verir. Preemptive iki üyede de aynı olmalı; yalnız birinde açıksa etkisizdir.');
+    w.push('ℹ Kontrollü failover: önce show high-availability state\'te "Running Configuration: synchronized" olduğundan emin olun (değilse request high-availability sync-to-remote running-config), sonra aktif üyede request high-availability state suspend; bakım bitince request high-availability state functional (pan-15).');
     w.push('ℹ Karşı üyede aynı group-id ve mode, kendi HA1/HA2 adresleri ve bu cihazın HA1 IP\'si peer-ip olarak yazılır. İki üye aynı model ve aynı PAN-OS sürümünde olmalı.');
     const g = 'set deviceconfig high-availability group';
     let c = '# ========================================\n# Palo Alto — HA Active-Passive (' + (role === 'primary' ? 'Primary' : 'Secondary') + ')\n# ========================================\n\n';
@@ -883,7 +884,7 @@ function cgPaInterfaceGen(data) {
         ifBase = 'set network interface ethernet ' + N + ' layer3';
         c += ifBase + ' ip ' + ipPrefix + '\n';
         if (mtu) c += ifBase + ' mtu ' + cgEsc(mtu) + '\n';
-        if (description) c += 'set network interface ethernet ' + N + ' comment "' + description + '"\n';
+        if (description) c += 'set network interface ethernet ' + N + ' comment ' + cgQ(data.description) + '\n';
     } else if (t === 'vlan') {
         // 802.1Q alt arayüz: fiziksel arayüz layer3 modunda (IP'siz), alt arayüz units altında tag + ip
         const m2 = raw.match(/^(.+)\.(\d+)$/);
@@ -891,13 +892,14 @@ function cgPaInterfaceGen(data) {
         c += ifBase + ' tag ' + cgEsc(vlanId || (m2 ? m2[2] : '<VLAN-ID>')) + '\n';
         c += ifBase + ' ip ' + ipPrefix + '\n';
         if (mtu) c += ifBase + ' mtu ' + cgEsc(mtu) + '\n';
-        if (description) c += ifBase + ' comment "' + description + '"\n';
+        if (description) c += ifBase + ' comment ' + cgQ(data.description) + '\n';
         w.push('ℹ Karşı switch portu trunk olmalı ve VLAN ' + (vlanId || '<id>') + '\'e izin vermeli; fiziksel arayüz ' + parent + ' IP\'siz layer3 modunda kalır.');
+        w.push('ℹ Yeni alt arayüz ayrı bir zone\'daysa hem güvenlik kuralı hem kaynak NAT kuralı bu ağı kapsamalı; mevcut SNAT kuralı eski LAN ağıyla sınırlıysa yeni VLAN internete çıkamaz (pan-09).');
     } else {
         ifBase = 'set network interface loopback units ' + N;
         c += ifBase + ' ip ' + ipPrefix + '\n';
         if (mtu) c += ifBase + ' mtu ' + cgEsc(mtu) + '\n';
-        if (description) c += ifBase + ' comment "' + description + '"\n';
+        if (description) c += ifBase + ' comment ' + cgQ(data.description) + '\n';
     }
     if (mp) c += ifBase + ' interface-management-profile ' + mp + '\n';
     if (zone) c += 'set zone ' + zone + ' network layer3 ' + N + '\n';
@@ -948,6 +950,7 @@ function cgPaStaticrouteGen(data) {
     else if (!nexthop && /^tunnel\.\d+$/.test(iface)) w.push('ℹ Next-hop olmadan tunnel arayüzüne rota: route-based VPN için doğru kullanım.');
     else if (!nexthop) w.push('⚠ Statik rotada next-hop yok, yalnız ' + iface + ': Ethernet segmentinde hedef için ARP yapılır ve karşı tarafta proxy-ARP gerekir; next-hop IP verin.');
     if (metric && !(/^\d+$/.test(metric) && +metric >= 1 && +metric <= 65535)) w.push('⛔ Metric 1–65535 arasında bir sayı olmalı ("' + metric + '").');
+    if (dst === '0.0.0.0/0' && metric && +metric > 10) w.push('ℹ Yedek varsayılan rota: SNAT kuralları to-interface ile birincil hatta bağlıysa yedek hat için kendi arayüz adresine çeviren ayrı bir SNAT kuralı gerekir. Hat up kalıp ISP tarafı koparsa statik rota düşmez; path monitoring ekleyin. Kopmayı bakımda deneyin (pan-14).');
     if (nexthop) w.push('ℹ Next-hop ' + nexthop + ', VR\'daki bir arayüzün bağlı ağında olmalı; değilse rota tabloya girmez (show routing route\'da görünmez) (pan-02). Yedek hat için aynı hedefe daha yüksek metric ile ikinci rota yazın; yönetsel mesafe varsayılanı 10.');
     const b = 'set network virtual-router ' + vrName + ' routing-table ip static-route ' + routeName;
     let c = '# ========================================\n# Palo Alto — Virtual Router + Static Route\n# ========================================\n\n';
@@ -1168,7 +1171,7 @@ function cgPaServiceGen(data) {
     let c = '# ========================================\n# Palo Alto — Service Object\n# ========================================\n\n';
     c += b + ' port ' + cgEsc(dstPort) + '\n';
     if (srcPort && !/^any$/i.test(srcPort)) c += b + ' source-port ' + cgEsc(srcPort) + '\n';
-    if (description) c += 'set service ' + name + ' description "' + description + '"\n';
+    if (description) c += 'set service ' + name + ' description ' + cgQ(data.description) + '\n';
     w.push('ℹ Kuralda uygulama (App-ID) ile birlikte kullanın: application ssl + service ' + (name || '<servis>') + ' uygulamayı yalnız bu portta geçirir (pan-03). Standart porttaki uygulama için application-default yeterlidir.');
     c += '\n# Commit gerekli!\n# commit\n\n';
     c += '# Doğrulama (configure modu):\n# show service ' + name + '\n';
@@ -1617,7 +1620,7 @@ function cgPaAddrGroupGen(data) {
     } else {
         c += base + ' static [ ' + cgEsc(cgPaList(data.ag_members)) + ' ]\n';
     }
-    if (desc) c += base + ' description "' + desc + '"\n';
+    if (desc) c += base + ' description ' + cgQ(data.ag_desc) + '\n';
     c += '\n# Commit gerekli!\n# commit\n\n';
     c += '# Doğrulama:\n# show address-group "' + name + '"   (configure modu)\n';
     if (dyn) c += '# show object registered-ip all\n';
@@ -2163,7 +2166,7 @@ function cgPaAppOverrideGen(data) {
     c += b + ' protocol ' + (data.ao_proto === 'udp' ? 'udp' : 'tcp') + '\n';
     c += b + ' port ' + cgEsc(data.ao_port || '') + '\n';
     c += b + ' application ' + app + '\n';
-    if (desc) c += b + ' description "' + desc + '"\n';
+    if (desc) c += b + ' description ' + cgQ(data.ao_desc) + '\n';
     c += '\n# Commit gerekli!\n# commit\n\n';
     c += '# Doğrulama:\n# show rulebase application-override rules "' + n + '"   (configure modu)\n# show session all filter application ' + app + '\n';
     return c;

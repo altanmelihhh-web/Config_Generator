@@ -150,5 +150,43 @@
                 { code: 'show counter global filter delta yes severity drop', desc: 'Yavaşlık anında artan düşürme sayaçlarına bakın: flow_dos_* sayaçları flood korumasının devrede olduğunu, flow_policy_deny kural düşürmesini gösterir. Sayaç adlarının açıklaması çıktıda yanlarında yazar.' },
             ]
         },
+        {
+            title: 'Yeni VLAN (Alt Arayüz) Çalışmıyor: Etiket, Zone, Sanal Yönlendirici ve NAT', severity: 'warn', topic: 'l2', lab: 'pan-09',
+            symptom: 'Güvenlik duvarında yeni bir alt arayüz (ör. ethernet1/4.20, misafir VLAN\'ı) açıldı. İstemciler ağ geçidine ya da internete ulaşamıyor.',
+            steps: [
+                { code: 'show interface logical', desc: 'Alt arayüz listede mi; zone, sanal yönlendirici (forwarding: vr:default) ve tag sütunu dolu mu? Zone boşsa arayüz trafik işlemez; tag 0 ya da farklıysa switch\'in gönderdiği etiketle eşleşmez.',
+                  fix: [{ cause: 'Alt arayüz zone\'a eklenmemiş', cmd: 'configure\nset zone guest network layer3 ethernet1/4.20\ncommit\nexit' },
+                        { cause: 'Alt arayüz sanal yönlendiriciye eklenmemiş', cmd: 'configure\nset network virtual-router default interface ethernet1/4.20\ncommit\nexit' },
+                        { cause: 'Etiket yanlış ya da yok', cmd: 'configure\nset network interface ethernet ethernet1/4 layer3 units ethernet1/4.20 tag 20\ncommit\nexit' }] },
+                { code: 'ping source 10.64.20.1 host 10.64.20.10', desc: 'Alt arayüzün IP\'sinden aynı VLAN\'daki bir istemciye ping. Kaynak verilmezse ping yönetim portundan çıkar. Yanıt yoksa ve yukarıdaki satırlar doğruysa sorun switch tarafındadır: port trunk mı, VLAN 20 izinli ve etiketli mi?' },
+                { code: 'test security-policy-match from guest to untrust source 10.64.20.50 destination 198.51.100.80 destination-port 443 protocol 6 application ssl', desc: 'Ağ geçidine ulaşılıyor ama internet yoksa: yeni zone için kural var mı? "No rule matched" ise interzone-default reddeder.',
+                  fix: [{ cause: 'Misafir ağı için izin kuralı yok', cmd: 'configure\nset rulebase security rules GUEST-WEB from guest to untrust source 10.64.20.0/24 destination any application [ ssl web-browsing dns ] service application-default action allow\ncommit\nexit' }] },
+                { code: 'test nat-policy-match from guest to untrust source 10.64.20.50 destination 198.51.100.80 destination-port 443 protocol 6', desc: 'Kural eşleşiyor ama bağlantı kurulmuyorsa: kaynak NAT kuralı yeni ağı kapsıyor mu? Mevcut SNAT kuralı yalnız eski LAN ağını içeriyorsa misafir trafiği özel adresle çıkar ve dönüş gelmez.',
+                  fix: [{ cause: 'Yeni ağ NAT kuralında yok', cmd: 'configure\nset rulebase nat rules GUEST-SNAT from guest to untrust source 10.64.20.0/24 destination any source-translation dynamic-ip-and-port interface-address interface ethernet1/1\ncommit\nexit' }] },
+            ]
+        },
+        {
+            title: 'Yedek İnternet Hattı Devreye Girmiyor ya da Girince Trafik Geçmiyor', severity: 'err', topic: 'routing', lab: 'pan-14',
+            symptom: 'Birincil ISP hattı koptu. Ya trafik yedek hatta hiç geçmiyor ya da geçiyor ama kullanıcılar internete çıkamıyor.',
+            steps: [
+                { code: 'show routing route type static', desc: 'İki varsayılan rota görünmeli; A (active) bayrağı etkin olanı gösterir. Birincil metrik 10, yedek daha büyük (ör. 20) olmalı. Yedek rota listede yoksa sonraki atlaması bağlı bir ağda değildir ya da çıkış arayüzü sanal yönlendiricide değildir.',
+                  fix: [{ cause: 'Yedek rota yok ya da metriği birincille aynı', cmd: 'configure\nset network virtual-router default routing-table ip static-route BACKUP destination 0.0.0.0/0 metric 20 nexthop ip-address 198.51.100.1\ncommit\nexit' }] },
+                { code: 'test routing fib-lookup virtual-router default ip 198.51.100.80', desc: 'Gerçek yönlendirme kararı. Hat kopmasına rağmen birincil arayüz görünüyorsa arayüz hâlâ up\'tır (ISP\'nin ötesi kopuk): statik rota yalnız arayüz düşünce tablodan çıkar.',
+                  fix: [{ cause: 'Hat up ama ötesi kopuk: rotaya path monitoring ekleyin (hedeflere düzenli ping; yanıt yoksa rota düşer). Sözdizimini sürümünüzün yönetici kılavuzundan doğrulayın.' }] },
+                { code: 'test nat-policy-match from trust to untrust source 10.64.10.50 destination 198.51.100.80 destination-port 443 protocol 6 to-interface ethernet1/4', desc: 'Rota yedeğe geçti ama internet yoksa: NAT kuralı to-interface ile birincil arayüze bağlı olabilir. Yedek arayüz için eşleşme yoksa trafik özel adresle çıkar.',
+                  fix: [{ cause: 'Yedek hat için NAT kuralı yok', cmd: 'configure\nset rulebase nat rules SNAT-ISP2 from trust to untrust to-interface ethernet1/4 source LAN-NET destination any source-translation dynamic-ip-and-port interface-address interface ethernet1/4\ncommit\nexit' }] },
+                { code: 'show interface ethernet1/4', desc: 'Yedek arayüzün zone\'u ve sanal yönlendiricisi dolu olmalı. Zone untrust değilse mevcut güvenlik kuralları bu hatta eşleşmez.' },
+            ]
+        },
+        {
+            title: 'HA Failover Öncesi ve Sonrası: Durum, Öncelik ve Config Eşitlemesi', severity: 'warn', topic: 'ha', lab: 'pan-15',
+            symptom: 'Aktif/pasif HA çiftinde bakım için kontrollü failover yapılacak; ya da failover sonrası yeni aktif cihazda son değişiklikler eksik görünüyor.',
+            steps: [
+                { code: 'show high-availability state', desc: 'Yerel ve eş cihazın durumu (active/passive/suspended), öncelikleri, preemptive ayarı ve "Running Configuration" satırı. PAN-OS\'ta küçük priority değeri daha yüksek önceliktir. "not synchronized" görünüyorsa failover yapmadan önce eşitleyin.',
+                  fix: [{ cause: 'Yapılandırma eşit değil', cmd: 'request high-availability sync-to-remote running-config' }] },
+                { code: 'request high-availability state suspend', desc: 'Kontrollü failover: aktif cihaz askıya alınır, eş aktif olur. Kablo çekmek ya da cihazı kapatmak yerine bunu kullanın; sonucu show high-availability state ile doğrulayın.' },
+                { code: 'request high-availability state functional', desc: 'Bakım sonrası cihazı çifte geri katar. Unutulursa çift yedeksiz kalır. Preemptive kapalıysa (varsayılan) öncelikli cihaz geri dönünce passive kalır; bu normaldir, ikinci bir kesinti yaşanmaz.' },
+            ]
+        },
     ];
 })();
