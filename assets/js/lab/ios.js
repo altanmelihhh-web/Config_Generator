@@ -61,6 +61,8 @@ const CgLabIos = (() => {
         bpduguard: 'BPDU gelirse portu err-disable yap', range: 'Arayüz aralığı', 'ip': 'IP ayarları', default: 'Varsayılan', errdisable: 'err-disable ayarları', recovery: 'Otomatik kurtarma',
         cause: 'Kurtarma nedeni', include: 'Eşleşen satırlar', exclude: 'Eşleşmeyen satırlar', begin: 'Eşleşmeden itibaren', section: 'Eşleşen bölümler', 'time-out': 'Zaman aşımı', 'authentication-retries': 'Deneme sayısı',
         'extend': 'Genişletilmiş sistem kimliği', 'access-list': 'Numaralı erişim listesi', 'access-lists': 'Erişim listeleri', 'access-group': 'Arayüze ACL uygula', standard: 'Standart ACL (yalnız kaynak)', extended: 'Genişletilmiş ACL',
+        dhcp: 'DHCP', 'excluded-address': 'Havuzdan hariç adresler', pool: 'DHCP havuzu', 'default-router': 'İstemcilere verilecek ağ geçidi', 'dns-server': 'DNS sunucusu', lease: 'Kira süresi', 'helper-address': 'DHCP relay: istekleri sunucuya ilet', binding: 'Dağıtılan adresler', conflict: 'Çakışan adresler',
+        'port-security': 'Port güvenliği', maximum: 'En fazla', violation: 'İhlal eylemi', sticky: 'Öğrenilen MAC\'i config\'e yapıştır', 'mac-address': 'MAC adresi', 'address-table': 'MAC adres tablosu', 'aging-time': 'Yaşlanma süresi', count: 'Sayım', archive: 'Otomatik yapılandırma arşivi', 'write-memory': 'Her kaydetmede arşivle', 'time-period': 'Periyodik arşiv (dk)', replace: 'Yapılandırmayı dosyayla değiştir', dir: 'Dosya listesi',
         aaa: 'AAA (kimlik doğrulama, yetkilendirme, kayıt)', 'new-model': 'AAA\'yı etkinleştir', authentication: 'Kimlik doğrulama', authorization: 'Yetkilendirme', accounting: 'Kayıt (accounting)', group: 'Sunucu grubu', 'tacacs+': 'TACACS+ sunucuları', radius: 'RADIUS', tacacs: 'TACACS+', server: 'Sunucu', address: 'Adres', ipv4: 'IPv4 adresi', test: 'Test', algorithm: 'Algoritma listesi', encryption: 'Şifreleme', kex: 'Anahtar değişimi', hostkey: 'Sunucu anahtarı', http: 'HTTP (web) sunucusu', 'secure-server': 'HTTPS sunucusu', dh: 'Diffie-Hellman',
         permit: 'İzin ver', deny: 'Engelle', remark: 'Açıklama satırı', nat: 'NAT', inside: 'İç (NAT inside)', outside: 'Dış (NAT outside)', source: 'Kaynak', list: 'ACL ile', overload: 'PAT (port çevirme)', static: 'Statik', translations: 'Çeviri tablosu', statistics: 'İstatistik', translation: 'Çeviri', connected: 'Bağlı ağlar',
         errdisable: 'err-disable', 'err-disabled': 'err-disable portlar', clear: 'Temizle', in: 'Giriş yönü', out: 'Çıkış yönü', 'rapid-pvst': 'Rapid PVST+', pvst: 'PVST+', mst: 'MST', trunk_: '', users: 'Oturumlar', clock: 'Saat', length: 'Sayfa uzunluğu'
@@ -78,7 +80,8 @@ const CgLabIos = (() => {
     // ── Varsayılan cihaz modeli
     function newIf(sw, name) {
         return { desc: '', shutdown: !sw && isPhys(name), mode: null, accessVlan: 1, voiceVlan: null, native: 1, allowed: null,
-            nonegotiate: false, ip: null, mask: null, portfast: false, bpduguard: false, speed: 'auto', duplex: 'auto', errdis: false, errReason: null, accessIn: null, accessOut: null, nat: null };
+            nonegotiate: false, ip: null, mask: null, portfast: false, bpduguard: false, speed: 'auto', duplex: 'auto', errdis: false, errReason: null, accessIn: null, accessOut: null, nat: null,
+            helpers: [], ps: null };
     }
     function baseModel(lab) {
         const sw = lab.kind !== 'router';
@@ -91,7 +94,8 @@ const CgLabIos = (() => {
             lines: { con: { pw: null, login: false, logsync: false, timeout: null }, vty: { '0 4': { pw: null, login: 'login', transport: null, timeout: null, acl: null }, '5 15': { pw: null, login: 'login', transport: null, timeout: null, acl: null } } },
             ospf: {}, links: {}, acls: {}, nat: [],
             aaaNew: false, tacacs: {}, radius: {}, sgroups: {}, authn: {}, authz: {}, acct: {}, tacSrc: null, radSrc: null,
-            http: false, https: false, httpAuth: null, sshAlg: {}, sshDhMin: null
+            http: false, https: false, httpAuth: null, sshAlg: {}, sshDhMin: null,
+            dhcpExcl: [], dhcpPools: {}, macStatic: [], macAging: 300, archive: null
         };
         for (const n of lab.ifaces || (sw ? range('GigabitEthernet0/', 1, 24) : range('GigabitEthernet0/', 0, 2))) m.ifs[n] = newIf(sw, n);
         if (sw) m.ifs.Vlan1 = newIf(sw, 'Vlan1');
@@ -154,6 +158,21 @@ const CgLabIos = (() => {
             { p: 'show interfaces IFNAME$if switchport', sw: 1, run: (a) => showIfSwitchport(a.if) },
             { p: 'show ip ssh', run: showIpSsh },
             { p: 'show aaa servers', run: showAaaServers },
+            { p: 'show ip dhcp pool', run: showDhcpPool },
+            { p: 'show ip dhcp binding', run: showDhcpBinding },
+            { p: 'show ip dhcp conflict', run: () => 'IP address        Detection method   Detection time          VRF' },
+            { p: 'show port-security', sw: 1, run: showPsec },
+            { p: 'show port-security interface IFNAME$i', sw: 1, run: (a) => showPsecIf(a.i) },
+            { p: 'show port-security address', sw: 1, run: showPsecAddr },
+            { p: 'show mac address-table', sw: 1, run: () => showMac({}) },
+            { p: 'show mac address-table dynamic', sw: 1, run: () => showMac({ type: 'DYNAMIC' }) },
+            { p: 'show mac address-table static', sw: 1, run: () => showMac({ type: 'STATIC' }) },
+            { p: 'show mac address-table interface IFNAME$i', sw: 1, run: (a) => showMac({ port: a.i }) },
+            { p: 'show mac address-table address WORD$m', sw: 1, run: (a) => showMac({ mac: a.m.toLowerCase() }) },
+            { p: 'show mac address-table count', sw: 1, run: () => showMacCount() },
+            { p: 'show mac address-table aging-time', sw: 1, run: () => 'Global Aging Time:  ' + M().macAging + '\nVlan    Aging Time\n----    ----------' },
+            { p: 'show archive', run: showArchive },
+            { p: 'show interfaces description', run: showIfDesc },
             { p: 'show ip http server status', run: () => ['HTTP server status: ' + (M().http ? 'Enabled' : 'Disabled'), 'HTTP server port: 80', 'HTTP server active supplementary listener ports: ', 'HTTP server authentication method: ' + (M().httpAuth || 'enable'), 'HTTP secure server capability: Present', 'HTTP secure server status: ' + (M().https ? 'Enabled' : 'Disabled'), 'HTTP secure server port: 443'].join('\n') },
             { p: 'test aaa group WORD$g WORD$u LINE$r', run: (a) => testAaa(a) },
             { p: 'show access-lists', run: () => showAcls() },
@@ -183,6 +202,13 @@ const CgLabIos = (() => {
             { p: 'ping A.B.C.D$ip', run: (a) => ping(a.ip) },
             { p: 'terminal length (0-512)', run: () => '' },
             { p: 'clear ip nat translation *', run: () => '' },
+            { p: 'clear mac address-table dynamic', sw: 1, run: () => { S.macHide = '*'; log({ macclear: '*' }); return ''; } },
+            { p: 'clear mac address-table dynamic interface IFNAME$i', sw: 1, run: (a) => { S.macHide = a.i; log({ macclear: a.i }); return ''; } },
+            { p: 'clear ip dhcp binding *', run: () => '' },
+            { p: 'copy running-config WORD$f', run: (a) => /^flash:\S+$/.test(a.f) ? copyFlash(a.f) : { err: 'invalid', col: 19 } },
+            { p: 'copy running-config tftp:', run: () => copyTftp() },
+            { p: 'dir flash:', run: () => dirFlash() },
+            { p: 'configure replace WORD$f', run: (a) => /^flash:\S+$/.test(a.f) ? cfgReplace(a.f) : { err: 'invalid', col: 18 } },
         ].concat(SHOW, SHOW_PRIV));
 
         const COMMON = [
@@ -217,6 +243,11 @@ const CgLabIos = (() => {
             { p: 'line console (0-0)', run: () => { S.mode = 'line'; S.ctx = ['con']; }, neg: false },
             { p: 'line vty (0-15)$a (0-15)$b', run: (a) => vtyEnter(a.a, a.b), neg: false },
             { p: 'router ospf (1-65535)$pid', run: (a) => { M().ospf[a.pid] = M().ospf[a.pid] || { rid: null, nets: [], passive: [], passiveDefault: false, dio: false }; S.mode = 'router'; S.ctx = [String(a.pid)]; }, no: (a) => { delete M().ospf[a.pid]; } },
+            { p: 'ip dhcp excluded-address A.B.C.D$a [A.B.C.D$b]', run: (a) => { const b = a.b || a.a; if (ip2n(b) < ip2n(a.a)) return '% [Simülatör] Bitiş adresi başlangıçtan küçük.'; if (!M().dhcpExcl.some(x => x[0] === a.a && x[1] === b)) M().dhcpExcl.push([a.a, b]); }, no: (a) => { const b = a.b || a.a; M().dhcpExcl = M().dhcpExcl.filter(x => !(x[0] === a.a && x[1] === b)); } },
+            { p: 'ip dhcp pool WORD$n', run: (a) => { M().dhcpPools[a.n] = M().dhcpPools[a.n] || { network: null, mask: null, gw: [], dns: [], domain: null, lease: null }; S.mode = 'dhcp'; S.ctx = [a.n]; }, no: (a) => { delete M().dhcpPools[a.n]; } },
+            { p: 'mac address-table static WORD$m vlan (1-4094)$v interface IFNAME$i', sw: 1, run: (a) => { if (!/^[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}$/i.test(a.m)) return { err: 'invalid', col: 25 }; M().macStatic = M().macStatic.filter(x => !(x.mac === a.m.toLowerCase() && x.vlan === a.v)); M().macStatic.push({ mac: a.m.toLowerCase(), vlan: a.v, port: a.i }); }, no: (a) => { M().macStatic = M().macStatic.filter(x => !(x.mac === a.m.toLowerCase() && x.vlan === a.v)); } },
+            { p: 'mac address-table aging-time !(0-1000000)$t', sw: 1, run: (a) => { if (a.t !== 0 && a.t < 10) return '% [Simülatör] Geçerli aralık: 0 ya da 10–1000000 sn.'; M().macAging = a.t; }, no: () => { M().macAging = 300; } },
+            { p: 'archive', run: () => { M().archive = M().archive || { path: null, wm: false, period: null, max: 10 }; S.mode = 'archive'; S.ctx = ['archive']; }, no: () => { M().archive = null; } },
             { p: 'aaa new-model', run: () => { M().aaaNew = true; }, no: () => { M().aaaNew = false; } },
             { p: 'tacacs server WORD$n', run: (a) => { M().tacacs[a.n] = M().tacacs[a.n] || { addr: null, key: null, port: 49, timeout: 5 }; S.mode = 'tacsrv'; S.ctx = [a.n]; }, no: (a) => { delete M().tacacs[a.n]; } },
             { p: 'radius server WORD$n', run: (a) => { M().radius[a.n] = M().radius[a.n] || { addr: null, key: null, auth: 1812, acct: 1813, timeout: 5 }; S.mode = 'radsrv'; S.ctx = [a.n]; }, no: (a) => { delete M().radius[a.n]; } },
@@ -256,6 +287,12 @@ const CgLabIos = (() => {
             { p: 'switchport trunk allowed vlan add VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { if (i.allowed) i.allowed = [...new Set(i.allowed.concat(vlanList(a.l)))].sort((x, y) => x - y); }), neg: false },
             { p: 'switchport trunk allowed vlan remove VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { const all = i.allowed || range('', 1, 4094).map(Number); const rm = vlanList(a.l); i.allowed = all.filter(v => !rm.includes(v)); }), neg: false },
             { p: 'switchport trunk allowed vlan !VLIST$l', sw: 1, phys: 1, run: (a) => secsIf().forEach(i => { i.allowed = vlanList(a.l); }), no: () => secsIf().forEach(i => { i.allowed = null; }) },
+            { p: 'ip helper-address A.B.C.D$ip', run: (a) => secsIf().forEach(i => { if (!i.helpers.includes(a.ip)) i.helpers.push(a.ip); }), no: (a) => secsIf().forEach(i => { i.helpers = i.helpers.filter(x => x !== a.ip); }) },
+            { p: 'switchport port-security', sw: 1, phys: 1, run: () => psecOn(), no: () => secsIf().forEach(i => { i.ps = null; }) },
+            { p: 'switchport port-security maximum !(1-8192)$n', sw: 1, phys: 1, run: (a) => psecSet(i => { i.ps.max = a.n; }), no: () => psecSet(i => { i.ps.max = 1; }) },
+            { p: 'switchport port-security violation !<protect|restrict|shutdown>$v', sw: 1, phys: 1, run: (a) => psecSet(i => { i.ps.violation = a.v; }), no: () => psecSet(i => { i.ps.violation = 'shutdown'; }) },
+            { p: 'switchport port-security mac-address sticky', sw: 1, phys: 1, run: () => psecSet(i => { i.ps.sticky = true; }), no: () => psecSet(i => { i.ps.sticky = false; i.ps.stickyMacs = []; }) },
+            { p: 'switchport port-security mac-address WORD$m', sw: 1, phys: 1, run: (a) => { if (!/^[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}$/i.test(a.m)) return { err: 'invalid', col: 38 }; return psecSet(i => { if (!i.ps.macs.includes(a.m.toLowerCase())) i.ps.macs.push(a.m.toLowerCase()); }); }, no: (a) => psecSet(i => { i.ps.macs = i.ps.macs.filter(x => x !== a.m.toLowerCase()); }) },
             { p: 'switchport nonegotiate', sw: 1, phys: 1, run: nonegotiate, no: () => secsIf().forEach(i => { i.nonegotiate = false; }) },
             { p: 'ip address !A.B.C.D$ip !MASK$mask', run: ipAddr, no: () => secsIf().forEach(i => { i.ip = null; i.mask = null; }) },
             { p: 'ip access-group WORD$acl !<in|out>$d', run: (a) => secsIf().forEach(i => { if (a.d === 'in') i.accessIn = a.acl; else i.accessOut = a.acl; }), no: (a) => secsIf().forEach(i => { if (!a.d || a.d === 'in') { if (!a.acl || i.accessIn === a.acl) i.accessIn = null; } if (!a.d || a.d === 'out') { if (!a.acl || i.accessOut === a.acl) i.accessOut = null; } }) },
@@ -287,6 +324,21 @@ const CgLabIos = (() => {
             { p: 'passive-interface default', run: () => { osp().passiveDefault = true; osp().passive = []; }, no: () => { osp().passiveDefault = false; osp().passive = []; } },
             { p: 'passive-interface IFNAME$i', run: (a) => { const o = osp(); if (!o.passive.includes(a.i)) o.passive.push(a.i); }, no: (a) => { const o = osp(); o.passive = o.passive.filter(x => x !== a.i); if (o.passiveDefault && !o.passive.includes('!' + a.i)) o.passive.push('!' + a.i); } },
             { p: 'default-information originate', run: () => { osp().dio = true; }, no: () => { osp().dio = false; } },
+        ].concat(COMMON));
+        const DHCPM = X([
+            { p: 'network A.B.C.D$n MASK$m', run: (a) => { if (netOf(a.n, maskLen(a.m)) !== ip2n(a.n)) return '% [Simülatör] Ağ adresi maskeyle uyumlu değil (ör. 10.64.10.0 255.255.255.0).'; Object.assign(pool(), { network: a.n, mask: a.m }); }, no: () => Object.assign(pool(), { network: null, mask: null }) },
+            { p: 'default-router !A.B.C.D$g [A.B.C.D$g2]', run: (a) => { pool().gw = [a.g].concat(a.g2 ? [a.g2] : []); }, no: () => { pool().gw = []; } },
+            { p: 'dns-server !A.B.C.D$d [A.B.C.D$d2]', run: (a) => { pool().dns = [a.d].concat(a.d2 ? [a.d2] : []); }, no: () => { pool().dns = []; } },
+            { p: 'domain-name !WORD$d', run: (a) => { pool().domain = a.d; }, no: () => { pool().domain = null; } },
+            { p: 'lease (0-365)$d [(0-23)$h] [(0-59)$mi]', run: (a) => { pool().lease = a.d + ' ' + (a.h || 0) + ' ' + (a.mi || 0); }, no: () => { pool().lease = null; } },
+            { p: 'lease infinite', run: () => { pool().lease = 'infinite'; }, neg: false },
+        ].concat(COMMON));
+        const pool = () => M().dhcpPools[S.ctx[0]];
+        const ARCH = X([
+            { p: 'path !LINE$p', run: (a) => { if (!/^flash:\S+$/.test(a.p.trim())) return '% [Simülatör] Bu lab\'da yalnız flash: yolu destekleniyor (ör. flash:yedek-$h-).'; M().archive.path = a.p.trim(); }, no: () => { M().archive.path = null; } },
+            { p: 'write-memory', run: () => { M().archive.wm = true; }, no: () => { M().archive.wm = false; } },
+            { p: 'time-period !(1-525600)$t', run: (a) => { M().archive.period = a.t; }, no: () => { M().archive.period = null; } },
+            { p: 'maximum !(1-14)$n', run: (a) => { M().archive.max = a.n; }, no: () => { M().archive.max = 10; } },
         ].concat(COMMON));
         const TACSRV = X([
             { p: 'address ipv4 A.B.C.D$ip', run: (a) => { M().tacacs[S.ctx[0]].addr = a.ip; }, no: () => { M().tacacs[S.ctx[0]].addr = null; } },
@@ -333,8 +385,8 @@ const CgLabIos = (() => {
         function aclNumAdd(a, type) { return aclEntryAdd(String(a.n), type, undefined, [a.a].concat(a.r.trim().split(/\s+/)), ('access-list ' + a.n + ' ').length); }
         function natStaticAdd(r) { if (M().nat.some(x => x.type === 'static' && x.global === r.global && (x.gport || 0) === (r.gport || 0))) return '% similar static entry (' + r.local + ' -> ' + r.global + ') already exists'; M().nat.push(r); }
         const osp = () => M().ospf[S.ctx[0]];
-        const MODES = { config: CONFIG, if: IFMODE, range: IFMODE, vlan: VLANMODE, line: LINEMODE, router: ROUTERMODE, snacl: SNACL, enacl: ENACL, tacsrv: TACSRV, radsrv: RADSRV, sgtac: SG, sgrad: SG };
-        const PROMPT = { user: '>', priv: '#', config: '(config)#', if: '(config-if)#', range: '(config-if-range)#', vlan: '(config-vlan)#', line: '(config-line)#', router: '(config-router)#', snacl: '(config-std-nacl)#', enacl: '(config-ext-nacl)#', tacsrv: '(config-server-tacacs)#', radsrv: '(config-radius-server)#', sgtac: '(config-sg-tacacs+)#', sgrad: '(config-sg-radius)#' };
+        const MODES = { config: CONFIG, if: IFMODE, range: IFMODE, vlan: VLANMODE, line: LINEMODE, router: ROUTERMODE, snacl: SNACL, enacl: ENACL, tacsrv: TACSRV, radsrv: RADSRV, sgtac: SG, sgrad: SG, dhcp: DHCPM, archive: ARCH };
+        const PROMPT = { user: '>', priv: '#', config: '(config)#', if: '(config-if)#', range: '(config-if-range)#', vlan: '(config-vlan)#', line: '(config-line)#', router: '(config-router)#', snacl: '(config-std-nacl)#', enacl: '(config-ext-nacl)#', tacsrv: '(config-server-tacacs)#', radsrv: '(config-radius-server)#', sgtac: '(config-sg-tacacs+)#', sgrad: '(config-sg-radius)#', dhcp: '(dhcp-config)#', archive: '(config-archive)#' };
 
         // Cihaz türüne / arayüze göre komut süzgeci
         function avail(list, noForm) {
@@ -557,7 +609,64 @@ const CgLabIos = (() => {
         };
         function saved() { return !!S.startup && JSON.stringify(S.startup) === JSON.stringify(stripRuntime(M())); }
         function stripRuntime(m) { const c = clone(m); return c; }
-        function save() { S.startup = stripRuntime(M()); }
+        function save() {
+            S.startup = stripRuntime(M());
+            const a = M().archive;
+            if (a && a.wm && a.path) archiveAdd();
+        }
+        S.flash = S.flash || {}; S.archives = [];
+        function archiveAdd() {
+            const a = M().archive, n = S.archives.length ? S.archives[S.archives.length - 1].n + 1 : 1;
+            const name = a.path.replace('$h', M().hostname).replace('$t', 'Sep-25-2026-10-' + String(10 + n).padStart(2, '0')) + (a.path.includes('$t') ? '' : '-' + n);
+            S.archives.push({ n, name, snap: clone(M()) }); S.flash[name] = clone(M());
+            while (S.archives.length > a.max) { const old = S.archives.shift(); delete S.flash[old.name]; }
+            log({ archive: name });
+        }
+        function showArchive() {
+            const a = M().archive;
+            if (!a || !a.path) return 'Archive feature not enabled';
+            const nextN = S.archives.length ? S.archives[S.archives.length - 1].n + 1 : 1;
+            return ['The maximum archive configurations allowed is ' + a.max + '.', 'There are currently ' + S.archives.length + ' archive configurations saved.',
+                'The next archive file will be named ' + a.path.replace('$h', M().hostname) + (a.path.includes('$t') ? '<timestamp>' : '-' + nextN), ' Archive #  Name']
+                .concat(S.archives.map((x, i) => pad('   ' + (i + 1), 12) + x.name + (i === S.archives.length - 1 ? ' <- Most Recent' : ''))).join('\n');
+        }
+        function copyFlash(f) {
+            S.pending = { prompt: 'Destination filename [' + f.slice(6) + ']? ', fn: () => { S.flash[f] = clone(M()); log({ copied: f }); return runBody().length + ' bytes copied in 0.184 secs (' + Math.round(runBody().length / 0.184) + ' bytes/sec)'; } };
+            return '';
+        }
+        function copyTftp() {
+            S.pending = { prompt: 'Address or name of remote host []? ', fn: (h) => {
+                if (!isIp(h)) return '%Error parsing filename (Invalid IP address)';
+                S.pending = { prompt: 'Destination filename [' + M().hostname.toLowerCase() + '-confg]? ', fn: (fn) => {
+                    const r = lookup(h), ok = (S.lab.hosts || []).includes(h) && !!r;
+                    log({ tftp: { host: h, ok } });
+                    return ok ? '!!\n' + runBody().length + ' bytes copied in 0.352 secs (' + Math.round(runBody().length / 0.352) + ' bytes/sec)' : '%Error opening tftp://' + h + '/' + (fn || M().hostname.toLowerCase() + '-confg') + ' (Timed out)';
+                } };
+                return '';
+            } };
+            return '';
+        }
+        function dirFlash() {
+            const L = ['Directory of flash:/', '', '    1  -rw-    98542304   Jan 10 2026 09:00:00 +00:00  simulator-image.bin'];
+            let i = 2;
+            for (const f of Object.keys(S.flash)) L.push(padL(i++, 5) + '  -rw-  ' + padL(4096 + i * 17, 10) + '   Sep 25 2026 10:' + String(10 + i).padStart(2, '0') + ':00 +00:00  ' + f.slice(6));
+            L.push('', '256487424 bytes total (157943808 bytes free)');
+            return L.join('\n');
+        }
+        function cfgReplace(f) {
+            if (!S.flash[f]) return '%Error opening ' + f + ' (No such file or directory)';
+            S.pending = { prompt: 'This will apply all necessary additions and deletions\nto replace the current running configuration with the\ncontents of the specified configuration file, which is\nassumed to be a complete configuration, not a partial\nconfiguration. Enter Y if you are sure you want to proceed. ? [no]: ', fn: (x) => {
+                if (!/^y/i.test(x)) return '';
+                S.m = clone(S.flash[f]); log({ replaced: f });
+                return 'Total number of passes: 1\nRollback Done';
+            } };
+            return '';
+        }
+        function showIfDesc() {
+            const L = ['Interface                      Status         Protocol Description'];
+            for (const n of Object.keys(M().ifs).sort(ifCmp)) { const [st, pr] = ifLine(n); L.push(pad(ifShort(n), 31) + pad(st === 'administratively down' ? 'admin down' : st, 15) + pad(pr, 9) + M().ifs[n].desc); }
+            return L.join('\n');
+        }
         function startText() { const cur = S.m; S.m = S.startup; const t = runBody(); S.m = cur; return t; }
 
         // ═══ show çıktıları ══════════════════════════════════════════════════
@@ -606,6 +715,15 @@ const CgLabIos = (() => {
                 if (i.accessIn) L.push(' ip access-group ' + i.accessIn + ' in');
                 if (i.accessOut) L.push(' ip access-group ' + i.accessOut + ' out');
                 if (i.nat) L.push(' ip nat ' + i.nat);
+                i.helpers.forEach(h => L.push(' ip helper-address ' + h));
+                if (i.ps) {
+                    if (!i.ps.off) L.push(' switchport port-security');
+                    if (i.ps.max !== 1) L.push(' switchport port-security maximum ' + i.ps.max);
+                    if (i.ps.violation !== 'shutdown') L.push(' switchport port-security violation ' + i.ps.violation);
+                    if (i.ps.sticky) L.push(' switchport port-security mac-address sticky');
+                    i.ps.stickyMacs.forEach(m => L.push(' switchport port-security mac-address sticky ' + m));
+                    i.ps.macs.forEach(m => L.push(' switchport port-security mac-address ' + m));
+                }
                 if (i.shutdown) L.push(' shutdown');
                 if (i.speed !== 'auto') L.push(' speed ' + i.speed);
                 if (i.duplex !== 'auto') L.push(' duplex ' + i.duplex);
@@ -626,6 +744,11 @@ const CgLabIos = (() => {
             if (m.httpAuth) L.push('ip http authentication ' + m.httpAuth);
             L.push(m.https ? 'ip http secure-server' : 'no ip http secure-server', '!');
             if (m.tacSrc) L.push('ip tacacs source-interface ' + m.tacSrc);
+            m.dhcpExcl.forEach(([a, b]) => L.push('ip dhcp excluded-address ' + a + (b !== a ? ' ' + b : '')));
+            for (const [n, P] of Object.entries(m.dhcpPools)) { L.push('!', 'ip dhcp pool ' + n); if (P.network) L.push(' network ' + P.network + ' ' + P.mask); if (P.gw.length) L.push(' default-router ' + P.gw.join(' ')); if (P.dns.length) L.push(' dns-server ' + P.dns.join(' ')); if (P.domain) L.push(' domain-name ' + P.domain); if (P.lease) L.push(' lease ' + P.lease); }
+            if (m.macAging !== 300) L.push('mac address-table aging-time ' + m.macAging);
+            m.macStatic.forEach(x => L.push('mac address-table static ' + x.mac + ' vlan ' + x.vlan + ' interface ' + x.port));
+            if (m.archive) { L.push('!', 'archive'); if (m.archive.path) L.push(' path ' + m.archive.path); if (m.archive.wm) L.push(' write-memory'); if (m.archive.period) L.push(' time-period ' + m.archive.period); if (m.archive.max !== 10) L.push(' maximum ' + m.archive.max); }
             if (m.radSrc) L.push('ip radius source-interface ' + m.radSrc);
             m.nat.forEach(x => L.push(x.type === 'list' ? 'ip nat inside source list ' + x.acl + ' interface ' + x.iface + ' overload' : 'ip nat inside source static ' + (x.proto ? x.proto + ' ' + x.local + ' ' + x.lport + ' ' + x.global + ' ' + x.gport : x.local + ' ' + x.global)));
             for (const [n, a] of Object.entries(m.acls)) {
@@ -705,8 +828,8 @@ const CgLabIos = (() => {
                 const i = M().ifs[n];
                 const st = i.errdis ? 'err-disabled' : i.shutdown ? 'disabled' : M().links[n] ? 'connected' : 'notconnect';
                 const up = st === 'connected';
-                const dup = i.duplex === 'auto' ? (up ? 'a-full' : 'auto') : i.duplex;
-                const spd = i.speed === 'auto' ? (up ? 'a-1000' : 'auto') : i.speed;
+                const dup = i.duplex === 'auto' ? (up ? 'a-' + nego(n).dup : 'auto') : i.duplex;
+                const spd = i.speed === 'auto' ? (up ? 'a-' + nego(n).spd : 'auto') : i.speed;
                 L.push(pad(ifShort(n), 10) + pad(i.desc.slice(0, 18), 19) + pad(st, 13) + pad(i.mode === 'trunk' ? 'trunk' : i.accessVlan, 11) + padL(dup, 6) + padL(spd, 7) + ' 10/100/1000BaseTX');
             }
             return L.join('\n');
@@ -877,11 +1000,21 @@ const CgLabIos = (() => {
             const i = M().ifs[n]; if (!i) return '% Invalid interface';
             const [st, pr] = ifLine(n);
             return [n + ' is ' + st + ', line protocol is ' + pr, i.ip ? '  Internet address is ' + i.ip + '/' + maskLen(i.mask) : '  Internet protocol processing disabled', '  Broadcast address is 255.255.255.255', '  MTU is 1500 bytes',
+                i.helpers.length ? '  Helper addresses are ' + i.helpers.join('\n                        ') : '  Helper address is not set',
                 '  Outgoing Common access list is not set', '  Outgoing access list is ' + (i.accessOut || 'not set'), '  Inbound Common access list is not set', '  Inbound  access list is ' + (i.accessIn || 'not set'), '  Proxy ARP is enabled', '  IP fast switching is enabled',
                 '  IP NAT ' + (i.nat || 'disabled')].join('\n');
         }
         const macFor = n => { const k = ifNums(n).reduce((a, x) => a * 64 + x, 0) + IF_ORDER.indexOf(ifType(n)) * 4096; return '0011.22' + ((k >> 8) & 255).toString(16).padStart(2, '0') + '.' + (k & 255).toString(16).padStart(2, '0') + '0' + (k % 10); };
-        function dupMismatch(n) { const p = (S.lab.sim && S.lab.sim.peer || {})[n]; const i = M().ifs[n]; if (!p || !M().links[n]) return false; const d = i.duplex === 'auto' ? (p.duplex === 'auto' ? 'full' : 'half') : i.duplex; return d !== (p.duplex === 'auto' ? 'full' : p.duplex); }
+        // Otomatik uzlaşma: iki uç auto → 1000/full. Karşı uç sabitse auto taraf hızı sinyalden sezer, dupleksi bilemez → half.
+        function nego(n) {
+            const p = (S.lab.sim && S.lab.sim.peer || {})[n] || { duplex: 'auto', speed: 'auto' }, i = M().ifs[n];
+            const pd = p.duplex || 'auto', ps = p.speed || 'auto';
+            const spd = i.speed !== 'auto' ? String(i.speed) : ps !== 'auto' ? String(ps) : '1000';
+            const dup = i.duplex !== 'auto' ? i.duplex : pd === 'auto' ? 'full' : 'half';
+            const peerDup = pd !== 'auto' ? pd : i.duplex === 'auto' ? 'full' : 'half';
+            return { spd, dup, peerDup };
+        }
+        function dupMismatch(n) { const p = (S.lab.sim && S.lab.sim.peer || {})[n]; if (!p || !M().links[n]) return false; const g = nego(n); return g.dup !== g.peerDup; }
         function showIfDetail(n) {
             const i = M().ifs[n];
             if (!i) return '% Invalid interface';
@@ -893,8 +1026,9 @@ const CgLabIos = (() => {
             L.push('  MTU 1500 bytes, BW ' + (i.speed === '10' ? 10000 : i.speed === '100' ? 100000 : 1000000) + ' Kbit/sec, DLY 10 usec,', '     reliability 255/255, txload 1/255, rxload 1/255', '  Encapsulation ARPA, loopback not set', '  Keepalive set (10 sec)');
             if (isPhys(n)) {
                 const peer = (S.lab.sim && S.lab.sim.peer || {})[n] || {};
-                const dup = i.duplex === 'auto' ? (up ? (peer.duplex === 'half' ? 'Half-duplex' : 'Full-duplex') : 'Auto-duplex') : (i.duplex === 'half' ? 'Half-duplex' : 'Full-duplex');
-                const spd = i.speed === 'auto' ? (up ? '1000Mb/s' : 'Auto-speed') : i.speed + 'Mb/s';
+                const g = nego(n);
+                const dup = i.duplex === 'auto' && !up ? 'Auto-duplex' : (g.dup === 'half' ? 'Half-duplex' : 'Full-duplex');
+                const spd = i.speed === 'auto' && !up ? 'Auto-speed' : g.spd + 'Mb/s';
                 L.push('  ' + dup + ', ' + spd + ', media type is 10/100/1000BaseTX');
             }
             const bad = dupMismatch(n);
@@ -984,6 +1118,160 @@ const CgLabIos = (() => {
             for (const [n, s] of Object.entries(M().radius)) { const r = aaaServerReply('radius', n); L.push('RADIUS: id ' + id++ + ', priority 1, host ' + (s.addr || '0.0.0.0') + ', auth-port ' + s.auth + ', acct-port ' + s.acct + ', hostname ' + n, '     State: current ' + (r.none ? 'DEAD' : 'UP') + ', duration 1800s, previous duration 0s', '     Dead: total time ' + (r.none ? 60 : 0) + 's, count ' + (r.none ? 1 : 0)); }
             for (const [n, s] of Object.entries(M().tacacs)) { const r = aaaServerReply('tacacs', n); L.push('TACACS+: id ' + id++ + ', priority 1, host ' + (s.addr || '0.0.0.0') + ', port ' + s.port + ', hostname ' + n, '     State: current ' + (r.none ? 'DEAD' : 'UP') + ', duration 1800s, previous duration 0s', '     Dead: total time ' + (r.none ? 60 : 0) + 's, count ' + (r.none ? 1 : 0)); }
             return L.length ? L.join('\n') : '';
+        }
+        // ═══ DHCP (lab.sim.dhcp: [{ mac, in }]) — yerel havuz ya da relay (lab.sim.dhcpServer: { ip, nets: [...] })
+        function inExcl(ip) { return M().dhcpExcl.some(([a, b]) => ip2n(ip) >= ip2n(a) && ip2n(ip) <= ip2n(b)); }
+        function dhcpLeases() {
+            const out = [], used = {};
+            for (const c of ((S.lab.sim && S.lab.sim.dhcp) || [])) {
+                const I = M().ifs[c.in];
+                if (!I || !ifUp(c.in) || !I.ip) { out.push(Object.assign({}, c, { reason: 'noif' })); continue; }
+                const len = maskLen(I.mask);
+                if (I.helpers.length) {   // relay
+                    const srv = (S.lab.sim && S.lab.sim.dhcpServer) || {};
+                    const h = I.helpers.find(x => x === srv.ip);
+                    if (!h || !lookup(h)) { out.push(Object.assign({}, c, { reason: 'relay' })); continue; }
+                    const net = (srv.nets || []).find(n => { const [a, l] = n.split('/'); return sameNet(a, I.ip, +l); });
+                    if (!net) { out.push(Object.assign({}, c, { reason: 'relaypool' })); continue; }
+                    const k = 'r' + net; used[k] = (used[k] || 20) + 1;
+                    out.push(Object.assign({}, c, { ip: n2ip(netOf(I.ip, len) + used[k]), gw: I.ip, relay: h }));
+                    continue;
+                }
+                const pn = Object.keys(M().dhcpPools).find(n => { const p = M().dhcpPools[n]; return p.network && sameNet(p.network, I.ip, maskLen(p.mask)) && maskLen(p.mask) === len; });
+                if (!pn) { out.push(Object.assign({}, c, { reason: 'nopool' })); continue; }
+                const P = M().dhcpPools[pn], base = ip2n(P.network), size = 2 ** (32 - maskLen(P.mask));
+                let ip = null;
+                for (let k = 1; k < size - 1; k++) { const cand = n2ip(base + k); if (inExcl(cand) || Object.values(M().ifs).some(x => x.ip === cand) || used[cand]) continue; ip = cand; break; }
+                if (!ip) { out.push(Object.assign({}, c, { reason: 'full', pool: pn })); continue; }
+                used[ip] = true;
+                out.push(Object.assign({}, c, { ip, pool: pn, gw: P.gw[0] || null, dns: P.dns[0] || null }));
+            }
+            return out;
+        }
+        function nextFree(pn, leases) {
+            const P = M().dhcpPools[pn], b = ip2n(P.network), size = 2 ** (32 - maskLen(P.mask));
+            for (let k = 1; k < size - 1; k++) { const c = n2ip(b + k); if (!inExcl(c) && !leases.some(l => l.ip === c) && !Object.values(M().ifs).some(x => x.ip === c)) return c; }
+            return '0.0.0.0';
+        }
+        function showDhcpPool() {
+            const L = [], leases = dhcpLeases();
+            for (const [n, P] of Object.entries(M().dhcpPools)) {
+                if (!P.network) { L.push('', 'Pool ' + n + ' :', ' Utilization mark (high/low)    : 100 / 0', ' Total addresses                : 0'); continue; }
+                const size = 2 ** (32 - maskLen(P.mask)) - 2, used = leases.filter(l => l.pool === n).length, b = ip2n(P.network);
+                L.push('', 'Pool ' + n + ' :', ' Utilization mark (high/low)    : 100 / 0', ' Subnet size (first/next)       : 0 / 0', ' Total addresses                : ' + size, ' Leased addresses               : ' + used, ' Pending event                  : none',
+                    ' 1 subnet is currently in the pool :', ' Current index        IP address range                    Leased addresses', ' ' + pad(nextFree(n, leases), 21) + pad(n2ip(b + 1) + '       - ' + n2ip(b + size), 36) + used);
+            }
+            return L.join('\n');
+        }
+        // Kira bitişi: sabit simülatör saati (25 Eyl 2026 10:12) + havuzun lease değeri (varsayılan 1 gün)
+        function leaseEnd(pn) {
+            const P = M().dhcpPools[pn] || {}, l = P.lease || '1 0 0';
+            if (l === 'infinite') return 'Infinite';
+            const [d, h, mi] = l.split(' ').map(Number), t = new Date(Date.UTC(2026, 8, 25, 10, 12) + ((d * 24 + h) * 60 + mi) * 60000);
+            const M3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], H = t.getUTCHours();
+            return M3[t.getUTCMonth()] + ' ' + String(t.getUTCDate()).padStart(2, '0') + ' ' + t.getUTCFullYear() + ' ' + String(H % 12 || 12).padStart(2, '0') + ':' + String(t.getUTCMinutes()).padStart(2, '0') + ' ' + (H < 12 ? 'AM' : 'PM');
+        }
+        function showDhcpBinding() {
+            const L = ['Bindings from all pools not associated with VRF:', 'IP address          Client-ID/              Lease expiration        Type       State      Interface', '                    Hardware address/', '                    User name'];
+            dhcpLeases().filter(l => l.ip && !l.relay).forEach(l => L.push(pad(l.ip, 20) + pad(('01' + l.mac.replace(/\./g, '')).replace(/(.{4})(?=.)/g, '$1.'), 24) + pad(leaseEnd(l.pool), 24) + pad('Automatic', 11) + pad('Active', 11) + l.in));
+            log({ dhcpbind: dhcpLeases().filter(l => l.ip).length });
+            return L.join('\n');
+        }
+        // ═══ Port güvenliği + MAC tablosu (lab.sim.macs: { '<port>': ['0050.56a1.0001', …] })
+        // Girdi: 'mac' (portun access/native VLAN'ı) ya da 'mac@vlan' (trunk arkasındaki cihazlar)
+        const simMacV = n => (((S.lab.sim && S.lab.sim.macs) || {})[n] || []).map(x => { const [m, v] = x.toLowerCase().split('@'); return { mac: m, vlan: v ? +v : null }; });
+        const simMacs = n => simMacV(n).map(x => x.mac);
+        function psecOn() {
+            for (const n of S.ctx) { const i = M().ifs[n]; if (i.mode !== 'access' && i.mode !== 'trunk') return 'Command rejected: ' + n + ' is a dynamic port.'; }
+            secsIf().forEach(i => { i.ps = i.ps || { max: 1, violation: 'shutdown', sticky: false, macs: [], stickyMacs: [], viol: 0 }; i.ps.off = false; });
+        }
+        function psecSet(fn) {
+            if (S.ctx.some(n => !M().ifs[n].ps)) { secsIf().forEach(i => { if (!i.ps) i.ps = { max: 1, violation: 'shutdown', sticky: false, macs: [], stickyMacs: [], viol: 0, off: true }; }); }
+            secsIf().forEach(fn);
+        }
+        // Güvenli adresler + ihlal: yalnız "switchport port-security" açık ve port up ise
+        function psecEval(n) {
+            const i = M().ifs[n];
+            if (!i.ps || i.ps.off || !M().links[n] || i.shutdown) return null;
+            if (i.errdis) return { secure: i.ps.macs.concat(i.ps.sticky ? i.ps.stickyMacs : []), bad: [] };
+            const learned = simMacs(n), secure = i.ps.macs.slice();
+            if (i.ps.sticky) learned.forEach(m => { if (!i.ps.stickyMacs.includes(m) && secure.length + i.ps.stickyMacs.length < i.ps.max && !secure.includes(m)) i.ps.stickyMacs.push(m); });
+            const all = secure.concat(i.ps.sticky ? i.ps.stickyMacs : []);
+            learned.forEach(m => { if (!all.includes(m) && all.length < i.ps.max) all.push(m); });
+            const bad = learned.filter(m => !all.includes(m));
+            return { secure: all, bad };
+        }
+        function psecEvents() {
+            const out = [];
+            if (!S.psecSeen) S.psecSeen = {};
+            for (const n of Object.keys(M().ifs)) {
+                const r = psecEval(n), i = M().ifs[n];
+                if (!r || !r.bad.length || i.errdis) continue;
+                const key = n + r.bad[0];
+                if (i.ps.violation === 'shutdown') {
+                    i.errdis = true; i.errReason = 'psecure-violation'; i.ps.viol++;
+                    out.push('*' + new Date().toTimeString().slice(0, 8) + '.301: %PM-4-ERR_DISABLE: psecure-violation error detected on ' + ifShort(n) + ', putting ' + ifShort(n) + ' in err-disable state',
+                        '*' + new Date().toTimeString().slice(0, 8) + '.303: %PORT_SECURITY-2-PSECURE_VIOLATION: Security violation occurred, caused by MAC address ' + r.bad[0] + ' on port ' + n + '.');
+                    log({ event: 'psec', port: n, action: 'shutdown' });
+                } else if (!S.psecSeen[key]) {
+                    S.psecSeen[key] = true; i.ps.viol += r.bad.length;
+                    if (i.ps.violation === 'restrict') out.push('*' + new Date().toTimeString().slice(0, 8) + '.303: %PORT_SECURITY-2-PSECURE_VIOLATION: Security violation occurred, caused by MAC address ' + r.bad[0] + ' on port ' + n + '.');
+                    log({ event: 'psec', port: n, action: i.ps.violation });
+                }
+            }
+            return out.join('\n');
+        }
+        const vio = v => ({ protect: 'Protect', restrict: 'Restrict', shutdown: 'Shutdown' })[v];
+        function showPsec() {
+            const L = ['Secure Port  MaxSecureAddr  CurrentAddr  SecurityViolation  Security Action', '                (Count)       (Count)          (Count)', '---------------------------------------------------------------------------'];
+            for (const n of Object.keys(M().ifs).sort(ifCmp)) { const i = M().ifs[n]; if (!i.ps || i.ps.off) continue; const r = psecEval(n) || { secure: i.ps.macs.concat(i.ps.stickyMacs) }; L.push(padL(ifShort(n), 11) + padL(i.ps.max, 15) + padL(r.secure.length, 13) + padL(i.ps.viol, 19) + padL(vio(i.ps.violation), 17)); }
+            L.push('---------------------------------------------------------------------------', 'Total Addresses in System (excluding one mac per port)     : 0', 'Max Addresses limit in System (excluding one mac per port) : 4096');
+            return L.join('\n');
+        }
+        function showPsecIf(n) {
+            const i = M().ifs[n];
+            if (!i || !i.ps || i.ps.off) return 'Port Security              : Disabled\nPort Status                : Secure-down\nViolation Mode             : Shutdown\nMaximum MAC Addresses      : 1\nTotal MAC Addresses        : 0\nSecurity Violation Count   : 0';
+            const r = psecEval(n) || { secure: i.ps.macs.concat(i.ps.stickyMacs) }, last = simMacs(n).slice(-1)[0];
+            return ['Port Security              : Enabled', 'Port Status                : ' + (i.errdis ? 'Secure-shutdown' : M().links[n] && !i.shutdown ? 'Secure-up' : 'Secure-down'), 'Violation Mode             : ' + vio(i.ps.violation), 'Aging Time                 : 0 mins', 'Aging Type                 : Absolute', 'SecureStatic Address Aging : Disabled',
+                'Maximum MAC Addresses      : ' + i.ps.max, 'Total MAC Addresses        : ' + r.secure.length, 'Configured MAC Addresses   : ' + i.ps.macs.length, 'Sticky MAC Addresses       : ' + i.ps.stickyMacs.length,
+                'Last Source Address:Vlan   : ' + (last ? last + ':' + i.accessVlan : '0000.0000.0000:0'), 'Security Violation Count   : ' + i.ps.viol].join('\n');
+        }
+        function showPsecAddr() {
+            const L = ['               Secure Mac Address Table', '-----------------------------------------------------------------------------', 'Vlan    Mac Address       Type                          Ports   Remaining Age', '                                                                   (mins)', '----    -----------       ----                          -----   -------------'];
+            for (const n of Object.keys(M().ifs).sort(ifCmp)) { const i = M().ifs[n]; if (!i.ps || i.ps.off) continue; i.ps.macs.forEach(m => L.push(padL(i.accessVlan, 4) + '    ' + pad(m, 18) + pad('SecureConfigured', 30) + pad(ifShort(n), 8) + '    -')); (psecEval(n) || { secure: [] }).secure.filter(m => !i.ps.macs.includes(m)).forEach(m => L.push(padL(i.accessVlan, 4) + '    ' + pad(m, 18) + pad(i.ps.sticky ? 'SecureSticky' : 'SecureDynamic', 30) + pad(ifShort(n), 8) + '    -')); }
+            return L.join('\n');
+        }
+        // clear … dynamic: girdiler bir sonraki gösterimde yok; cihazlar trafik gönderdikçe yeniden öğrenilir
+        function macRows(hide) {
+            const rows = [];
+            for (const n of Object.keys(M().ifs).filter(isPhys).sort(ifCmp)) {
+                const i = M().ifs[n];
+                if (!M().links[n] || i.shutdown || i.errdis) continue;
+                const pe = psecEval(n), vlan = i.mode === 'trunk' ? i.native : i.accessVlan;
+                simMacV(n).forEach(({ mac: m, vlan: v }) => {
+                    if (pe && pe.bad.includes(m)) return;
+                    const type = pe && pe.secure.includes(m) ? 'STATIC' : 'DYNAMIC';
+                    if (hide && type === 'DYNAMIC' && (hide === '*' || hide === n)) return;
+                    rows.push({ vlan: v || vlan, mac: m, type, port: n });
+                });
+            }
+            M().macStatic.forEach(x => rows.push({ vlan: x.vlan, mac: x.mac, type: 'STATIC', port: x.port }));
+            return rows;
+        }
+        function showMac(f) {
+            const hide = S.macHide; S.macHide = null;
+            const rows = macRows(hide).filter(r => (!f.type || r.type === f.type) && (!f.port || r.port === f.port) && (!f.mac || r.mac === f.mac));
+            const L = ['          Mac Address Table', '-------------------------------------------', '', 'Vlan    Mac Address       Type        Ports', '----    -----------       --------    -----'];
+            rows.sort((a, b) => a.vlan - b.vlan).forEach(r => L.push(padL(r.vlan, 4) + '    ' + pad(r.mac, 18) + pad(r.type, 12) + ifShort(r.port)));
+            L.push('Total Mac Addresses for this criterion: ' + rows.length);
+            log({ macshow: f });
+            return L.join('\n');
+        }
+        function showMacCount() {
+            const rows = macRows(), vl = [...new Set(rows.map(r => r.vlan))].sort((a, b) => a - b), L = [];
+            vl.forEach(v => { const d = rows.filter(r => r.vlan === v && r.type === 'DYNAMIC').length, st = rows.filter(r => r.vlan === v && r.type === 'STATIC').length; L.push('Mac Entries for Vlan ' + v + ':', '---------------------------', 'Dynamic Address Count  : ' + d, 'Static  Address Count  : ' + st, 'Total Mac Addresses    : ' + (d + st), ''); });
+            L.push('Total Mac Address Space Available: 8175');
+            return L.join('\n');
         }
         function showIpSsh() {
             const m = M();
@@ -1163,7 +1451,7 @@ const CgLabIos = (() => {
             log({ raw: line, canon: (isNo ? 'no ' : '') + r.canon, mode: S.mode, no: isNo, ctx: S.ctx.slice() });
             const out = isNo ? (r.cmd.no ? r.cmd.no(r.args) : undefined) : r.cmd.run(r.args);
             if (out && typeof out === 'object') { S.mode = prevMode; S.ctx = prevCtx; S.ev.pop(); return errText(Object.assign({}, out, { col: (out.col || 0) + off }), line, 0, S.mode); }
-            const evs = bpduEvents();
+            const evs = [bpduEvents(), psecEvents()].filter(Boolean).join('\n');
             return [out || '', evs].filter(Boolean).join('\n');
         }
         function help(raw) {
@@ -1241,6 +1529,7 @@ const CgLabIos = (() => {
             mode: () => S.mode,
             run: (n) => ({ up: ifUp(n) }),
             rib, lookup, forward: f => forward(f, false), acl: n => M().acls[n] || null,
+            dhcpLeases: () => dhcpLeases(), psec: n => psecEval(n), macRows: () => macRows(), flash: () => Object.keys(S.flash), archives: () => S.archives.map(a => a.name),
             aaaAuth: (list, u, p) => aaaAuth(M().authn[list] || [], u, p),
             aclTest: (n, f) => aclEval(n, Object.assign({ sport: 50000, proto: 'tcp', n: 0 }, f), false),
             showRun: runBody,
