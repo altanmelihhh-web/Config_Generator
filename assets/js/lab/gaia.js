@@ -968,6 +968,7 @@ const CgLabGaia = (() => {
             list: () => S.ev
         };
         return {
+            literalQ: () => S.mode === 'expert',
             vendor: 'checkpoint',
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
             _toPriv: () => { S.mode = 'clish'; S.stack = []; S.pending = null; S.loggedOut = false; },

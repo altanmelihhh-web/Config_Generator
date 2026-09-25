@@ -262,7 +262,8 @@ const CgLab = {
         const inp = this._in, s = this._sess;
         const stop = () => { if (e) e.preventDefault(); };
         if (k === 'Enter') { stop(); const v = inp.value; inp.value = ''; this._run(v); return; }
-        if (k === '?' && !s.secret()) {
+        // kabuk ? karakterini düz metin sayıyorsa (bash, iRule gövdesi) yardım açılmaz
+        if (k === '?' && !s.secret() && !(s.literalQ && s.literalQ(inp.value))) {
             stop();
             const v = inp.value;
             const h = s.help(v);

@@ -2074,6 +2074,7 @@ const CgLabTmsh = (function () {
         return {
             vendor: 'f5-ltm',
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
+            literalQ: () => S.mode !== 'tmsh' || !!S.cont,
             _toPriv: () => { S.mode = lab.startMode === 'tmsh' ? 'tmsh' : 'bash'; S.pending = null; S.cont = null; S.loggedOut = false; S.fromTmsh = false; },
             get answers() { return S.answers; }, set answers(v) { S.answers = v || {}; },
             variant: () => VAR,
