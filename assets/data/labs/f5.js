@@ -29,6 +29,27 @@
     const LTM3 = [MON, 'create ltm pool web_pool members add { 10.64.30.50:80 10.64.30.51:80 10.64.30.52:80 } monitor mon_web', VS_WEB];
     // yükseltme lab'ları: 16.1.4'ten 17.1.1.3'e; 17.1.x lisans kontrol tarihi 2023/06/20 (K7727 tablosu, lab için temsilî)
     const UPG = { version: '16.1.4', images: ['BIGIP-17.1.1.3-0.0.5.iso', 'BIGIP-17.1.1.3-0.0.5.iso.md5'], licenseCheck: { '17.1.1.3': '2023/06/20' } };
+    // f5-13: bir gecenin /var/log/ltm kaydı (biçimler notes/f5-tmsh-cikti-ornekleri.md §7 ve §11'deki gerçek örneklerden)
+    const H = ' bigip-a.lab.example ';
+    const NIGHT = [
+        'Sep 24 02:10:14' + H + 'notice mcpd[7276]: 01070638:5: Pool /Common/web_pool member /Common/10.64.30.51:80 monitor status down. [ /Common/mon_web: down; last error: /Common/mon_web: Response Code: 500 (Internal Server Error) @2026/09/24 02:10:14.  ]  [ was up for 11hrs:2mins:7sec ]',
+        'Sep 24 02:10:44' + H + 'notice mcpd[7276]: 01070727:5: Pool /Common/web_pool member /Common/10.64.30.51:80 monitor status up. [ /Common/mon_web: up ]  [ was down for 0hr:0min:30sec ]',
+        'Sep 24 02:31:02' + H + 'warning tmm2[11562]: 01200017:4: Warning, pool member IP 10.64.30.50 port 80 for pool /Common/web_pool has reached its connection limit.',
+        'Sep 24 03:05:40' + H + 'notice mcpd[7276]: 01070638:5: Pool /Common/web_pool member /Common/10.64.30.50:80 monitor status down. [ /Common/mon_web: down; last error: /Common/mon_web: No successful responses received before deadline. @2026/09/24 03:05:40.  ]  [ was up for 12hrs:57mins:33sec ]',
+        'Sep 24 03:05:41' + H + 'notice mcpd[7276]: 01070638:5: Pool /Common/web_pool member /Common/10.64.30.51:80 monitor status down. [ /Common/mon_web: down; last error: /Common/mon_web: No successful responses received before deadline. @2026/09/24 03:05:41.  ]  [ was up for 0hr:54mins:57sec ]',
+        'Sep 24 03:05:43' + H + 'notice mcpd[7276]: 01070638:5: Pool /Common/web_pool member /Common/10.64.30.52:80 monitor status down. [ /Common/mon_web: down; last error: /Common/mon_web: No successful responses received before deadline. @2026/09/24 03:05:43.  ]  [ was up for 12hrs:57mins:36sec ]',
+        'Sep 24 03:05:43' + H + 'err tmm[11562]: 01010028:3: No members available for pool /Common/web_pool',
+        'Sep 24 03:05:43' + H + 'notice mcpd[7276]: 01071682:5: SNMP_TRAP: Virtual /Common/vs_web has become unavailable',
+        'Sep 24 03:05:43' + H + 'notice mcpd[7276]: 010719e7:5: Virtual Address /Common/203.0.113.100 general status changed from GREEN to RED.',
+        'Sep 24 03:05:43' + H + 'notice mcpd[7276]: 010719e8:5: Virtual Address /Common/203.0.113.100 monitor status changed from UP to DOWN.',
+        'Sep 24 03:18:20' + H + 'notice mcpd[7276]: 01070727:5: Pool /Common/web_pool member /Common/10.64.30.50:80 monitor status up. [ /Common/mon_web: up ]  [ was down for 0hr:12mins:40sec ]',
+        'Sep 24 03:18:20' + H + 'err tmm[11562]: 01010221:3: Pool /Common/web_pool now has available members',
+        'Sep 24 03:18:20' + H + 'notice mcpd[7276]: 01071681:5: SNMP_TRAP: Virtual /Common/vs_web has become available',
+        'Sep 24 03:18:24' + H + 'notice mcpd[7276]: 010719e7:5: Virtual Address /Common/203.0.113.100 general status changed from RED to GREEN.',
+        'Sep 24 03:18:24' + H + 'notice mcpd[7276]: 010719e8:5: Virtual Address /Common/203.0.113.100 monitor status changed from DOWN to UP.',
+        'Sep 24 03:18:25' + H + 'notice mcpd[7276]: 01070727:5: Pool /Common/web_pool member /Common/10.64.30.51:80 monitor status up. [ /Common/mon_web: up ]  [ was down for 0hr:12mins:44sec ]',
+        'Sep 24 03:18:31' + H + 'notice mcpd[7276]: 01070727:5: Pool /Common/web_pool member /Common/10.64.30.52:80 monitor status up. [ /Common/mon_web: up ]  [ was down for 0hr:12mins:48sec ]',
+    ];
     const curls = s => s.ev.list().filter(e => e.curl).map(e => e.curl);
     // re ile eşleşen son komuttan (ve varsa until'den önce) sonra atılan curl istekleri
     const curlsAfter = (s, re, until) => { const L2 = s.ev.list(); const i = lastIdx(L2, e => e.raw && re.test(e.raw)); if (i < 0) return []; let j = L2.length; if (until) { const k = L2.findIndex((e, n) => n > i && e.raw && until.test(e.raw)); if (k > 0) j = k; } return L2.slice(i + 1, j).filter(e => e.curl).map(e => e.curl); };
@@ -500,6 +521,46 @@
         verify: ['grep "Service check date" /config/bigip.license', 'tmsh show sys software status', 'tail -n 20 /var/log/ltm'],
         learn: ['INOPERATIVE + "configuration has not yet loaded" → yapılandırma yüklenmedi.', '01070608: lisans çalışmıyor.', 'Hızlı kurtarma: eski hacimden aç.', 'Kalıcı çözüm: reactivate, sonra yeniden yükselt.'],
         links: { tool: '#/f5-ltm/upgrade', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/105' }, cert: 'F5CAB1.03 · F5CAB1.04 · F5CAB5.01'
+    },
+    // ═══ 4 · Log okuma: /var/log/ltm ═══
+    {
+        id: 'f5-13', vendor: 'f5-ltm', level: 4, title: '/var/log/ltm ile olay takibi: mesaj kodları, önem seviyeleri, tail ve grep', minutes: 25, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-04'],
+        up: UP, sim: Object.assign({}, SIM2, { ltmlog: NIGHT }), start: NET.concat(LTM3), startMode: 'tmsh',
+        story: 'Sabah vardiyası: izleme sistemi gece <code>vs_web</code> (203.0.113.100) için alarm üretmiş, kullanıcılar gece 03:00 civarında sitenin açılmadığını söylüyor. Olay kaydı için ne zaman, ne olduğunu <code>/var/log/ltm</code>\'den çıkarın. Sonra bir üyeyi bakıma alıp logun anlık nasıl aktığını görün.',
+        lesson: L('<code>/var/log/ltm</code> LTM\'in olay günlüğüdür. Satır yapısı: <code>&lt;zaman&gt; &lt;host&gt; &lt;seviye&gt; &lt;süreç[pid]&gt;: &lt;mesaj kodu&gt;: &lt;metin&gt;</code>. Mesaj kodu 8 hanelik onaltılıktır ve iki noktadan sonraki rakam önem seviyesidir: 0 emerg, 3 err, 4 warning, 5 notice, 6 info. Sık kodlar: <code>01070638</code> üye monitor down, <code>01070727</code> üye up, <code>01070640</code>/<code>01070728</code> node down/up, <code>01010028</code> pool\'da çalışan üye kalmadı, <code>01010221</code> pool yeniden üyeli, <code>01071682</code>/<code>01071681</code> virtual server unavailable/available, <code>010719e7</code> virtual address renk değişimi, <code>01200017</code> üye bağlantı limitine ulaştı. <code>tail -f</code> canlı izler, <code>grep</code> süzer, <code>grep -c</code> sayar; tmsh\'te <code>show sys log ltm lines N</code> aynı logu kodsuz biçimde gösterir.',
+            'Arıza sonrası "ne oldu, ne zaman oldu" sorusunun cevabı logdadır. Yükseltme ya da failover sonrasında "her şey oturdu mu" kontrolü de loga bakılarak yapılır: beklenmeyen down, No members available ya da unavailable satırı olmamalıdır.',
+            'tail -n 30 /var/log/ltm\ngrep -c "monitor status down" /var/log/ltm\ngrep 01010028 /var/log/ltm\ngrep "connection limit" /var/log/ltm\ntail -f /var/log/ltm\ntmsh show sys log ltm lines 10',
+            ['Yalnız son birkaç satıra bakıp olayın başlangıcını kaçırmak.', 'Seviyeyi okumamak: :3 (err) ve :5 (notice) aynı ağırlıkta değildir.', 'Tek bir üyenin down olmasıyla pool\'un boşalmasını karıştırmak (01070638 ile 01010028).', 'last error kısmını okumadan sunucu ekibini aramak: Response Code 500 uygulama, "No successful responses" bağlantı sorunudur.', 'Log dosyasını büyük hâliyle cat ile açmak (tail ve grep kullanın).']),
+        goals: ['Satır yapısı ve mesaj kodları', 'tail, grep, grep -c', 'Olay zaman çizelgesi çıkarmak', 'Önem seviyeleri', 'Canlı değişikliği logda görmek'],
+        tasks: [
+            { t: 'bash\'e geçip logun son 30 satırına bakın.', why: 'Gece olaylarının sırası burada: üye down/up satırları, bir bağlantı limiti uyarısı, pool\'un boşalması ve virtual server alarmları.',
+              hints: ['run util bash; tail -n 30 /var/log/ltm', '<code>run util bash</code> → <code>tail -n 30 /var/log/ltm</code> → <code>exit</code>'], steps: ['run util bash', 'tail -n 30 /var/log/ltm', 'exit'],
+              check: s => s.ev.list().some(e => e.file === '/var/log/ltm' && e.raw && /tail -n 30/.test(e.raw)) },
+            { t: 'Gece kaç kez bir pool üyesi monitör nedeniyle down oldu? <code>grep -c</code> ile sayın.', why: '<code>grep -c</code> eşleşen satır sayısını verir. Aradığınız ifade <code>monitor status down</code> (01070638).',
+              hints: ['grep -c "monitor status down" /var/log/ltm', '<code>run util bash</code> → <code>grep -c "monitor status down" /var/log/ltm</code> → <code>exit</code>'], steps: ['run util bash', 'grep -c "monitor status down" /var/log/ltm', 'exit'],
+              check: s => s.ev.list().some(e => e.raw && /grep -c/.test(e.raw) && /monitor status down/.test(e.raw)) },
+            { t: 'Soru: kaç üye-down olayı var?', ask: { choices: [['4', '4'], ['3', '3'], ['1', '1'], ['7', '7']], correct: '4' },
+              why: '02:10\'da srv-b kısa süre (500 hatası) ve 03:05\'te üç üye birden down olmuş: toplam 4. Tek üyenin gitmesi hizmeti kesmez; üçü birden gidince pool boşalır.', hints: ['grep -c çıktısı', 'Her 01070638 satırı bir olay'] },
+            { t: 'Site hangi saatte tamamen kesildi ve ne zaman geri geldi? <code>01010028</code> ve <code>01010221</code> satırlarını bulun.', why: '<code>01010028</code> (err) pool\'da çalışan üye kalmadığını, <code>01010221</code> yeniden üye geldiğini söyler. Aradaki süre kesinti süresidir.',
+              hints: ['grep -E "01010028|01010221" /var/log/ltm', '<code>run util bash</code> → <code>grep -E "01010028|01010221" /var/log/ltm</code> → <code>exit</code>'], steps: ['run util bash', 'grep -E "01010028|01010221" /var/log/ltm', 'exit'],
+              check: s => s.ev.list().some(e => e.raw && /grep/.test(e.raw) && /01010028/.test(e.raw)) },
+            { t: 'Soru: kesinti ne kadar sürdü?', ask: { choices: [['12', 'Yaklaşık 12,5 dakika (03:05:43 – 03:18:20)'], ['30', '30 saniye'], ['2h', '2 saat'], ['none', 'Kesinti olmadı']], correct: '12' },
+              why: 'Pool 03:05:43\'te boşaldı (01010028), 03:18:20\'de yeniden üyeli oldu (01010221). Aynı anlarda 01071682 / 01071681 virtual server alarmları da düşmüş.', hints: ['İki satırın zaman damgaları', 'Fark'] },
+            { t: 'Gece bağlantı limitine ulaşan bir üye var mı? Bulun.', why: '<code>01200017</code> (warning) bir üyenin <code>connection-limit</code> değerine ulaştığını söyler; o üye limit altına düşene kadar yeni bağlantı almaz.',
+              hints: ['grep "connection limit" /var/log/ltm', '<code>run util bash</code> → <code>grep "connection limit" /var/log/ltm</code> → <code>exit</code>'], steps: ['run util bash', 'grep "connection limit" /var/log/ltm', 'exit'],
+              check: s => s.ev.list().some(e => e.raw && /grep/.test(e.raw) && /connection limit/i.test(e.raw)) },
+            { t: 'Soru: <code>01010028:3</code> ile <code>01070638:5</code> arasındaki fark nedir?', ask: { choices: [['sev', '3 = err, 5 = notice: pool\'un boşalması (hizmet kesintisi) tek bir üyenin düşmesinden daha ciddidir'], ['time', 'Rakam saniyeyi gösterir'], ['tmm', 'Rakam TMM çekirdek numarasıdır'], ['same', 'Aynı önemdedir']], correct: 'sev' },
+              why: 'Mesaj kodundaki son rakam syslog önem seviyesidir (0 emerg … 7 debug). İzleme sistemlerinde err ve üstü alarm, notice bilgi olarak ele alınır.', hints: ['İki nokta arasındaki rakam', 'Syslog seviyeleri'] },
+            { t: 'Canlı deneyin: srv-c\'yi (10.64.30.52:80) bakım için zorla kapatın, logun son satırlarına bakın; sonra açıp tekrar bakın.', why: 'Zorla kapatma <code>monitor status forced down</code> satırı üretir; açınca <code>monitor status up</code> gelir. Gerçekte bunu ikinci bir oturumda <code>tail -f /var/log/ltm</code> ile anlık izlersiniz.',
+              hints: ['members modify { … { state user-down } }; tail; … user-up; tail', '<code>modify ltm pool web_pool members modify { 10.64.30.52:80 { state user-down } }</code> → bash\'te <code>tail -n 3 /var/log/ltm</code> → <code>exit</code> → <code>… state user-up …</code> → bash\'te <code>tail -n 3 /var/log/ltm</code>'],
+              steps: ['modify ltm pool web_pool members modify { 10.64.30.52:80 { state user-down } }', 'run util bash', 'tail -n 3 /var/log/ltm', 'exit', 'modify ltm pool web_pool members modify { 10.64.30.52:80 { state user-up } }', 'run util bash', 'tail -n 3 /var/log/ltm', 'exit'],
+              check: s => { const L2 = s.ev.list(); const i = L2.findIndex(e => e.raw && /10\.64\.30\.52:80 \{ state user-up/.test(e.raw)); return i > 0 && L2.slice(0, i).some(e => e.file === '/var/log/ltm') && L2.slice(i).some(e => e.file === '/var/log/ltm') && s.model.pools.web_pool.members['10.64.30.52:80'].state === 'user-up'; } },
+            { t: 'Aynı logu tmsh\'ten okuyun: son 5 satır.', why: '<code>show sys log ltm</code> satırları "ltm AA-GG ss:dd:nn" önekiyle ve mesaj kodu olmadan gösterir; hızlı bakış için pratiktir, kodla arama için bash\'teki dosya daha uygundur.',
+              hints: ['show sys log ltm lines 5', '<code>show sys log ltm lines 5</code>'], steps: ['show sys log ltm lines 5'], check: s => s.ev.list().some(e => e.show === 'sys log ltm') },
+        ],
+        verify: ['tail -n 30 /var/log/ltm', 'grep -c "monitor status down" /var/log/ltm', 'show sys log ltm lines 10'],
+        learn: ['Satır: zaman host seviye süreç: kod:seviye: metin.', '01070638/01070727 üye down/up; 01010028/01010221 pool boş/dolu; 01071682/01071681 VS alarmı; 01200017 üye bağlantı limiti.', 'Seviye: 0 emerg, 3 err, 4 warning, 5 notice.', 'Yükseltme/failover sonrası logda beklenmeyen down ve unavailable satırı kalmamalı.'],
+        links: { tool: '#/f5-ltm/hsl', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/106' }, cert: 'F5CAB4.04 · F5CAB5.03'
     },
     // ═══ Serbest çalışma ═══
     {

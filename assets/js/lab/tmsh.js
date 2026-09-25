@@ -350,7 +350,7 @@ const CgLabTmsh = (function () {
                 if (isCreate && !o.address) { if (isIp(name)) o.address = name; else return E('# [Simülatör] Node için address gerekli.'); }
                 return null;
             },
-            del(name) { const n = M().nodes[name]; const u = Object.entries(M().pools).find(([, pl]) => Object.values(pl.members).some(m => m.ip === n.address)); if (u) return E('# [Simülatör] Node (/Common/' + name + ') silinemez: /Common/' + u[0] + ' pool\'unun üyesi. Önce üyeyi pool\'dan çıkarın.'); return null; },
+            del(name) { const n = M().nodes[name]; const u = Object.entries(M().pools).find(([, pl]) => Object.values(pl.members).some(m => m.ip === n.address)); if (u) return E('01070110:3: Node address \'/Common/' + name + '\' is referenced by a member of pool \'/Common/' + u[0] + '\'.'); return null; },
             list(n, o) { const L = ['ltm node ' + n + ' {', '    address ' + o.address]; if (o.desc) L.push('    description "' + o.desc + '"'); if (o.monitor) L.push('    monitor ' + o.monitor.join(' and ')); if (o.session !== 'user-enabled') L.push('    session ' + o.session); if (o.state !== 'user-up') L.push('    state ' + o.state); L.push('}'); return L; },
             props: ['address', 'session', 'state', 'monitor', 'description'],
         };
@@ -366,8 +366,9 @@ const CgLabTmsh = (function () {
                         if (p.op === 'replace-all-with') { o.members = {}; o.order = []; }
                         for (const it of p.items) {
                             const ap = ipport(it.k); if (!ap) return SYNx('"' + it.k + '" invalid pool member (A.B.C.D:port)');
-                            if (p.op === 'delete') { if (!o.members[ap.key]) return NF('pool member', name + ' ' + it.k); delete o.members[ap.key]; o.order = o.order.filter(x => x !== ap.key); continue; }
-                            if (p.op === 'modify' && !o.members[ap.key]) return NF('pool member', name + ' ' + it.k);
+                            const mNF = () => E('01020036:3: The requested pool member (/Common/' + name + ' /Common/' + ap.ip + ' ' + pname(ap.port) + ') was not found.');
+                            if (p.op === 'delete') { if (!o.members[ap.key]) return mNF(); delete o.members[ap.key]; o.order = o.order.filter(x => x !== ap.key); continue; }
+                            if (p.op === 'modify' && !o.members[ap.key]) return mNF();
                             const m = o.members[ap.key] || { ip: ap.ip, port: ap.port, pg: 0, ratio: 1, session: 'user-enabled', state: 'user-up', desc: '' };
                             const b = it.b || [];
                             for (let i = 0; i < b.length; i += 2) {
@@ -379,6 +380,7 @@ const CgLabTmsh = (function () {
                                 else if (k === 'session') { if (!['user-enabled', 'user-disabled'].includes(v)) return SYNx('"' + v + '" invalid session'); m.session = v; }
                                 else if (k === 'state') { if (!['user-up', 'user-down'].includes(v)) return SYNx('"' + v + '" invalid state'); m.state = v; }
                                 else if (k === 'description') m.desc = v;
+                                else if (k === 'connection-limit') { if (!/^\d{1,9}$/.test(v)) return SYNx('"' + v + '" invalid connection-limit'); m.limit = +v; }
                                 else return SYN(k);
                             }
                             if (!o.members[ap.key]) { o.order.push(ap.key); ensureNode(ap.ip); }
@@ -393,10 +395,10 @@ const CgLabTmsh = (function () {
                 }
                 return null;
             },
-            del(name) { const u = vsUsing(name); if (u) return E('# [Simülatör] Pool (/Common/' + name + ') silinemez: /Common/' + u[0] + ' virtual server\'ı kullanıyor.'); return null; },
+            del(name) { const u = vsUsing(name); if (u) return E('01070265:3: The Pool (/Common/' + name + ') cannot be deleted because it is in use by a Virtual Server (/Common/' + u[0] + ').'); return null; },
             list(n, o) {
                 const L = ['ltm pool ' + n + ' {']; if (o.desc) L.push('    description "' + o.desc + '"'); if (o.lb !== 'round-robin') L.push('    load-balancing-mode ' + o.lb);
-                if (o.order.length) { L.push('    members {'); o.order.forEach(k => { const m = o.members[k]; L.push('        ' + m.ip + ':' + pname(m.port) + ' {', '            address ' + m.ip); if (m.pg) L.push('            priority-group ' + m.pg); if (m.ratio !== 1) L.push('            ratio ' + m.ratio); if (m.session !== 'user-enabled') L.push('            session ' + m.session); if (m.state !== 'user-up') L.push('            state ' + m.state); L.push('        }'); }); L.push('    }'); }
+                if (o.order.length) { L.push('    members {'); o.order.forEach(k => { const m = o.members[k]; L.push('        ' + m.ip + ':' + pname(m.port) + ' {', '            address ' + m.ip); if (m.pg) L.push('            priority-group ' + m.pg); if (m.ratio !== 1) L.push('            ratio ' + m.ratio); if (m.session !== 'user-enabled') L.push('            session ' + m.session); if (m.state !== 'user-up') L.push('            state ' + m.state); if (m.limit) L.push('            connection-limit ' + m.limit); L.push('        }'); }); L.push('    }'); }
                 if (o.minActive) L.push('    min-active-members ' + o.minActive);
                 if (o.monitor) L.push('    monitor ' + o.monitor.join(' and '));
                 L.push('}'); return L;
@@ -421,7 +423,7 @@ const CgLabTmsh = (function () {
                 if (o.timeout <= o.interval) return E('# [Simülatör] timeout, interval\'dan büyük olmalı (öneri: 3 × interval + 1, ör. 5/16).');
                 return null;
             },
-            del(name) { const u = Object.entries(M().pools).find(([, pl]) => (pl.monitor || []).includes(name)) || Object.entries(M().nodes).find(([, nd]) => (nd.monitor || []).includes(name)); if (u) return E('# [Simülatör] Monitör (/Common/' + name + ') silinemez: /Common/' + u[0] + ' tarafından kullanılıyor.'); return null; },
+            del(name) { const u = Object.entries(M().pools).find(([, pl]) => (pl.monitor || []).includes(name)) || Object.entries(M().nodes).find(([, nd]) => (nd.monitor || []).includes(name)); if (u) return E('01070083:3: Monitor ' + name + ' is in use\n# [Simülatör] /Common/' + u[0] + ' tarafından kullanılıyor.'); return null; },
             list(n, o) { const L = ['ltm monitor ' + typ + ' ' + n + ' {', '    adaptive disabled', '    defaults-from /Common/' + o.parent, '    destination ' + o.dest, '    interval ' + o.interval]; if (typ === 'http' || typ === 'https' || typ === 'tcp') { if (o.recv) L.push('    recv "' + o.recv + '"'); if (o.recvDisable) L.push('    recv-disable "' + o.recvDisable + '"'); if (o.send) L.push('    send "' + o.send + '"'); } L.push('    time-until-up 0', '    timeout ' + o.timeout, '}'); return L; },
             props: ['defaults-from', 'send', 'recv', 'recv-disable', 'interval', 'timeout', 'destination', 'description'],
         });
@@ -492,15 +494,16 @@ const CgLabTmsh = (function () {
                     else if (p.k === 'snat') { if (p.v === 'automap') o.sat = { type: 'automap' }; else if (p.v === 'none') o.sat = { type: 'none' }; else return SYNx('"' + p.v + '" (snat automap|none; yeni sürümlerde source-address-translation { type … })'); }
                     else if (p.k === 'translate-port' || p.k === 'translate-address') { if (!['enabled', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o[p.k === 'translate-port' ? 'tport' : 'taddr'] = p.v; }
                     else if (p.k === 'mask') { if (!isIp(p.v)) return SYNx('"' + p.v + '" invalid mask'); o.mask = p.v; }
+                    else if (p.k === 'connection-limit') { if (!/^\d{1,9}$/.test(p.v || '')) return SYNx('"' + p.v + '" invalid connection-limit'); o.limit = +p.v; }
                     else if (p.k === 'description') o.desc = p.v;
                     else if (p.k === 'rules') return E('# [Simülatör] iRule\'lar ileri seviye modülde gelecek; bu lab sürümünde rules desteklenmiyor.', 'unsupported');
                     else return SYN(p.k);
                 }
                 if (isCreate && !o.dest) return E('# [Simülatör] Virtual server için destination gerekli (ör. destination 203.0.113.100:80).');
                 const dup = Object.entries(M().virtuals).find(([vn, v]) => vn !== name && v.dest === o.dest && v.proto === o.proto);
-                if (dup) return E('# [Simülatör] ' + o.dest + ' hedefi zaten /Common/' + dup[0] + ' virtual server\'ında kullanılıyor.');
+                if (dup) return E('01070333:3: Virtual Server /Common/' + name + ' illegally shares destination address, source address, service port, ip-protocol, and vlan with Virtual Server /Common/' + dup[0]);
                 const hasHttp = o.profiles.some(x => profType(x) === 'http');
-                if (o.persist.some(x => persistType(x) === 'cookie') && !hasHttp) return E('# [Simülatör] Cookie persistence için virtual server\'da bir HTTP profili gerekir (profiles add { http }).');
+                if (o.persist.some(x => persistType(x) === 'cookie') && !hasHttp) return E('Cookie persistence requires an HTTP or FastHTTP profile to be associated with the virtual server.\n# [Simülatör] Önce profiles add { http }.');
                 if (o.profiles.some(x => profType(x) === 'http') && !o.profiles.some(x => ['tcp', 'fastl4'].includes(profType(x)))) return E('# [Simülatör] HTTP profili bir TCP profili gerektirir.');
                 return null;
             },
@@ -508,6 +511,7 @@ const CgLabTmsh = (function () {
                 const L = ['ltm virtual ' + n + ' {', '    creation-time 2026-09-24:10:21:07']; if (o.desc) L.push('    description "' + o.desc + '"');
                 const d = o.dest.split(':'); L.push('    destination ' + d[0] + ':' + pname(+d[1])); if (!o.enabled) L.push('    disabled');
                 if (o.fallback) L.push('    fallback-persistence ' + o.fallback);
+                if (o.limit) L.push('    connection-limit ' + o.limit);
                 L.push('    ip-protocol ' + o.proto, '    last-modified-time 2026-09-24:10:21:07', '    mask ' + o.mask);
                 if (o.persist.length) { L.push('    persist {'); o.persist.forEach(x => L.push('        ' + x + ' {', '            default yes', '        }')); L.push('    }'); }
                 if (o.pool) L.push('    pool ' + o.pool);
@@ -518,7 +522,7 @@ const CgLabTmsh = (function () {
                 L.push('    translate-port ' + o.tport, '    vs-index ' + o.idx, '}');
                 return L;
             },
-            props: ['destination', 'ip-protocol', 'pool', 'profiles', 'persist', 'fallback-persistence', 'source-address-translation', 'translate-port', 'translate-address', 'mask', 'description', 'enabled', 'disabled'],
+            props: ['destination', 'ip-protocol', 'pool', 'profiles', 'persist', 'connection-limit', 'fallback-persistence', 'source-address-translation', 'translate-port', 'translate-address', 'mask', 'description', 'enabled', 'disabled'],
         };
         const TYPES = Object.keys(T);
         const MODULES = ['net', 'sys', 'auth', 'ltm', 'cm', 'util', 'gtm', 'security', 'apm', 'asm'];
@@ -634,39 +638,41 @@ const CgLabTmsh = (function () {
         function showCmd(mod, comp, rest) {
             const a = (rest || []).map(x => x.t);
             if (mod === 'ltm') {
-                const bar = '-'.repeat(69);
-                const colorOf = av => (av === 'available' ? 'available' : av === 'offline' ? 'offline' : 'unknown');
+                // Biçimler gerçek v16 çıktılarından (notes/f5-tmsh-cikti-ornekleri.md §1-3, §6); sayaçlar temsilî
+                const bar = '-'.repeat(66), kb = n => (n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n));
+                const col = (label, w, vals) => '  ' + pad(label, w) + vals.map(v => String(v).padStart(11)).join('');
                 if (comp === 'virtual') {
                     const names = a[0] ? [a[0]] : Object.keys(M().virtuals); if (a[0] && !M().virtuals[a[0]]) return NF('virtual server', a[0]);
                     const L = [];
-                    names.forEach(n => { const v = M().virtuals[n], st = vsStatus(n), d = v.dest.split(':'), hits = Object.entries(S.rt.hits || {}).filter(([k]) => v.pool && k.startsWith(v.pool + '|')).reduce((x, [, c]) => x + c, 0);
-                        L.push('', bar, 'Ltm::Virtual Server: ' + n, bar, 'Status', '  Availability     : ' + colorOf(st.avail), '  State            : ' + st.state, '  Reason           : ' + st.reason, '  CMP              : enabled', '  CMP Mode         : all-cpus', '  Destination      : ' + d[0] + ':' + d[1], '',
-                            'Traffic                             ClientSide  Ephemeral  General', '  Bits In                                ' + (hits * 4096) + '          0        -', '  Current Connections                        0          0        -', '  Total Connections                  ' + String(hits).padStart(9) + '          0        -'); });
-                    L.push('# [Simülatör] Sayaçlar bu oturumdaki isteklerden hesaplandı; çıktı sadeleştirildi.');
+                    names.forEach(n => { const v = M().virtuals[n], st = vsStatus(n), d = v.dest.split(':'), hits = Object.entries(S.rt.hits || {}).filter(([k]) => v.pool && k.startsWith(v.pool + '|')).reduce((x, [, c]) => x + c, 0), cur = vsConn(n);
+                        L.push(bar, 'Ltm::Virtual Server: ' + n, bar, 'Status', '  Availability     : ' + st.avail, '  State            : ' + st.state, '  Reason           : ' + st.reason, '  CMP              : enabled', '  CMP Mode         : all-cpus', '  Destination      : ' + d[0] + ':' + d[1], '',
+                            'Traffic                             ClientSide  Ephemeral  General', col('Bits In', 34, [kb(hits * 4096), 0, '-']), col('Bits Out', 34, [kb(hits * 81920), 0, '-']), col('Packets In', 34, [kb(hits * 6), 0, '-']), col('Packets Out', 34, [kb(hits * 9), 0, '-']),
+                            col('Current Connections', 34, [cur, 0, '-']), col('Maximum Connections', 34, [Math.max(cur, hits ? 1 : 0), 0, '-']), col('Total Connections', 34, [kb(hits + cur), 0, '-']), col('Total Requests', 34, ['-', '-', kb(hits)]), ''); });
                     log({ show: 'ltm virtual', name: a[0] || null }); return { out: L.join('\n'), ok: true };
                 }
                 if (comp === 'pool') {
                     const names = a[0] && a[0] !== 'members' ? [a[0]] : Object.keys(M().pools); if (a[0] && a[0] !== 'members' && !M().pools[a[0]]) return NF('pool', a[0]);
                     const withM = a.includes('members') || a.includes('detail'); const L = [];
-                    names.forEach(pn => { const pl = M().pools[pn], ps = poolStatus(pn);
-                        L.push('', bar, 'Ltm::Pool: ' + pn, bar, 'Status', '  Availability : ' + colorOf(ps.avail), '  State        : ' + (ps.state || 'enabled'), '  Reason       : ' + ps.reason, '  Monitor      : ' + (pl.monitor ? pl.monitor.join(' and ') : 'none'), '  Minimum Active Members : ' + pl.minActive, '  Current Active Members : ' + pl.order.filter(k => memberStatus(pn, k).avail === 'available').length, '  Available Members      : ' + eligible(pn).length, '  Total Members          : ' + pl.order.length);
-                        if (withM) pl.order.forEach(k => { const m = pl.members[k], st = memberStatus(pn, k), h = (S.rt.hits || {})[pn + '|' + k] || 0, c = (SIM.conns || {})[k] || 0;
-                            L.push('', '  ' + '-'.repeat(65), '  Ltm::Pool Member: ' + m.ip + ':' + pname(m.port), '  ' + '-'.repeat(65), '  Status', '    Availability : ' + colorOf(st.avail), '    State        : ' + st.state, '    Reason       : ' + st.reason + (st.err ? ' (' + st.err + ')' : ''), '    Monitor      : ' + (st.mon ? st.mon + ' (' + (pl.monitor ? 'pool' : 'node') + ' monitor)' : 'none'), '    Monitor Status : ' + (st.avail === 'available' ? 'up' : st.avail === 'offline' ? 'down' : 'unchecked'), '    Priority Group : ' + m.pg + '    Ratio : ' + m.ratio, '',
-                                '  Traffic                             ServerSide  General', '    Current Connections                    ' + String(c).padStart(4) + '        -', '    Total Connections                      ' + String(h + c * 7).padStart(4) + '        -'); }); });
-                    L.push('# [Simülatör] Çıktı sadeleştirildi; sayaçlar bu oturumdan ve lab başlangıç değerlerinden.');
+                    names.forEach(pn => { const pl = M().pools[pn], ps = poolStatus(pn), pgs = [...new Set(pl.order.map(k => pl.members[k].pg))].sort((x, y) => y - x);
+                        L.push(bar, 'Ltm::Pool: ' + pn, bar, 'Status', '  Availability           : ' + ps.avail, '  State                  : ' + ps.state, '  Reason                 : ' + ps.reason, '  Monitor                : ' + (pl.monitor ? pl.monitor.join(' and ') : 'none'), '  Minimum Active Members : ' + pl.minActive,
+                            '  Priority Groups        : ' + (pgs.length ? pgs[0] + '/' + (eligible(pn).length ? pl.members[eligible(pn)[0]].pg : 0) + '/' + pgs[pgs.length - 1] : '0/0/0') + ' (highest/current/lowest)', '  Current Active Members : ' + pl.order.filter(k => memberStatus(pn, k).avail === 'available').length, '  Available Members      : ' + eligible(pn).length, '  Total Members          : ' + pl.order.length, '');
+                        if (withM) pl.order.forEach(k => { const m = pl.members[k], st = memberStatus(pn, k), h = (S.rt.hits || {})[pn + '|' + k] || 0, c = connOf(pn, k);
+                            L.push('  ' + '-'.repeat(62), '  | Ltm::Pool Member: ' + m.ip + ':' + m.port, '  ' + '-'.repeat(62), '  | Status', '  |   Availability   : ' + st.avail, '  |   State          : ' + st.state, '  |   Reason         : ' + st.reason, '  |   Monitor        : ' + (st.mon || 'none'), '  |   Monitor Status : ' + st.monStatus, '  |   Session Status : ' + st.session, '  |   Pool Name      : ' + pn, '  |   IP Address     : ' + m.ip, '  |   Priority Group : ' + m.pg + (m.limit ? '    Connection Limit : ' + m.limit : ''), '  |',
+                                '  | Traffic                                  ServerSide  General', '  |   Current Connections  ' + String(c).padStart(20) + '        -', '  |   Maximum Connections  ' + String(Math.max(c, h ? 1 : 0)).padStart(20) + '        -', '  |   Total Connections    ' + String(kb(h + c * 7)).padStart(20) + '        -', '  |   Total Requests       ' + '-'.padStart(20) + String(kb(h)).padStart(9), ''); }); });
                     log({ show: 'ltm pool', name: names.length === 1 ? names[0] : null, members: withM }); return { out: L.join('\n'), ok: true };
                 }
                 if (comp === 'node') {
-                    const L = ['', bar, 'Ltm::Node', bar, 'Name                Address           Availability  State     Monitor'];
-                    Object.entries(M().nodes).forEach(([n, o]) => { const r = reach(o.address); const av = o.state === 'user-down' ? 'offline' : o.monitor ? (o.monitor.every(mm => monCheck(mm, o.address, 0).up) ? 'available' : 'offline') : 'unknown'; void r; L.push(pad(n, 20) + pad(o.address, 18) + pad(av, 14) + pad(o.session === 'user-disabled' ? 'disabled' : 'enabled', 10) + (o.monitor ? o.monitor.join(' and ') : 'none')); });
-                    L.push('# [Simülatör] Tablo biçimi sadeleştirildi (gerçek çıktı node başına blok gösterir).');
+                    const names = a[0] ? [a[0]] : Object.keys(M().nodes); if (a[0] && !M().nodes[a[0]]) return NF('Node', a[0]);
+                    const L = [];
+                    names.forEach(n => { const o = M().nodes[n], st = nodeStatus(n), c = Object.entries(M().pools).reduce((x, [pn, pl]) => x + pl.order.filter(k => pl.members[k].ip === o.address).reduce((y, k) => y + connOf(pn, k), 0), 0);
+                        L.push('------------------------------------------', 'Ltm::Node: ' + n + ' (' + o.address + ')', '------------------------------------------', 'Status', '  Availability   : ' + st.avail, '  State          : ' + st.state, '  Reason         : ' + st.reason, '  Monitor        : ' + st.mon, '  Monitor Status : ' + st.monStatus, '  Session Status : ' + st.session, '',
+                            'Traffic                ServerSide  General', '  Current Connections ' + String(c).padStart(13) + '        -', ''); });
                     log({ show: 'ltm node' }); return { out: L.join('\n'), ok: true };
                 }
                 if (comp === 'persistence' && a[0] === 'persist-records') {
-                    const L = ['Sys::Persistent Connections', 'source-address  ' + pad('198.51.100.20', 16) + 'Mode: source-address'].slice(0, 1);
-                    Object.entries(S.rt.persist || {}).forEach(([k, mk]) => { const [pn, src] = k.split('|'); const vn = (Object.entries(M().virtuals).find(([, v]) => v.pool === pn) || ['?'])[0], vd = vn !== '?' ? M().virtuals[vn].dest.split(':') : ['?', '?']; L.push('source-address  ' + src + '  ' + vd[0] + ':' + vd[1] + '  ' + mk + '  (tmm: 0)'); });
-                    if (L.length === 1) L.push('Total records returned: 0'); else L.push('Total records returned: ' + (L.length - 1));
-                    L.push('# [Simülatör] Yalnız source-address kayıtları tabloda tutulur; cookie persistence (insert) kayıt tutmaz, bilgi istemcideki cookie\'dedir.');
+                    const L = ['Sys::Persistent Connections'];
+                    Object.entries(S.rt.persist || {}).forEach(([k, mk]) => { const [pn, src] = k.split('|'); const vn = (Object.entries(M().virtuals).find(([, v]) => v.pool === pn) || ['?'])[0], vd = vn !== '?' ? M().virtuals[vn].dest : '?'; L.push('source-address  ' + src + '  ' + vd + '  ' + mk + '  (tmm: 1)'); });
+                    L.push('Total records returned: ' + (L.length - 1));
                     log({ show: 'ltm persistence' }); return { out: L.join('\n'), ok: true };
                 }
             }
@@ -706,6 +712,14 @@ const CgLabTmsh = (function () {
             if (mod === 'sys' && comp === 'version') {
                 log({ show: 'sys version' });
                 return { out: ['', 'Sys::Version', 'Main Package', '  Product     ' + VER.product, '  Version     ' + curVer(), '  Build       ' + VER.build, '  Edition     ' + VER.edition, '  Date        ' + VER.date, ''].join('\n'), ok: true };
+            }
+            if (mod === 'sys' && comp === 'log' && a[0] === 'ltm') {
+                // show sys log ltm [lines N]: "ltm MM-DD HH:MM:SS <seviye> <host> <süreç>: <mesaj>" (mesaj kodu gösterilmez)
+                const li = a.indexOf('lines'); const n = li >= 0 ? +(a[li + 1] || 10) : 0;
+                if (a.slice(1).some((x, k) => !(x === 'lines' || (a[k] === 'lines' && /^\d+$/.test(x))))) return E('# [Simülatör] Bu lab\'da "show sys log ltm [lines N]" desteklenir.', 'unsupported');
+                const conv = l => { const m = l.match(/^(\w{3})\s+(\d+) (\S+) (\S+) (\w+) (\S+) (?:[0-9a-f]{8}:\d: )?(.*)$/); if (!m) return l; const mon = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06', Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' }[m[1]] || '09'; return 'ltm ' + mon + '-' + String(m[2]).padStart(2, '0') + ' ' + m[3] + ' ' + m[5] + ' ' + m[4] + ' ' + m[6] + ' ' + m[7]; };
+                const L = S.ltmlog.map(conv); log({ show: 'sys log ltm' });
+                return { out: (n ? L.slice(-n) : L).join('\n') || '# [Simülatör] Log boş.', ok: true };
             }
             if (mod === 'sys' && comp === 'license') { log({ show: 'sys license' }); return { out: licenseText(a.includes('detail')), ok: true }; }
             if (mod === 'sys' && comp === 'provision') {
@@ -769,64 +783,99 @@ const CgLabTmsh = (function () {
             return { up: false, err: 'Response Code: ' + resp.code + ' (' + (REASON[resp.code] || '') + ')' };
         }
         // üye durumu: availability (available | offline | unknown), state (enabled | disabled | forced-offline), reason
+        // Durum dizgeleri gerçek tmsh çıktılarından (notes/f5-tmsh-cikti-ornekleri.md §4)
+        const MSTAMP = '@2026/09/24 10:25:07.';
+        const connOf = (pn, k) => ((SIM.conns || {})[k] || 0) + ((S.rt.conns || {})[pn + '|' + k] || 0);
         function memberStatus(pn, key) {
             const pl = M().pools[pn], m = pl.members[key];
             const node = Object.values(M().nodes).find(n => n.address === m.ip) || {};
-            const mons = pl.monitor || node.monitor || null;
-            const forced = m.state === 'user-down' || node.state === 'user-down';
-            const disabled = m.session === 'user-disabled' || node.session === 'user-disabled';
-            let avail = 'unknown', reason = 'Pool member does not have service checking enabled', err = null, monName = mons ? mons.join(' and ') : null, mdis = false;
+            const mons = pl.monitor || null;
+            const r = { avail: 'unknown', state: 'enabled', reason: 'Pool member does not have service checking enabled', err: null, mon: mons ? mons.map(x => '/Common/' + x).join(' and ') + ' (pool monitor)' : null, monName: mons ? mons.join(' and ') : null, monStatus: 'unchecked', session: 'enabled', limit: false };
             if (mons) {
                 const rs = mons.map(x => ({ n: x, r: monCheck(x, m.ip, m.port) }));
                 const bad = rs.find(x => !x.r.up);
-                if (bad) { avail = 'offline'; reason = 'Pool member has been marked down by a monitor'; err = '/Common/' + bad.n + ': ' + bad.r.err; }
-                else { avail = 'available'; reason = 'Pool member is available'; mdis = rs.some(x => x.r.disabled); }
+                if (bad) { r.avail = 'offline'; r.monStatus = 'down'; r.err = '/Common/' + bad.n + ': ' + bad.r.err; r.reason = r.err + ' ' + MSTAMP; }
+                else { r.avail = 'available'; r.monStatus = 'up'; r.reason = 'Pool member is available'; if (rs.some(x => x.r.disabled)) r.state = 'disabled'; }
             }
-            if (forced) { avail = 'offline'; reason = 'Forced down'; }
-            return { avail, state: forced ? 'forced-offline' : disabled || mdis ? 'disabled' : 'enabled', reason, err, mon: monName };
+            if (node.state === 'user-down') return Object.assign(r, { avail: 'offline', state: 'disabled-by-parent', reason: 'Parent down', monStatus: 'address-down', session: 'addr-disabled' });
+            if (m.state === 'user-down') return Object.assign(r, { avail: 'offline', state: 'disabled', reason: 'Forced down', monStatus: 'user-down', session: 'user-disabled' });
+            if (node.session === 'user-disabled') Object.assign(r, { state: 'disabled-by-parent', session: 'addr-disabled' });
+            if (m.session === 'user-disabled') Object.assign(r, { state: 'disabled', session: 'user-disabled' }, r.avail === 'available' ? { reason: 'Pool member is available, user disabled' } : {});
+            if (m.limit && r.avail !== 'offline' && connOf(pn, key) >= m.limit) Object.assign(r, { avail: 'unavailable', reason: 'The pool member\'s connection limit has been reached', limit: true });
+            return r;
         }
         function poolStatus(pn) {
-            const pl = M().pools[pn]; if (!pl) return { avail: 'unknown', reason: 'no pool' };
+            const pl = M().pools[pn]; if (!pl) return { avail: 'unknown', reason: 'no pool', state: 'enabled' };
             const ms = pl.order.map(k => memberStatus(pn, k));
             if (!ms.length) return { avail: 'unknown', reason: 'The pool has no members', state: 'enabled' };
-            const live = ms.filter(x => x.avail !== 'offline');
-            if (live.length && live.every(x => x.state === 'disabled')) return { avail: live.some(x => x.avail === 'available') ? 'available' : 'unknown', reason: 'The children pool member(s) are disabled', state: 'disabled' };
-            if (ms.some(x => x.avail === 'available')) return { avail: 'available', reason: 'The pool is available' };
-            if (ms.every(x => x.avail === 'offline')) return { avail: 'offline', reason: 'The children pool member(s) are down' };
-            return { avail: 'unknown', reason: 'The children pool member(s) either don\'t have service checking enabled, or service check results are not available yet' };
+            const live = ms.filter(x => x.avail === 'available' || x.avail === 'unknown');
+            if (live.length && live.every(x => x.state !== 'enabled')) return { avail: live.some(x => x.avail === 'available') ? 'available' : 'unknown', reason: 'The children pool member(s) are disabled', state: 'disabled' };
+            if (ms.some(x => x.avail === 'available' && x.state === 'enabled')) return { avail: 'available', reason: 'The pool is available', state: 'enabled' };
+            if (ms.every(x => x.avail === 'offline')) return { avail: 'offline', reason: 'The children pool member(s) are down', state: 'enabled' };
+            if (ms.every(x => x.avail === 'offline' || x.avail === 'unavailable')) return { avail: 'unavailable', reason: 'The pool member\'s connection limit has been reached', state: 'enabled' };
+            return { avail: 'unknown', reason: 'The children pool member(s) either don\'t have service checking enabled, or service check results are not available yet', state: 'enabled' };
         }
+        const vsConn = vn => ((SIM.vsConns || {})[vn] || 0) + ((S.rt.vsConns || {})[vn] || 0);
         function vsStatus(vn) {
-            const v = M().virtuals[vn];
-            if (!v.pool) return { avail: 'unknown', reason: 'The virtual server does not have a default pool', state: v.enabled ? 'enabled' : 'disabled' };
+            const v = M().virtuals[vn], st = v.enabled ? 'enabled' : 'disabled';
+            if (v.limit && vsConn(vn) >= v.limit) return { avail: 'unavailable', reason: 'The virtual server\'s connection limit has been reached', state: st };
+            if (!v.pool) return { avail: 'unknown', reason: 'The virtual server does not have a default pool', state: st };
             const ps = poolStatus(v.pool);
-            const reason = ps.state === 'disabled' ? 'The children pool member(s) are disabled' : ps.avail === 'available' ? 'The virtual server is available' : ps.avail === 'offline' ? 'The children pool member(s) are down' : ps.reason;
+            const reason = ps.avail === 'available' && ps.state !== 'disabled' ? 'The virtual server is available' : ps.reason;
             return { avail: ps.avail, reason, state: v.enabled ? (ps.state === 'disabled' ? 'disabled' : 'enabled') : 'disabled' };
+        }
+        function nodeStatus(n) {
+            const o = M().nodes[n];
+            const r = { avail: 'unknown', state: 'enabled', reason: 'Node address does not have service checking enabled', mon: o.monitor ? o.monitor.map(x => '/Common/' + x).join(' and ') : 'none', monStatus: 'unchecked', session: 'enabled' };
+            if (o.monitor) { const bad = o.monitor.map(x => ({ n: x, r: monCheck(x, o.address, 0) })).find(x => !x.r.up); if (bad) Object.assign(r, { avail: 'offline', reason: '/Common/' + bad.n + ': ' + bad.r.err + ' ' + MSTAMP, monStatus: 'down' }); else Object.assign(r, { avail: 'available', reason: 'Node address is available', monStatus: 'up' }); }
+            if (o.state === 'user-down') return Object.assign(r, { avail: 'offline', state: 'disabled', reason: 'Forced down', monStatus: 'user-down', session: 'user-disabled' });
+            if (o.session === 'user-disabled') Object.assign(r, { state: 'disabled', session: 'user-disabled' }, r.avail === 'available' ? { reason: 'Node address is available, user disabled' } : {});
+            return r;
         }
         // durum değişimlerini /var/log/ltm'e yaz (01070638 down, 01070727 up, 01010028 pool boş)
         let ltmN = 0;
         const lstamp = () => { const t = 10 * 3600 + 25 * 60 + (ltmN++) * 3; return 'Sep 24 ' + [Math.floor(t / 3600), Math.floor(t / 60) % 60, t % 60].map(x => String(x).padStart(2, '0')).join(':'); };
+        const lh = () => M().hostname;
+        const was = st => ({ available: 'up for 0hr:12mins:3sec', offline: 'down for 0hr:0min:15sec', unknown: 'unchecked for 0hr:0min:1sec', forced: 'forced down for 0hr:0min:4sec' }[st] || 'up for 0hr:12mins:3sec');
         function ltmTick(quiet) {
-            const prev = S.rt.ms || {}, now = {}, prevP = S.rt.ps || {}, nowP = {};
+            const prev = S.rt.ms || {}, now = {}, prevP = S.rt.ps || {}, nowP = {}, prevV = S.rt.vs || {}, nowV = {}, prevN = S.rt.ns || {}, nowN = {};
+            const push = x => { if (!quiet) S.ltmlog.push(lstamp() + ' ' + lh() + ' ' + x); };
+            for (const [nn, o] of Object.entries(M().nodes)) {
+                const st = nodeStatus(nn), key = st.monStatus === 'user-down' ? 'forced' : st.avail; nowN[nn] = key;
+                if (prevN[nn] === undefined || prevN[nn] === key) continue;
+                if (key === 'offline' || key === 'forced') push('notice mcpd[7276]: 01070640:5: Node /Common/' + nn + ' address ' + o.address + ' monitor status ' + (key === 'forced' ? 'forced down.' : 'down. [ ' + (o.monitor || []).map(x => '/Common/' + x + ': down').join('; ') + ' ]') + '  [ was ' + was(prevN[nn]) + ' ]');
+                else if (key === 'available') push('notice mcpd[7276]: 01070728:5: Node /Common/' + nn + ' address ' + o.address + ' monitor status up. [ ' + (o.monitor || []).map(x => '/Common/' + x + ': up').join('; ') + ' ]  [ was ' + was(prevN[nn]) + ' ]');
+            }
             for (const [pn, pl] of Object.entries(M().pools)) {
                 for (const k of pl.order) {
-                    const st = memberStatus(pn, k), id = pn + '|' + k; now[id] = st.avail;
-                    if (!quiet && prev[id] !== st.avail && st.state !== 'forced-offline' && (prev[id] || st.avail === 'offline')) {
-                        const mm = pl.members[k], mid = '/Common/' + mm.ip + ':' + mm.port;
-                        if (st.avail === 'offline') S.ltmlog.push(lstamp() + ' ' + short() + ' notice mcpd[5821]: 01070638:5: Pool /Common/' + pn + ' member ' + mid + ' monitor status down. [ ' + st.err + '@2026/09/24 10:25:0' + (ltmN % 10) + '. ]  [ was ' + (prev[id] === 'available' ? 'up for 0hr:12mins:3sec' : 'unchecked for 0hr:0mins:1sec') + ' ]');
-                        if (st.avail === 'available' && prev[id] === 'offline') S.ltmlog.push(lstamp() + ' ' + short() + ' notice mcpd[5821]: 01070727:5: Pool /Common/' + pn + ' member ' + mid + ' monitor status up. [ /Common/' + (st.mon || '').split(' and ')[0] + ': up ]  [ was down for 0hr:0mins:15sec ]');
-                    }
+                    const st = memberStatus(pn, k), id = pn + '|' + k, key = st.monStatus === 'user-down' ? 'forced' : st.avail === 'unavailable' ? 'available' : st.avail; now[id] = key;
+                    const mm = pl.members[k], mid = '/Common/' + mm.ip + ':' + mm.port;
+                    if (!quiet && st.limit && !(S.rt.limLogged || {})[id]) { (S.rt.limLogged || (S.rt.limLogged = {}))[id] = true; S.ltmlog.push(lstamp() + ' ' + lh() + ' warning tmm2[11562]: 01200017:4: Warning, pool member IP ' + mm.ip + ' port ' + mm.port + ' for pool /Common/' + pn + ' has reached its connection limit.'); }
+                    if (!st.limit && S.rt.limLogged) delete S.rt.limLogged[id];
+                    if (prev[id] === key || (prev[id] === undefined && key !== 'offline')) continue;
+                    if (key === 'forced') push('notice mcpd[7276]: 01070638:5: Pool /Common/' + pn + ' member ' + mid + ' monitor status forced down.  [ was ' + was(prev[id]) + ' ]');
+                    else if (key === 'offline') push('notice mcpd[7276]: 01070638:5: Pool /Common/' + pn + ' member ' + mid + ' monitor status down. [ /Common/' + (st.monName || '').split(' and ')[0] + ': down; last error: ' + (st.err || '') + ' ' + MSTAMP + '  ]  [ was ' + was(prev[id] || 'unknown') + ' ]');
+                    else if (key === 'available') push('notice mcpd[7276]: 01070727:5: Pool /Common/' + pn + ' member ' + mid + ' monitor status up. [ /Common/' + (st.monName || '').split(' and ')[0] + ': up ]  [ was ' + was(prev[id]) + ' ]');
+                    else if (key === 'unknown' && prev[id]) push('notice mcpd[7276]: 01070638:5: Pool /Common/' + pn + ' member ' + mid + ' monitor status unchecked.  [ was ' + was(prev[id]) + ' ]');
                 }
                 const ps = poolStatus(pn).avail; nowP[pn] = ps;
-                if (!quiet && prevP[pn] && prevP[pn] !== 'offline' && ps === 'offline') S.ltmlog.push(lstamp() + ' ' + short() + ' err tmm[11562]: 01010028:3: No members available for pool /Common/' + pn);
-                if (!quiet && prevP[pn] === 'offline' && ps !== 'offline') S.ltmlog.push(lstamp() + ' ' + short() + ' err tmm[11562]: 01010221:3: Pool /Common/' + pn + ' now has available members');
+                if (prevP[pn] && prevP[pn] !== 'offline' && ps === 'offline') push('err tmm[11562]: 01010028:3: No members available for pool /Common/' + pn);
+                if (prevP[pn] === 'offline' && ps !== 'offline') push('err tmm[11562]: 01010221:3: Pool /Common/' + pn + ' now has available members');
             }
-            S.rt.ms = now; S.rt.ps = nowP;
+            for (const [vn, v] of Object.entries(M().virtuals)) {
+                const av = vsStatus(vn).avail, green = av === 'available' || av === 'unknown'; nowV[vn] = green ? (av === 'unknown' ? 'BLUE' : 'GREEN') : 'RED';
+                if (prevV[vn] === undefined || prevV[vn] === nowV[vn]) continue;
+                const va = v.dest.split(':')[0];
+                if (nowV[vn] === 'RED') { push('notice mcpd[7276]: 01071682:5: SNMP_TRAP: Virtual /Common/' + vn + ' has become unavailable'); push('notice mcpd[7276]: 010719e7:5: Virtual Address /Common/' + va + ' general status changed from ' + prevV[vn] + ' to RED.'); push('notice mcpd[7276]: 010719e8:5: Virtual Address /Common/' + va + ' monitor status changed from UP to DOWN.'); }
+                else if (prevV[vn] === 'RED') { push('notice mcpd[7276]: 01071681:5: SNMP_TRAP: Virtual /Common/' + vn + ' has become available'); push('notice mcpd[7276]: 010719e7:5: Virtual Address /Common/' + va + ' general status changed from RED to ' + nowV[vn] + '.'); push('notice mcpd[7276]: 010719e8:5: Virtual Address /Common/' + va + ' monitor status changed from DOWN to UP.'); }
+            }
+            S.rt.ms = now; S.rt.ps = nowP; S.rt.vs = nowV; S.rt.ns = nowN;
         }
         // ── istemciden VIP'e istek: { kind: 'ok'|'refused'|'reset'|'timeout', resp, member, setCookie }
         function f5cookie(ip, port) { const o = ip.split('.').map(Number); const n = o[0] + o[1] * 256 + o[2] * 65536 + o[3] * 16777216; const pp = ((port & 0xff) << 8) | (port >> 8); return n + '.' + pp + '.0000'; }
         function eligible(pn) {
             const pl = M().pools[pn];
-            let L = pl.order.filter(k => { const st = memberStatus(pn, k); return st.avail !== 'offline' && st.state === 'enabled'; });
+            let L = pl.order.filter(k => { const st = memberStatus(pn, k); return (st.avail === 'available' || st.avail === 'unknown') && st.state === 'enabled'; });
             if (pl.minActive > 0 && L.length) {
                 // priority group activation: en yüksek gruptan başla, min-active karşılanana kadar alt gruplar eklenir
                 const groups = [...new Set(L.map(k => pl.members[k].pg))].sort((a, b) => b - a); let sel = [];
@@ -850,6 +899,7 @@ const CgLabTmsh = (function () {
             if (!vn) return { kind: 'refused', why: 'novs' };
             const v = M().virtuals[vn];
             if (!v.enabled) return { kind: 'refused', why: 'disabled', vs: vn };
+            if (v.limit && vsConn(vn) >= v.limit) { if (!o.test) S.ltmlog.push(lstamp() + ' ' + lh() + ' warning tmm[11925]: 01200009:4: Packet rejected remote IP ' + o.src + ' port 51514 local IP ' + o.ip + ' port ' + o.port + ' proto TCP: Connection limit exceeded.'); return { kind: 'reset', why: 'vslimit', vs: vn }; }
             if (o.https && !v.profiles.some(x => profType(x) === 'client-ssl')) return { kind: 'sslerr', vs: vn };
             if (!v.pool) return { kind: 'reset', why: 'nopool', vs: vn };
             const L = eligible(v.pool);
@@ -965,10 +1015,11 @@ const CgLabTmsh = (function () {
         function splitPipe(s) { const parts = []; let cur = '', q = null; for (const ch of s) { if (q) { if (ch === q) q = null; cur += ch; continue; } if (ch === '"' || ch === '\'') { q = ch; cur += ch; continue; } if (ch === '|') { parts.push(cur); cur = ''; continue; } cur += ch; } parts.push(cur); return parts.map(x => x.trim()); }
         function shWords(s) { const out = []; const re = /"([^"]*)"|'([^']*)'|(\S+)/g; let m; while ((m = re.exec(s))) out.push(m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]); return out; }
         function grepF(argv, text) {
-            let inv = false, ic = false, i = 1; for (; i < argv.length && /^-[ivE]+$/.test(argv[i]); i++) { if (argv[i].includes('i')) ic = true; if (argv[i].includes('v')) inv = true; }
+            let inv = false, ic = false, cnt = false, i = 1; for (; i < argv.length && /^-[ivEc]+$/.test(argv[i]); i++) { if (argv[i].includes('i')) ic = true; if (argv[i].includes('v')) inv = true; if (argv[i].includes('c')) cnt = true; }
             const pat = argv[i]; if (pat === undefined) return null;
             let re; try { re = new RegExp(pat, ic ? 'i' : ''); } catch (e) { re = new RegExp(pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), ic ? 'i' : ''); }
-            return { text: text.split('\n').filter(l => re.test(l) !== inv).join('\n'), file: argv[i + 1] };
+            const hit = text.split('\n').filter(l => l !== '' && re.test(l) !== inv);
+            return { text: cnt ? String(hit.length) : hit.join('\n'), file: argv[i + 1] };
         }
         function bashLine(line, nested) {
             // for i in {1..N}; do <komut>; done  (yalnız bu kalıp)
@@ -1016,16 +1067,22 @@ const CgLabTmsh = (function () {
                 else res = { kind: 'ok', resp: serverResp(srv, port, path, method) };
             }
             log({ curl: { ip, port, path, method, vip: isVip, kind: res.kind, code: res.resp ? res.resp.code : null, member: res.member || null, persisted: !!res.persisted } });
+            // curl 7.81 biçimi (notes/f5-tmsh-cikti-ornekleri.md §9)
+            const reqLines = () => ['* Connected to ' + ip + ' (' + ip + ') port ' + port + ' (#0)', '> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + ip, '> User-Agent: curl/7.81.0', '> Accept: */*', '> '];
             if (verbose) L.push('*   Trying ' + ip + ':' + port + '...');
-            const fail = { refused: 'curl: (7) Failed to connect to ' + ip + ' port ' + port + ': Connection refused', reset: 'curl: (56) Recv failure: Connection reset by peer', timeout: 'curl: (28) Operation timed out after 5001 milliseconds with 0 bytes received', unreach: 'curl: (7) Failed to connect to ' + ip + ' port ' + port + ': Network is unreachable', sslerr: 'curl: (35) error:1408F10B:SSL routines:ssl3_get_record:wrong version number' };
             if (res.kind !== 'ok') {
-                if (res.kind === 'reset' && verbose) L.push('* Connected to ' + ip + ' (' + ip + ') port ' + port + ' (#0)', '> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + ip, '>', '* Recv failure: Connection reset by peer');
-                L.push(fail[res.kind]);
+                const K = res.kind, est = isVip && (K === 'reset' || (K === 'timeout' && res.why !== 'l2'));
+                if (K === 'refused') { if (verbose) L.push('* connect to ' + ip + ' port ' + port + ' failed: Connection refused', '* Failed to connect to ' + ip + ' port ' + port + ' after 2 ms: Connection refused', '* Closing connection 0'); L.push('curl: (7) Failed to connect to ' + ip + ' port ' + port + ' after 2 ms: Connection refused'); }
+                else if (K === 'unreach') L.push('curl: (7) Failed to connect to ' + ip + ' port ' + port + ': Network is unreachable');
+                else if (K === 'sslerr') L.push('curl: (35) error:1408F10B:SSL routines:ssl3_get_record:wrong version number');
+                else if (K === 'reset') { if (verbose) L.push(...(est ? reqLines() : []), '* Recv failure: Connection reset by peer', '* Closing connection 0'); L.push('curl: (56) Recv failure: Connection reset by peer'); }
+                else if (est) { if (verbose) L.push(...reqLines(), '* Operation timed out after 10001 milliseconds with 0 bytes received', '* Closing connection 0'); L.push('curl: (28) Operation timed out after 10001 milliseconds with 0 bytes received'); }
+                else { if (verbose) L.push('* Connection timed out after 5001 milliseconds', '* Closing connection 0'); L.push('curl: (28) Connection timed out after 5001 milliseconds'); }
                 return { out: L.join('\n') };
             }
             const r = res.resp, st = 'HTTP/1.1 ' + r.code + ' ' + (REASON[r.code] || '');
             if (jarW) { const sc = r.headers.find(h => /^Set-Cookie:/i.test(h)); if (sc) { const m = sc.match(/^Set-Cookie:\s*([^=]+)=([^;]+)/i); JARS[jarW] = Object.assign(JARS[jarW] || {}, { [m[1]]: m[2] }); } }
-            if (verbose) { L.push('* Connected to ' + ip + ' (' + ip + ') port ' + port + ' (#0)', '> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + ip, '> User-Agent: curl/7.47.1', '> Accept: */*'); Object.keys(cookie).length && L.push('> Cookie: ' + Object.entries(cookie).map(([k, v]) => k + '=' + v).join('; ')); L.push('>', '< ' + st, '< Server: Apache'); r.headers.forEach(h => L.push('< ' + h)); L.push('< Content-Length: ' + r.body.length, '<'); }
+            if (verbose) { L.push(...reqLines().slice(0, -1)); Object.keys(cookie).length && L.push('> Cookie: ' + Object.entries(cookie).map(([k, v]) => k + '=' + v).join('; ')); L.push('> ', '< ' + st, '< Server: Apache'); r.headers.forEach(h => L.push('< ' + h)); L.push('< Content-Length: ' + r.body.length, '<'); }
             else if (head) { L.push(st, 'Server: Apache'); r.headers.forEach(h => L.push(h)); L.push('Content-Length: ' + r.body.length); }
             if (!head && out !== '/dev/null' && r.body) L.push(r.body);
             if (verbose) L.push('* Connection #0 to host ' + ip + ' left intact');
@@ -1212,7 +1269,7 @@ const CgLabTmsh = (function () {
             get model() { return S.m; }, get savedModel() { return S.saved; },
             ev: EV, mode: () => S.mode, dirty,
             // yan etkisiz VIP testi (kontrollerde kullanılır): sayaçları ve kalıcılık tablosunu değiştirmez
-            vipTest: (ip, port, path) => { const keep = JSON.stringify(S.rt); const r = vipRequest({ ip, port, path: path || '/', method: 'GET', src: SIM.client || '198.51.100.20', cookie: {} }); S.rt = JSON.parse(keep); return { kind: r.kind, code: r.resp ? r.resp.code : null, member: r.member || null }; },
+            vipTest: (ip, port, path) => { const keep = JSON.stringify(S.rt); const r = vipRequest({ ip, port, path: path || '/', method: 'GET', src: SIM.client || '198.51.100.20', cookie: {}, test: true }); S.rt = JSON.parse(keep); return { kind: r.kind, code: r.resp ? r.resp.code : null, member: r.member || null }; },
             vols: () => clone(S.vols), bootVol: () => S.boot, inop: () => S.inop, ucsFiles: () => S.ucs.map(u => u.name),
             memberStatus: (p, k) => memberStatus(p, k), poolStatus: p => poolStatus(p), vsStatus: v => vsStatus(v),
             reach: ip => reach(ip), sshAllowed: ip => allowHas(M().sshd.allow, ip || ADMIN), guiAllowed: ip => allowHas(M().httpd.allow, ip || ADMIN),

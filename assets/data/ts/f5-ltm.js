@@ -82,5 +82,16 @@
                 { code: 'tmsh list sys ucs', desc: 'Geri dönüşte ya da cihaz değişiminde kullanılacak UCS yedeği var mı? Yoksa bundan sonraki yükseltmeden önce save sys config + save sys ucs yapılıp dosya cihaz dışına kopyalanmalı.' },
             ]
         },
+        {
+            title: 'VS / Pool / Node Alarmı Geldi ya da Yükseltme-Failover Sonrası Kontrol: /var/log/ltm Okuma', severity: 'info', topic: 'ops', lab: 'f5-13',
+            symptom: 'İzleme sistemi bir virtual server ya da pool için alarm üretti, ya da bir bakım (yükseltme, failover) sonrasında "her şey oturdu mu" kontrolü yapılacak.',
+            steps: [
+                { code: 'tail -n 50 /var/log/ltm', desc: 'Satır yapısı: zaman, host, seviye, süreç, mesaj kodu:seviye, metin. Kodun son rakamı önem seviyesidir: 0 emerg, 3 err, 4 warning, 5 notice. err ve üstü önceliklidir.' },
+                { code: 'grep -E "01070638|01070727|01070640|01070728" /var/log/ltm', desc: 'Üye (01070638 down / 01070727 up) ve node (01070640 down / 01070728 up) durum değişimleri. "last error" kısmı nedeni söyler: Response Code 500 uygulama hatası, "No successful responses received before deadline" bağlantı/erişim sorunu, "forced down" bir yöneticinin kapattığı üye.' },
+                { code: 'grep -E "01010028|01010221|01071682|01071681|010719e7" /var/log/ltm', desc: '01010028: pool\'da çalışan üye kalmadı (hizmet kesildi); 01010221: pool yeniden üyeli. 01071682/01071681: virtual server unavailable/available (SNMP trap). 010719e7: virtual address rengi (GREEN/RED). Kesinti süresi bu satırların zaman farkıdır.' },
+                { code: 'grep -iE "connection limit|01200017|01200009" /var/log/ltm', desc: '01200017: bir üye connection-limit\'e ulaştı; 01200009: virtual server bağlantı limiti aşıldı ve bağlantı reddedildi. Limit gerçek kapasiteye göre mi ayarlanmış, bakın.' },
+                { code: 'tmsh show sys log ltm lines 20', desc: 'Aynı log tmsh\'ten kodsuz biçimde. Yükseltme ya da failover sonrasında son satırlarda beklenmeyen down, No members available ya da unavailable olmamalıdır; varsa uygulama ekibiyle doğrulama yapılmadan bakım kapatılmaz.' },
+            ]
+        },
     ];
 })();

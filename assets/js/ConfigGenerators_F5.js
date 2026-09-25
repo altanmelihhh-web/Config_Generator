@@ -1952,8 +1952,12 @@ F5LTM.vslimit = {
             c += '\n';
             if (!rate && smask) c += '# NOT: rate-limit boş olduğu için kaynak maskesi yazılmadı.\n';
             c += '\ntmsh save sys config\n\n';
-            c += '# Doğrulama:\n# tmsh list ltm virtual ' + vs + ' connection-limit rate-limit rate-limit-mode\n# tmsh show ltm virtual ' + vs + '\n';
-            return c;
+            c += '# Doğrulama:\n# tmsh list ltm virtual ' + vs + ' connection-limit rate-limit rate-limit-mode\n# tmsh show ltm virtual ' + vs + '   (Current / Maximum Connections)\n# grep -iE "01200009|connection limit" /var/log/ltm\n';
+            const w = [];
+            w.push('ℹ Limit dolunca yeni bağlantılar reddedilir (istemci RST görür) ve /var/log/ltm\'e "01200009:4: Packet rejected … Connection limit exceeded." yazılır; VS durumu "unavailable" (sarı) olur. Limiti show ltm virtual\'daki Maximum Connections değerine göre belirleyin (f5-13).');
+            if (conn && +conn > 0 && +conn < 100) w.push('⚠ Bağlantı limiti çok düşük (' + conn + '): keep-alive ve paralel bağlantı açan tarayıcılar limiti hızla doldurur.');
+            w.push('ℹ Pool üyesi için de ayrı limit verilebilir: members modify { <ip:port> { connection-limit N } }; dolunca "01200017:4: … has reached its connection limit." yazılır ve üye yeni bağlantı almaz.');
+            return { config: c, warnings: w };
         });
     }
 };
