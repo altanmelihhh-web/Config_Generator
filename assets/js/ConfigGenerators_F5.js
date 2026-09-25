@@ -1791,7 +1791,7 @@ F5LTM.devicetrust = {
                         { name: 'peer_name', label: 'Karşı Cihaz Adı', type: 'text', required: true, placeholder: 'bigip2.example.com' },
                         { name: 'peer_mgmt', label: 'Karşı Cihaz Mgmt IP', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.12' },
                         { name: 'peer_user', label: 'Karşı Cihaz Yönetici', type: 'text', required: true, placeholder: 'admin' },
-                        { name: 'peer_pw', label: 'Karşı Cihaz Parolası', type: 'text', required: true, placeholder: 'Ornek-Parola', hint: 'Yalnız trust kurulumunda kullanılır, config\'e yazılmaz' }
+                        { name: 'peer_pw', label: 'Karşı Cihaz Parolası', type: 'text', required: true, placeholder: 'Ornek-Parola', hint: 'Komutta düz metin görünür; çıktıyı paylaşmayın, komutu tmsh içinde çalıştırın', why: "Parola yalnız güven kurulurken kullanılır ve yapılandırmaya kaydedilmez; ancak üretilen komutta açık yazılıdır. bash'te çalıştırılırsa geçmişe düşer." }
                     ]
                 },
                 {
@@ -1831,8 +1831,15 @@ F5LTM.devicetrust = {
             c += '# 4) İlk senkronizasyon (bu cihazdan gruba):\n';
             c += 'tmsh run cm config-sync to-group ' + dg + '\n';
             c += 'tmsh save sys config\n\n';
-            c += '# Doğrulama:\n# tmsh show cm sync-status\n# tmsh list cm trust-domain\n# tmsh list cm device-group ' + dg + '\n';
-            return c;
+            c += '# Doğrulama:\n# tmsh show cm sync-status        # Awaiting Initial Sync -> In Sync\n# tmsh list cm trust-domain\n# tmsh list cm device-group ' + dg + '\n# tail -n 20 /var/log/ltm       # failover sonrası 010c00xx (sod) satırları\n';
+            const w = [];
+            w.push('⚠ HA self IP\'sinde port lockdown "default" olmalı (TCP 4353 ConfigSync, UDP 1026 network failover). "none" iki cihazı Disconnected yapar (K14666670, f5-16).');
+            w.push('⚠ İki cihazda NTP çalışmalı: saat farkı aygıt sertifikalarını geçersiz kılar, trust kurulamaz ya da Disconnected olur.');
+            w.push('ℹ Sync yönü: değişikliğin yapıldığı (güncel) cihazdan to-group. Changes Pending iken failover yapılırsa eş eski yapılandırmayla hizmet verir (f5-16).');
+            if (/^\d{1,3}(\.\d{1,3}){3}$/.test(String(data.sync_ip || '')) && data.sync_ip === data.peer_mgmt) w.push('⛔ Config-Sync IP ile karşı cihazın yönetim IP\'si aynı olamaz.');
+            w.push('ℹ Floating self IP (traffic-group-1) sunucuların ağ geçidi olmalı; MAC masquerade (modify cm traffic-group traffic-group-1 mac 02:…) iki cihazda da ayarlanmalı (f5-15).');
+            if (auto === 'enabled') w.push('⚠ Auto-sync açık: bir cihazdaki hatalı değişiklik anında eşe de gider. Birçok ekip değişiklik denetimi için kapalı tutar.');
+            return { config: c, warnings: w };
         });
     }
 };

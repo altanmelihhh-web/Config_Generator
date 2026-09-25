@@ -41,7 +41,7 @@ const CgLabTmsh = (function () {
         if (!T[i] || T[i].t !== '{' || !T[i].sym) return { err: 'expect{', at: i };
         const items = []; i++;
         while (i < T.length && !(T[i].t === '}' && T[i].sym)) {
-            if (T[i].t === '{' && T[i].sym) return { err: 'unexpected{', at: i };
+            if (T[i].t === '{' && T[i].sym) { const r = block(T, i); if (r.err) return r; items.push({ k: '', b: r.items }); i = r.i; continue; }   // isimsiz iç blok: { { ip … } { ip … } }
             const it = { k: T[i].t }; i++;
             if (T[i] && T[i].t === '{' && T[i].sym) { const r = block(T, i); if (r.err) return r; it.b = r.items; i = r.i; }
             items.push(it);
@@ -75,7 +75,7 @@ const CgLabTmsh = (function () {
 
     function session(lab, opts) {
         const VAR = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
-        if (VAR) lab = Object.assign({}, lab, { start: (lab.start || []).concat(VAR.start || []), sim: Object.assign({}, lab.sim || {}, VAR.sim || {}) });
+        if (VAR) lab = Object.assign({}, lab, { start: (lab.start || []).concat(VAR.start || []), startLate: (lab.startLate || []).concat(VAR.startLate || []), sim: Object.assign({}, lab.sim || {}, VAR.sim || {}) });
         const SIM = lab.sim || {};
         const IFS = lab.ifaces || ['1.1', '1.2', '1.3', '1.4'];
         const S = { m: base(), saved: null, mode: 'bash', ev: [], hist: [], pending: null, answers: {}, loggedOut: false, audit: [], ltmlog: (SIM.ltmlog || []).slice(), rt: { reboots: 0, arp: {} } };
@@ -92,7 +92,8 @@ const CgLabTmsh = (function () {
             return { hostname: lab.hostname || 'bigip-a.lab.example', guiSetup: 'enabled', mgmtIp: null, mgmtRoutes: {}, ifs, vlans: {}, selfs: {}, routes: {},
                 httpd: { allow: ['ALL'], idle: 1200 }, sshd: { allow: ['ALL'], idle: 0, banner: 'disabled', bannerText: '' }, dns: { servers: [], search: [] }, ntp: { servers: [], tz: 'America/Los_Angeles' },
                 prov, users: { admin: { role: 'admin', shell: 'tmsh', pw: true } }, pwpol: { enf: 'disabled', min: 6, up: 0, low: 0, num: 0, spec: 0, fail: 0, maxdur: 99999 },
-                nodes: {}, pools: {}, monitors: {}, virtuals: {}, snatpools: {}, persists: {}, httpProfiles: {} };
+                nodes: {}, pools: {}, monitors: {}, virtuals: {}, snatpools: {}, persists: {}, httpProfiles: {},
+                cm: { cs: null, uni: [], mirror: null, trusted: [], dgs: {}, tgMac: null } };
         }
         const M = () => S.m;
         const short = () => M().hostname.split('.')[0];
@@ -524,6 +525,71 @@ const CgLabTmsh = (function () {
             },
             props: ['destination', 'ip-protocol', 'pool', 'profiles', 'persist', 'connection-limit', 'fallback-persistence', 'source-address-translation', 'translate-port', 'translate-address', 'mask', 'description', 'enabled', 'disabled'],
         };
+        // ═══ HA: cihazlar, güven, device group, traffic group ════════════════
+        // Eş cihaz lab.sim.peer: { name, mgmt, ha (HA/configsync self IP'si), timeSkew?, garpBlocked? } — eşin kendi taban ağı hazır kabul edilir.
+        const PEER = SIM.peer || null;
+        const isSelfIp = ip => Object.values(M().selfs).some(x => x.address && x.address.split('/')[0] === ip && x.tg === 'traffic-group-local-only');
+        T['cm device'] = {
+            kind: 'device', named: true, fixed: true,
+            coll: () => { const o = { [M().hostname]: M().cm }; if (PEER) o[PEER.name] = { peer: true }; return o; },
+            set(o, P, name) {
+                if (o.peer) return E('# [Simülatör] ' + name + ' eş cihazdır; onun adresleri kendi üzerinde (bigip-b) ayarlanır.');
+                for (const p of P) {
+                    if (p.k === 'configsync-ip') { if (p.v === 'none') { o.cs = null; continue; } if (M().mgmtIp && p.v === M().mgmtIp.split('/')[0]) return E('# [Simülatör] ConfigSync adresi yönetim IP\'si olamaz (K14348): HA VLAN\'ındaki non-floating self IP\'yi verin.'); if (!isSelfIp(p.v)) return E('# [Simülatör] ' + p.v + ' bu cihazın non-floating self IP\'si değil.'); o.cs = p.v; }
+                    else if (p.k === 'mirror-ip') { if (p.v === 'any6') { o.mirror = null; continue; } if (!isSelfIp(p.v)) return E('# [Simülatör] ' + p.v + ' bu cihazın non-floating self IP\'si değil.'); o.mirror = p.v; }
+                    else if (p.k === 'unicast-address') {
+                        const ips = []; for (const it of (p.items || [])) { const b = it.b || []; const i2 = b.findIndex(x => x.k === 'ip'); const ip = i2 >= 0 && b[i2 + 1] ? b[i2 + 1].k : null; if (!ip || !isIp(ip)) return SYNx('unicast-address { { ip <adres> } … }'); if (!isSelfIp(ip) && !(M().mgmtIp && M().mgmtIp.split('/')[0] === ip)) return E('# [Simülatör] ' + ip + ' bu cihazın self IP\'si ya da yönetim IP\'si değil.'); ips.push(ip); }
+                        if (p.v === 'none') { o.uni = []; continue; } o.uni = ips;
+                    }
+                    else return SYN(p.k);
+                }
+                return null;
+            },
+            list(n, o) { if (o.peer) return ['cm device ' + n + ' {', '    configsync-ip ' + PEER.ha, '    failover-state ' + (HA.st === 'active' ? 'standby' : 'active'), '    hostname ' + n, '    management-ip ' + PEER.mgmt, '    mirror-ip ' + PEER.ha, '    unicast-address {', '        {', '            ip ' + PEER.ha, '        }', '    }', '    version 17.1.1.3', '}'];
+                const L = ['cm device ' + n + ' {', '    configsync-ip ' + (o.cs || 'none'), '    failover-state ' + (HA.st === 'active' ? 'active' : HA.st), '    hostname ' + n, '    management-ip ' + (M().mgmtIp ? M().mgmtIp.split('/')[0] : 'none'), '    mirror-ip ' + (o.mirror || 'any6')];
+                if (o.uni.length) { L.push('    unicast-address {'); o.uni.forEach(ip => L.push('        {', '            ip ' + ip, '        }')); L.push('    }'); } else L.push('    unicast-address none');
+                L.push('    version ' + curVer(), '}'); return L; },
+            props: ['configsync-ip', 'unicast-address', 'mirror-ip'],
+        };
+        T['cm trust-domain'] = {
+            kind: 'trust domain', named: true, fixed: true, coll: () => ({ Root: M().cm }),
+            set(o, P) {
+                const kv = {}; let add = null;
+                for (const p of P) { if (p.k === 'ca-devices') { if (p.op !== 'add' || !p.items || !p.items.length) return SYNx('ca-devices add { <eş yönetim IP> }'); add = p.items[0].k; } else if (['name', 'username', 'password'].includes(p.k)) kv[p.k] = p.v; else return SYN(p.k); }
+                if (!add) return E('Syntax Error: ca-devices add { <ip> } name <cihaz> username <kullanıcı> password <parola>', 'incomplete');
+                if (!kv.name || !kv.username || !kv.password) return E('# [Simülatör] name, username ve password gerekli.', 'incomplete');
+                if (!PEER || add !== PEER.mgmt || kv.name !== PEER.name) return E('# [Simülatör] ' + add + ' adresinde "' + kv.name + '" adlı bir BIG-IP bulunamadı (eşin yönetim IP\'si ve tam adı).');
+                if (!(SIM.mgmtHosts || []).includes(PEER.mgmt) || !M().mgmtIp) return E('# [Simülatör] Eşin yönetim adresine (' + PEER.mgmt + ') ulaşılamıyor.');
+                if (PEER.timeSkew) return E('# [Simülatör] Güven kurulamadı: eşin saati bu cihazdan çok farklı; aygıt sertifikası geçerli sayılmıyor. İki cihazda NTP\'yi düzeltin.');
+                if (!o.trusted.includes(PEER.name)) o.trusted.push(PEER.name);
+                return null;
+            },
+            list() { return ['cm trust-domain Root {', '    ca-devices { ' + [M().hostname].concat(M().cm.trusted).join(' ') + ' }', '    status ' + (M().cm.trusted.length ? 'standalone-trust' : 'standalone'), '    trust-group Root', '}', '# [Simülatör] Alanlar kısaltıldı. Not: ca-devices biçimi v13\'ten beri eski (deprecated) sayılır; yeni biçim add-device alt komutudur.']; },
+            props: ['ca-devices', 'name', 'username', 'password'],
+        };
+        T['cm device-group'] = {
+            kind: 'device group', named: true, coll: () => M().cm.dgs,
+            fresh: () => ({ devices: [], type: 'sync-only', autoSync: 'disabled', netFo: 'disabled' }),
+            set(o, P, name, isCreate) {
+                for (const p of P) {
+                    if (p.k === 'devices') { const r = listOp(o.devices, p, x => x); if (r.bad || r.missing) return SYNx('"' + (r.bad || r.missing) + '" invalid device'); for (const d of r.list) if (d !== M().hostname && !M().cm.trusted.includes(d)) return E('# [Simülatör] ' + d + ' güven alanında (trust domain) değil; önce device trust kurun.'); o.devices = r.list; }
+                    else if (p.k === 'type') { if (!['sync-failover', 'sync-only'].includes(p.v)) return SYNx('"' + p.v + '" invalid type'); if (!isCreate && p.v !== o.type) return E('# [Simülatör] Device group tipi oluşturulduktan sonra değiştirilemez.'); o.type = p.v; }
+                    else if (p.k === 'auto-sync') { if (!['enabled', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.autoSync = p.v; }
+                    else if (p.k === 'network-failover') { if (!['enabled', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.netFo = p.v; }
+                    else if (p.k === 'full-load-on-sync') continue;
+                    else return SYN(p.k);
+                }
+                return null;
+            },
+            list(n, o) { return ['cm device-group ' + n + ' {', '    auto-sync ' + o.autoSync, '    devices {'].concat(o.devices.map(d => '        ' + d + ' { }'), ['    }', '    network-failover ' + o.netFo, '    type ' + o.type, '}']); },
+            props: ['devices', 'type', 'auto-sync', 'network-failover', 'full-load-on-sync'],
+        };
+        T['cm traffic-group'] = {
+            kind: 'traffic group', named: true, fixed: true, coll: () => ({ 'traffic-group-1': M().cm, 'traffic-group-local-only': { local: true } }),
+            set(o, P, name) { if (o.local) return E('# [Simülatör] traffic-group-local-only değiştirilemez.'); for (const p of P) { if (p.k !== 'mac') return SYN(p.k); if (p.v === 'none') { o.tgMac = null; continue; } if (!/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(p.v)) return SYNx('"' + p.v + '" invalid MAC address'); if (!(parseInt(p.v.slice(0, 2), 16) & 2)) return E('# [Simülatör] Uyarı niteliğinde red: yerel yönetilen (locally administered, ör. 02:…) bir MAC seçin; üretici OUI\'li adres L2\'de çakışabilir (K3523).'); o.tgMac = p.v.toLowerCase(); } return null; },
+            list(n, o) { return o.local ? ['cm traffic-group traffic-group-local-only { }'] : ['cm traffic-group traffic-group-1 {', '    mac ' + (o.tgMac || 'none'), '    unit-id 1', '}']; },
+            props: ['mac'],
+        };
         const TYPES = Object.keys(T);
         const MODULES = ['net', 'sys', 'auth', 'ltm', 'cm', 'util', 'gtm', 'security', 'apm', 'asm'];
         function resolveType(toks) {
@@ -732,8 +798,9 @@ const CgLabTmsh = (function () {
                 L.push('# [Simülatör] Sütunlar sadeleştirildi; yalnız provision edilmiş modüller.');
                 log({ show: 'sys provision' }); return { out: L.join('\n'), ok: true };
             }
-            if (mod === 'cm' && comp === 'sync-status') { log({ show: 'cm sync-status' }); return { out: ['', '--------------------------------------------', 'CM::Sync Status', '--------------------------------------------', 'Color    green', 'Status   Standalone', 'Summary', 'Details', '# [Simülatör] Cihaz HA çiftinde değil.'].join('\n'), ok: true }; }
-            if (mod === 'sys' && comp === 'failover') { log({ show: 'sys failover' }); return { out: 'Failover active for 3d 04:12:37', ok: true }; }
+            if (mod === 'cm' && comp === 'sync-status') { const st = syncStatus(); log({ show: 'cm sync-status', status: st.status }); return { out: ['', '-'.repeat(68), 'CM::Sync Status', '-'.repeat(68), 'Color    ' + st.color, 'Status   ' + st.status, 'Mode     ' + (st.status === 'Standalone' ? 'standalone' : 'high-availability'), 'Summary  ' + st.summary].concat(st.details.map((d, k) => (k ? '         ' : 'Details  ') + d)).join('\n'), ok: true }; }
+            if (mod === 'cm' && comp === 'failover-status') { const up = HA.st === 'active'; log({ show: 'cm failover-status' }); return { out: ['', '-'.repeat(40), 'CM::Failover Status', '-'.repeat(40), 'Color    ' + (up ? 'green' : 'gray'), 'Status   ' + HA.st.toUpperCase().replace('OFFLINE', 'FORCED OFFLINE'), 'Summary  ' + (up ? '1/1 active' : '0/1 active'), '# [Simülatör] Çıktı biçimi yaklaşıktır.'].join('\n'), ok: true }; }
+            if (mod === 'sys' && comp === 'failover') { log({ show: 'sys failover' }); return { out: 'Failover ' + (HA.st === 'offline' ? 'forced offline' : HA.st) + ' for 0d 00:' + (HA.st === 'active' ? '12' : '01') + ':37', ok: true }; }
             if (mod === 'sys' && comp === 'management-ip') return null;
             return null;
         }
@@ -900,7 +967,7 @@ const CgLabTmsh = (function () {
         function vipRequest(o) {
             // o: { ip, port, path, method, src, cookie, https }
             const vn = Object.keys(M().virtuals).find(n => { const v = M().virtuals[n]; return v.dest === o.ip + ':' + o.port || v.dest === o.ip + ':0'; });
-            if (!vn) return { kind: 'refused', why: 'novs' };
+            if (!vn) return Object.values(M().virtuals).some(v => v.dest.split(':')[0] === o.ip) ? { kind: 'refused', why: 'novs' } : { kind: 'timeout', why: 'noaddr' };
             const v = M().virtuals[vn];
             if (!v.enabled) return { kind: 'refused', why: 'disabled', vs: vn };
             if (v.limit && vsConn(vn) >= v.limit) { if (!o.test) S.ltmlog.push(lstamp() + ' ' + lh() + ' warning tmm[11925]: 01200009:4: Packet rejected remote IP ' + o.src + ' port 51514 local IP ' + o.ip + ' port ' + o.port + ' proto TCP: Connection limit exceeded.'); return { kind: 'reset', why: 'vslimit', vs: vn }; }
@@ -999,6 +1066,61 @@ const CgLabTmsh = (function () {
             log({ show: 'ltm persistence', F, n: recs.length });
             return { out: L.join('\n'), ok: true };
         }
+        // ═══ HA durumu, config sync, failover ═══════════════════════════════
+        const HA = { st: 'active', syncKey: null, peerCfg: null };
+        const syncKey = m => JSON.stringify([m.nodes, m.pools, m.monitors, m.virtuals, m.snatpools, m.persists, m.httpProfiles]);
+        const haDg = () => Object.entries(M().cm.dgs).find(([, g]) => g.type === 'sync-failover' && PEER && g.devices.includes(PEER.name) && g.devices.includes(M().hostname));
+        const selfOfIp = ip => Object.entries(M().selfs).find(([, x]) => x.address && x.address.split('/')[0] === ip);
+        const selfAllowsSvc = (sn, pr, port) => { const x = M().selfs[sn]; if (!x) return false; if (x.allow === 'all') return true; if (x.allow === 'none') return false; const L = x.allow === 'default' ? ALLOW_DEFAULT : x.allow; return L.some(y => { const [p2, t2] = y.split(':'); return p2 === pr && (t2 === 'any' || +t2 === port || SVC_PORT[t2] === port); }); };
+        // bağlantı: configsync adresi + TCP 4353 açık + eşe erişim + güven + saat
+        function haLink() {
+            if (!PEER || !M().cm.trusted.includes(PEER.name)) return { ok: false, why: 'trust' };
+            if (PEER.timeSkew) return { ok: false, why: 'time' };
+            if (!M().cm.cs) return { ok: false, why: 'csip' };
+            const sf = selfOfIp(M().cm.cs); if (!sf) return { ok: false, why: 'csip' };
+            if (!selfAllowsSvc(sf[0], 'tcp', 4353)) return { ok: false, why: 'lockdown' };
+            if (!reach(PEER.ha).ok) return { ok: false, why: 'reach' };
+            return { ok: true, fo: selfAllowsSvc(sf[0], 'udp', 1026) };
+        }
+        function syncStatus() {
+            const g = haDg(); if (!g) return { color: 'green', status: 'Standalone', summary: '', details: [] };
+            const l = haLink();
+            if (!l.ok) return { color: 'red', status: 'Disconnected', summary: 'The local device is disconnected from all other devices in the trust domain', details: [PEER.name + ': disconnected'] };
+            if (HA.syncKey === null) return { color: 'blue', status: 'Awaiting Initial Sync', summary: 'The device group is awaiting the initial config sync', details: [PEER.name + ': connected', g[0] + ' (Awaiting Initial Sync): Sync one of the devices to the group'] };
+            if (syncKey(M()) !== HA.syncKey) return { color: 'yellow', status: 'Changes Pending', summary: 'There is a possible change conflict between ' + M().hostname + ' and ' + PEER.name + '.', details: [PEER.name + ': connected', g[0] + ' (Changes Pending): ' + M().hostname + ' has the most recent configuration'] };
+            return { color: 'green', status: 'In Sync', summary: 'All devices in the device group are in sync', details: [PEER.name + ': connected', g[0] + ' (In Sync): All devices in the device group are in sync'] };
+        }
+        function doSync(dir, dg) {
+            const g = M().cm.dgs[dg]; if (!g) return NF('device group', dg);
+            const l = haLink(); if (!l.ok) return E('# [Simülatör] Eşitleme yapılamadı: eşe bağlantı yok (' + { trust: 'güven kurulmamış', time: 'saatler uyuşmuyor', csip: 'configsync-ip tanımlı değil', lockdown: 'ConfigSync self IP\'sinde TCP 4353 kapalı (port lockdown)', reach: 'eşin HA adresine ulaşılamıyor' }[l.why] + ').', 'value');
+            if (dir === 'from' && HA.peerCfg) { ['nodes', 'pools', 'monitors', 'virtuals', 'snatpools', 'persists', 'httpProfiles'].forEach(k => { M()[k] = clone(HA.peerCfg[k]); }); }
+            HA.syncKey = syncKey(M()); HA.peerCfg = clone(M()); log({ haSync: dir });
+            return { out: '', ok: true };
+        }
+        function failoverCmd(a) {
+            const act = a[2]; if (!['standby', 'offline', 'online'].includes(act)) return E('Syntax Error: run sys failover standby | offline | online', 'incomplete');
+            const rest = a.slice(3); for (let i = 0; i < rest.length; i += 2) if (!['traffic-group', 'device', 'persist', 'no-persist'].includes(rest[i])) return SYN(rest[i]);
+            if (!haDg()) return E('# [Simülatör] Cihaz HA çiftinde değil (Standalone): devredecek eş yok.', 'value');
+            const push = x => S.ltmlog.push(lstamp() + ' ' + lh() + ' ' + x);
+            if (act === 'standby') {
+                if (HA.st !== 'active') return E('# [Simülatör] Bu cihaz zaten aktif değil (' + HA.st + ').', 'value');
+                const l = haLink(); if (!l.ok || !l.fo) return E('# [Simülatör] Eş cihaz bu cihazın durumunu göremiyor (network failover bağlantısı yok); devretme yapılamaz.', 'value');
+                push('notice sod[6926]: 010c0026:5: Failover condition, active attempting to go standby'); push('notice sod[6926]: 010c0052:5: Standby for traffic group /Common/traffic-group-1.'); push('notice sod[6926]: 010c0018:5: Standby');
+                HA.st = 'standby'; log({ failover: 'standby' }); return { out: '', ok: true };
+            }
+            if (act === 'offline') { HA.st = 'offline'; push('notice sod[6926]: 010c003f:5: Forced offline'); log({ failover: 'offline' }); return { out: '', ok: true }; }
+            if (HA.st !== 'offline') return E('# [Simülatör] Cihaz forced offline değil.', 'value');
+            HA.st = 'standby'; push('notice sod[6926]: 010c0018:5: Standby'); log({ failover: 'online' }); return { out: '', ok: true };
+        }
+        // Yerel cihaz aktif değilken VIP trafiğini eş karşılar: eşte son eşitlenmiş yapılandırma vardır
+        function viaPeer(fn) {
+            if (!haDg() || HA.st === 'active') return fn();
+            if (PEER && PEER.garpBlocked && !M().cm.tgMac) return { kind: 'timeout', why: 'arp' };
+            if (!HA.peerCfg) return { kind: 'timeout', why: 'peer-empty' };
+            const keep = S.m; S.m = clone(HA.peerCfg); S.m.cm = keep.cm; S.m.selfs = keep.selfs; S.m.vlans = keep.vlans; S.m.routes = keep.routes;
+            try { return fn(); } finally { S.m = keep; }
+        }
+        const haPromptSt = () => (S.inop ? 'INOPERATIVE' : HA.st === 'active' ? 'Active' : HA.st === 'standby' ? 'Standby' : 'Forced Offline');
         const vlanUp = vn => { const v = M().vlans[vn]; return !!v && Object.keys(v.ifs).some(linkUp); };
         function saveLoad(verb, rest) {
             const a = rest.map(x => x.t);
@@ -1059,8 +1181,8 @@ const CgLabTmsh = (function () {
                 S.mode = 'bash'; S.fromTmsh = true; return { out: '', ok: true };
             }
             if (a[0] === 'util' && a[1] === 'ping') { const o = ping(['ping'].concat(a.slice(2))); return typeof o === 'string' ? { out: o, ok: true } : o; }
-            if (a[0] === 'sys' && a[1] === 'failover') return E('# [Simülatör] Cihaz HA çiftinde değil (Standalone).', 'value');
-            if (a[0] === 'cm' && a[1] === 'config-sync') return E('# [Simülatör] Cihaz HA çiftinde değil; config-sync yapılacak device group yok.', 'value');
+            if (a[0] === 'sys' && a[1] === 'failover') return failoverCmd(a);
+            if (a[0] === 'cm' && a[1] === 'config-sync') { const k = ['to-group', 'from-group'].indexOf(a[2]); if (k < 0 || !a[3]) return E('Syntax Error: run cm config-sync to-group <device-group> | from-group <device-group>', 'incomplete'); return doSync(k ? 'from' : 'to', a[3]); }
             return E('# [Simülatör] "run ' + a.slice(0, 2).join(' ') + '" bu lab sürümünde desteklenmiyor.', 'unsupported');
         }
         function helpText(prefix) {
@@ -1127,7 +1249,7 @@ const CgLabTmsh = (function () {
             const cookie = {}; if (jarR && JARS[jarR]) Object.assign(cookie, JARS[jarR]); hdr.forEach(h => { const m = h.match(/^Cookie:\s*([^=]+)=(\S+)/i); if (m) cookie[m[1]] = m[2]; });
             const L = [];
             let res;
-            if (isVip) { res = vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https }); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi.'); }
+            if (isVip) { res = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https })); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi.'); }
             else {
                 const r = reach(ip), srv = srvOf(ip);
                 if (iface && !Object.values(M().selfs).some(s => s.address && s.address.split('/')[0] === iface) && !(M().mgmtIp && M().mgmtIp.split('/')[0] === iface)) return E('curl: (45) bind failed with errno 99: Cannot assign requested address', 'value');
@@ -1142,7 +1264,7 @@ const CgLabTmsh = (function () {
             const reqLines = () => ['* Connected to ' + ip + ' (' + ip + ') port ' + port + ' (#0)', '> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + ip, '> User-Agent: curl/7.81.0', '> Accept: */*', '> '];
             if (verbose) L.push('*   Trying ' + ip + ':' + port + '...');
             if (res.kind !== 'ok') {
-                const K = res.kind, est = isVip && (K === 'reset' || (K === 'timeout' && res.why !== 'l2'));
+                const K = res.kind, est = isVip && (K === 'reset' || (K === 'timeout' && !['l2', 'arp', 'noaddr', 'peer-empty'].includes(res.why)));
                 if (K === 'refused') { if (verbose) L.push('* connect to ' + ip + ' port ' + port + ' failed: Connection refused', '* Failed to connect to ' + ip + ' port ' + port + ' after 2 ms: Connection refused', '* Closing connection 0'); L.push('curl: (7) Failed to connect to ' + ip + ' port ' + port + ' after 2 ms: Connection refused'); }
                 else if (K === 'unreach') L.push('curl: (7) Failed to connect to ' + ip + ' port ' + port + ': Network is unreachable');
                 else if (K === 'sslerr') L.push('curl: (35) error:1408F10B:SSL routines:ssl3_get_record:wrong version number');
@@ -1260,6 +1382,7 @@ const CgLabTmsh = (function () {
             const out = typeof r === 'string' ? r : (r ? r.out : '');
             log(Object.assign({ raw: line, canon, mode }, (r && r.log) || {}));
             warnAccess(line); ltmTick(false);
+            { const g = haDg(); if (g && g[1].autoSync === 'enabled' && HA.syncKey !== null && haLink().ok && HA.syncKey !== syncKey(M()) && HA.st === 'active') { HA.syncKey = syncKey(M()); HA.peerCfg = clone(M()); } }
             return (out || '') + (S.warn ? (out ? '\n' : '') + S.warn : '');
         }
         // yönetim erişimini kendine kapatma uyarısı (gerçek cihaz uyarmaz; bağlantı kopar)
@@ -1275,8 +1398,8 @@ const CgLabTmsh = (function () {
         function prompt() {
             if (S.pending) return S.pending.prompt;
             if (S.loggedOut) return '';
-            const st = S.inop ? 'INOPERATIVE' : 'Active';
-            return S.mode === 'tmsh' ? 'root@(' + short() + ')(cfg-sync Standalone)(' + st + ')(/Common)(tmos)# ' : '[root@' + short() + ':' + st + ':Standalone] config # ';
+            const st = haPromptSt(), ss = syncStatus().status;
+            return S.mode === 'tmsh' ? 'root@(' + short() + ')(cfg-sync ' + ss + ')(' + st + ')(/Common)(tmos)# ' : '[root@' + short() + ':' + st + ':' + ss + '] config # ';
         }
         // ? yardımı: tmsh'te bulunulan noktadaki seçenekler
         function help(raw) {
@@ -1314,6 +1437,10 @@ const CgLabTmsh = (function () {
         function apply(cmds) { for (const c of cmds) { const o = run(c, true); if (o && o.err) throw new Error('lab başlangıç komutu hatalı: ' + c + ' → ' + o.msg); } }
         S.saved = clone(M());
         apply(lab.start || []);
+        // HA arıza lab'ları: başlangıç yapılandırması eşle eşitlenmiş kabul edilir; startLate eşitlemeden SONRA yapılan değişikliklerdir
+        if (SIM.haBoot && SIM.haBoot.synced) { HA.syncKey = syncKey(M()); HA.peerCfg = clone(M()); }
+        apply(lab.startLate || []);
+        if (SIM.haBoot && SIM.haBoot.st) HA.st = SIM.haBoot.st;
         S.saved = clone(M());
         apply(lab.startUnsaved || []);
         ctBoot(); ltmTick(true);
@@ -1340,7 +1467,8 @@ const CgLabTmsh = (function () {
             get model() { return S.m; }, get savedModel() { return S.saved; },
             ev: EV, mode: () => S.mode, dirty,
             // yan etkisiz VIP testi (kontrollerde kullanılır): sayaçları ve kalıcılık tablosunu değiştirmez
-            vipTest: (ip, port, path) => { const keep = JSON.stringify(S.rt); const r = vipRequest({ ip, port, path: path || '/', method: 'GET', src: SIM.client || '198.51.100.20', cookie: {}, test: true }); S.rt = JSON.parse(keep); return { kind: r.kind, code: r.resp ? r.resp.code : null, member: r.member || null }; },
+            vipTest: (ip, port, path) => { const keep = JSON.stringify(S.rt); const r = viaPeer(() => vipRequest({ ip, port, path: path || '/', method: 'GET', src: SIM.client || '198.51.100.20', cookie: {}, test: true })); S.rt = JSON.parse(keep); return { kind: r.kind, code: r.resp ? r.resp.code : null, member: r.member || null }; },
+            ha: () => ({ st: HA.st, sync: syncStatus().status, link: haLink(), synced: HA.syncKey !== null }),
             conns: () => S.ct.map(c => Object.assign({}, c)), persistRecords: () => Object.assign({}, S.rt.persist || {}),
             vols: () => clone(S.vols), bootVol: () => S.boot, inop: () => S.inop, ucsFiles: () => S.ucs.map(u => u.name),
             memberStatus: (p, k) => memberStatus(p, k), poolStatus: p => poolStatus(p), vsStatus: v => vsStatus(v),

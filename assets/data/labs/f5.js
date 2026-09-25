@@ -50,6 +50,15 @@
         'Sep 24 03:18:25' + H + 'notice mcpd[7276]: 01070727:5: Pool /Common/web_pool member /Common/10.64.30.51:80 monitor status up. [ /Common/mon_web: up ]  [ was down for 0hr:12mins:44sec ]',
         'Sep 24 03:18:31' + H + 'notice mcpd[7276]: 01070727:5: Pool /Common/web_pool member /Common/10.64.30.52:80 monitor status up. [ /Common/mon_web: up ]  [ was down for 0hr:12mins:48sec ]',
     ];
+    // HA lab'ları: 1.4 = HA bağlantısı (access VLAN 40), eş bigip-b
+    const UP4 = UP.concat(['1.4']);
+    const PEER = { name: 'bigip-b.lab.example', mgmt: '10.240.10.12', ha: '172.24.1.2' };
+    const SIMHA = Object.assign({}, SIM2, { sw: Object.assign({}, SW, { '1.4': { mode: 'access', vlan: 40 } }), hosts: SIM2.hosts.concat([{ ip: '172.24.1.2', vlan: 40 }]), mgmtHosts: ['10.240.10.1', '10.240.10.12'], peer: PEER });
+    const HABASE = ['create net vlan ha interfaces add { 1.4 { untagged } } tag 40', 'create net self self_ha address 172.24.1.1/30 vlan ha allow-service default'];
+    const DEVCMD = 'modify cm device bigip-a.lab.example configsync-ip 172.24.1.1 unicast-address { { ip 172.24.1.1 } { ip 10.240.10.11 } } mirror-ip 172.24.1.1';
+    const TRUSTCMD = 'modify cm trust-domain Root ca-devices add { 10.240.10.12 } name bigip-b.lab.example username admin password Lab-HA-2026';
+    const DGCMD = 'create cm device-group dg-failover devices add { bigip-a.lab.example bigip-b.lab.example } type sync-failover auto-sync disabled network-failover enabled';
+    const HAFULL = [DEVCMD, TRUSTCMD, DGCMD];
     const curls = s => s.ev.list().filter(e => e.curl).map(e => e.curl);
     // re ile eşleşen son komuttan (ve varsa until'den önce) sonra atılan curl istekleri
     const curlsAfter = (s, re, until) => { const L2 = s.ev.list(); const i = lastIdx(L2, e => e.raw && re.test(e.raw)); if (i < 0) return []; let j = L2.length; if (until) { const k = L2.findIndex((e, n) => n > i && e.raw && until.test(e.raw)); if (k > 0) j = k; } return L2.slice(i + 1, j).filter(e => e.curl).map(e => e.curl); };
@@ -605,6 +614,86 @@
         verify: ['show sys connection cs-server-addr 203.0.113.100', 'show ltm persistence persist-records', 'show ltm pool web_pool members'],
         learn: ['Bağlantı satırı: istemci → VIP → SNAT → sunucu.', 'Filtre: cs-/ss- client/server addr/port; all-properties ayrıntı.', 'Disabled üye kalıcı istemcileri kabul eder; önce persist kaydını silin.', 'delete\'i dar filtreyle kullanın; filtresiz delete tüm tabloyu siler.', 'Boşaltma sırası: disable → bekle/sil → forced offline.'],
         links: { tool: '#/f5-ltm/drain', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/107' }, cert: 'F5CAB5.04 · F5CAB5.05 · F5CAB3.02'
+    },
+    // ═══ 4 · HA kurulumu ve kontrollü failover ═══
+    {
+        id: 'f5-15', vendor: 'f5-ltm', level: 4, title: 'HA: device trust, sync-failover grubu, config sync ve kontrollü failover', minutes: 30, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-04'],
+        up: UP4, sim: SIMHA, start: NET.concat(LTM3, HABASE), startMode: 'tmsh',
+        story: 'İkinci cihaz <b>bigip-b.lab.example</b> (yönetim <code>10.240.10.12</code>, HA adresi <code>172.24.1.2</code>) kuruldu; taban ağı hazır. İki cihaz <b>HA</b> VLAN\'ı (1.4, <code>172.24.1.0/30</code>) üzerinden konuşacak; bu cihazın HA self IP\'si <code>172.24.1.1</code>. Hedef: aktif/pasif çift, yapılandırmanın eşlenmesi ve kesintisiz kontrollü failover.',
+        lesson: L('HA kurulumu dört adımdır. (1) Her cihazda <b>ConfigSync</b>, <b>failover (unicast)</b> ve <b>mirroring</b> adresleri: HA VLAN\'ındaki non-floating self IP (ConfigSync için yönetim IP\'si kullanılmaz). (2) <b>Device trust</b>: bir cihazdan diğeri güven alanına eklenir (eşin yönetim IP\'si, adı, kullanıcı ve parola). (3) <b>Sync-failover device group</b>: iki cihaz, network failover açık. (4) İlk <b>config sync</b>: yapılandırması güncel olan cihazdan gruba. Trafik <b>traffic-group-1</b>\'e bağlı floating nesnelerle (floating self IP, virtual address) taşınır; failover\'da bunlar eşe geçer. <b>MAC masquerade</b> floating adreslerin MAC\'ini sabitler; GARP\'ı kaçıran ya da sınırlayan cihazlarda kesintiyi önler. HA self IP\'sinde port lockdown <b>default</b> olmalıdır (TCP 4353 ConfigSync, UDP 1026 failover).',
+            'Aktif/pasif çift, bir cihaz ya da bakım sırasında hizmetin kesilmemesini sağlar. Yanlış kurulmuş bir çift ise en kötü anda (arıza sırasında) eski yapılandırmayla açılır ya da hiç devralmaz.',
+            'modify cm device bigip-a.lab.example configsync-ip 172.24.1.1 unicast-address { { ip 172.24.1.1 } { ip 10.240.10.11 } } mirror-ip 172.24.1.1\nmodify cm trust-domain Root ca-devices add { 10.240.10.12 } name bigip-b.lab.example username admin password &lt;parola&gt;\ncreate cm device-group dg-failover devices add { bigip-a.lab.example bigip-b.lab.example } type sync-failover auto-sync disabled network-failover enabled\nrun cm config-sync to-group dg-failover\nshow cm sync-status\nrun sys failover standby',
+            ['ConfigSync adresi olarak yönetim IP\'sini seçmek (K14348).', 'HA self IP\'sinde allow-service none: ConfigSync ve failover kesilir.', 'NTP\'siz cihazlar: saat farkı güveni bozar.', 'Yanlış yönde sync: eski yapılandırmalı cihazdan gruba itmek, yeni değişiklikleri ezer.', 'Sunucuların ağ geçidini non-floating self IP\'ye vermek (failover\'da kaybolur).', 'MAC masquerade\'i yalnız bir cihazda ayarlamak.']),
+        goals: ['ConfigSync/failover/mirror adresleri', 'Device trust', 'Sync-failover device group', 'İlk config sync ve durumlar', 'Floating self IP ve MAC masquerade', 'Kontrollü failover ve doğrulama'],
+        tasks: [
+            { t: 'Bu cihazın HA adreslerini verin: ConfigSync <code>172.24.1.1</code>, unicast failover <code>172.24.1.1</code> ve yönetim IP\'si <code>10.240.10.11</code>, mirroring <code>172.24.1.1</code>.', why: 'İki unicast adres (HA VLAN\'ı + yönetim) failover kalp atışı için yedekli yol sağlar. Adresler bu cihazın non-floating self IP\'leri olmalıdır.',
+              hints: ['modify cm device bigip-a.lab.example configsync-ip … unicast-address { { ip … } { ip … } } mirror-ip …', '<code>modify cm device bigip-a.lab.example configsync-ip 172.24.1.1 unicast-address { { ip 172.24.1.1 } { ip 10.240.10.11 } } mirror-ip 172.24.1.1</code>'],
+              steps: [DEVCMD], check: s => { const c = s.model.cm; return c.cs === '172.24.1.1' && c.uni.includes('172.24.1.1') && c.mirror === '172.24.1.1'; } },
+            { t: 'bigip-b\'yi güven alanına ekleyin (yönetim <code>10.240.10.12</code>, ad <code>bigip-b.lab.example</code>, kullanıcı <code>admin</code>, parola <code>Lab-HA-2026</code>).', why: 'Device trust, iki cihazın sertifikalarla birbirini tanımasıdır; yalnız bir cihazda yapılır. Saatleri çok farklı cihazlar arasında sertifika doğrulanmaz.',
+              hints: ['modify cm trust-domain Root ca-devices add { … } name … username … password …', '<code>modify cm trust-domain Root ca-devices add { 10.240.10.12 } name bigip-b.lab.example username admin password Lab-HA-2026</code>'],
+              steps: [TRUSTCMD], check: s => s.model.cm.trusted.includes('bigip-b.lab.example') },
+            { t: 'Sync-failover device group\'u oluşturun: <code>dg-failover</code>, iki cihaz, network failover açık, auto-sync kapalı.', why: 'Sync-failover grubu hem yapılandırmayı eşler hem de traffic group\'ların hangi cihazda aktif olacağını belirler. Auto-sync kapalıyken her değişiklik elle eşlenir; bu, hatalı bir değişikliğin anında eşe gitmesini önler.',
+              hints: ['create cm device-group … devices add { … } type sync-failover auto-sync disabled network-failover enabled', '<code>' + DGCMD + '</code>'],
+              steps: [DGCMD], needs: [1], check: s => { const g = s.model.cm.dgs['dg-failover']; return !!g && g.type === 'sync-failover' && g.devices.length === 2 && g.netFo === 'enabled'; } },
+            { t: 'Durumu görün, ilk eşitlemeyi bu cihazdan gruba yapın ve durumun <b>In Sync</b> olduğunu doğrulayın.', why: 'Grup yeni kurulduğunda durum "Awaiting Initial Sync"tir. Güncel yapılandırma bu cihazda olduğu için yön "to-group"tur. İstem de <code>(cfg-sync In Sync)</code> olur.',
+              hints: ['show cm sync-status; run cm config-sync to-group …; show cm sync-status', '<code>show cm sync-status</code> → <code>run cm config-sync to-group dg-failover</code> → <code>show cm sync-status</code>'],
+              steps: ['show cm sync-status', 'run cm config-sync to-group dg-failover', 'show cm sync-status'], needs: [0, 1, 2],
+              check: s => s.ha().sync === 'In Sync' && s.ev.list().some(e => e.show === 'cm sync-status' && e.status === 'In Sync') },
+            { t: 'Sunucu ağına floating self IP (<code>10.64.30.10/24</code>, traffic-group-1, allow-service none) ve traffic-group-1\'e MAC masquerade (<code>02:01:d7:0a:40:0a</code>) ekleyin; yapılandırmayı kaydedin.', why: 'Floating self IP aktif cihazla birlikte taşınır; sunucuların ağ geçidi bu adres olmalıdır. MAC masquerade floating adreslerin MAC\'ini sabitler; yerel yönetilen (02:…) bir adres seçilir ve iki cihazda da ayarlanır.',
+              hints: ['create net self … traffic-group traffic-group-1 …; modify cm traffic-group traffic-group-1 mac …; save sys config', '<code>create net self self_srv_float address 10.64.30.10/24 vlan server traffic-group traffic-group-1 allow-service none</code> → <code>modify cm traffic-group traffic-group-1 mac 02:01:d7:0a:40:0a</code> → <code>save sys config</code>'],
+              steps: ['create net self self_srv_float address 10.64.30.10/24 vlan server traffic-group traffic-group-1 allow-service none', 'modify cm traffic-group traffic-group-1 mac 02:01:d7:0a:40:0a', 'save sys config'],
+              check: s => { const f = s.model.selfs.self_srv_float; return !!f && f.tg === 'traffic-group-1' && s.model.cm.tgMac === '02:01:d7:0a:40:0a' && !s.dirty(); } },
+            { t: 'Kontrollü failover: bu cihazı standby yapın, istemciden VIP\'i deneyin ve logdaki geçiş satırlarını görün.', why: 'Trafik bigip-b\'ye geçer; yapılandırmalar eşit olduğu için istemci farkı görmez. İstem Standby olur; /var/log/ltm\'de sod satırları (010c0026, 010c0052, 010c0018) geçişi kaydeder.',
+              hints: ['run sys failover standby; bash\'te curl ve tail', '<code>run sys failover standby</code> → <code>run util bash</code> → <code>curl -s http://203.0.113.100/</code> → <code>tail -n 3 /var/log/ltm</code> → <code>exit</code>'],
+              steps: ['run sys failover standby', 'run util bash', 'curl -s http://203.0.113.100/', 'tail -n 3 /var/log/ltm', 'exit'], needs: [0, 1, 2, 3],
+              check: s => s.ha().st === 'standby' && s.ev.list().some(e => e.curl && e.curl.vip && e.curl.kind === 'ok') && s.ev.list().some(e => e.file === '/var/log/ltm') },
+            { t: 'Soru: bigip-a standby iken bir yönetici yanlışlıkla bigip-a\'da bir pool\'u değiştirdi ve "run cm config-sync to-group" yaptı. Ne olur?', ask: { choices: [['push', 'Değişiklik gruba itilir ve aktif cihazdaki (bigip-b) yapılandırmanın üzerine yazılır: sync yönü, değişikliğin yapıldığı cihazdan gruba doğrudur'], ['blocked', 'Standby cihaz sync yapamaz'], ['nothing', 'Yalnız bigip-a değişir'], ['merge', 'İki yapılandırma birleştirilir']], correct: 'push' },
+              why: 'Sync, yapılandırmayı itilen cihazın hâliyle eşitler; birleştirme yapmaz. Bu yüzden değişiklik tek bir cihazda (genellikle aktifte) yapılır, show cm sync-status ile yön doğrulanır, sonra o cihazdan gruba itilir.',
+              hints: ['to-group ne yapar?', 'Birleştirme var mı?'] },
+        ],
+        verify: ['show cm sync-status', 'list cm device', 'list cm device-group', 'show sys failover', 'tail -n 10 /var/log/ltm'],
+        learn: ['Adresler: ConfigSync + unicast + mirror = HA VLAN\'ındaki non-floating self IP.', 'Trust → sync-failover grubu → ilk sync (to-group).', 'Durumlar: Awaiting Initial Sync, In Sync, Changes Pending, Disconnected.', 'Floating self IP ve MAC masquerade traffic-group-1 ile taşınır.', 'run sys failover standby ile kontrollü geçiş; loglarda 010c00xx satırları.'],
+        links: { tool: '#/f5-ltm/devicetrust', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/109' }, cert: 'F5CAB4.01 · F5CAB4.08 · F5CAB2.05'
+    },
+    // ═══ 5 · Arıza: HA / sync ═══
+    {
+        id: 'f5-16', vendor: 'f5-ltm', level: 5, title: '"HA çifti eşitlenmiyor / failover sonrası sorun" — arıza kaydı', minutes: 25, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-15'],
+        up: UP4, sim: Object.assign({}, SIMHA, { haBoot: { synced: true } }), start: NET.concat(LTM3, HABASE, HAFULL), startMode: 'tmsh',
+        variants: [
+            { key: 'lockdown', startLate: ['modify net self self_ha allow-service none'], fix: ['modify net self self_ha allow-service default'] },
+            { key: 'csip', startLate: ['modify cm device bigip-a.lab.example configsync-ip none'], fix: ['modify cm device bigip-a.lab.example configsync-ip 172.24.1.1'] },
+            { key: 'pending', startLate: ['create ltm virtual vs_api destination 203.0.113.101:80 pool web_pool profiles add { http } source-address-translation { type automap }'], sim: { haBoot: { synced: true, st: 'standby' } }, fix: ['run cm config-sync to-group dg-failover'] },
+            { key: 'garp', sim: { haBoot: { synced: true, st: 'standby' }, peer: Object.assign({}, PEER, { garpBlocked: true }) }, fix: ['modify cm traffic-group traffic-group-1 mac 02:01:d7:0a:40:0a'] },
+        ],
+        story: '<b>Arıza kaydı:</b> HA çifti (bigip-a / bigip-b, grup <code>dg-failover</code>) ile ilgili şikâyetlerden biri geldi: ya "iki cihaz eşitlenmiyor", ya "gece failover oldu, bazı siteler açılmıyor". İstemi ve sync durumunu okuyun, kanıt toplayın, kök nedeni seçip tek değişiklikle düzeltin. <small>Her turda farklı bir arıza gelebilir.</small>',
+        lesson: L('HA arızalarında iki soru sorulur: (1) Cihazlar birbirini görüyor mu? <code>show cm sync-status</code> "Disconnected" diyorsa ConfigSync adresi, HA self IP\'sinin port lockdown\'u (TCP 4353, UDP 1026), eşe erişim ve saat (NTP) kontrol edilir. (2) Aktif cihazda doğru yapılandırma var mı? "Changes Pending" iken failover olursa eş eski yapılandırmayla hizmet verir: son değişiklikler kaybolmuş gibi görünür; çözüm, güncel yapılandırmanın olduğu cihazdan gruba sync\'tir. Failover sonrası tüm VIP\'ler zaman aşımına uğruyorsa üst cihazlar GARP\'ı işlememiş olabilir: MAC masquerade bunu önler.',
+            'HA sorunları çoğunlukla sessizdir ve ancak failover anında ortaya çıkar. Durum çıktısını ve istemi düzenli okumak, bakım öncesi "In Sync" doğrulamak bu sürprizleri önler.',
+            'show cm sync-status\nlist cm device bigip-a.lab.example configsync-ip\nlist net self self_ha allow-service\nshow sys failover\ncurl -v http://203.0.113.101/\nrun cm config-sync to-group dg-failover',
+            ['Disconnected görünce trust\'ı silip baştan kurmak (önce lockdown/adres/saat).', 'Changes Pending iken bakım ya da failover yapmak.', 'Sync yönünü kontrol etmeden to-group yapmak.', 'MAC masquerade\'i yalnız bir cihazda ayarlamak.']),
+        goals: ['İstem ve sync durumunu okumak', 'Bağlantı halkaları: adres, lockdown, erişim', 'Changes Pending + failover etkisi', 'GARP ve MAC masquerade'],
+        tasks: [
+            { t: 'Belirti: sync durumuna ve failover durumuna bakın; istemi okuyun.', why: 'İstemdeki iki alan (cfg-sync … ve Active/Standby) ilk ipucudur. Ayrıntı show cm sync-status\'ta.',
+              hints: ['show cm sync-status; show sys failover', '<code>show cm sync-status</code> → <code>show sys failover</code>'], steps: ['show cm sync-status', 'show sys failover'], loo: false,
+              check: s => s.ev.list().some(e => e.show === 'cm sync-status') && s.ev.list().some(e => e.show === 'sys failover') },
+            { t: 'Kanıt: cihazın HA adreslerine, HA self IP\'sinin port lockdown\'una bakın ve istemciden iki VIP\'i deneyin (<code>203.0.113.100</code> ve yeni uygulama <code>203.0.113.101</code>).', why: 'Disconnected\'ın nedeni adres ya da lockdown olabilir; failover sonrası sorunların nedeni istemci tarafında görünür (zaman aşımı mı, hangi VIP\'ler?).',
+              hints: ['list cm device …; list net self self_ha; curl', '<code>list cm device bigip-a.lab.example</code> → <code>list net self self_ha</code> → <code>run util bash</code> → <code>curl -s http://203.0.113.100/</code> → <code>curl -s http://203.0.113.101/</code> → <code>exit</code>'],
+              steps: ['list cm device bigip-a.lab.example', 'list net self self_ha', 'run util bash', 'curl -s http://203.0.113.100/', 'curl -s http://203.0.113.101/', 'exit'],
+              check: s => s.ev.ran(/list cm device/) && s.ev.ran(/list net self self_ha/) && s.ev.list().filter(e => e.curl).length >= 2 },
+            { t: 'Kök neden hangisi?', ask: { choices: [['lockdown', 'HA self IP\'sinde port lockdown none: TCP 4353 / UDP 1026 kapalı, cihazlar Disconnected'], ['csip', 'Bu cihazın ConfigSync adresi silinmiş: Disconnected'], ['pending', 'Yeni uygulama (vs_api) eşitlenmeden failover oldu: aktif olan bigip-b\'de bu VS yok'], ['garp', 'Failover sonrası üst cihazlar eski MAC\'e gönderiyor: MAC masquerade yok, tüm VIP\'ler zaman aşımında']], correct: v => v.key },
+              why: 'Disconnected + self_ha allow-service none → lockdown. Disconnected + configsync-ip none → adres. Standby + Changes Pending + yalnız yeni VIP açılmıyor → eşitlenmemiş değişiklik. Standby + In Sync + tüm VIP\'ler zaman aşımında → GARP/MAC masquerade.',
+              hints: ['sync-status: Disconnected mı, Changes Pending mi, In Sync mi?', 'Hangi VIP\'ler etkilenmiş?'], needs: [1] },
+            { t: 'Tek değişiklikle düzeltin.', why: 'Yalnız bozuk halkayı onarın. Eşitlenmemiş değişiklikte güncel yapılandırma bu cihazda olduğu için bu cihazdan gruba sync yapılır (bu cihaz standby olsa da).',
+              hints: ['Kök nedene göre tek değişiklik.', 'lockdown: <code>modify net self self_ha allow-service default</code> · csip: <code>modify cm device bigip-a.lab.example configsync-ip 172.24.1.1</code> · pending: <code>run cm config-sync to-group dg-failover</code> · garp: <code>modify cm traffic-group traffic-group-1 mac 02:01:d7:0a:40:0a</code>'],
+              steps: v => v.fix,
+              check: s => s.ha().sync === 'In Sync' && s.vipTest('203.0.113.100', 80, '/').kind === 'ok' && (!s.model.virtuals.vs_api || s.vipTest('203.0.113.101', 80, '/').kind === 'ok') },
+            { t: 'Doğrulayın: sync durumu In Sync olmalı, iki VIP de yanıt vermeli.', why: 'Kaydı kapatmadan önce hem durum hem istemci davranışı doğrulanır.',
+              hints: ['show cm sync-status; curl', '<code>show cm sync-status</code> → <code>run util bash</code> → <code>curl -s http://203.0.113.100/</code> → <code>exit</code>'],
+              steps: ['show cm sync-status', 'run util bash', 'curl -s http://203.0.113.100/', 'exit'], needs: [3], loo: false,
+              check: s => { const L2 = s.ev.list(); const i = lastIdx(L2, e => e.show === 'cm sync-status' && e.status === 'In Sync'); return i >= 0 && L2.slice(i).some(e => e.curl && e.curl.kind === 'ok'); } },
+        ],
+        verify: ['show cm sync-status', 'show sys failover', 'list cm device bigip-a.lab.example', 'list net self self_ha allow-service'],
+        learn: ['Disconnected → adres, lockdown (4353/1026), erişim, saat.', 'Changes Pending iken failover → eşte eski yapılandırma; güncel cihazdan to-group.', 'Failover sonrası tüm VIP zaman aşımı → GARP; MAC masquerade.'],
+        links: { tool: '#/f5-ltm/devicetrust', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/108' }, cert: 'F5CAB4.01 · F5CAB4.08 · F5CAB5.06'
     },
     // ═══ Serbest çalışma ═══
     {

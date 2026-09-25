@@ -105,5 +105,30 @@
                 { code: 'tmsh show sys connection cs-client-addr 198.51.100.23 all-properties', desc: 'Ayrıntılı blok: Idle Timeout (TCP profilinin süresi), Virtual Path (VIP), Lasthop. Filtresiz "delete sys connection" TÜM tabloyu (mirror dahil) siler; her zaman adres ve port ile daraltın.' },
             ]
         },
+        {
+            title: 'HA Çifti Eşitlenmiyor: Disconnected, Changes Pending ve Awaiting Initial Sync', severity: 'err', topic: 'ha', lab: 'f5-16', replaces: 'HA Sync Sorunu (Changes Pending)',
+            symptom: 'İstemde ya da show cm sync-status çıktısında "Disconnected", "Changes Pending" veya "Awaiting Initial Sync" görünüyor; değişiklikler eşe gitmiyor.',
+            steps: [
+                { code: 'tmsh show cm sync-status', desc: 'Durum ve Details satırları. Disconnected: cihazlar birbirini görmüyor. Changes Pending: bir cihazda eşitlenmemiş değişiklik var; Details hangi cihazın güncel olduğunu söyler. Awaiting Initial Sync: grup kuruldu ama ilk sync yapılmadı.',
+                  fix: [{ cause: 'Changes Pending / Awaiting Initial Sync: güncel cihazdan gruba eşitle', cmd: 'tmsh run cm config-sync to-group dg-failover' }] },
+                { code: 'tmsh list cm device bigip-a.lab.example configsync-ip unicast-address', desc: 'ConfigSync adresi tanımlı ve HA VLAN\'ındaki non-floating self IP mi? Yönetim IP\'si ConfigSync için kullanılmaz (K14348).',
+                  fix: [{ cause: 'ConfigSync adresi yok ya da yanlış', cmd: 'tmsh modify cm device bigip-a.lab.example configsync-ip 172.24.1.1' }] },
+                { code: 'tmsh list net self self_ha allow-service', desc: 'HA self IP\'sinde port lockdown default olmalı: TCP 4353 (ConfigSync/CMI) ve UDP 1026 (network failover) açık. "none" iki cihazı Disconnected yapar (K14666670).',
+                  fix: [{ cause: 'HA self IP\'sinde port lockdown none', cmd: 'tmsh modify net self self_ha allow-service default' }] },
+                { code: 'tmsh show sys ntp\ndate', desc: 'İki cihazın saati uyuşmalı; fark aygıt sertifikalarının geçersiz sayılmasına ve Disconnected durumuna yol açar. /var/log/ltm\'de CMI bağlantı hataları (0107142f "Can\'t connect to CMI peer") görülebilir.' },
+            ]
+        },
+        {
+            title: 'Kontrollü Failover ve Sonrası: Geçiş, Eski Yapılandırma ve GARP / MAC Masquerade', severity: 'warn', topic: 'ha', lab: 'f5-15', replaces: 'Failover Testi (Kontrollü Gecis)',
+            symptom: 'Bakım için failover yapılacak ya da failover sonrasında bazı siteler açılmıyor / tüm VIP\'ler bir süre yanıt vermiyor.',
+            steps: [
+                { code: 'tmsh show cm sync-status', desc: 'Failover\'dan ÖNCE durum In Sync olmalı. Changes Pending iken geçilirse eş eski yapılandırmayla hizmet verir; son eklenen VS ya da değişiklikler yokmuş gibi olur.',
+                  fix: [{ cause: 'Failover sonrası yeni uygulama açılmıyor (eşitlenmemiş değişiklik)', cmd: 'tmsh run cm config-sync to-group dg-failover' }] },
+                { code: 'tmsh run sys failover standby traffic-group traffic-group-1', desc: 'Aktif cihazda çalıştırılır. Ardından istemde Standby görünür; /var/log/ltm\'de "010c0026 Failover condition, active attempting to go standby", "010c0052 Standby for traffic group …" ve "010c0018 Standby" satırları düşer. Eş cihazda "010c0053 Active for traffic group …".' },
+                { code: 'curl -v http://203.0.113.100/', desc: 'İstemciden doğrulama. Tüm VIP\'ler bağlantı kuramıyorsa (Connection timed out) üst router/switch GARP\'ı işlememiş ve eski cihazın MAC\'ine gönderiyor olabilir.',
+                  fix: [{ cause: 'GARP işlenmiyor: MAC masquerade ayarlayın (iki cihazda da)', cmd: 'tmsh modify cm traffic-group traffic-group-1 mac 02:01:d7:0a:40:0a' }] },
+                { code: 'tail -n 30 /var/log/ltm', desc: 'Geçiş sonrası beklenmeyen monitor down, "No members available" ya da "has become unavailable" satırı olmamalı; varsa eşin sunucu ağına erişimini (VLAN, floating self IP) kontrol edin.' },
+            ]
+        },
     ];
 })();
