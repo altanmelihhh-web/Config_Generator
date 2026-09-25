@@ -413,6 +413,7 @@ const CgLab = {
             <h3>Lab tamamlandı!</h3>
             <p>${secs ? 'Süre: <b>' + (secs >= 60 ? Math.floor(secs / 60) + ' dk ' : '') + (secs % 60) + ' sn</b> · ' : ''}İpucu: <b>${hints}</b>${st.sol ? ' · çözüm görüntülendi' : ''}</p>
             ${st.stars < 3 ? '<p class="cg-lab-finish-tip">3 yıldız için: Sıfırla ile tekrar deneyin, komut iskeleti ve çözüm ipuçlarını kullanmadan bitirin.</p>' : ''}
+            ${[...new Set(lab.tasks.map(t => this._warnHtml(t)).filter(Boolean))].join('')}
             <b>Öğrendikleriniz</b><ul>${lab.learn.map(x => `<li>${x}</li>`).join('')}</ul>
             ${lab.variants ? '<button class="cg-ts-btn" data-round><i class="fas fa-random"></i> Yeni tur: farklı arıza</button> ' : ''}
             ${next ? `<button class="cg-ts-btn ok" data-next="${next.id}"><i class="fas fa-arrow-right"></i> Sonraki: ${cgEsc(next.title)}</button>` : ''}
