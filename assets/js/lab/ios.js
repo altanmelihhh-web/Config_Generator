@@ -268,6 +268,8 @@ const CgLabIos = (() => {
             { p: 'access-list (1-199)$n', noOnly: 1, no: (a) => { delete M().acls[String(a.n)]; } },
             { p: 'ip access-list <standard|extended>$t WORD$name', run: (a) => { const x = M().acls[a.name] || (M().acls[a.name] = { type: a.t, entries: [] }); if (x.type !== a.t) return '% A named ' + x.type + ' IP access list with this name already exists'; S.mode = a.t === 'standard' ? 'snacl' : 'enacl'; S.ctx = [a.name]; }, no: (a) => { delete M().acls[a.name]; } },
             { p: 'ip nat inside source list WORD$acl interface IFNAME$if overload', run: (a) => { M().nat = M().nat.filter(x => !(x.type === 'list' && x.acl === a.acl)); M().nat.push({ type: 'list', acl: a.acl, iface: a.if, overload: true }); }, no: (a) => { M().nat = M().nat.filter(x => !(x.type === 'list' && x.acl === a.acl)); } },
+            // overload'suz: arayüzün tek adresi aynı anda yalnız bir iç adrese verilebilir (diğerleri çevrilmez)
+            { p: 'ip nat inside source list WORD$acl interface IFNAME$if', run: (a) => { M().nat = M().nat.filter(x => !(x.type === 'list' && x.acl === a.acl)); M().nat.push({ type: 'list', acl: a.acl, iface: a.if, overload: false }); }, no: (a) => { M().nat = M().nat.filter(x => !(x.type === 'list' && x.acl === a.acl)); } },
             { p: 'ip nat inside source static A.B.C.D$l A.B.C.D$g', run: (a) => natStaticAdd({ type: 'static', local: a.l, global: a.g }), no: (a) => { M().nat = M().nat.filter(x => !(x.type === 'static' && x.local === a.l && x.global === a.g && !x.proto)); } },
             { p: 'ip nat inside source static <tcp|udp>$p A.B.C.D$l (1-65535)$lp A.B.C.D$g (1-65535)$gp', run: (a) => natStaticAdd({ type: 'static', proto: a.p, local: a.l, lport: a.lp, global: a.g, gport: a.gp }), no: (a) => { M().nat = M().nat.filter(x => !(x.type === 'static' && x.proto === a.p && x.local === a.l && x.global === a.g)); } },
             { p: 'spanning-tree mode !<pvst|rapid-pvst|mst>$m', sw: 1, run: (a) => { M().stpMode = a.m; }, no: () => { M().stpMode = 'pvst'; } },
@@ -750,7 +752,7 @@ const CgLabIos = (() => {
             m.macStatic.forEach(x => L.push('mac address-table static ' + x.mac + ' vlan ' + x.vlan + ' interface ' + x.port));
             if (m.archive) { L.push('!', 'archive'); if (m.archive.path) L.push(' path ' + m.archive.path); if (m.archive.wm) L.push(' write-memory'); if (m.archive.period) L.push(' time-period ' + m.archive.period); if (m.archive.max !== 10) L.push(' maximum ' + m.archive.max); }
             if (m.radSrc) L.push('ip radius source-interface ' + m.radSrc);
-            m.nat.forEach(x => L.push(x.type === 'list' ? 'ip nat inside source list ' + x.acl + ' interface ' + x.iface + ' overload' : 'ip nat inside source static ' + (x.proto ? x.proto + ' ' + x.local + ' ' + x.lport + ' ' + x.global + ' ' + x.gport : x.local + ' ' + x.global)));
+            m.nat.forEach(x => L.push(x.type === 'list' ? 'ip nat inside source list ' + x.acl + ' interface ' + x.iface + (x.overload ? ' overload' : '') : 'ip nat inside source static ' + (x.proto ? x.proto + ' ' + x.local + ' ' + x.lport + ' ' + x.global + ' ' + x.gport : x.local + ' ' + x.global)));
             for (const [n, a] of Object.entries(m.acls)) {
                 if (/^\d+$/.test(n)) a.entries.forEach(e => L.push('access-list ' + n + ' ' + aceTxt(e, a.type)));
                 else { L.push('ip access-list ' + a.type + ' ' + n); a.entries.forEach(e => L.push(' ' + aceTxt(e, a.type))); }
@@ -948,6 +950,11 @@ const CgLabIos = (() => {
             return M().nat.find(r => r.type === 'static' && (dir === 'out' ? r.local === ip : r.global === ip) && (!r.proto || (r.proto === proto && (dir === 'out' ? r.lport : r.gport) === port)));
         }
         // Tek paket yolu: giriş ACL → (dış→iç statik NAT) → rota → iç→dış NAT → çıkış ACL
+        // overload'suz kuralda adresi ilk alan iç adres: sim.flows sırasındaki ilk eşleşen içeriden akış
+        function natOwner(dyn) {
+            const f = ((S.lab.sim && S.lab.sim.flows) || []).find(x => M().ifs[x.in] && M().ifs[x.in].nat === 'inside' && aclEval(dyn.acl, Object.assign({ sport: 50000, proto: 'tcp' }, x), false).permit);
+            return f ? f.src : null;
+        }
         function forward(f0, count) {
             const f = Object.assign({ sport: 50000, proto: 'tcp', n: 5 }, f0), res = { f };
             const I = M().ifs[f.in];
@@ -964,9 +971,12 @@ const CgLabIos = (() => {
                 if (st) { res.snat = { local: pkt.src, global: st.global, lport: pkt.sport, gport: st.gport || pkt.sport, static: true }; pkt.src = st.global; }
                 else {
                     const dyn = M().nat.find(x => x.type === 'list' && aclEval(x.acl, Object.assign({}, pkt, { n: 0 }), false).permit && !aclEval(x.acl, pkt, false).missing);
-                    if (dyn && dyn.iface === r.ifn && M().ifs[dyn.iface].ip) { const g = 1024 + (ip2n(pkt.src) + pkt.sport) % 3000; res.snat = { local: pkt.src, global: M().ifs[dyn.iface].ip, lport: pkt.sport, gport: g }; pkt.src = res.snat.global; pkt.sport = g; }
+                    const owner = dyn && !dyn.overload ? natOwner(dyn) : null;
+                    if (owner && owner !== pkt.src) res.natFail = 'nooverload';
+                    else if (dyn && dyn.iface === r.ifn && M().ifs[dyn.iface].ip) { const g = dyn.overload ? 1024 + (ip2n(pkt.src) + pkt.sport) % 3000 : pkt.sport; res.snat = { local: pkt.src, global: M().ifs[dyn.iface].ip, lport: pkt.sport, gport: g, simple: !dyn.overload }; pkt.src = res.snat.global; pkt.sport = g; }
                 }
             }
+            if (res.natFail) return Object.assign(res, { stage: 'natfail' });   // çeviri yapılamayan paket dışarı çıkmaz
             if (O && O.accessOut) { const a = aclEval(O.accessOut, pkt, count); if (!a.permit) return Object.assign(res, { stage: 'acl-out', acl: O.accessOut, seq: a.seq, implicit: a.implicit }); }
             const hosts = S.lab.hosts || [];
             if (!hosts.includes(pkt.dst)) return Object.assign(res, { stage: 'nohost', pkt });
@@ -982,6 +992,8 @@ const CgLabIos = (() => {
             res.filter(r => r.snat && (r.stage === 'ok' || r.stage === 'nohost')).forEach(r => {
                 const k = r.snat.global + r.snat.gport; if (seen[k]) return; seen[k] = true;
                 const pr = r.f.proto === 'icmp' ? 'icmp' : r.f.proto, hp = (ip, p) => ip + ':' + p;
+                // overload'suz dinamik NAT: bire bir adres girdisi (---) + port değişmeden genişletilmiş girdi
+                if (r.snat.simple && !seen['s' + r.snat.local]) { seen['s' + r.snat.local] = true; L.push(pad('---', 4) + pad(r.snat.global, 22) + pad(r.snat.local, 22) + pad('---', 22) + '---'); }
                 L.push(pad(pr, 4) + pad(hp(r.snat.global, r.snat.gport), 22) + pad(hp(r.snat.local, r.snat.lport), 22) + pad(hp(r.pkt.dst, r.f.dport), 22) + hp(r.pkt.dst, r.f.dport));
             });
             res.filter(r => r.dnat && r.stage === 'ok').forEach(r => { L.push(pad(r.f.proto, 4) + pad(r.dnat.from + ':' + r.f.dport, 22) + pad(r.dnat.to + ':' + r.pkt.dport, 22) + pad(r.f.src + ':' + r.f.sport, 22) + r.f.src + ':' + r.f.sport); });
@@ -993,8 +1005,8 @@ const CgLabIos = (() => {
             const res = simTraffic(), dyn = res.filter(r => r.snat && !r.snat.static).length, st = M().nat.filter(x => x.type === 'static').length;
             const ins = Object.keys(M().ifs).filter(n => M().ifs[n].nat === 'inside'), outs = Object.keys(M().ifs).filter(n => M().ifs[n].nat === 'outside');
             return ['Total active translations: ' + (dyn + st) + ' (' + st + ' static, ' + dyn + ' dynamic; ' + (dyn + M().nat.filter(x => x.proto).length) + ' extended)', 'Outside interfaces:'].concat(outs.map(n => '  ' + n), ['Inside interfaces:'], ins.map(n => '  ' + n),
-                ['Hits: ' + (dyn * 12) + '  Misses: ' + res.filter(r => r.stage === 'ok' && !r.snat).length, 'Expired translations: 0', 'Dynamic mappings:', '-- Inside Source'],
-                M().nat.filter(x => x.type === 'list').map((x, k) => '[Id: ' + (k + 1) + '] access-list ' + x.acl + ' interface ' + x.iface + (x.overload ? ' refcount ' + dyn : ''))).join('\n');
+                ['Hits: ' + (dyn * 12) + '  Misses: ' + res.filter(r => r.stage === 'natfail').length, 'Expired translations: 0', 'Dynamic mappings:', '-- Inside Source'],
+                M().nat.filter(x => x.type === 'list').map((x, k) => '[Id: ' + (k + 1) + '] access-list ' + x.acl + ' interface ' + x.iface + ' refcount ' + dyn)).join('\n');
         }
         function showIpInterface(n) {
             const i = M().ifs[n]; if (!i) return '% Invalid interface';

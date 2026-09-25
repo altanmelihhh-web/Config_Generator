@@ -13,6 +13,11 @@
     const DHCP_CLIENTS = [1, 2, 3].map(k => ({ mac: '0050.56a1.01' + String(k).padStart(2, '0'), in: 'GigabitEthernet0/0' })).concat([1, 2].map(k => ({ mac: '0050.56a1.02' + String(k).padStart(2, '0'), in: 'GigabitEthernet0/1' })));
     const dhcpOk = s => { const L = s.dhcpLeases(); return L.length > 0 && L.every(l => l.ip && (l.relay || l.gw) && !(n4(l.ip) >= n4('10.64.10.1') && n4(l.ip) <= n4('10.64.10.20'))); };
     const psMacs = hub => { const m = {}; for (let p = 1; p <= 6; p++) m['GigabitEthernet0/' + p] = ['0050.56a1.03' + String(p).padStart(2, '0')].concat(p === hub ? ['0050.56a1.0b01', '0050.56a1.0b02'] : []); m['GigabitEthernet0/8'] = ['0050.56a1.0a08']; return m; };
+    const NAT_FLOWS = [{ src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'GigabitEthernet0/0' }, { src: '10.64.10.200', dst: '198.51.100.80', dport: 443, in: 'GigabitEthernet0/0' }, { src: '198.51.100.99', dst: '203.0.113.10', dport: 443, in: 'GigabitEthernet0/1' }];
+    const natOk = s => ['10.64.10.50', '10.64.10.200'].every(ip => { const r = s.forward({ src: ip, dst: '198.51.100.80', dport: 443, in: 'GigabitEthernet0/0' }); return r.stage === 'ok' && !!r.snat && r.snat.global === '203.0.113.2'; })
+        && (r => r.stage === 'ok' && !!r.dnat && r.dnat.to === '10.64.50.10')(s.forward({ src: '198.51.100.99', dst: '203.0.113.10', dport: 443, in: 'GigabitEthernet0/1' }));
+    const ACL_FLOWS = [{ src: '10.64.10.50', dst: '10.64.50.10', dport: 443, in: 'GigabitEthernet0/0' }, { src: '10.64.10.50', dst: '10.64.50.10', dport: 22, in: 'GigabitEthernet0/0' }, { src: '10.64.10.50', dst: '10.64.50.10', proto: 'icmp', in: 'GigabitEthernet0/0' }, { src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'GigabitEthernet0/0' }];
+    const aclOk = s => { const F = ACL_FLOWS.map(f => s.forward(f).stage), i = s.model.ifs['GigabitEthernet0/0']; return F[0] === 'ok' && F[1] === 'acl-in' && F[2] === 'ok' && F[3] === 'ok' && i.accessIn === 'LAN-IN' && !i.accessOut && !!s.acl('LAN-IN'); };
     const mtMacs = prn => { const m = {}; for (let p = 1; p <= 10; p++) m['GigabitEthernet0/' + p] = [p === prn ? '0050.56a1.0c05' : p === 10 ? '0050.56a1.0a10' : '0050.56a1.04' + String(p).padStart(2, '0')]; m['GigabitEthernet0/24'] = ['0050.56a1.0d01@10', '0050.56a1.0d02@10', '0050.56a1.0d03@10', '0050.56a1.0e01@20', '0050.56a1.0e02@20']; return m; };
 
     const LABS = [
@@ -757,6 +762,84 @@
         verify: ['show ip dhcp binding', 'show ip dhcp pool', 'show running-config | section dhcp', 'show ip interface g0/1'],
         learn: ['Önce "dağıtıldı mı?", sonra "neden?".', 'IP var internet yok → default-router.', 'Hiç adres yok → network / excluded-address.', 'Yalnız relay\'li ağ etkileniyorsa → helper-address.'],
         links: { tool: '#/cisco-ios/dhcp', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot' }, cert: 'CCNA 4.3 · 4.6'
+    },
+    // ═══ Arıza: NAT ═══
+    {
+        id: 'ios-45', vendor: 'cisco-ios', level: 5, title: '"İnternet yok / sunucumuz dışarıdan açılmıyor" — NAT arıza kaydı', minutes: 20, kind: 'router', pre: ['ios-31'],
+        up: ['GigabitEthernet0/0', 'GigabitEthernet0/1', 'GigabitEthernet0/2'], hosts: ['203.0.113.1', '198.51.100.80', '10.64.50.10'],
+        start: ['hostname R1', 'interface g0/0', 'description LAN', 'ip address 10.64.10.1 255.255.255.0', 'ip nat inside', 'no shutdown', 'interface g0/1', 'description WAN', 'ip address 203.0.113.2 255.255.255.252', 'ip nat outside', 'no shutdown',
+            'interface g0/2', 'description DMZ', 'ip address 10.64.50.1 255.255.255.0', 'ip nat inside', 'no shutdown', 'exit', 'ip route 0.0.0.0 0.0.0.0 203.0.113.1',
+            'access-list 1 permit 10.64.10.0 0.0.0.255', 'ip nat inside source list 1 interface g0/1 overload', 'ip nat inside source static tcp 10.64.50.10 443 203.0.113.10 443'],
+        sim: { flows: NAT_FLOWS },
+        variants: [
+            { key: 'roles', start: ['interface g0/0', 'ip nat outside', 'exit'], fix: ['interface g0/0', 'ip nat inside', 'exit'] },
+            { key: 'wc', start: ['no access-list 1', 'access-list 1 permit 10.64.10.0 0.0.0.127'], fix: ['no access-list 1', 'access-list 1 permit 10.64.10.0 0.0.0.255'] },
+            { key: 'overload', start: ['ip nat inside source list 1 interface g0/1'], fix: ['ip nat inside source list 1 interface g0/1 overload'] },
+            { key: 'static', start: ['no ip nat inside source static tcp 10.64.50.10 443 203.0.113.10 443', 'ip nat inside source static tcp 10.64.50.11 443 203.0.113.10 443'], fix: ['no ip nat inside source static tcp 10.64.50.11 443 203.0.113.10 443', 'ip nat inside source static tcp 10.64.50.10 443 203.0.113.10 443'] },
+        ],
+        story: '<b>Arıza kaydı:</b> "Dün akşamki bakım çalışmasından sonra sorunlar başladı." LAN kullanıcıları (10.64.10.0/24) internete R1\'in WAN adresiyle (PAT) çıkmalı; DMZ\'deki web sunucusu 10.64.50.10, internette <code>203.0.113.10:443</code> olarak açık olmalı. Sanal trafik: iki kullanıcı (10.64.10.50 ve 10.64.10.200) ve bir dış ziyaretçi. Kimin etkilendiğini bulun, kök nedeni seçin, en küçük değişiklikle düzeltin. <small>Her turda farklı arıza — "Yeni tur".</small>',
+        lesson: L('NAT arızasında sırayla bakılır: (1) <b>Roller</b>: <code>show ip nat statistics</code> inside/outside arayüzleri listeler — ters rol hiç çeviri yapmaz. (2) <b>Hangi iç adresler?</b> NAT ACL\'si wildcard ile seçer; dar bir wildcard bazı kullanıcıları dışarıda bırakır. (3) <b>overload</b>: arayüz adresiyle NAT\'ta overload yoksa tek genel adres aynı anda yalnız bir iç adrese verilir. (4) <b>Statik NAT</b>: yanlış iç adres/port, dış erişimi bozar. <code>show ip nat translations</code> kimin çevrildiğini gösterir.',
+            '"Bazı kullanıcılar çıkabiliyor, bazıları çıkamıyor" belirtisi ile "kimse çıkamıyor" belirtisi farklı dallara gider. Düzeltmeden sonra eski çeviriler tabloda kalabilir: <code>clear ip nat translation *</code> ile temizleyip yeniden doğrulanır.',
+            'show ip nat statistics          ! roller, eşleme kuralları\nshow ip nat translations        ! kim, hangi adresle?\nshow running-config | include ip nat\nshow access-lists 1\n!\nip nat inside source list 1 interface g0/1 overload\nclear ip nat translation *',
+            ['Tüm NAT yapılandırmasını silip yeniden yazmak.', 'Numaralı ACL\'de tek satır silmeye çalışmak: <code>no access-list 1 permit …</code> tüm listeyi siler.', 'Düzeltmeden sonra eski çevirileri temizlemeden "hâlâ çalışmıyor" demek.']),
+        goals: ['Kimin etkilendiğini çeviri tablosundan okumak', 'Rol / ACL / overload / statik ayrımı', 'En küçük düzeltme ve temiz doğrulama'],
+        tasks: [
+            { t: 'Belirtiyi toplayın: çeviri tablosu ve NAT istatistikleri.', why: 'Tabloda kimin satırı var, kimin yok? İstatistikte inside/outside arayüzleri doğru mu? İlk iki komut arızanın dalını seçer.',
+              hints: ['show ip nat translations / statistics', '<code>show ip nat translations</code> → <code>show ip nat statistics</code>'], steps: ['show ip nat translations', 'show ip nat statistics'], from: 'priv',
+              check: s => s.ev.ran(/^(do )?show ip nat translations$/) && s.ev.ran(/^(do )?show ip nat statistics$/) },
+            { t: 'Kök neden hangisi?', ask: { choices: [['roles', 'LAN arayüzünün NAT rolü ters (outside)'], ['wc', 'NAT ACL\'sinin wildcard\'ı dar: bazı kullanıcılar eşleşmiyor'], ['overload', 'overload eksik: WAN adresi tek kullanıcıya kilitli'], ['static', 'Statik NAT yanlış iç sunucuyu gösteriyor']], correct: v => v.key },
+              why: 'Kimse çıkamıyorsa: roller. Yalnız bazı kullanıcılar çıkamıyorsa: ACL wildcard ya da overload — ayrım için running-config\'e ve ACL\'ye bakılır. Kullanıcılar çıkıyor ama sunucu dışarıdan açılmıyorsa: statik NAT.', hints: ['show running-config | include ip nat', 'show access-lists 1 → wildcard; kural satırında overload var mı?'],
+              steps: v => ['show running-config | include ip nat', 'show access-lists 1', { answer: 1, v: v.key }], from: 'priv', needs: [0] },
+            { t: 'En küçük değişiklikle düzeltin: iki kullanıcı da internete çıksın, sunucu dışarıdan açılsın.', why: 'Yalnız hatalı satırı değiştirin. Numaralı ACL\'de düzeltme için listeyi silip doğru satırı yazmak gerekir (tek satır silinemez).',
+              hints: ['Kök nedene göre: rol, ACL, overload ya da statik satır.', 'Rol: <code>ip nat inside</code> · ACL: <code>no access-list 1</code> + doğru satır · overload: kuralı <code>overload</code> ile yeniden yazın · statik: yanlışı <code>no</code> ile silip doğrusunu yazın'],
+              steps: v => v.fix, check: s => natOk(s),
+              fb: s => { if (s.model.nat.some(x => x.type === 'static' && x.local === '10.64.50.11')) return 'Yanlış statik NAT (10.64.50.11) hâlâ duruyor.'; if (!s.acl('1')) return 'ACL 1 yok: NAT kuralı hiçbir adresi seçemez.'; if (s.model.nat.some(x => x.type === 'list' && !x.overload)) return 'Kural hâlâ overload\'suz: yalnız bir kullanıcı çevrilir.'; return null; } },
+            { t: 'Eski çevirileri temizleyin, tabloyu yeniden görün ve kaydedin.', why: 'Hatalı dönemden kalan çeviriler yeni davranışı gizleyebilir; temiz tabloyla doğrulama kanıttır.',
+              hints: ['clear → show → write', '<code>clear ip nat translation *</code> → <code>show ip nat translations</code> → <code>wr</code>'], steps: ['clear ip nat translation *', 'show ip nat translations', 'write memory'], from: 'priv', needs: [2],
+              check: s => s.saved() && natOk(s) && s.ev.after(/^clear ip nat translation \*$/, /^show ip nat translations$/) },
+        ],
+        verify: ['show ip nat translations', 'show ip nat statistics', 'show running-config | include ip nat', 'show access-lists 1'],
+        learn: ['Kimse çıkamıyor → inside/outside rolleri.', 'Bazıları çıkamıyor → ACL wildcard ya da overload.', 'Dışarıdan erişim yok → statik NAT.', 'Düzeltmeden sonra clear ip nat translation *.'],
+        links: { tool: '#/cisco-ios/nat', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/traffic' }, cert: 'CCNA 4.1'
+    },
+    // ═══ Arıza: ACL ═══
+    {
+        id: 'ios-46', vendor: 'cisco-ios', level: 5, title: '"Kural var ama çalışmıyor" — ACL arıza kaydı', minutes: 20, kind: 'router', pre: ['ios-33'],
+        up: ['GigabitEthernet0/0', 'GigabitEthernet0/1', 'GigabitEthernet0/2'], hosts: ['203.0.113.1', '198.51.100.80', '10.64.50.10', '10.64.50.20'],
+        start: ['hostname R1', 'interface g0/0', 'description LAN', 'ip address 10.64.10.1 255.255.255.0', 'no shutdown', 'interface g0/1', 'description WAN', 'ip address 203.0.113.2 255.255.255.252', 'no shutdown', 'interface g0/2', 'description SUNUCULAR', 'ip address 10.64.50.1 255.255.255.0', 'no shutdown', 'exit',
+            'ip route 0.0.0.0 0.0.0.0 203.0.113.1', 'ip access-list extended LAN-IN', '10 permit tcp 10.64.10.0 0.0.0.255 host 10.64.50.10 eq 443', '20 permit icmp 10.64.10.0 0.0.0.255 10.64.50.0 0.0.0.255 echo', '30 deny ip 10.64.10.0 0.0.0.255 10.64.50.0 0.0.0.255 log', '40 permit ip any any', 'exit',
+            'interface g0/0', 'ip access-group LAN-IN in', 'exit'],
+        sim: { flows: ACL_FLOWS },
+        variants: [
+            { key: 'order', start: ['ip access-list extended LAN-IN', '5 permit tcp any any', 'exit'], fix: ['ip access-list extended LAN-IN', 'no 5', 'exit'] },
+            { key: 'noany', start: ['ip access-list extended LAN-IN', 'no 40', 'exit'], fix: ['ip access-list extended LAN-IN', '40 permit ip any any', 'exit'] },
+            { key: 'dir', start: ['interface g0/0', 'no ip access-group LAN-IN in', 'ip access-group LAN-IN out', 'exit'], fix: ['interface g0/0', 'no ip access-group LAN-IN out', 'ip access-group LAN-IN in', 'exit'] },
+            { key: 'port', start: ['ip access-list extended LAN-IN', 'no 10', '10 permit tcp 10.64.10.0 0.0.0.255 host 10.64.50.10 eq 80', 'exit'], fix: ['ip access-list extended LAN-IN', 'no 10', '10 permit tcp 10.64.10.0 0.0.0.255 host 10.64.50.10 eq 443', 'exit'] },
+        ],
+        story: '<b>Arıza kaydı:</b> Bir değişiklikten sonra LAN\'daki <code>LAN-IN</code> politikası bozuldu. Beklenen: LAN (10.64.10.0/24) → web sunucusu 10.64.50.10 <b>HTTPS izinli</b>, sunucu ağına <b>ping izinli</b>, sunucu ağına <b>diğer her şey yasak</b> (ör. SSH), <b>internet serbest</b>. Sanal trafik bu dört akışı sürekli deniyor. Hangisi beklenenden farklı davranıyor? <small>Her turda farklı arıza — "Yeni tur".</small>',
+        lesson: L('ACL arızasında dört soru sorulur: (1) Doğru arayüzde ve <b>doğru yönde</b> mi? (<code>show ip interface</code> → Inbound/Outgoing access list) (2) <b>Sıra</b>: ilk eşleşen satır kazanır; önde duran geniş bir <code>permit</code> altındaki her şeyi gölgeler. (3) <b>Sondaki örtük deny</b>: <code>permit ip any any</code> eksikse listede olmayan her şey düşer. (4) <b>Satır içeriği</b>: port, protokol, wildcard. <code>show access-lists</code> hit sayaçları hangi satırın çalıştığını gösterir.',
+            'ACL hataları iki türlü görünür: "yasak olan geçiyor" (güvenlik açığı — sıra ya da yön) ve "izinli olan geçmiyor" (kesinti — örtük deny ya da yanlış port). Sayaçlara bakmadan ACL\'yi silip yeniden yazmak hem yavaş hem risklidir.',
+            'show ip interface g0/0 | include access list\nshow access-lists LAN-IN        ! hit sayaçları\n!\nip access-list extended LAN-IN\n no 5                           ! gölgeleyen satırı sil\n 40 permit ip any any           ! eksik son satır',
+            ['Uygulanmış ACL\'yi tamamen silmek: tanımsız ACL tüm trafiğe izin verir (koruma sessizce kalkar).', 'Yönü karıştırmak: LAN\'dan gelen trafik için LAN arayüzünde <b>in</b>.', 'Sayaçlara bakmadan satır eklemek.']),
+        goals: ['Hit sayaçlarını ve arayüz bağlamasını okumak', 'Sıra / örtük deny / yön / port ayrımı', 'Tek satırlık düzeltme'],
+        tasks: [
+            { t: 'Belirtiyi toplayın: ACL sayaçları ve Gi0/0\'a bağlı ACL\'ler.', why: 'Sayaçlar hangi satırın trafiği yakaladığını, <code>show ip interface</code> ise ACL\'nin hangi yönde bağlı olduğunu söyler.',
+              hints: ['show access-lists / show ip interface', '<code>show access-lists LAN-IN</code> → <code>show ip interface g0/0</code>'], steps: ['show access-lists LAN-IN', 'show ip interface g0/0'], from: 'priv',
+              check: s => s.ev.ran(/^(do )?show (ip )?access-lists( LAN-IN)?$/) && s.ev.ran(/^(do )?show ip interface g(igabitethernet)?0\/0$/i) },
+            { t: 'Kök neden hangisi?', ask: { choices: [['order', 'Listenin başındaki geniş bir permit diğer satırları gölgeliyor'], ['noany', 'Sondaki "permit ip any any" eksik: örtük deny interneti kesiyor'], ['dir', 'ACL Gi0/0\'a yanlış yönde (out) bağlı'], ['port', 'HTTPS satırı yanlış portu (80) izinliyor']], correct: v => v.key },
+              why: 'SSH geçiyorsa: sıra ya da yön — sayaçlar ve Inbound/Outgoing satırı ayırır. İnternet kesikse: örtük deny. Yalnız web sunucusu açılmıyorsa: satır içeriği (port).', hints: ['Hangi satırın sayacı artıyor? Hiçbiri artmıyorsa ACL o yönde trafik görmüyordur.', 'Inbound access list satırı "not set" mi?'],
+              steps: v => ['show access-lists LAN-IN', { answer: 1, v: v.key }], from: 'priv', needs: [0] },
+            { t: 'Tek satırlık (ya da tek bağlamalık) düzeltme yapın: dört akış beklendiği gibi davransın.', why: 'Sıra numaralı ACL\'de yalnız hatalı satır silinir/eklenir; ACL\'yi silmek geçici olarak tüm korumayı kaldırır.',
+              hints: ['Kök nedene göre: sıra numarasıyla satır silme/ekleme ya da access-group yönü.', 'order: <code>no 5</code> · noany: <code>40 permit ip any any</code> · dir: <code>no ip access-group LAN-IN out</code> + <code>… in</code> · port: <code>no 10</code> + doğru satır'],
+              steps: v => v.fix, check: s => aclOk(s),
+              fb: s => { if (!s.acl('LAN-IN')) return 'Dikkat: LAN-IN silindi. Uygulanmış ama tanımsız ACL tüm trafiğe izin verir — koruma kalktı.'; const i = s.model.ifs['GigabitEthernet0/0']; if (i.accessOut) return 'ACL hâlâ out yönünde de bağlı; yalnız in olmalı.'; return null; } },
+            { t: 'Sayaçlarla doğrulayıp kaydedin.', why: 'Düzeltmeden sonra SSH\'nin deny satırında, internetin son permit\'te sayıldığını görmek kanıttır.',
+              hints: ['show access-lists → write', '<code>show access-lists LAN-IN</code> → <code>wr</code>'], steps: ['show access-lists LAN-IN', 'write memory'], from: 'priv', needs: [2],
+              check: s => s.saved() && aclOk(s) },
+        ],
+        verify: ['show access-lists LAN-IN', 'show ip interface g0/0', 'show running-config | section access-list'],
+        learn: ['Yasak olan geçiyor → sıra ya da yön.', 'İzinli olan geçmiyor → örtük deny ya da satır içeriği.', 'Sayaçlar ve Inbound/Outgoing satırı ayırt eder.', 'Uygulanmış ACL\'yi silmek korumayı kaldırır.'],
+        links: { tool: '#/cisco-ios/acl', cli: '#/cli/cisco-ios', wizard: '#/troubleshoot/traffic' }, cert: 'CCNA 5.6'
     },
     // ═══ Serbest terminal ══════════════════════════════════════════════════
     { id: 'ios-sandbox-sw', vendor: 'cisco-ios', level: null, sandbox: true, title: 'Serbest terminal — Switch', kind: 'switch', up: P(1, 4),
