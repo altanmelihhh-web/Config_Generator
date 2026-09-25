@@ -1142,7 +1142,7 @@ MikroTik.dns = {
                         { name: 'dns_remote', label: 'LAN\'a DNS hizmeti ver', type: 'select', options: [
                             { value: 'no', label: 'Hayır — yalnız router kendisi kullanır', selected: true },
                             { value: 'yes', label: 'Evet — istemciler router\'ı DNS olarak kullanır' }
-                        ], why: "<code>allow-remote-requests=yes</code> router'ı açık resolver yapar; WAN'dan UDP/TCP 53 engellenmezse cihaz DNS amplification saldırılarının aracı olur (MikroTik sertleştirme rehberinin ilk maddelerinden)." },
+                        ], why: "<code>allow-remote-requests=yes</code> router'ı açık resolver yapar; WAN'dan UDP/TCP 53 engellenmezse cihaz DNS amplification saldırılarının aracı olur (MikroTik sıkılaştırma rehberinin ilk maddelerinden)." },
                         { name: 'dns_wan', label: 'WAN Arayüzü (53 engeli için)', type: 'text', validate: 'iface', requiredIf: { field: 'dns_remote', in: ['yes'] }, placeholder: 'ether1', hint: 'Bu arayüzden gelen DNS istekleri düşürülür' },
                         { name: 'dns_doh', label: 'DoH URL', type: 'text', placeholder: 'https://dns.example.net/dns-query', hint: 'DNS-over-HTTPS (boşsa kullanılmaz)', why: "DoH sunucusunun adını çözmek için <code>servers</code> listesinde en az bir klasik sunucu kalmalıdır. <code>verify-doh-cert=yes</code> için ilgili kök sertifikanın cihazda yüklü olması gerekir, yoksa tüm çözümleme durur." }
                     ]
@@ -1177,17 +1177,17 @@ MikroTik.dns = {
     }
 };
 
-// ── MikroTik: Yönetim Sertleştirme (kullanıcı + servisler) ───────────────────
+// ── MikroTik: Yönetim Sıkılaştırma (kullanıcı + servisler) ───────────────────
 // Sözdizimi: https://manual.mikrotik.com/docs/getting-started/securing-your-router (komutlar birebir)
 //            https://manual.mikrotik.com/docs/system-information-and-utilities/services
 //            https://manual.mikrotik.com/docs/management-tools/mac-server
 MikroTik.hardening = {
-    label: 'Yönetim Sertleştirme',
+    label: 'Yönetim Sıkılaştırma',
     init(container) {
         cgFormBuilder(container, {
             topic: {
                 icon: 'fas fa-user-shield',
-                title: 'Kullanıcı ve Servis Sertleştirme (MikroTik)',
+                title: 'Kullanıcı ve Servis Sıkılaştırma (MikroTik)',
                 desc: 'Resmi "Securing your router" rehberindeki adımlar: yeni yönetici, admin\'i kapatma, gereksiz servisleri kapatma, MAC erişimi ve komşu keşfini kısıtlama.<br><code>/user add name=... group=full</code><br><code>/ip service disable telnet,ftp,www,api</code>'
             },
             sections: [
@@ -1230,7 +1230,7 @@ MikroTik.hardening = {
         }, (data) => {
             const user = cgEsc(data.hd_user || ''), pass = cgEsc(data.hd_pass || ''), group = cgEsc(data.hd_group || '');
             const mgmt = cgEsc(data.hd_mgmt || ''), sshPort = cgEsc(data.hd_ssh_port || '');
-            let c = '# ========================================\n# MikroTik RouterOS 7 — Yönetim Sertleştirme\n# ========================================\n\n';
+            let c = '# ========================================\n# MikroTik RouterOS 7 — Yönetim Sıkılaştırma\n# ========================================\n\n';
             c += '/user\nadd name=' + user + ' password="' + pass + '" group=' + group + ' address=' + mgmt + '\n';
             if (data.hd_disable_admin === true) c += '# UYARI: yeni kullanıcıyla girişi test etmeden bir sonraki satırı çalıştırmayın\ndisable admin\n';
             c += '\n/ip service\n';

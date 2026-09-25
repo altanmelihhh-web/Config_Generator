@@ -1372,7 +1372,7 @@ JuniperSRX.ntp = {
     }
 };
 
-// ── Juniper SRX: Kullanıcı / Login + SSH Sertleştirme ────────────────────────
+// ── Juniper SRX: Kullanıcı / Login + SSH Sıkılaştırma ────────────────────────
 // Sözdizimi: https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/user-edit-system-login.html
 //            https://www.juniper.net/documentation/us/en/software/junos/cli-reference/topics/ref/statement/ssh-edit-system.html
 //            + canlı config (1 Junos cihazı: class super-user, authentication encrypted-password, idle-timeout,
@@ -1384,7 +1384,7 @@ JuniperSRX.login = {
         cgFormBuilder(container, {
             topic: {
                 icon: 'fas fa-user-lock',
-                title: 'Yerel Kullanıcı ve Login Sertleştirme (SRX / Junos)',
+                title: 'Yerel Kullanıcı ve Login Sıkılaştırma (SRX / Junos)',
                 desc: 'Yerel yönetici hesabı (parola özeti veya SSH anahtarı), oturum zaman aşımı, deneme kilidi ve SSH servis kısıtları.<br>Örnek: <code>set system login user netadmin class super-user</code>'
             },
             configTypes: [

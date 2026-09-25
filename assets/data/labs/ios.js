@@ -135,7 +135,7 @@
               hints: ["exit → Enter → konsol parolası → enable → secret.","Ayrıcalıklı moddan <code>exit</code>"], steps: ["end","exit","","Konsol-Pw1","enable","Lab-Secret-1"], from: "config", needs: [1, 2],
               check: s => s.ev.after(/^(exit|logout)$/, /^enable$/) && !!s.model.lines.con.pw && s.mode() === 'priv' },
             { t: 'Yapılandırmayı kaydedin.',
-              why: 'Tüm sertleştirme adımları kaydedilmezse ilk yeniden başlatmada kaybolur.',
+              why: 'Tüm sıkılaştırma adımları kaydedilmezse ilk yeniden başlatmada kaybolur.',
               hints: ["Kaydetme komutu.","<code>write memory</code>"], steps: ["wr"], from: "priv", needs: [0, 1, 2, 3, 4],
               check: s => s.saved() && LABS_BY_ID['ios-02'].tasks.slice(0, 5).every(t => t.check(s)) },
         ],
@@ -492,10 +492,10 @@
         ],
         verify: ['show ip http server status', 'show running-config | include http'],
         learn: ['Kullanılmayan servisi kapatın: no ip http server + no ip http secure-server.', 'Web gerekiyorsa yalnız HTTPS, AAA ve yönetim ACL\'i ile.', 'show ip http server status ile doğrulayın.'],
-        links: { tool: '#/cisco-ios/hardening', cli: '#/cli/cisco-ios' }, cert: 'ENCOR 5.x (cihaz sertleştirme)'
+        links: { tool: '#/cisco-ios/hardening', cli: '#/cli/cisco-ios' }, cert: 'ENCOR 5.x (cihaz sıkılaştırma)'
     },
     {
-        id: 'ios-35c', vendor: 'cisco-ios', level: 4, title: 'SSH sertleştirme: şifreleme, MAC ve anahtar değişimi', minutes: 20, kind: 'router', pre: ['ios-03'],
+        id: 'ios-35c', vendor: 'cisco-ios', level: 4, title: 'SSH sıkılaştırma: şifreleme, MAC ve anahtar değişimi', minutes: 20, kind: 'router', pre: ['ios-03'],
         up: ['GigabitEthernet0/0'], start: ['hostname R1', 'ip domain name lab.example', 'crypto key generate rsa modulus 2048', 'ip ssh version 2', 'username admin privilege 15 secret Lab-Admin-1', 'line vty 0 15', 'login local', 'transport input ssh'],
         story: 'Denetim raporu: "R1 SSH sunucusu CBC kipli şifreleme, SHA-1 tabanlı MAC ve anahtar değişimi kabul ediyor." SSH\'yi yalnız güçlü algoritmalarla çalışır hâle getirin, boşta bekleyen ve kaba kuvvet denemelerini sınırlayın.',
         lesson: '<h4>Kavram</h4><p>SSH oturumu açılırken iki uç dört listede ortak algoritma arar: <b>KEX</b> (anahtar değişimi, ör. ecdh-sha2-nistp256), <b>hostkey</b> (sunucu kimliği, ör. rsa-sha2-256), <b>encryption</b> (ör. aes256-ctr / aes256-gcm) ve <b>MAC</b> (bütünlük, ör. hmac-sha2-256). IOS-XE\'de <code>ip ssh server algorithm …</code> ile her liste ayrı daraltılır.</p><h4>Neden önemli</h4><p>CBC kipleri, 3DES ve SHA-1 bilinen zayıflıklar yüzünden denetimlerde "bulgu" çıkarır. Liste daraltıldığında eski istemciler bağlanamayabilir — önce istemcilerinizi kontrol edin.</p><h4>Örnek yapılandırma</h4><pre>ip ssh server algorithm encryption aes256-ctr aes192-ctr aes128-ctr\nip ssh server algorithm mac hmac-sha2-512 hmac-sha2-256\nip ssh server algorithm kex ecdh-sha2-nistp384 ecdh-sha2-nistp256\nip ssh dh min size 2048\nip ssh time-out 60\nip ssh authentication-retries 3</pre><h4>Sık hatalar</h4><ul><li>Yalnız şifrelemeyi değiştirip KEX ve MAC\'te SHA-1 bırakmak.</li><li>Tüm istemcilerin desteklemediği tek algoritma bırakmak (erişimi kesersiniz).</li></ul>',
@@ -519,7 +519,7 @@
         ],
         verify: ['show ip ssh', 'show running-config | include ip ssh'],
         learn: ['Dört liste: KEX, hostkey, encryption, MAC.', 'CBC, 3DES ve SHA-1\'i çıkarın; CTR/GCM ve SHA-2 bırakın.', 'DH min 2048, kısa time-out, az deneme.', 'Daraltmadan önce istemci uyumluluğunu kontrol edin.'],
-        links: { tool: '#/cisco-ios/ssh', cli: '#/cli/cisco-ios' }, cert: 'ENCOR 5.x (cihaz sertleştirme)'
+        links: { tool: '#/cisco-ios/ssh', cli: '#/cli/cisco-ios' }, cert: 'ENCOR 5.x (cihaz sıkılaştırma)'
     },
     {
         id: 'ios-32', vendor: 'cisco-ios', level: 4, title: 'Standart ACL: yönetim erişimini kısıtlama ve hedefe yakın filtre', minutes: 20, kind: 'router', pre: ['ios-16'],
@@ -527,7 +527,7 @@
         start: ['hostname R1', 'interface g0/0', 'ip address 10.64.10.1 255.255.255.0', 'no shutdown', 'interface g0/1', 'ip address 10.64.20.1 255.255.255.0', 'no shutdown', 'interface g0/2', 'ip address 10.64.50.1 255.255.255.0', 'no shutdown', 'exit', 'username admin privilege 15 secret Lab-Admin-1', 'line vty 0 15', 'login local', 'transport input ssh'],
         sim: { flows: [{ src: '10.64.10.5', dst: '10.64.50.10', dport: 443, in: 'GigabitEthernet0/0' }, { src: '10.64.20.5', dst: '10.64.50.10', dport: 443, in: 'GigabitEthernet0/1' }] },
         story: 'İki iş: (1) R1\'e SSH ile yalnız yönetim ağı <code>10.240.0.0/16</code> bağlanabilsin. (2) Misafir VLAN\'ı <code>10.64.20.0/24</code> sunucu ağına (10.64.50.0/24, Gi0/2) erişemesin; kullanıcı VLAN\'ı 10.64.10.0/24 erişmeye devam etsin.',
-        lesson: '<h4>Kavram</h4><p><b>Standart ACL</b> yalnız kaynak IP\'ye bakar (1–99 ya da <code>ip access-list standard AD</code>). Sona örtük <code>deny any</code> eklenir. VTY hatlarına <code>access-class</code>, arayüzlere <code>ip access-group</code> ile uygulanır.</p><h4>Neden önemli</h4><p>Yönetim düzlemini yalnız yönetim ağına açmak en etkili sertleştirmedir. Standart ACL yalnız kaynağa baktığı için <b>hedefe yakın</b> uygulanır: kaynağa yakın konsa o kaynağın her yere erişimini keserdi.</p><h4>Örnek yapılandırma</h4><pre>ip access-list standard MGMT-ONLY\n permit 10.240.0.0 0.0.255.255\n deny   any log\nline vty 0 15\n access-class MGMT-ONLY in\n!\naccess-list 10 deny   10.64.20.0 0.0.0.255\naccess-list 10 permit any\ninterface g0/2\n ip access-group 10 out</pre><h4>Sık hatalar</h4><ul><li>Maske yerine wildcard yazmayı unutmak (255.255.0.0 değil 0.0.255.255).</li><li><code>permit any</code>\'yi unutup tüm trafiği kesmek.</li><li>Standart ACL\'yi kaynağa yakın koymak.</li></ul>',
+        lesson: '<h4>Kavram</h4><p><b>Standart ACL</b> yalnız kaynak IP\'ye bakar (1–99 ya da <code>ip access-list standard AD</code>). Sona örtük <code>deny any</code> eklenir. VTY hatlarına <code>access-class</code>, arayüzlere <code>ip access-group</code> ile uygulanır.</p><h4>Neden önemli</h4><p>Yönetim düzlemini yalnız yönetim ağına açmak en etkili sıkılaştırmadır. Standart ACL yalnız kaynağa baktığı için <b>hedefe yakın</b> uygulanır: kaynağa yakın konsa o kaynağın her yere erişimini keserdi.</p><h4>Örnek yapılandırma</h4><pre>ip access-list standard MGMT-ONLY\n permit 10.240.0.0 0.0.255.255\n deny   any log\nline vty 0 15\n access-class MGMT-ONLY in\n!\naccess-list 10 deny   10.64.20.0 0.0.0.255\naccess-list 10 permit any\ninterface g0/2\n ip access-group 10 out</pre><h4>Sık hatalar</h4><ul><li>Maske yerine wildcard yazmayı unutmak (255.255.0.0 değil 0.0.255.255).</li><li><code>permit any</code>\'yi unutup tüm trafiği kesmek.</li><li>Standart ACL\'yi kaynağa yakın koymak.</li></ul>',
         goals: ['Adlandırılmış standart ACL', 'VTY\'ye access-class', 'Hedefe yakın filtre + permit any', 'Wildcard'],
         tasks: [
             { t: '<code>MGMT-ONLY</code>: 10.240.0.0/16\'ya izin, diğer her şeyi loglayarak reddet.', why: 'Açık <code>deny any log</code>, örtük deny\'dan farklı olarak sayaç ve log üretir; kimlerin denediğini görürsünüz.',

@@ -559,11 +559,11 @@
         solution: ['display http server', { answer: 1, v: 'both' }, 'system-view', 'undo http server enable', 'undo http secure-server enable', 'display http server', 'return', 'save', 'y'],
         verify: ['display http server', 'display current-configuration | include http'],
         learn: ['Web yönetimi iki servis: <code>http server</code> (80) ve <code>http secure-server</code> (443).', 'Kapatma: <code>undo http server enable</code> + <code>undo http secure-server enable</code>.', 'Önce ölç, değiştir, sonra tekrar ölç.', 'Kullanılmayan her yönetim servisi saldırı yüzeyidir.'],
-        links: { tool: '#/huawei/basic', cli: '#/cli/huawei' }, cert: 'HCIA-Security (cihaz sertleştirme)'
+        links: { tool: '#/huawei/basic', cli: '#/cli/huawei' }, cert: 'HCIA-Security (cihaz sıkılaştırma)'
     },
-    // Modül 5 — SSH sertleştirme
+    // Modül 5 — SSH sıkılaştırma
     {
-        id: 'hua-09', vendor: 'huawei', level: 2, title: 'SSH sertleştirme: şifre, bütünlük ve anahtar değişimi algoritmaları', minutes: 18, kind: 'switch', pre: ['hua-02'],
+        id: 'hua-09', vendor: 'huawei', level: 2, title: 'SSH sıkılaştırma: şifre, bütünlük ve anahtar değişimi algoritmaları', minutes: 18, kind: 'switch', pre: ['hua-02'],
         up: [GE(1), GE(24)],
         start: ['sysname SW-KAT1', 'interface Vlanif1', 'ip address 10.64.99.11 24', 'quit', 'aaa', 'local-user netadmin password irreversible-cipher Lab@Huawei2026', 'local-user netadmin privilege level 15', 'local-user netadmin service-type ssh', 'quit',
             'stelnet server enable', 'ssh user netadmin authentication-type password', 'ssh user netadmin service-type stelnet', 'user-interface vty 0 4', 'authentication-mode aaa', 'protocol inbound ssh', 'quit'], startSaved: true,
@@ -571,7 +571,7 @@
             'Eski/uyumluluk için açık bırakılan CBC kipi şifreler, 3DES/DES, MD5/SHA1 ve zayıf Diffie-Hellman grupları tarayıcılarda "yüksek" bulgu olarak çıkar ve bilinen saldırılara açıktır. Güçlü listeye geçmek istemci tarafını da etkiler: çok eski SSH istemcileri bağlanamayabilir — değişiklik öncesi duyuru yapılır.',
             'ssh server cipher aes256_ctr aes128_ctr\nssh server hmac sha2_256 sha2_512\nssh server key-exchange dh_group_exchange_sha256\nssh server timeout 30\nssh server authentication-retries 2',
             ['Listeye "uyumluluk için" bir CBC ya da SHA1 algoritması bırakmak.', 'Değişikliği tek oturumdan yapıp oturumu kapatmak (bir sorun olursa ikinci oturum/konsol hazır olsun).', 'Zaman aşımı ve deneme sayısını varsayılan bırakmak (parola deneme saldırısına daha uzun pencere).']),
-        story: 'Güvenlik tarayıcısı <b>SW-KAT1</b> için "SSH sunucusu zayıf algoritmaları kabul ediyor (CBC, 3DES, SHA1)" bulgusu üretti. Kurum standardı: cipher yalnız <code>aes256_ctr</code> ve <code>aes128_ctr</code>; HMAC yalnız <code>sha2_256</code> ve <code>sha2_512</code>; anahtar değişimi yalnız <code>dh_group_exchange_sha256</code>; bağlantı kurma zaman aşımı <b>30 sn</b>, en fazla <b>2</b> kimlik doğrulama denemesi. SSH (STelnet) zaten çalışıyor; bozmadan sertleştirin.',
+        story: 'Güvenlik tarayıcısı <b>SW-KAT1</b> için "SSH sunucusu zayıf algoritmaları kabul ediyor (CBC, 3DES, SHA1)" bulgusu üretti. Kurum standardı: cipher yalnız <code>aes256_ctr</code> ve <code>aes128_ctr</code>; HMAC yalnız <code>sha2_256</code> ve <code>sha2_512</code>; anahtar değişimi yalnız <code>dh_group_exchange_sha256</code>; bağlantı kurma zaman aşımı <b>30 sn</b>, en fazla <b>2</b> kimlik doğrulama denemesi. SSH (STelnet) zaten çalışıyor; bozmadan sıkılaştırın.',
         goals: ['SSH algoritma ailelerini tanımak', 'cipher / hmac / key-exchange listelerini kısıtlamak', 'Zaman aşımı ve deneme sayısını ayarlamak', 'Durumu doğrulayıp kaydetmek'],
         tasks: [
             { t: 'SSH sunucusunun mevcut durumunu ve izinli algoritmalarını görüntüleyin.', why: 'Başlangıç durumunu kaydedin: neyi değiştirdiğinizi ve geri dönüşte neye döneceğinizi bilirsiniz.',

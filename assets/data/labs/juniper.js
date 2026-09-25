@@ -501,9 +501,9 @@
         learn: ['Yönetim hizmetleri: system services altında.', 'Telnet/FTP şifresiz; J-Web kullanılmıyorsa kapalı.', 'SSH tek yönetim yolu olarak kalır.', 'show system connections ile önce/sonra.'],
         links: { tool: '#/juniper/system', cli: '#/cli/juniper' }, cert: 'JNCIA-Junos'
     },
-    // ═══ modül 5 — SSH sertleştirme ═════════════════════════════════════════════
+    // ═══ modül 5 — SSH sıkılaştırma ═════════════════════════════════════════════
     {
-        id: 'jun-11', vendor: 'juniper', level: 3, title: 'SSH sertleştirme: cipher, MAC, KEX, zaman aşımı ve deneme sınırı', minutes: 25, kind: 'router', platform: 'mx', hostname: 'R-CEKIRDEK', pre: ['jun-09'],
+        id: 'jun-11', vendor: 'juniper', level: 3, title: 'SSH sıkılaştırma: cipher, MAC, KEX, zaman aşımı ve deneme sınırı', minutes: 25, kind: 'router', platform: 'mx', hostname: 'R-CEKIRDEK', pre: ['jun-09'],
         up: ['ge-0/0/0'],
         start: ['set system services ssh root-login allow', 'set system services ssh ciphers [ 3des-cbc aes128-cbc aes256-ctr ]', 'set system services ssh macs [ hmac-md5 hmac-sha1 hmac-sha2-256 ]', 'set system services ssh key-exchange [ dh-group1-sha1 dh-group14-sha1 curve25519-sha256 ]'],
         story: 'Yıllık sızma testi raporu çekirdek yönlendiricide şu bulguları verdi: "SSH sunucusu <b>CBC kipli / 3DES</b> şifreler, <b>MD5/SHA-1</b> MAC\'ler ve <b>SHA-1 tabanlı DH</b> anahtar değişimi kabul ediyor; root girişi açık; oturum zaman aşımı ve deneme sınırı yok." Bulguları kapatın — ama dikkat: Junos\'ta <code>set</code> listeye <b>ekler</b>.',
@@ -547,7 +547,7 @@
               check: s => s.val('system login retry-options tries-before-disconnect') === '3' && s.val('system login retry-options lockout-period') === '10' },
             { t: 'Sorulan: Eski bir izleme sunucusu yalnız <code>hmac-sha1</code> destekliyor. Değişiklikten sonra ne olur?',
               ask: { choices: [['fail', 'SSH el sıkışması başarısız olur: ortak MAC yok'], ['warn', 'Uyarıyla bağlanır'], ['fallback', 'Junos otomatik olarak hmac-sha1\'e düşer']], correct: 'fail' },
-              why: 'Ortak algoritma bulunamazsa bağlantı kurulmaz ("no matching MAC found"). Bu yüzden sertleştirmeyi önce test cihazında ya da <code>commit confirmed</code> ile yapın ve istemci listesini önceden çıkarın.',
+              why: 'Ortak algoritma bulunamazsa bağlantı kurulmaz ("no matching MAC found"). Bu yüzden sıkılaştırmayı önce test cihazında ya da <code>commit confirmed</code> ile yapın ve istemci listesini önceden çıkarın.',
               hints: ['SSH\'ta "en iyi ortak" seçilir; ortak yoksa bağlantı yok.', 'Geri düşme yoktur.'] },
         ],
         verify: ['show configuration system services ssh', 'show configuration system login retry-options', 'show system connections'],

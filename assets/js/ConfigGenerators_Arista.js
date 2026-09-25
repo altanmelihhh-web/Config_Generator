@@ -1587,17 +1587,17 @@ function cgAristaSystemGen(data) {
     return c;
 }
 
-// ── Arista: SSH Sertleştirme ─────────────────────────────────────────────────
+// ── Arista: SSH Sıkılaştırma ─────────────────────────────────────────────────
 // Sözdizimi: https://www.arista.com/en/um-eos/eos-session-management-commands (cipher/key-exchange/mac değer listeleri,
 //            idle-timeout 0-86400 dk, connection limit/per-host, authentication protocol)
 //            https://github.com/aristanetworks/avd/blob/devel/python-avd/pyavd/_eos_cli_config_gen/j2templates/eos/management-ssh.j2
 Arista.sshharden = {
-    label: 'SSH Sertleştirme',
+    label: 'SSH Sıkılaştırma',
     init(container) {
         cgFormBuilder(container, {
             topic: {
                 icon: 'fas fa-terminal',
-                title: 'Arista EOS — SSH Sertleştirme',
+                title: 'Arista EOS — SSH Sıkılaştırma',
                 desc: '<code>management ssh</code> altında boşta kalma zaman aşımı, bağlantı sınırları, kimlik doğrulama yöntemleri ve zayıf algoritmaların (CBC, SHA-1, group1) dışlanması.',
                 badge: { text: 'Güvenlik', cls: 'security' }
             },
@@ -1643,7 +1643,7 @@ Arista.sshharden = {
 function cgAristaSshHardenGen(data) {
     const idle = cgEsc(data.idle || ''), lim = cgEsc(data.climit || ''), ph = cgEsc(data.phost || '');
     const authp = cgEsc(data.authp || ''), ciph = cgEsc(data.ciph || ''), kex = cgEsc(data.kex || ''), macs = cgEsc(data.macs || '');
-    let c = '! ========================================\n! Arista EOS — SSH Sertleştirme\n! ========================================\n\n';
+    let c = '! ========================================\n! Arista EOS — SSH Sıkılaştırma\n! ========================================\n\n';
     c += '! UYARI: Uygulamadan önce ikinci bir SSH/konsol oturumu açık tutun.\n';
     c += 'management ssh\n';
     c += '   idle-timeout ' + idle + '\n';

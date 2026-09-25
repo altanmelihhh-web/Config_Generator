@@ -425,7 +425,7 @@ const CgLabVrp = (() => {
             { p: 'hwtacacs-server template WORD$t', run: a => { const m = M(); if (!m.tac[a.t]) m.tac[a.t] = { auth: null, author: null, acct: null, key: null }; S.view = 'tac'; S.vx = { t: a.t }; }, undo: a => { if (!M().tac[a.t]) return simErr('Böyle bir HWTACACS şablonu yok.'); if (Object.values(M().domains).some(d => d.tac === a.t)) return simErr('Şablon bir domain\'de kullanılıyor; önce domain\'den kaldırın.'); delete M().tac[a.t]; } },
             { p: 'radius-server template WORD$t', run: a => { const m = M(); if (!m.rad[a.t]) m.rad[a.t] = { auth: null, port: null, acct: null, key: null }; S.view = 'rad'; S.vx = { t: a.t }; }, undo: a => { if (!M().rad[a.t]) return simErr('Böyle bir RADIUS şablonu yok.'); if (Object.values(M().domains).some(d => d.rad === a.t)) return simErr('Şablon bir domain\'de kullanılıyor; önce domain\'den kaldırın.'); delete M().rad[a.t]; } },
             { p: 'test-aaa WORD$u WORD$pw <hwtacacs-template|radius-template>$k WORD$t', run: testAaa, neg: false },
-            // ── Modül 4–5: web yönetimi ve SSH sertleştirme
+            // ── Modül 4–5: web yönetimi ve SSH sıkılaştırma
             { p: 'http server enable', run: () => { M().http.server = true; }, undo: () => { M().http.server = false; } },
             { p: 'http secure-server enable', run: () => { M().http.secure = true; }, undo: () => { M().http.secure = false; } },
             { p: 'ssh server cipher LINE$l', run: a => sshAlg('cipher', a.l), neg: false },

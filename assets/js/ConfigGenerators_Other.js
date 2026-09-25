@@ -999,7 +999,7 @@ Dell.stormControl = {
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Dell OS10 — ek araçlar (AAA, STP, VRF, statik rota, LLDP, mirroring, VRRP,
-// arayüz, breakout, iSCSI, sertleştirme)
+// arayüz, breakout, iSCSI, sıkılaştırma)
 // ══════════════════════════════════════════════════════════════════════════════
 
 // 'ethernet1/1/1, ethernet1/1/3-1/1/4' → ['ethernet1/1/1','ethernet1/1/3','ethernet1/1/4']
@@ -1747,7 +1747,7 @@ Dell.iscsi = {
     }
 };
 
-// ── Dell OS10: Banner / Hostname / Sertleştirme ───────────────────────────────
+// ── Dell OS10: Banner / Hostname / Sıkılaştırma ───────────────────────────────
 // Sözdizimi: canlı config (hostname 6 cihaz; banner motd ^C … ^C 1 cihaz;
 //   banner login/motd disable 2 cihaz; ip ssh server cipher/mac 1 cihaz)
 // Sözdizimi: exec-timeout (0-3600 sn) —
@@ -1757,12 +1757,12 @@ Dell.iscsi = {
 // Sözdizimi: system-user linuxadmin disable —
 //   https://www.dell.com/support/manuals/en-us/smartfabric-os10-emp-partner/os10-scg-10-5-6-x/user-and-credential-management
 Dell.hardening = {
-    label: 'Banner / Sertleştirme',
+    label: 'Banner / Sıkılaştırma',
     init(container) {
         cgFormBuilder(container, {
             topic: {
                 icon: 'fas fa-lock',
-                title: 'Dell OS10 — Hostname, Banner ve Yönetim Sertleştirme',
+                title: 'Dell OS10 — Hostname, Banner ve Yönetim Sıkılaştırma',
                 desc: 'Cihaz adı, yasal uyarı banner\'ı, oturum zaman aşımı, SSH şifreleme kısıtı ve linuxadmin hesabının kapatılması.',
                 badge: { text: 'Güvenlik', cls: 'security' }
             },
@@ -1791,7 +1791,7 @@ Dell.hardening = {
             const hn = cgEsc(data.hostname || ''), to = cgEsc(data.exec_timeout || '');
             const bl = String(data.banner_login || '').replace(/\^C/g, '').replace(/\r/g, '').split('\n').map(l => cgEsc(l.replace(/\s+$/, ''))).filter(l => l.trim());
             const bm = String(data.banner_motd || '').replace(/\^C/g, '').replace(/\r/g, '').split('\n').map(l => cgEsc(l.replace(/\s+$/, ''))).filter(l => l.trim());
-            let c = '# ========================================\n# Dell OS10 — Banner / Sertleştirme\n# ========================================\n\n';
+            let c = '# ========================================\n# Dell OS10 — Banner / Sıkılaştırma\n# ========================================\n\n';
             c += 'configure terminal\n\n';
             if (hn) c += 'hostname ' + hn + '\n\n';
             if (bl.length) c += 'banner login ^C\n' + bl.join('\n') + '\n^C\n\n';
@@ -2251,7 +2251,7 @@ ExtremeNet.snmp = {
                     ]
                 },
                 {
-                    title: 'Trap Hedefi ve Sertleştirme',
+                    title: 'Trap Hedefi ve Sıkılaştırma',
                     icon: 'fas fa-bell',
                     fields: [
                         { name: 'trap_host', why: "Trap'ler link düşmesi gibi olayları anında NMS'e bildirir; tanımlanmazsa sorun bir sonraki sorgu döngüsüne kadar fark edilmez.", label: 'Trap Hedefi IP', type: 'text', validate: 'ip', placeholder: '10.0.0.60', hint: 'Opsiyonel — SNMPv3 trap alıcısı' },
@@ -2404,7 +2404,7 @@ ExtremeNet.ntp = {
     }
 };
 
-// ── Extreme EXOS: Kullanıcı Hesapları / Yönetim Sertleştirme ──────────────────
+// ── Extreme EXOS: Kullanıcı Hesapları / Yönetim Sıkılaştırma ──────────────────
 // Sözdizimi: create account admin|user <name> <password>,
 //   configure account all password-policy min-length | char-validation all-char-groups |
 //   lockout-on-login-failures on | lockout-time-period, configure idletimeout, enable idletimeout,

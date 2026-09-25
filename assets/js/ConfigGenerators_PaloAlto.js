@@ -1767,7 +1767,7 @@ PaloAlto.devsetup = {
     label: 'Device Setup (DNS/NTP/Banner)',
     init(container) {
         cgFormBuilder(container, {
-            topic: { icon: 'fas fa-sliders-h', title: 'Device Setup (PAN-OS)', desc: 'Hostname, DNS, NTP, saat dilimi, giriş banner\'ı ve yönetim oturum sertleştirmesi — iron-skillet best-practice değerleri.<br><code>set deviceconfig system ntp-servers primary-ntp-server ntp-server-address 0.pool.ntp.org</code>' },
+            topic: { icon: 'fas fa-sliders-h', title: 'Device Setup (PAN-OS)', desc: 'Hostname, DNS, NTP, saat dilimi, giriş banner\'ı ve yönetim oturum sıkılaştırması — iron-skillet best-practice değerleri.<br><code>set deviceconfig system ntp-servers primary-ntp-server ntp-server-address 0.pool.ntp.org</code>' },
             sections: [
                 {
                     title: 'Kimlik ve DNS', icon: 'fas fa-id-card',
@@ -1813,7 +1813,7 @@ function cgPaDevSetupGen(data) {
     if (n2) c += s + 'ntp-servers secondary-ntp-server ntp-server-address ' + n2 + '\n';
     c += s + 'timezone ' + tz + '\n';
     if (banner) c += s + 'login-banner "' + banner + '"\n';
-    if (idle || la || lt) c += '\n# Yönetim oturumu sertleştirme\n';
+    if (idle || la || lt) c += '\n# Yönetim oturumu sıkılaştırma\n';
     if (idle) c += 'set deviceconfig setting management idle-timeout ' + idle + '\n';
     if (la) c += 'set deviceconfig setting management admin-lockout failed-attempts ' + la + '\n';
     if (lt) c += 'set deviceconfig setting management admin-lockout lockout-time ' + lt + '\n';
@@ -1948,7 +1948,7 @@ PaloAlto.admin = {
                     ]
                 },
                 {
-                    title: 'Sertleştirme', icon: 'fas fa-lock',
+                    title: 'Sıkılaştırma', icon: 'fas fa-lock',
                     fields: [
                         { name: 'adm_pwc', label: 'Parola karmaşıklığı (iron-skillet)', type: 'checkbox', checked: true, hint: 'min 12 karakter, büyük/küçük/rakam/özel, 24 geçmiş', why: 'Yerel hesap parolaları için tek savunma budur; kapalıysa kısa parola kabul edilir.' },
                         { name: 'adm_deldef', label: 'Varsayılan "admin" hesabını sil', type: 'checkbox', checked: false, why: 'Varsayılan kullanıcı adı kaba kuvvet saldırılarının ilk hedefidir. <b>Yeni hesapla giriş yapıp commit ettikten sonra</b> uygulayın, yoksa cihazdan kilitlenirsiniz.' }

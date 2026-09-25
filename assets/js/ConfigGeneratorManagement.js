@@ -1150,7 +1150,7 @@ const CG_REGISTRY = {
             { id: 'lldp',          cat: 'l2',   label: 'LLDP / CDP',             gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.lldp },
             { id: 'archive',       cat: 'mgmt', label: 'Config Archive / Yedek', gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.archive },
             { id: 'vtp',           cat: 'l2',   label: 'VTP',                    gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.vtp },
-            { id: 'hardening',     cat: 'base', label: 'Cihaz Sertleştirme',     gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.hardening },
+            { id: 'hardening',     cat: 'base', label: 'Güvenlik Sıkılaştırma (Hardening)',     gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.hardening },
         ]
     },
     'cisco-ftd': {
@@ -1357,7 +1357,7 @@ const CG_REGISTRY = {
             { id: 'iface', cat: 'iface', label: 'Arayüz', gen: () => typeof Dell !== 'undefined' && Dell.iface },
             { id: 'breakout', cat: 'iface', label: 'Breakout / Port-Group', gen: () => typeof Dell !== 'undefined' && Dell.breakout },
             { id: 'iscsi', cat: 'qos', label: 'iSCSI', gen: () => typeof Dell !== 'undefined' && Dell.iscsi },
-            { id: 'hardening', cat: 'base', label: 'Banner / Sertleştirme', gen: () => typeof Dell !== 'undefined' && Dell.hardening },
+            { id: 'hardening', cat: 'base', label: 'Banner / Sıkılaştırma', gen: () => typeof Dell !== 'undefined' && Dell.hardening },
         ]
     },
     'arista': {
@@ -1389,7 +1389,7 @@ const CG_REGISTRY = {
             { id: 'vrf', cat: 'routing', label: 'VRF', gen: () => typeof Arista !== 'undefined' && Arista.vrf },
             { id: 'localuser', cat: 'aaa', label: 'Yerel Kullanıcı & Rol', gen: () => typeof Arista !== 'undefined' && Arista.localuser },
             { id: 'system', cat: 'base', label: 'Sistem (Hostname/DNS/Banner)', gen: () => typeof Arista !== 'undefined' && Arista.system },
-            { id: 'sshharden', cat: 'mgmt', label: 'SSH Sertleştirme', gen: () => typeof Arista !== 'undefined' && Arista.sshharden },
+            { id: 'sshharden', cat: 'mgmt', label: 'SSH Sıkılaştırma', gen: () => typeof Arista !== 'undefined' && Arista.sshharden },
             { id: 'eapi', cat: 'mgmt', label: 'Management API (eAPI)', gen: () => typeof Arista !== 'undefined' && Arista.eapi },
             { id: 'storm', cat: 'l2', label: 'Storm Control', gen: () => typeof Arista !== 'undefined' && Arista.storm },
             { id: 'igmpsnoop', cat: 'l2', label: 'IGMP Snooping', gen: () => typeof Arista !== 'undefined' && Arista.igmpsnoop },
@@ -1419,7 +1419,7 @@ const CG_REGISTRY = {
             { id: 'pppoe', cat: 'vpn', label: 'PPPoE', gen: () => typeof MikroTik !== 'undefined' && MikroTik.pppoe },
             { id: 'ntp', cat: 'mgmt', label: 'NTP / Saat', gen: () => typeof MikroTik !== 'undefined' && MikroTik.ntp },
             { id: 'dns', cat: 'base', label: 'DNS', gen: () => typeof MikroTik !== 'undefined' && MikroTik.dns },
-            { id: 'hardening', cat: 'aaa', label: 'Yönetim Sertleştirme', gen: () => typeof MikroTik !== 'undefined' && MikroTik.hardening },
+            { id: 'hardening', cat: 'aaa', label: 'Yönetim Sıkılaştırma', gen: () => typeof MikroTik !== 'undefined' && MikroTik.hardening },
             { id: 'vrrp', cat: 'ha', label: 'VRRP', gen: () => typeof MikroTik !== 'undefined' && MikroTik.vrrp },
             { id: 'bonding', cat: 'l2', label: 'Bonding / LACP', gen: () => typeof MikroTik !== 'undefined' && MikroTik.bonding },
             { id: 'backup', cat: 'mgmt', label: 'Otomatik Yedek', gen: () => typeof MikroTik !== 'undefined' && MikroTik.backup },
@@ -1608,7 +1608,7 @@ const CG_REGISTRY = {
             { id: 'selfport', cat: 'secpol', label: 'Self IP Port Kısıtlama', gen: () => typeof F5LTM !== 'undefined' && F5LTM.selfport },
             { id: 'route', cat: 'routing', label: 'Static Route', gen: () => typeof F5LTM !== 'undefined' && F5LTM.route },
             { id: 'devicetrust', cat: 'ha', label: 'HA — Device Trust + Config Sync', gen: () => typeof F5LTM !== 'undefined' && F5LTM.devicetrust },
-            { id: 'sslharden', cat: 'adc', label: 'SSL Cipher Group Sertleştirme', gen: () => typeof F5LTM !== 'undefined' && F5LTM.sslharden },
+            { id: 'sslharden', cat: 'adc', label: 'SSL Cipher Group Sıkılaştırma', gen: () => typeof F5LTM !== 'undefined' && F5LTM.sslharden },
             { id: 'vslimit', cat: 'adc', label: 'VS Bağlantı / Hız Limiti', gen: () => typeof F5LTM !== 'undefined' && F5LTM.vslimit },
             { id: 'datagroup', cat: 'adc', label: 'Data Group', gen: () => typeof F5LTM !== 'undefined' && F5LTM.datagroup },
             { id: 'hsl', cat: 'mgmt', label: 'Log Publisher / HSL', gen: () => typeof F5LTM !== 'undefined' && F5LTM.hsl },

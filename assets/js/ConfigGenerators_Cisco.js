@@ -2812,14 +2812,14 @@ CiscoIOS.vtp = {
     }
 };
 
-// ── Cihaz Sertleştirme ───────────────────────────────────────────────────────
+// ── Güvenlik Sıkılaştırma (Hardening) ───────────────────────────────────────────────────────
 // Sözdizimi: canlı config (service timestamps/login on-success log/no ip http: 23 cihaz; login block-for: 19;
 // no ip domain lookup: 15; no service pad: 6; ip scp server enable: 3; ip http authentication local: 14)
 CiscoIOS.hardening = {
-    label: 'Cihaz Sertleştirme',
+    label: 'Güvenlik Sıkılaştırma (Hardening)',
     init(container) {
         cgFormBuilder(container, {
-            topic: { icon: 'fas fa-user-shield', title: 'Cihaz Sertleştirme — Temel Ayarlar', desc: 'Sahadaki cihazların neredeyse tamamında bulunan tek satırlık güvenlik ve işletim ayarları: gereksiz servisleri kapatma, giriş denemelerini sınırlama ve kaydetme, zaman damgası.' },
+            topic: { icon: 'fas fa-user-shield', title: 'Güvenlik Sıkılaştırma (Hardening) — Temel Ayarlar', desc: 'Sahadaki cihazların neredeyse tamamında bulunan tek satırlık güvenlik ve işletim ayarları: gereksiz servisleri kapatma, giriş denemelerini sınırlama ve kaydetme, zaman damgası.' },
             sections: [
                 {
                     title: 'Servisler', icon: 'fas fa-power-off',
@@ -2854,9 +2854,9 @@ CiscoIOS.hardening = {
                     ]
                 }
             ],
-            submit: 'Sertleştirme Konfigürasyonu Oluştur'
+            submit: 'Sıkılaştırma Konfigürasyonu Oluştur'
         }, (data) => {
-            let c = '! ========================================\n! Cisco IOS — Cihaz Sertleştirme\n! ========================================\n\n';
+            let c = '! ========================================\n! Cisco IOS — Güvenlik Sıkılaştırma (Hardening)\n! ========================================\n\n';
             if (data.ts) c += 'service timestamps debug datetime msec\nservice timestamps log datetime msec\n';
             if (data.pw_enc) c += 'service password-encryption\n';
             if (data.keepalive) c += 'service tcp-keepalives-in\nservice tcp-keepalives-out\n';

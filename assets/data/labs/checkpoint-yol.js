@@ -1,6 +1,6 @@
 'use strict';
 // ─── CLI Lab: Check Point öğrenme yolu lab'ları (Gaia R81.20 görünümü) ────────
-// checkpoint.js'teki temel ve teşhis lab'larını tamamlar: yönetim sertleştirme, VLAN, log/saat,
+// checkpoint.js'teki temel ve teşhis lab'larını tamamlar: yönetim sıkılaştırma, VLAN, log/saat,
 // yedekleme ve "bakım sonrası şubelere erişim yok" arıza lab'ı. Hepsi Gaia clish ile yapılır.
 // Adresler yalnız güvenli örnek bloklardan (bkz. docs/LAB-VENDOR-AGENT-KURALLARI.md).
 (function () {
@@ -31,9 +31,9 @@
     const branchOk = s => { const r = s.lookup('10.128.5.10'); return !!r && r.type === 'S' && r.gw === '10.64.10.254' && r.dev === 'eth2'; };   // netops kullanıcısının lab parolası (12 karakter, 4 karakter türü)
 
     const LABS = [
-    // ═══ Yönetim erişimini sertleştirme ═══
+    // ═══ Yönetim erişimini sıkılaştırma ═══
     {
-        id: 'cp-08', vendor: 'checkpoint', level: 2, title: 'Yönetim erişimini sertleştirme: izinli istemciler, zaman aşımı, parola politikası, roller', minutes: 20, kind: 'firewall', hostname: 'gw-a', pre: ['cp-02'],
+        id: 'cp-08', vendor: 'checkpoint', level: 2, title: 'Yönetim erişimini sıkılaştırma: izinli istemciler, zaman aşımı, parola politikası, roller', minutes: 20, kind: 'firewall', hostname: 'gw-a', pre: ['cp-02'],
         up: ['eth1', 'eth2', 'eth3'], start: BASE, sim: Object.assign({ adminSrc: '10.240.0.10' }, SIMBASE),
         story: 'Denetim raporu gateway\'in yönetimi için üç bulgu yazmış: SSH ve Gaia Portal (WebUI) <b>her adresten</b> açık, boşta kalan oturum kapanmıyor, parola kuralı zayıf. Ayrıca NOC ekibi için yalnız <b>izleme</b> yetkili bir hesap istenmiş. Yönetim ağı <code>10.240.0.0/16</code>; siz <code>10.240.0.10</code> adresinden bağlısınız.',
         lesson: L('Gaia\'da yönetim erişimi katman katmandır. <b>allowed-client</b> listesi SSH ve Gaia Portal\'a hangi kaynak adreslerin bağlanabileceğini belirler (varsayılan: <code>any-host</code>). <b>inactivity-timeout</b> boşta kalan clish oturumunu kapatır. <b>password-controls</b> yerel hesapların parola kuralını belirler. <b>RBA</b> (Role Based Administration) kullanıcıya rol atar: <code>adminRole</code> tam yetki, <code>monitorRole</code> yalnız okuma.',
@@ -69,7 +69,7 @@
             { t: 'Soru: izinli istemci (allowed-client) listesi neyi korur?', ask: { choices: [['gaia', 'Gaia\'nın kendi yönetim erişimini (SSH ve Gaia Portal/WebUI)'], ['all', 'Gateway\'den geçen tüm trafiği; güvenlik politikasının yerine geçer'], ['smc', 'Yalnız SmartConsole bağlantısını'], ['console', 'Seri konsol erişimini']], correct: 'gaia' },
               why: 'Bu liste işletim sisteminin yönetim servislerine bağlanabilecek adresleri sınırlar. Geçen trafik ve gateway\'e gelen diğer bağlantılar SmartConsole\'da yazılan güvenlik politikasıyla korunur. Konsol erişimi bu listeden etkilenmez; kilitlenmede son çare odur.',
               hints: ['Liste Gaia\'nın hangi servislerinde uygulanıyor?', 'Politika kuralları ayrı bir katmandır.'] },
-            { t: 'Yapılandırmada yeni satırları görün ve kalıcı kaydedin.', why: '<code>show configuration</code> bu lab\'da eklediğiniz satırları gösterir. <code>save config</code> olmadan yeniden başlatmada sertleştirme geri gider ve denetim bulgusu geri gelir.',
+            { t: 'Yapılandırmada yeni satırları görün ve kalıcı kaydedin.', why: '<code>show configuration</code> bu lab\'da eklediğiniz satırları gösterir. <code>save config</code> olmadan yeniden başlatmada sıkılaştırma geri gider ve denetim bulgusu geri gelir.',
               hints: ['show configuration → save config', '<code>show configuration</code> → <code>save config</code>'], steps: ['show configuration', 'save config'], needs: [1, 2, 3, 4, 5],
               check: s => s.ev.ran(/^show configuration$/) && !s.dirty() && !s.savedModel.allowed.includes('any') && s.savedModel.inact === 5 && !!s.savedModel.users.netops,
               fb: s => (s.dirty() ? 'Kaydedilmemiş değişiklik var: save config.' : null) },

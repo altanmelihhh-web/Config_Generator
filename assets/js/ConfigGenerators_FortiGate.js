@@ -2388,7 +2388,7 @@ function cgFgDnsGen(data) {
     return c;
 }
 
-// ── FortiGate: Admin + Access Profile (sertleştirme) ──────────────────────────
+// ── FortiGate: Admin + Access Profile (sıkılaştırma) ──────────────────────────
 // Sözdizimi: canlı config (5 cihaz — admin accprofile/vdom/trusthost1-3; accprofile *grp read|read-write;
 //            global admintimeout/admin-lockout-threshold/admin-lockout-duration/admin-https-ssl-versions/pre-login-banner)
 //            + https://docs.fortinet.com/document/fortigate/7.4.8/cli-reference/390485493/config-system-admin (password/two-factor/fortitoken/email-to/force-password-change)
@@ -2402,7 +2402,7 @@ FortiGate.admin = {
             topic: {
                 icon: 'fas fa-user-lock',
                 title: 'Yönetici Hesabı & Erişim Profili (FortiGate)',
-                desc: 'Trusted host kısıtlı yönetici hesabı, isteğe bağlı rol profili, 2FA ve yönetim düzlemi sertleştirmesi.<br><code>config system admin\n  edit "netops1"\n    set accprofile "RO_PROFILE"\n    set vdom "root"\n    set trusthost1 10.0.0.0 255.255.255.0\n  next\nend</code>'
+                desc: 'Trusted host kısıtlı yönetici hesabı, isteğe bağlı rol profili, 2FA ve yönetim düzlemi sıkılaştırması.<br><code>config system admin\n  edit "netops1"\n    set accprofile "RO_PROFILE"\n    set vdom "root"\n    set trusthost1 10.0.0.0 255.255.255.0\n  next\nend</code>'
             },
             configTypes: [
                 { id: 'existing', label: 'Mevcut Profil', icon: 'fas fa-id-badge', desc: 'super_admin, prof_admin veya tanımlı bir profil', badge: { text: 'En Yaygın', cls: 'recommended' } },
@@ -2454,10 +2454,10 @@ FortiGate.admin = {
                     ]
                 },
                 {
-                    title: 'Yönetim Düzlemi Sertleştirme (system global)',
+                    title: 'Yönetim Düzlemi Sıkılaştırma (system global)',
                     icon: 'fas fa-shield-alt',
                     fields: [
-                        { name: 'gl_enable', why: 'Tüm yöneticileri etkileyen global ayarlar: oturum zaman aşımı, hatalı girişte kilitleme, yalnız TLS 1.2/1.3, telnet kapalı ve giriş öncesi uyarı metni.', label: 'Global sertleştirme ayarlarını ekle', type: 'checkbox', checked: true, hint: 'config system global' },
+                        { name: 'gl_enable', why: 'Tüm yöneticileri etkileyen global ayarlar: oturum zaman aşımı, hatalı girişte kilitleme, yalnız TLS 1.2/1.3, telnet kapalı ve giriş öncesi uyarı metni.', label: 'Global sıkılaştırma ayarlarını ekle', type: 'checkbox', checked: true, hint: 'config system global' },
                         { name: 'gl_timeout', why: 'Boşta kalan yönetici oturumu bu kadar dakika sonra kapanır (varsayılan 5). Uzun süre açık kalan oturum, kilitlenmemiş bir ekranda cihazı açık bırakır.', label: 'Oturum Zaman Aşımı (dk)', type: 'text', min: 1, max: 480, requiredIf: { field: 'gl_enable', checked: true }, placeholder: '10', hint: '1–480' },
                         { name: 'gl_lockthr', why: 'Bu kadar hatalı denemeden sonra hesap kilitlenir (1–10, varsayılan 3). Kaba kuvvet denemelerini yavaşlatır.', label: 'Kilitleme Eşiği', type: 'text', min: 1, max: 10, requiredIf: { field: 'gl_enable', checked: true }, placeholder: '3', hint: '1–10 deneme' },
                         { name: 'gl_lockdur', why: 'Kilit süresi (saniye, varsayılan 60). Çok kısa süre kaba kuvveti durdurmaz.', label: 'Kilit Süresi (sn)', type: 'text', validate: 'posint', requiredIf: { field: 'gl_enable', checked: true }, placeholder: '300', hint: 'saniye' },

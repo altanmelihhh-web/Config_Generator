@@ -1145,7 +1145,7 @@ CitrixADC.sysbase = {
                     title: 'NSIP Yönetim Servisleri',
                     icon: 'fas fa-user-lock',
                     fields: [
-                        { name: 'nsip', label: 'NSIP', type: 'text', validate: 'ip', placeholder: '192.0.2.5', hint: 'Boşsa yazılmaz', why: "Telnet ve FTP parolaları düz metin taşır; HTTP GUI de öyle. NSIP'te bunları kapatıp GUI'yi yalnız HTTPS'e (SECUREONLY) almak temel sertleştirmedir." }
+                        { name: 'nsip', label: 'NSIP', type: 'text', validate: 'ip', placeholder: '192.0.2.5', hint: 'Boşsa yazılmaz', why: "Telnet ve FTP parolaları düz metin taşır; HTTP GUI de öyle. NSIP'te bunları kapatıp GUI'yi yalnız HTTPS'e (SECUREONLY) almak temel sıkılaştırmadır." }
                     ]
                 }
             ],

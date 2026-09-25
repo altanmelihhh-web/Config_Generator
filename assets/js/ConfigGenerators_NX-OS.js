@@ -1056,7 +1056,7 @@ CiscoNXOS.features = {
                     ]
                 },
                 {
-                    title: 'Kapatılacak Servisler (Sertleştirme)', icon: 'fas fa-ban',
+                    title: 'Kapatılacak Servisler (Sıkılaştırma)', icon: 'fas fa-ban',
                     warn: 'NX-API veya bash-shell’i otomasyon araçlarınız (Ansible nxapi bağlantısı, betikler) kullanıyorsa kapatmadan önce kontrol edin.',
                     fields: [
                         { name: 'x_telnet', why: 'Telnet parolaları açık metin taşır; yönetim yalnız SSH ile yapılmalıdır.', label: 'no feature telnet', type: 'checkbox', checked: true },
@@ -1703,7 +1703,7 @@ CiscoNXOS.mgmtAccess = {
     label: 'Banner / Line / SSH',
     init(container) {
         cgFormBuilder(container, {
-            topic: { icon: 'fas fa-terminal', title: 'Yönetim Erişimi — Banner, Line, SSH (NX-OS)', desc: 'Giriş uyarısı, konsol/VTY oturum sınırları ve SSH sertleştirme. VTY ACL’i ayrıca <b>ACL</b> aracıyla tanımlanmalıdır.' },
+            topic: { icon: 'fas fa-terminal', title: 'Yönetim Erişimi — Banner, Line, SSH (NX-OS)', desc: 'Giriş uyarısı, konsol/VTY oturum sınırları ve SSH sıkılaştırma. VTY ACL’i ayrıca <b>ACL</b> aracıyla tanımlanmalıdır.' },
             sections: [
                 {
                     title: 'Banner', icon: 'fas fa-flag',

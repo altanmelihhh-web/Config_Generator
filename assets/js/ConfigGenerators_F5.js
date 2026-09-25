@@ -1808,19 +1808,19 @@ F5LTM.devicetrust = {
     }
 };
 
-// ── F5 BIG-IP: SSL Cipher Group Sertleştirme (client-ssl) ────────────────────
+// ── F5 BIG-IP: SSL Cipher Group Sıkılaştırma (client-ssl) ────────────────────
 // Sözdizimi: https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/ltm/ltm_cipher_rule.html
 //            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/ltm/ltm_cipher_group.html
 //            https://clouddocs.f5.com/cli/tmsh-reference/latest/modules/ltm/ltm_profile_client-ssl.html
 //            (cipher-group, ciphers, options { no-ssl no-tlsv1 no-tlsv1.1 no-tlsv1.3 ... }, secure-renegotiation, renegotiation)
 //            Hazır gruplar (f5-default / f5-ecc / f5-secure): https://community.f5.com/kb/technicalarticles/cipher-rules-and-groups-in-big-ip-v13/279555
 F5LTM.sslharden = {
-    label: 'SSL Cipher Group Sertleştirme',
+    label: 'SSL Cipher Group Sıkılaştırma',
     init(container) {
         cgFormBuilder(container, {
             topic: {
                 icon: 'fas fa-shield-alt',
-                title: 'Client-SSL Sertleştirme — Cipher Group + Protokol',
+                title: 'Client-SSL Sıkılaştırma — Cipher Group + Protokol',
                 desc: 'Mevcut bir client-ssl profiline cipher group bağlar, SSLv3/TLS 1.0/1.1\'i kapatır ve güvensiz renegotiation\'ı engeller (v13+ cipher group).<br>Örnek: <code>tmsh modify ltm profile client-ssl MY_CLIENT_SSL ciphers none cipher-group f5-secure</code>',
                 badge: { text: 'Güvenlik', cls: 'security' }
             },
@@ -1861,7 +1861,7 @@ F5LTM.sslharden = {
             const custom = grpSel === 'custom';
             const grp = custom ? cgEsc(data.grp_name || '') : grpSel;
             const reneg = cgEsc(data.sec_reneg || 'require-strict');
-            let c = '# ========================================\n# F5 BIG-IP — Client-SSL Sertleştirme\n# ========================================\n\n';
+            let c = '# ========================================\n# F5 BIG-IP — Client-SSL Sıkılaştırma\n# ========================================\n\n';
             if (custom) {
                 const rule = cgEsc(data.rule_name || '');
                 c += 'tmsh create ltm cipher rule ' + rule + ' cipher "' + cgEsc(data.rule_cipher || '') + '"\n';

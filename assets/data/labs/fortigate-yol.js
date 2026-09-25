@@ -1,7 +1,7 @@
 'use strict';
 // ─── CLI Lab: FortiGate öğrenme yolu lab'ları (FortiOS 7.4 görünümü) ─────────
 // fortigate.js'teki temel ve teşhis lab'larını tamamlar: sistem servisleri, kural sırası, IP havuzu,
-// kimlik doğrulama, güvenlik profilleri, VLAN/zone, log, yönetim sertleştirme, yedekleme.
+// kimlik doğrulama, güvenlik profilleri, VLAN/zone, log, yönetim sıkılaştırma, yedekleme.
 // Kontroller kaydedilmiş duruma bakar (next/end sonrası). Adresler yalnız güvenli örnek bloklardan.
 (function () {
     const pol = (s, name) => { const k = s.keys('firewall policy').find(k => s.obj('firewall policy', k).name === name); return k ? s.obj('firewall policy', k) : null; };
@@ -265,9 +265,9 @@
         learn: ['logtraffic: utm (varsayılan), all, disable.', 'syslogd setting: sunucu, port, biçim.', 'SIEM için CEF.', 'diagnose log test ile doğrulama.'],
         links: { tool: '#/fortigate/logging', cli: '#/cli/fortigate' }, cert: 'NSE 4 · M13'
     },
-    // ═══ Yönetim sertleştirme ═══
+    // ═══ Yönetim sıkılaştırma ═══
     {
-        id: 'fgt-17', vendor: 'fortigate', level: 1, title: 'Yönetim erişimini sertleştirme', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-01'],
+        id: 'fgt-17', vendor: 'fortigate', level: 1, title: 'Yönetim erişimini sıkılaştırma', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-01'],
         up: ['port1', 'port2'], hosts: ['203.0.113.1'],
         start: IF('port1', '203.0.113.2 255.255.255.252', ['set role wan', 'set allowaccess ping https ssh http telnet']).concat(IF('port2', '10.64.10.1 255.255.255.0', ['set role lan', 'set allowaccess ping']), ROUTE,
             ['config system global', 'set strong-crypto disable', 'set admin-https-ssl-versions tlsv1-1 tlsv1-2 tlsv1-3', 'end']),

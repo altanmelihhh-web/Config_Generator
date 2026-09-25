@@ -1,6 +1,6 @@
 'use strict';
 // ─── CLI Lab: Palo Alto öğrenme yolu lab'ları (PAN-OS 11.1 görünümü) ─────────
-// paloalto.js'teki temel ve NAT/teşhis lab'larını tamamlar: yönetim sertleştirme, sistem servisleri,
+// paloalto.js'teki temel ve NAT/teşhis lab'larını tamamlar: yönetim sıkılaştırma, sistem servisleri,
 // güvenlik profilleri, yapılandırma yönetimi ve "internete çıkılamıyor" arıza lab'ı.
 // Kontroller RUNNING (commit edilmiş) yapılandırmaya bakar. Adresler yalnız güvenli örnek bloklardan.
 (function () {
@@ -33,9 +33,9 @@
     const outOk = s => { const d = s.decide(OUT); return d.stage === 'allowed' && !!d.snat && d.rule === 'LAN-OUT'; };
 
     const LABS = [
-    // ═══ Yönetim erişimini sertleştirme ═══
+    // ═══ Yönetim erişimini sıkılaştırma ═══
     {
-        id: 'pan-07', vendor: 'paloalto', level: 1, title: 'Yönetim erişimini sertleştirme', minutes: 20, kind: 'firewall', hostname: 'PA-SUBE', pre: ['pan-02'],
+        id: 'pan-07', vendor: 'paloalto', level: 1, title: 'Yönetim erişimini sıkılaştırma', minutes: 20, kind: 'firewall', hostname: 'PA-SUBE', pre: ['pan-02'],
         up: ['ethernet1/1', 'ethernet1/2'], hosts: ['203.0.113.1'],
         start: BASE.concat(['set network profiles interface-management-profile HERSEY ping yes ssh yes https yes http yes',
             'set network interface ethernet ethernet1/1 layer3 interface-management-profile HERSEY']),

@@ -399,9 +399,9 @@
         learn: ['<code>tacacs-server host … key …</code>, <code>radius-server host … key …</code>.', 'Yöntem listesi: <code>aaa authentication login default group tacacs+ local</code>.', 'console listesi ayrıdır; local kalsın.', 'Sonraki yönteme yalnız sunucu yanıt vermezse geçilir.'],
         links: { tool: '#/dell/aaa', cli: '#/cli/dell' }, cert: 'Dell OS10 güvenlik'
     },
-    // Modül 4 + 5 — Yönetim yüzeyi ve SSH sertleştirme
+    // Modül 4 + 5 — Yönetim yüzeyi ve SSH sıkılaştırma
     {
-        id: 'dell-07', vendor: 'dell', level: 2, title: 'Yönetim yüzeyi: RESTCONF (HTTPS) kapatma ve SSH algoritmalarını sertleştirme', minutes: 18, kind: 'switch', pre: ['dell-02'],
+        id: 'dell-07', vendor: 'dell', level: 2, title: 'Yönetim yüzeyi: RESTCONF (HTTPS) kapatma ve SSH algoritmalarını sıkılaştırma', minutes: 18, kind: 'switch', pre: ['dell-02'],
         up: [E(1)],
         start: ['hostname LEAF1', 'rest api restconf'], startSaved: true,
         lesson: LES('OS10\'da tarayıcıyla açılan bir web arayüzü yoktur; HTTPS üzerinden dinleyen yönetim servisi <b>RESTCONF</b> API\'sidir (<code>rest api restconf</code>). Kullanılmıyorsa <code>no rest api restconf</code> ile kapatılır. SSH tarafında üç algoritma ailesi kısıtlanır: <code>ip ssh server cipher</code> (şifre), <code>ip ssh server mac</code> (bütünlük), <code>ip ssh server kex</code> (anahtar değişimi).',

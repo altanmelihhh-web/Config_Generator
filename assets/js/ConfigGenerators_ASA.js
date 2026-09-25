@@ -1198,7 +1198,7 @@ function cgAsaSnmpGen(data) {
     return c;
 }
 
-// ── ASA: Yönetim Erişimi Sertleştirme ─────────────────────────────────────────
+// ── ASA: Yönetim Erişimi Sıkılaştırma ─────────────────────────────────────────
 // Sözdizimi: https://www.cisco.com/c/en/us/td/docs/security/asa/asa920/configuration/general/asa-920-general-config/admin-management.html
 CiscoASA.mgmtAccess = {
     label: 'Yönetim Erişimi (SSH/ASDM)',
@@ -1206,7 +1206,7 @@ CiscoASA.mgmtAccess = {
         cgFormBuilder(container, {
             topic: {
                 icon: 'fas fa-user-shield',
-                title: 'ASA Yönetim Erişimi Sertleştirme',
+                title: 'ASA Yönetim Erişimi Sıkılaştırma',
                 desc: 'SSH/ASDM erişimini kaynak ağ ile sınırlama, SSH şifre takımı ve anahtar değişimi, zaman aşımları, giriş banner\'ı ve <code>management-access</code>. Telnet yapılandırılmaz.'
             },
             sections: [
@@ -1285,7 +1285,7 @@ function cgAsaMgmtGen(data) {
     const bType = cgEsc(data.banner_type || 'login');
     const bLines = String(data.banner_text || '').split(/\r?\n/).map(l => cgEsc(l).trim()).filter(Boolean);
     const mgmtIf = cgEsc(data.mgmt_access_if || ''), conTo = cgEsc(data.console_to || '');
-    let c = '! ========================================\n! Cisco ASA — Yönetim Erişimi Sertleştirme\n! ========================================\n';
+    let c = '! ========================================\n! Cisco ASA — Yönetim Erişimi Sıkılaştırma\n! ========================================\n';
     c += '! SSH\n';
     if (genkey === 'rsa') c += '! Not: anahtar zaten varsa ASA değiştirme onayı ister.\ncrypto key generate rsa modulus 2048\n';
     else if (genkey === 'eddsa') c += '! Not: anahtar zaten varsa ASA değiştirme onayı ister.\ncrypto key generate eddsa edwards-curve ed25519\n';

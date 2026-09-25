@@ -10,7 +10,7 @@
         M(2, 'AAA: RADIUS ve TACACS+', 'Kimlik doğrulamayı merkezi sunucuya taşımak; sunucu düşerse yerel hesaba geri dönmek.', ids[2]),
         M(3, 'Uzaktan yönetim: VTY ve SSH', 'Yönetim IP\'si, SSH v2, yalnız SSH ve yerel kullanıcı.', ids[3]),
         M(4, 'Web yönetimini kapatma', 'Kullanılmayan HTTP/HTTPS yönetimini kapatıp saldırı yüzeyini küçültmek.', ids[4]),
-        M(5, 'SSH sertleştirme', 'Zayıf şifreleme, anahtar değişimi ve MAC algoritmalarını kapatmak.', ids[5]),
+        M(5, 'SSH sıkılaştırma', 'Zayıf şifreleme, anahtar değişimi ve MAC algoritmalarını kapatmak.', ids[5]),
         M(6, 'NAT / PAT', 'İç ağın internete çıkışı ve sunucu yayınlama.', ids[6]),
         M(7, 'DHCP', 'Adres havuzu, hariç adresler ve relay.', ids[7]),
         M(8, 'VLAN', 'Ağı mantıksal olarak bölmek; access ve trunk.', ids[8]),
@@ -28,7 +28,7 @@
     // d: vendor'a özgü modül açıklamaları (varsayılan metin FortiOS/PAN-OS terimleri içerir)
     const FW = (ids, d) => [
         M(1, 'CLI temelleri ve ilk kurulum', (d && d[1]) || 'config/edit/set/next/end akışı, arayüzler ve yönetim erişimi.', ids[1]),
-        M(2, 'Yönetim erişimini sertleştirme', (d && d[2]) || 'WAN\'da yönetimi kapatmak, trusthost, güçlü şifreleme, giriş kilidi.', ids[2]),
+        M(2, 'Yönetim erişimini sıkılaştırma', (d && d[2]) || 'WAN\'da yönetimi kapatmak, trusthost, güçlü şifreleme, giriş kilidi.', ids[2]),
         M(3, 'Sistem servisleri', (d && d[3]) || 'DNS, NTP ve DHCP sunucusu.', ids[3]),
         M(4, 'VLAN ve zone', (d && d[4]) || 'Tek porttan çok segment; arayüzleri kural için gruplamak.', ids[4]),
         M(5, 'Adres ve servis nesneleri', (d && d[5]) || 'Kuralların yapı taşları: adres, servis, gruplar.', ids[5]),

@@ -2137,7 +2137,7 @@ HuaweiVRP.vty = {
             topic: {
                 icon: 'fas fa-terminal',
                 title: 'VTY / User-interface (Huawei VRP)',
-                desc: 'Uzaktan yönetim hatlarını sertleştirir: yalnız SSH, AAA doğrulama, yönetim ağına ACL kısıtı, oturum zaman aşımı ve VTY sayısı. Yerel kullanıcıyı <b>SSH / User</b> aracıyla oluşturun.'
+                desc: 'Uzaktan yönetim hatlarını sıkılaştırır: yalnız SSH, AAA doğrulama, yönetim ağına ACL kısıtı, oturum zaman aşımı ve VTY sayısı. Yerel kullanıcıyı <b>SSH / User</b> aracıyla oluşturun.'
             },
             sections: [
                 {
