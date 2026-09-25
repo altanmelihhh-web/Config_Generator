@@ -2269,3 +2269,101 @@ function cgF5DrainGen(data) {
     w.push('ℹ /var/log/ltm\'de forced down ve geri alındığında monitor status up satırları görülür; bakım kaydına ekleyin.');
     return { config: c.replace(/ {2,}#/g, ' #'), warnings: w };
 }
+
+// ── F5 BIG-IP: Paket Yakalama (tcpdump) ve RST Nedeni ─────────────────────────
+F5LTM.tcpdump = {
+    label: 'Paket Yakalama (tcpdump)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-wave-square',
+                title: 'tcpdump ile Paket Yakalama ve RST Nedeni',
+                desc: 'TMM arayüzünde (0.0 veya VLAN) F5 ayrıntılarıyla yakalama, :p ile SNAT arkasındaki sunucu tarafını birlikte görme, dosyaya yazma ve BIG-IP\'nin gönderdiği RST\'nin nedenini okuma.<br>Örnek: <code>tcpdump -nni 0.0:nnnp -s0 -c 1000 -w /var/tmp/vs_web.pcap host 203.0.113.100</code>',
+                badge: { text: 'Teşhis', cls: 'info' }
+            },
+            sections: [
+                {
+                    title: 'Nerede yakalanacak',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'iface', label: 'Arayüz', type: 'select', why: "<b>0.0</b> tüm TMM arayüzleridir (VLAN'lar). Yönetim portu TMM dışındadır: onu yalnız <b>mgmt</b> yakalar, 0.0 yakalamaz. Fiziksel arayüzde (1.1) F5 ayrıntıları (trailer) yazılmaz.", options: [
+                            { value: '0.0', label: '0.0 (tüm TMM arayüzleri)' },
+                            { value: 'vlan', label: 'Tek bir VLAN' },
+                            { value: 'mgmt', label: 'mgmt (yönetim arayüzü)' }
+                        ]},
+                        { name: 'vlan', label: 'VLAN adı', type: 'text', optional: true, placeholder: 'external', hint: 'Yalnız "Tek bir VLAN" seçiliyse.' },
+                        { name: 'noise', label: 'F5 ayrıntı seviyesi (noise)', type: 'select', why: "<b>:n</b> giriş/çıkış, TMM ve virtual server adı; <b>:nn</b> flow kimlikleri ve BIG-IP'nin gönderdiği RST'lerde <code>rst_cause</code>; <b>:nnn</b> karşı tarafın (peer) adres ve portları. F5, destek kayıtları için :nnn önerir (K13637).", options: [
+                            { value: 'nnn', label: ':nnn (tam, önerilen)' },
+                            { value: 'nn', label: ':nn (RST nedeni dahil)' },
+                            { value: 'n', label: ':n (temel)' },
+                            { value: '', label: 'Yok' }
+                        ]},
+                        { name: 'peer', label: 'Karşı tarafı da yakala (:p)', type: 'checkbox', checked: true, why: "Filtre VIP'e yazılsa bile SNAT'lı sunucu tarafı akışı da yakalanır. :p olmadan VIP filtresi yalnız istemci tarafını gösterir; sunucu tarafında adresler (SNAT, üye) değişmiştir." }
+                    ]
+                },
+                {
+                    title: 'Ne yakalanacak',
+                    icon: 'fas fa-filter',
+                    fields: [
+                        { name: 'host', label: 'Adres (host)', type: 'text', validate: 'ip', optional: true, placeholder: '203.0.113.100', why: "Filtresiz yakalama yoğun cihazda CPU'yu yorar ve dosyayı hızla büyütür. VIP, istemci ya da üye adresiyle daraltın." },
+                        { name: 'port', label: 'Port', type: 'text', optional: true, placeholder: '80' },
+                        { name: 'rst', label: 'Yalnız RST paketleri', type: 'checkbox', why: "\"Bağlantı sıfırlandı\" şikâyetinde RST'yi kimin gönderdiğini hızlıca bulur: kaynak VIP ise BIG-IP, kaynak üye ise sunucu." },
+                        { name: 'count', label: 'Paket sayısı (-c)', type: 'text', optional: true, placeholder: '1000', hint: 'Yakalama bu sayıda durur; unutulan yakalama diski doldurmaz.' },
+                        { name: 'file', label: 'Dosya adı (/var/tmp)', type: 'text', optional: true, placeholder: 'vs_web.pcap', hint: 'Boş bırakılırsa ekrana yazılır. Wireshark için dosyaya yazın (-s0).' }
+                    ]
+                },
+                {
+                    title: 'RST nedeni',
+                    icon: 'fas fa-bolt',
+                    fields: [
+                        { name: 'rstlog', label: 'RST nedenlerini geçici olarak /var/log/ltm\'e yaz (tm.rstcause.log)', type: 'checkbox', why: "BIG-IP'nin gönderdiği her RST için <code>01230140:3: RST sent from … , [0x…] No pool member available</code> gibi bir satır yazar. Yoğun sistemde log dolar: iş bitince kapatın." },
+                        { name: 'rstpkt', label: 'Nedeni RST paketinin içine de koy (tm.rstcause.pkt)', type: 'checkbox', why: "Neden metni istemciye giden RST'nin yüküne eklenir; istemci tarafındaki Wireshark'ta da görünür. İç bilgiyi dışarı verir: yalnız test süresince açın." }
+                    ]
+                }
+            ],
+            submit: 'Komutları Oluştur'
+        }, (data) => cgF5TcpdumpGen(data));
+    }
+};
+function cgF5TcpdumpGen(data) {
+    const w = [];
+    const mg = data.iface === 'mgmt', vl = String(data.vlan || '').trim();
+    if (data.iface === 'vlan' && !vl) w.push('⛔ VLAN adı girin (ör. external) ya da 0.0 seçin.');
+    let dev = mg ? 'mgmt' : data.iface === 'vlan' ? cgEsc(vl || '<vlan>') : '0.0';
+    const mod = mg ? '' : (data.noise || '') + (data.peer && data.noise ? 'p' : '');
+    if (mg && (data.noise || data.peer)) w.push('ℹ mgmt Linux arayüzüdür: :n/:p ayrıntıları yalnız TMM arayüzlerinde (0.0, VLAN) çalışır; komuta eklenmedi.');
+    if (data.peer && !data.noise && !mg) w.push('⚠ :p tek başına kullanılmaz; bir ayrıntı seviyesiyle birlikte verin (:nnnp).');
+    const f = [];
+    const host = String(data.host || '').trim(), port = String(data.port || '').trim();
+    if (host) f.push('host ' + cgEsc(host));
+    if (port) { if (!/^\d+$/.test(port)) w.push('⛔ Port sayı olmalı.'); f.push('port ' + cgEsc(port)); }
+    if (data.rst) f.push("'tcp[tcpflags] & tcp-rst != 0'");
+    if (!host && !port && !data.rst) w.push('⚠ Filtre yok: yoğun cihazda tüm trafik yakalanır. En azından VIP ya da istemci adresi verin.');
+    const cnt = String(data.count || '').trim(); if (cnt && !/^\d+$/.test(cnt)) w.push('⛔ Paket sayısı sayı olmalı.');
+    const file = String(data.file || '').trim().replace(/^\/var\/tmp\//, '');
+    if (file && !/^[\w.-]+$/.test(file)) w.push('⛔ Dosya adında yalnız harf, rakam, nokta, alt çizgi ve tire kullanın.');
+    const parts = ['tcpdump', '-nni', dev + (mod ? ':' + mod : '')];
+    if (file) parts.push('-s0');
+    if (cnt) parts.push('-c', cgEsc(cnt)); else if (file) { parts.push('-c', '100000'); w.push('ℹ Dosyaya yazarken -c 100000 eklendi: unutulan yakalama /var/tmp\'yi doldurmasın.'); }
+    if (file) parts.push('-w', '/var/tmp/' + cgEsc(file));
+    const cmd = parts.concat(f.join(' and ')).filter(Boolean).join(' ');
+    let c = '# ========================================\n# F5 BIG-IP — Paket Yakalama (tcpdump)\n# ========================================\n\n';
+    if (data.rstlog || data.rstpkt) {
+        c += '# RST nedeni (geçici)\n';
+        if (data.rstlog) c += 'tmsh modify sys db tm.rstcause.log value enable\n';
+        if (data.rstpkt) c += 'tmsh modify sys db tm.rstcause.pkt value enable\n';
+        c += '\n';
+    }
+    c += '# Yakalama (bash). Ekrana yazılıyorsa Ctrl+C ile durdurun\n' + cmd + '\n';
+    if (file) c += '\n# Dosyayı cihazda okuma (Wireshark için dosyayı scp ile alın)\ntcpdump -nnr /var/tmp/' + cgEsc(file) + '\n';
+    if (data.rstlog || data.rst) c += '\n# BIG-IP\'nin gönderdiği RST\'lerin nedeni ve sayaçları\ngrep 01230140 /var/log/ltm\ntmsh show net rst-cause\n';
+    if (data.rstlog || data.rstpkt) {
+        c += '\n# İş bitince geri kapat\n';
+        if (data.rstlog) c += 'tmsh modify sys db tm.rstcause.log value disable\n';
+        if (data.rstpkt) c += 'tmsh modify sys db tm.rstcause.pkt value disable\n';
+    }
+    if (!mg && !data.noise) w.push('ℹ Ayrıntı seviyesi olmadan VLAN yakalamasında giriş/çıkış ve virtual server bilgisi yazılmaz; destek kaydı için :nnn kullanın.');
+    if (mg && host && /^(203\.0\.113|198\.51\.100)\./.test(host)) w.push('⚠ mgmt yalnız yönetim trafiğini görür; VIP/istemci trafiği için 0.0 seçin.');
+    w.push('ℹ Okuma: kaynak VIP olan RST BIG-IP\'den gelir (nedeni rst_cause alanında); kaynak üye olan RST sunucudandır. Yanıtsız yinelenen SYN\'ler dönüş yolunun BIG-IP\'ye gelmediğini (SNAT yok, asimetrik yönlendirme) gösterir.');
+    return { config: c.replace(/ {2,}#/g, ' #'), warnings: w };
+}

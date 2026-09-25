@@ -93,7 +93,8 @@ const CgLabTmsh = (function () {
                 httpd: { allow: ['ALL'], idle: 1200 }, sshd: { allow: ['ALL'], idle: 0, banner: 'disabled', bannerText: '' }, dns: { servers: [], search: [] }, ntp: { servers: [], tz: 'America/Los_Angeles' },
                 prov, users: { admin: { role: 'admin', shell: 'tmsh', pw: true } }, pwpol: { enf: 'disabled', min: 6, up: 0, low: 0, num: 0, spec: 0, fail: 0, maxdur: 99999 },
                 nodes: {}, pools: {}, monitors: {}, virtuals: {}, snatpools: {}, persists: {}, httpProfiles: {},
-                cm: { cs: null, uni: [], mirror: null, trusted: [], dgs: {}, tgMac: null } };
+                cm: { cs: null, uni: [], mirror: null, trusted: [], dgs: {}, tgMac: null },
+                db: { 'tm.rstcause.log': { value: 'disable' }, 'tm.rstcause.pkt': { value: 'disable' } } };
         }
         const M = () => S.m;
         const short = () => M().hostname.split('.')[0];
@@ -590,6 +591,13 @@ const CgLabTmsh = (function () {
             list(n, o) { return o.local ? ['cm traffic-group traffic-group-local-only { }'] : ['cm traffic-group traffic-group-1 {', '    mac ' + (o.tgMac || 'none'), '    unit-id 1', '}']; },
             props: ['mac'],
         };
+        // sys db (BigDB değişkenleri; yalnız modify/list). RST nedeni: tm.rstcause.log → /var/log/ltm, tm.rstcause.pkt → RST paketinin yükü
+        T['sys db'] = {
+            kind: 'BigDB variable', named: true, fixed: true, coll: () => M().db || (M().db = base().db),
+            set(o, P) { for (const p of P) { if (p.k !== 'value') return SYN(p.k); if (!['enable', 'disable'].includes(String(p.v).toLowerCase())) return SYNx('"' + p.v + '" invalid value (enable | disable)'); o.value = String(p.v).toLowerCase(); } return null; },
+            list(n, o) { return ['sys db ' + n + ' {', '    value "' + o.value + '"', '}']; },
+            props: ['value'],
+        };
         const TYPES = Object.keys(T);
         const MODULES = ['net', 'sys', 'auth', 'ltm', 'cm', 'util', 'gtm', 'security', 'apm', 'asm'];
         function resolveType(toks) {
@@ -624,6 +632,7 @@ const CgLabTmsh = (function () {
             const sysInfo = TK[1] && /^\/?sys$/.test(TK[1].t) && TK[2] && ['version', 'software', 'license', 'ucs', 'provision'].includes(TK[2].t);
             if (S.inop && !sysInfo && !(verb === 'load' && TK[2] && TK[2].t === 'ucs')) return E('The configuration has not yet loaded. If this message persists, it may indicate a configuration problem.\n# [Simülatör] Yapılandırma yüklenemedi; ayrıntı /var/log/ltm\'de.', 'value');
             if (TK.length < 2) return E('Syntax Error: "' + verb + '" requires a component', 'incomplete');
+            if (TK[1] && /^\/?sys$/.test(TK[1].t) && TK[2] && TK[2].t === 'db' && TK[3]) TK[3].t = TK[3].t.toLowerCase();
             const r = resolveType(TK.slice(1));
             if (!r.type) {
                 const md = (r.mod || '').replace(/^\//, '');
@@ -745,6 +754,7 @@ const CgLabTmsh = (function () {
                     log({ show: 'ltm persistence' }); return { out: L.join('\n'), ok: true };
                 }
             }
+            if (mod === 'net' && comp === 'rst-cause') { if (a.length) return SYN(a[0]); return showRstCause(); }
             if (mod === 'net' && comp === 'interface') {
                 const L = ['', '-------------------------------------------------------------------------', 'Net::Interface', 'Name  Status    Bits    Bits    Pkts    Pkts  Drops  Errs      Media', '                    In     Out      In     Out', '-------------------------------------------------------------------------'];
                 const list = a[0] ? [a[0]] : IFS.concat(['mgmt']);
@@ -1259,6 +1269,7 @@ const CgLabTmsh = (function () {
                 else if (https && !srv.ports[port].tls) res = { kind: 'sslerr' };
                 else res = { kind: 'ok', resp: serverResp(srv, port, path, method) };
             }
+            if (isVip) { const rc = rstCauseOf(res); if (rc) rstSent(ip + ':' + port, (SIM.client || '198.51.100.20') + ':' + (52100 + S.ev.length), rc.cause, rc.peer); }
             log({ curl: { ip, port, path, method, vip: isVip, kind: res.kind, code: res.resp ? res.resp.code : null, member: res.member || null, persisted: !!res.persisted } });
             // curl 7.81 biçimi (notes/f5-tmsh-cikti-ornekleri.md §9)
             const reqLines = () => ['* Connected to ' + ip + ' (' + ip + ') port ' + port + ' (#0)', '> ' + method + ' ' + path + ' HTTP/1.1', '> Host: ' + ip, '> User-Agent: curl/7.81.0', '> Accept: */*', '> '];
@@ -1281,6 +1292,228 @@ const CgLabTmsh = (function () {
             if (verbose) L.push('* Connection #0 to host ' + ip + ' left intact');
             if (wfmt) L.push(wfmt.replace(/%\{http_code\}/g, String(r.code)).replace(/\\n/g, '\n').replace(/\n$/, ''));
             return { out: L.join('\n') };
+        }
+        // ═══ RST nedeni ve paket yakalama (tcpdump) ═══════════════════════
+        // Biçimler: notes/f5-tcpdump-rst.md (K13637 trailer alanları, 01230140 log satırı, show net rst-cause). [0x…:…] kimlikleri
+        // kaynak koddaki yeri gösterir ve sürümden sürüme değişir; buradakiler temsilidir.
+        const RSTID = { 'No pool member available': '[0x2a0d9a4:6264]', 'No local listener': '[0x2a0b6f1:1418]', 'TCP RST from remote system': '[0x23d7a0a:2358]', 'Port denied': '[0x2a0b6f1:1476]' };
+        S.rstc = Object.assign({ 'RST from BIG-IP internal Linux host': 115 }, SIM.rstCounts || {});
+        const dbOn = k => ((M().db || {})[k] || {}).value === 'enable';
+        const rstText = (cause, peer) => (RSTID[cause] ? RSTID[cause] + ' ' : '') + (peer ? '{peer} ' : '') + cause;
+        // BIG-IP'nin kendi gönderdiği RST: sayaç + (tm.rstcause.log açıksa) /var/log/ltm satırı
+        function rstSent(from, to, cause, peer) {
+            S.rstc[cause] = (S.rstc[cause] || 0) + 1;
+            if (dbOn('tm.rstcause.log')) S.ltmlog.push(lstamp() + ' ' + lh() + ' err tmm[14322]: 01230140:3: RST sent from ' + from + ' to ' + to + ', ' + rstText(cause, peer));
+        }
+        // istek sonucundan BIG-IP kaynaklı RST'nin nedeni (yalnız kaynağı doğrulanmış metinler; diğerlerinde neden yazılmaz)
+        const rstCauseOf = r => r.kind === 'refused' && r.why === 'novs' ? { cause: 'No local listener' } : r.kind === 'reset' && r.why === 'nomember' ? { cause: 'No pool member available' } : r.kind === 'reset' && r.why === 'srvrefused' ? { cause: 'TCP RST from remote system', peer: true } : null;
+        function showRstCause() {
+            const bar = '-'.repeat(42), rows = Object.keys(S.rstc).sort();
+            log({ show: 'net rst-cause' });
+            return { out: [bar, 'TCP/IP Reset Cause', 'RST Cause:' + 'Count'.padStart(32), bar].concat(rows.map(k => k + String(S.rstc[k]).padStart(42 - k.length))).join('\n'), ok: true };
+        }
+        const PNAME = { 80: 'http', 443: 'https', 22: 'ssh', 8080: 'http-alt', 53: 'domain', 4353: 'f5-iquery' };
+        const hex8 = ip => ip2n(ip).toString(16).toUpperCase().padStart(8, '0');
+        const mapped = ip => ip ? '00000000:00000000:0000FFFF:' + hex8(ip) : '00000000:00000000:00000000:00000000';
+        const vlanOf = ip => { const r = reach(ip); return r && r.via && r.via !== 'mgmt' && M().vlans[r.via] ? r.via : null; };
+        const portOfVlan = vn => (vn && M().vlans[vn] ? Object.keys(M().vlans[vn].ifs)[0] : '') || '';
+        const tagOf = vn => (vn && M().vlans[vn] ? M().vlans[vn].tag || 4094 : 0);
+        let capN = 0;
+        // Yakalama süresince tek bir istemci isteği üretilir (hedef: filtredeki VIP/port, yoksa ilk virtual server) ve paket listesine çevrilir
+        function capPackets(target) {
+            const P = [], vs = target.vs, v = M().virtuals[vs];
+            const C = SIM.client || '198.51.100.20', cp = 51514 + (capN++) * 7, V = target.ip, vp = target.port;
+            if (haDg() && HA.st !== 'active') return { P, why: 'standby' };
+            const keep = JSON.stringify(S.rt);
+            const r = vipRequest({ ip: V, port: vp, path: '/', method: 'GET', src: C, cookie: {}, https: vp === 443 });
+            S.rt = JSON.parse(keep);
+            if (r.kind === 'timeout' && ['noaddr', 'arp', 'peer-empty'].includes(r.why)) return { P, r, why: r.why };
+            const cv = vlanOf(C); const hasHttp = !!v && v.profiles.some(x => profType(x) === 'http');
+            const cf = '56000A5B' + (0x9C00 + capN * 0x40).toString(16).toUpperCase(), sf = '56000A5B' + (0x9F00 + capN * 0x40).toString(16).toUpperCase();
+            const lisN = v ? '/Common/' + vs : '';
+            let t = 7 * 3600 + 14 * 60 + 2, us = 118331;
+            const ts = d => { us += d; while (us >= 1e6) { us -= 1e6; t++; } return [Math.floor(t / 3600), Math.floor(t / 60) % 60, t % 60].map(x => String(x).padStart(2, '0')).join(':') + '.' + String(us).padStart(6, '0'); };
+            let srvBorn = false, M0 = null, SS = null, sv = null;
+            const cl = (d, dir, src, sp, dst, dp, fl, extra) => P.push(Object.assign({ ts: ts(d), dir, src, sp, dst, dp, fl, side: 'c', vlan: cv, port: portOfVlan(cv), lis: extra && extra.lisEmpty ? '' : lisN, flowid: extra && extra.lisEmpty ? '0' : cf, peerid: srvBorn ? sf : '0', ftype: extra && extra.lisEmpty ? 0 : 64, peer: srvBorn ? { remote: M0, local: SS, rp: vp, lp: cp, tag: tagOf(sv) } : null, proto: 'tcp' }, extra || {}));
+            const sr = (d, dir, src, sp, dst, dp, fl, extra) => P.push(Object.assign({ ts: ts(d), dir, src, sp, dst, dp, fl, side: 's', vlan: sv, port: portOfVlan(sv), lis: lisN, flowid: sf, peerid: cf, ftype: 64, peer: { remote: C, local: V, rp: cp, lp: vp, tag: tagOf(cv) }, proto: 'tcp' }, extra || {}));
+            const REQ = 78;
+            // istemci tarafı el sıkışması
+            cl(0, 'in', C, cp, V, vp, 'S', { lisEmpty: true, seq: '1482213377', win: 64240, syn: true });
+            if (r.kind === 'refused' || (r.kind === 'reset' && r.why === 'vslimit')) {
+                const c = rstCauseOf(r);
+                cl(59, 'out', V, vp, C, cp, 'R.', Object.assign({ seq: '0', ack: '1482213378', win: 0, rst: c }, r.why === 'novs' ? { lis: '', flowid: '0', ftype: 0 } : {}));
+                if (c) rstSent(V + ':' + vp, C + ':' + cp, c.cause, c.peer);
+                return { P, r };
+            }
+            cl(59, 'out', V, vp, C, cp, 'S.', { seq: '907712554', ack: '1482213378', win: 23360, syn: true });
+            cl(221, 'in', C, cp, V, vp, '.', { ack: '1', win: 502 });
+            const GET = () => cl(91, 'in', C, cp, V, vp, 'P.', { seq: '1:' + (REQ + 1), ack: '1', win: 502, len: REQ, http: 'GET / HTTP/1.1' });
+            if (hasHttp || r.kind !== 'ok') GET();
+            if (r.kind === 'sslerr' || (r.kind === 'reset' && ['nomember', 'nopool'].includes(r.why))) {
+                const c = rstCauseOf(r);
+                cl(58, 'out', V, vp, C, cp, 'R.', { seq: '1', ack: String(REQ + 1), win: 0, rst: c });
+                if (c) rstSent(V + ':' + vp, C + ':' + cp, c.cause, c.peer);
+                return { P, r };
+            }
+            // sunucu tarafı: üye, çevrilmiş kaynak adres (SNAT automap: üyenin ağındaki self IP; SNAT pool; yoksa istemci)
+            const pl = M().pools[v.pool], m = pl.members[r.member]; M0 = m.ip; const mp = v.tport === 'enabled' ? m.port : vp;
+            const selfIn = Object.values(M().selfs).find(x => x.address && inNet(m.ip, x.address));
+            SS = v.sat.type === 'automap' && selfIn ? selfIn.address.split('/')[0] : v.sat.type === 'snat' ? M().snatpools[v.sat.pool].members[0] : C;
+            sv = vlanOf(m.ip) || (selfIn ? selfIn.vlan : null);
+            srvBorn = true;
+            if (r.kind === 'timeout' && r.why === 'l2') {
+                [0, 1000000, 1000000].forEach((d, i) => P.push({ ts: ts(i ? d : 60), dir: 'out', arp: true, src: SS, dst: m.ip, side: 's', vlan: sv, port: portOfVlan(sv), lis: '', flowid: '0', peerid: '0', ftype: 0, proto: 'arp' }));
+                return { P, r };
+            }
+            sr(58, 'out', SS, cp, m.ip, mp, 'S', { seq: '2911450012', win: 23360, syn: true });
+            if (r.kind === 'timeout') {
+                // yanıt BIG-IP'ye dönmüyor: SYN yeniden iletimleri (1 s, 2 s, 4 s)
+                [1000000, 2000000, 4000000].forEach(d => sr(d, 'out', SS, cp, m.ip, mp, 'S', { seq: '2911450012', win: 23360, syn: true }));
+                return { P, r };
+            }
+            if (r.kind === 'reset' && r.why === 'srvrefused') {
+                sr(255, 'in', m.ip, mp, SS, cp, 'R.', { seq: '0', ack: '2911450013', win: 0 });
+                const c = rstCauseOf(r);
+                cl(78, 'out', V, vp, C, cp, 'R.', { seq: '1', ack: String(REQ + 1), win: 0, rst: c });
+                rstSent(V + ':' + vp, C + ':' + cp, c.cause, c.peer);
+                return { P, r };
+            }
+            sr(255, 'in', m.ip, mp, SS, cp, 'S.', { seq: '3302991777', ack: '2911450013', win: 65160, syn: true });
+            sr(35, 'out', SS, cp, m.ip, mp, '.', { ack: '1', win: 46 });
+            if (!hasHttp) GET();
+            sr(11, 'out', SS, cp, m.ip, mp, 'P.', { seq: '1:' + (REQ + 1), ack: '1', win: 46, len: REQ, http: 'GET / HTTP/1.1' });
+            const rs = r.resp, rl = 150 + rs.headers.join('').length + (rs.body || '').length, st = 'HTTP/1.1 ' + rs.code + ' ' + (REASON[rs.code] || '');
+            sr(1349, 'in', m.ip, mp, SS, cp, 'P.', { seq: '1:' + (rl + 1), ack: String(REQ + 1), win: 509, len: rl, http: st });
+            cl(78, 'out', V, vp, C, cp, 'P.', { seq: '1:' + (rl + 1), ack: String(REQ + 1), win: 46, len: rl, http: st });
+            return { P, r };
+        }
+        // yönetim arayüzü (mgmt / eth0): TMM dışıdır, trailer yok. Yalnız bu SSH oturumunun paketleri görünür
+        function mgmtPackets() {
+            if (!M().mgmtIp) return [];
+            const mi = M().mgmtIp.split('/')[0]; let us = 204511;
+            const L = [[mi, 22, ADMIN, 53122, 'P.', '1:37', 36], [ADMIN, 53122, mi, 22, '.', null, 0], [mi, 22, ADMIN, 53122, 'P.', '37:137', 100], [ADMIN, 53122, mi, 22, '.', null, 0]];
+            return L.map(([src, sp, dst, dp, fl, seq, len]) => { us += 173; return { ts: '07:14:02.' + String(us).padStart(6, '0'), mgmt: true, src, sp, dst, dp, fl, seq, ack: seq ? '1' : '137', win: 501, len, proto: 'tcp' }; });
+        }
+        // filtre ifadesi (libpcap alt kümesi): host/src/dst/net, port, tcp/udp/icmp/arp, and/or/not, parantez, tcp[tcpflags] & … != 0
+        function parseFilter(expr) {
+            const FL = { 'tcp-syn': 'S', 'tcp-rst': 'R', 'tcp-fin': 'F', 'tcp-push': 'P', 'tcp-ack': '.' };
+            let e = expr.replace(/tcp\[\s*(?:tcpflags|13)\s*\]\s*&\s*\(?\s*([a-z|\- ]+?)\s*\)?\s*!=\s*0/g, (x, f) => ' __FLAGS:' + f.split('|').map(y => y.trim()).join(',') + ' ');
+            const T0 = e.replace(/\(/g, ' ( ').replace(/\)/g, ' ) ').replace(/&&/g, ' and ').replace(/\|\|/g, ' or ').replace(/!(?!=)/g, ' not ').split(/\s+/).filter(Boolean);
+            let i = 0; const peek = () => T0[i], next = () => T0[i++];
+            const fail = () => { throw new Error('syntax'); };
+            const isIpW = w => w && isIp(w);
+            function prim() {
+                const w = next(); if (w === undefined) fail();
+                if (w === '(') { const x = orE(); if (next() !== ')') fail(); return x; }
+                if (w === 'not') { const x = prim(); return p => !x(p); }
+                if (/^__FLAGS:/.test(w)) { const fs = w.slice(8).split(','); if (fs.some(f => !FL[f])) fail(); return p => p.proto === 'tcp' && fs.some(f => FL[f] === '.' ? /\./.test(p.fl) : p.fl.includes(FL[f])); }
+                if (['tcp', 'udp', 'icmp', 'arp', 'ip'].includes(w)) { if (['host', 'port', 'src', 'dst', 'net'].includes(peek()) && w !== 'ip') { const x = prim(); return p => (w === p.proto) && x(p); } return p => w === 'ip' ? p.proto !== 'arp' : p.proto === w; }
+                let dir = null, word = w; if (w === 'src' || w === 'dst') { dir = w; word = peek() === 'host' || peek() === 'port' || peek() === 'net' ? next() : 'host'; }
+                if (word === 'host') { const h = next(); if (!isIpW(h)) fail(); return p => (dir !== 'dst' && p.src === h) || (dir !== 'src' && p.dst === h); }
+                if (word === 'net') { const n = next(); if (!n || !cidr(n)) fail(); return p => (dir !== 'dst' && inNet(p.src, n)) || (dir !== 'src' && inNet(p.dst, n)); }
+                if (word === 'port') { const pt = next(); const n = /^\d+$/.test(pt || '') ? +pt : +(Object.keys(PNAME).find(k => PNAME[k] === pt) || NaN); if (!n) fail(); return p => p.proto === 'tcp' && ((dir !== 'dst' && p.sp === n) || (dir !== 'src' && p.dp === n)); }
+                if (isIpW(word) && !dir) fail();
+                fail();
+            }
+            function andE() { let x = prim(); while (peek() === 'and') { next(); const a = x, b = prim(); x = p => a(p) && b(p); } return x; }
+            function orE() { let x = andE(); while (peek() === 'or') { next(); const a = x, b = andE(); x = p => a(p) || b(p); } return x; }
+            if (!T0.length) return { fn: () => true, hosts: [], ports: [] };
+            try { const fn = orE(); if (i < T0.length) fail(); return { fn, hosts: T0.filter(isIpW), ports: T0.filter((w, k) => T0[k - 1] === 'port').map(Number).filter(Boolean) }; } catch (x) { return null; }
+        }
+        function fmtPkt(p, o) {
+            const pn = n => (o.nn || !PNAME[n] ? String(n) : PNAME[n]);
+            let body;
+            if (p.arp) body = 'ARP, Request who-has ' + p.dst + ' tell ' + p.src + ', length 28';
+            else {
+                const pay = p.rst && o.pkt ? rstText(p.rst.cause, p.rst.peer).length : (p.len || 0);
+                const opt = p.syn ? ', options [mss 1460,sackOK,TS val 3051118 ecr ' + (p.fl === 'S' ? '0' : '3051118') + ',nop,wscale 7]' : p.fl === 'R.' ? '' : ', options [nop,nop,TS val 3051118 ecr 1210381]';
+                body = 'IP ' + p.src + '.' + pn(p.sp) + ' > ' + p.dst + '.' + pn(p.dp) + ': Flags [' + p.fl + ']' + (p.seq ? ', seq ' + p.seq : '') + (p.ack ? ', ack ' + p.ack : '') + ', win ' + p.win + opt + ', length ' + pay + (p.http ? ': HTTP: ' + p.http : '');
+                if (o.v) body = 'IP (tos 0x0, ttl 64, id ' + (41000 + (ip2n(p.src) % 997)) + ', offset 0, flags [DF], proto TCP (6), length ' + (52 + pay + (p.syn ? 8 : 0)) + ')\n    ' + body.slice(3);
+            }
+            let tr = '';
+            if (o.trailer && !p.mgmt) {
+                tr = ' ' + p.dir + ' slot1/tmm0 lis=' + p.lis + ' port=' + p.port + ' trunk=';
+                if (o.lvl >= 2) {
+                    const z = p.flowid === '0';
+                    tr += ' flowtype=' + p.ftype + ' flowid=' + p.flowid + ' peerid=' + p.peerid + ' conflags=' + (z ? '0' : p.peerid !== '0' ? '100200004000024' : '4000024') + ' inslot=19 inport=23 haunit=' + (z ? 0 : 1) + ' priority=3';
+                    if (p.rst) tr += ' rst_cause="' + rstText(p.rst.cause, p.rst.peer) + '"';
+                }
+                if (o.lvl >= 3) { const q = p.peer; tr += ' peerremote=' + mapped(q && q.remote) + ' peerlocal=' + mapped(q && q.local) + ' remoteport=' + (q ? q.rp : 0) + ' localport=' + (q ? q.lp : 0) + ' proto=' + (q ? 6 : 0) + ' vlan=' + (q ? q.tag : 0); }
+            }
+            let out = p.ts + ' ' + body + tr;
+            if (o.A) { if (p.rst && o.pkt) out += '\n' + rstText(p.rst.cause, p.rst.peer); else if (p.http && /^GET/.test(p.http)) out += '\nGET / HTTP/1.1\nHost: ' + (p.side === 's' ? p.dst : p.dst) + '\nUser-Agent: curl/7.81.0\nAccept: */*'; else if (p.http) out += '\n' + p.http + '\nServer: Apache'; }
+            return out;
+        }
+        S.pcaps = {};
+        function tcpdump(a) {
+            const o = { n: 0, c: null, s: null, w: null, r: null, i: null, v: false, A: false };
+            const rest = [];
+            for (let k = 1; k < a.length; k++) {
+                const t = a[k];
+                if (!/^-/.test(t) || rest.length) { rest.push(t); continue; }
+                const cl = t.slice(1);
+                for (let j = 0; j < cl.length; j++) {
+                    const ch = cl[j];
+                    if (ch === 'n') { o.n++; continue; } if (ch === 'v') { o.v = true; continue; } if (ch === 'A') { o.A = true; continue; } if (ch === 'p') continue;
+                    if ('icswr'.includes(ch)) { let val = cl.slice(j + 1); if (!val) val = a[++k]; if (val === undefined) return E('tcpdump: option requires an argument -- \'' + ch + '\'', 'incomplete'); o[ch] = val; break; }
+                    if (ch === 'X' || ch === 'e') return E('# [Simülatör] -' + ch + ' bu lab\'da desteklenmiyor; paket içeriği için -A kullanın.', 'unsupported');
+                    return E('tcpdump: invalid option -- \'' + ch + '\'', 'invalid');
+                }
+            }
+            if (o.c !== null && !/^\d+$/.test(o.c)) return E('tcpdump: invalid packet count ' + o.c, 'value');
+            if (o.s !== null && !/^\d+$/.test(o.s)) return E('tcpdump: invalid snaplen ' + o.s, 'value');
+            const flt = parseFilter(rest.join(' '));
+            if (!flt) return E('tcpdump: can\'t parse filter expression: syntax error', 'invalid');
+            const nn = o.n >= 2, snap = o.s === null || +o.s === 0 ? 65535 : +o.s;
+            const opt = { nn, v: o.v, A: o.A, pkt: dbOn('tm.rstcause.pkt') };
+            // dosyadan okuma
+            if (o.r !== null) {
+                if (o.i !== null) return E('# [Simülatör] -r ile -i birlikte kullanılmaz.', 'invalid');
+                const f = S.pcaps[o.r]; if (!f) return E('tcpdump: ' + o.r + ': No such file or directory', 'value');
+                const sel = f.P.filter(p => flt.fn(p)).slice(0, o.c !== null ? +o.c : undefined);
+                log({ tcpdump: { read: o.r, filter: rest.join(' '), n: sel.length, peerSeen: sel.some(p => p.side === 's'), rst: sel.some(p => p.rst) } });
+                return { out: ['reading from file ' + o.r + ', link-type EN10MB (Ethernet)'].concat(sel.map(p => fmtPkt(p, Object.assign({}, opt, f.o)))).join('\n') };
+            }
+            const I = o.i === null ? '0.0' : o.i;
+            const mm = I.match(/^([^:]+)(?::(n{1,3})(p?))?$/) || I.match(/^([^:]+):(p)$/);
+            if (!mm) return E('tcpdump: ' + I + ': No such device exists\n(SIOCGIFHWADDR: No such device)', 'value');
+            const dev = mm[1], lvl = mm[2] ? mm[2].length : 0, peerMod = mm[3] === 'p' || mm[2] === 'p';
+            const isMgmt = dev === 'mgmt' || dev === 'eth0', isAll = dev === '0.0' || dev === 'any', isVlan = !!M().vlans[dev], isPhys = IFS.includes(dev);
+            if (!isMgmt && !isAll && !isVlan && !isPhys) return E('tcpdump: ' + dev + ': No such device exists\n(SIOCGIFHWADDR: No such device)\n# [Simülatör] Arayüzler: 0.0 (tüm TMM arayüzleri), VLAN adları (' + (Object.keys(M().vlans).join(', ') || 'yok') + '), fiziksel arayüzler, mgmt.', 'value');
+            if (isMgmt && (lvl || peerMod)) return E('tcpdump: ' + I + ': No such device exists\n(SIOCGIFHWADDR: No such device)\n# [Simülatör] Gürültü (:n…) ve :p yalnız TMM arayüzlerinde (0.0, VLAN) anlamlıdır; mgmt Linux arayüzüdür.', 'value');
+            opt.trailer = !isMgmt && !isPhys && snap >= 65535 && (isAll || lvl > 0); opt.lvl = Math.max(lvl, 1);
+            // hedef: filtrede bir VIP varsa o (porta göre), yoksa ilk etkin virtual server
+            let P = [], note = '', res = null;
+            if (isMgmt) P = mgmtPackets();
+            else {
+                const VS = Object.entries(M().virtuals);
+                const hostVip = flt.hosts.find(h => VS.some(([, v]) => v.dest.split(':')[0] === h));
+                let tgt = null;
+                if (SIM.capture) tgt = SIM.capture;
+                else if (hostVip) { const port = flt.ports[0] || +(VS.find(([, v]) => v.dest.split(':')[0] === hostVip)[1].dest.split(':')[1]); const e2 = VS.find(([, v]) => v.dest === hostVip + ':' + port); tgt = { ip: hostVip, port, vs: e2 ? e2[0] : null }; }
+                else { const e2 = VS.find(([, v]) => v.enabled && (!flt.ports.length || flt.ports.includes(+v.dest.split(':')[1]))) || VS.find(([, v]) => v.enabled) || VS[0]; if (e2) tgt = { ip: e2[1].dest.split(':')[0], port: +e2[1].dest.split(':')[1], vs: e2[0] }; }
+                if (tgt && !tgt.vs) { const e2 = VS.find(([, v]) => v.dest === tgt.ip + ':' + tgt.port); tgt.vs = e2 ? e2[0] : null; }
+                if (tgt) {
+                    const cap = capPackets(tgt); P = cap.P; res = cap.r;
+                    note = '# [Simülatör] Yakalama sırasında istemci ' + (SIM.client || '198.51.100.20') + ', ' + (tgt.port === 443 ? 'https' : 'http') + '://' + tgt.ip + (tgt.port === 80 || tgt.port === 443 ? '' : ':' + tgt.port) + '/ adresine bir istek gönderdi.';
+                    if (cap.why === 'standby') note += '\n# [Simülatör] Bu cihaz aktif değil: istemci trafiği aktif eşten geçiyor, burada görünmez.';
+                    else if (!P.length) note += '\n# [Simülatör] BIG-IP\'ye hiç paket ulaşmadı: VIP adresi bu cihazda yok ya da ARP yanıtlanmıyor.';
+                }
+                if (isVlan) P = P.filter(p => p.vlan === dev); else if (isPhys) P = P.filter(p => p.port === dev);
+            }
+            let sel;
+            if (peerMod) { const hit = P.some(p => flt.fn(p)); sel = hit ? P : []; } else sel = P.filter(p => flt.fn(p));
+            if (o.c !== null) sel = sel.slice(0, +o.c);
+            const devS = I, hdr = (o.v || o.w !== null ? 'tcpdump: listening on ' : 'tcpdump: verbose output suppressed, use -v or -vv for full protocol decode\nlistening on ') + devS + ', link-type EN10MB (Ethernet), capture size ' + snap + ' bytes';
+            const stopped = !(o.c !== null && sel.length >= +o.c), pl = n => n + ' packet' + (n === 1 ? '' : 's');
+            const foot = [stopped ? '^C' : null, pl(sel.length) + ' captured', pl(sel.length) + ' received by filter', '0 packets dropped by kernel'].filter(x => x !== null);
+            log({ tcpdump: { iface: dev, lvl, peer: peerMod, trailer: opt.trailer, filter: rest.join(' '), n: sel.length, write: o.w, kind: res ? res.kind : null, why: res ? res.why || null : null, peerSeen: sel.some(p => p.side === 's'), rst: sel.some(p => p.rst), rstPkt: opt.pkt && sel.some(p => p.rst) } });
+            if (o.w !== null) {
+                S.pcaps[o.w] = { P: sel, o: { trailer: opt.trailer, lvl: opt.lvl } };
+                const m2 = o.w.match(/^\/var\/tmp\/([^/]+)$/); if (m2 && !S.tmp.includes(m2[1])) S.tmp.push(m2[1]);
+                return { out: [hdr, note].filter(Boolean).concat(foot).join('\n') };
+            }
+            return { out: [hdr, note].filter(Boolean).concat(sel.map(p => fmtPkt(p, opt)), foot).join('\n') + (stopped ? '\n# [Simülatör] Yakalama Ctrl+C ile durduruldu.' : '') };
         }
         function bashCmd(a, line, nested) {
             const c = a[0];
@@ -1331,7 +1564,8 @@ const CgLabTmsh = (function () {
                 const okm = !(SIM.badIso || []).includes(iso);
                 return { out: a.includes('-c') ? iso + ': ' + (okm ? 'OK' : 'FAILED') + (okm ? '' : '\nmd5sum: WARNING: 1 computed checksum did NOT match') : '3f9c2d6a8e0b4a1c9d7e5f2b6a8c0e14  /shared/images/' + iso, log: { md5: iso, ok: okm } };
             }
-            if (['tcpdump', 'bigstart', 'netstat', 'ssldump', 'cpcfg', 'switchboot', 'config', 'top', 'ssh', 'scp'].includes(c)) return E('# [Simülatör] "' + c + '" gerçek BIG-IP\'de var ama bu lab sürümünde henüz desteklenmiyor.', 'unsupported');
+            if (c === 'tcpdump') return tcpdump(a);
+            if (['bigstart', 'netstat', 'ssldump', 'cpcfg', 'switchboot', 'config', 'top', 'ssh', 'scp'].includes(c)) return E('# [Simülatör] "' + c + '" gerçek BIG-IP\'de var ama bu lab sürümünde henüz desteklenmiyor.', 'unsupported');
             if (['list', 'show', 'create', 'modify', 'delete', 'save', 'load'].includes(c)) return E('-bash: ' + c + ': command not found\n# [Simülatör] Bu bir tmsh komutu. Önce "tmsh" yazın ya da tek komut için: tmsh ' + line, 'wrongmode');
             return E('-bash: ' + c + ': command not found', 'invalid');
         }
@@ -1418,7 +1652,7 @@ const CgLabTmsh = (function () {
             if (verb === 'run') return w.length === 1 ? ['util'] : w.length === 2 ? ['bash', 'ping'] : [];
             const types = TYPES.filter(k => !(verb === 'create' && (T[k].single || T[k].fixed)) && !(verb === 'delete' && (T[k].single || T[k].fixed)));
             if (w.length === 1) return [...new Set(types.map(k => k.split(' ')[0]).concat(verb === 'show' ? ['net', 'sys', 'cm'] : []))];
-            if (w.length === 2) return [...new Set(types.filter(k => k.startsWith(w[1] + ' ')).map(k => k.split(' ')[1]).concat(verb === 'show' ? (w[1] === 'net' ? ['interface', 'vlan', 'route', 'arp'] : w[1] === 'sys' ? ['software', 'version', 'license', 'provision', 'failover'] : w[1] === 'cm' ? ['sync-status'] : w[1] === 'ltm' ? ['virtual', 'pool', 'node', 'persistence'] : []) : []))];
+            if (w.length === 2) return [...new Set(types.filter(k => k.startsWith(w[1] + ' ')).map(k => k.split(' ')[1]).concat(verb === 'show' ? (w[1] === 'net' ? ['interface', 'vlan', 'route', 'arp', 'rst-cause'] : w[1] === 'sys' ? ['software', 'version', 'license', 'provision', 'failover'] : w[1] === 'cm' ? ['sync-status'] : w[1] === 'ltm' ? ['virtual', 'pool', 'node', 'persistence'] : []) : []))];
             if (w.length === 3 && !T[w[1] + ' ' + w[2]]) return [...new Set(types.filter(k => k.startsWith(w[1] + ' ' + w[2] + ' ')).map(k => k.split(' ')[2]))];
             const k3 = T[w[1] + ' ' + w[2] + ' ' + w[3]] ? w[1] + ' ' + w[2] + ' ' + w[3] : null, key = k3 || w[1] + ' ' + w[2], t = T[key]; if (!t) return [];
             if (k3) w = w.slice(0, 3).concat(w.slice(4));

@@ -1605,6 +1605,7 @@ const CG_REGISTRY = {
             { id: 'upgrade', cat: 'mgmt', label: 'Yedek ve Yükseltme Planı', gen: () => typeof F5LTM !== 'undefined' && F5LTM.upgrade },
             { id: 'conntable', cat: 'adc', label: 'Bağlantı / Kalıcılık Sorgusu', gen: () => typeof F5LTM !== 'undefined' && F5LTM.conntable },
             { id: 'drain', cat: 'adc', label: 'Pool Üyesi Bakım (Boşaltma)', gen: () => typeof F5LTM !== 'undefined' && F5LTM.drain },
+            { id: 'tcpdump', cat: 'adc', label: 'Paket Yakalama (tcpdump)', gen: () => typeof F5LTM !== 'undefined' && F5LTM.tcpdump },
             { id: 'snmp', cat: 'mgmt', label: 'SNMP', gen: () => typeof F5LTM !== 'undefined' && F5LTM.snmp },
             { id: 'authuser', cat: 'aaa', label: 'Yerel Kullanıcı & Rol', gen: () => typeof F5LTM !== 'undefined' && F5LTM.authuser },
             { id: 'remoteauth', cat: 'aaa', label: 'Uzak Kimlik Doğrulama', gen: () => typeof F5LTM !== 'undefined' && F5LTM.remoteauth },

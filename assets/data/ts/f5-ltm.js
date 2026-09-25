@@ -130,5 +130,21 @@
                 { code: 'tail -n 30 /var/log/ltm', desc: 'Geçiş sonrası beklenmeyen monitor down, "No members available" ya da "has become unavailable" satırı olmamalı; varsa eşin sunucu ağına erişimini (VLAN, floating self IP) kontrol edin.' },
             ]
         },
-    ];
+            {
+            title: 'Bağlantı Sıfırlanıyor ya da Zaman Aşımına Düşüyor: tcpdump ile Kim, Neden? (0.0:nnnp ve RST Nedeni)', severity: 'err', topic: 'adc', lab: 'f5-18',
+            symptom: 'Kullanıcılar "bağlantı sıfırlandı" (reset) ya da zaman aşımı görüyor; uygulama ve ağ ekipleri sorunun kendi tarafında olmadığını söylüyor.',
+            steps: [
+                { code: 'tmsh modify sys db tm.rstcause.log value enable', desc: 'BIG-IP\'nin gönderdiği her RST için /var/log/ltm\'e neden satırı yazar (01230140:3). Yoğun sistemde log hızla büyür: iş bitince disable yapın.' },
+                { code: 'tcpdump -nni 0.0:nnnp -c 200 host 203.0.113.100', desc: 'bash\'te. 0.0 tüm TMM arayüzleri, :nnn en yüksek F5 ayrıntısı, p karşı taraf: filtre VIP\'e yazılsa da SNAT\'lı sunucu tarafı gelir. Satır sonunda in/out, virtual server (lis=) ve BIG-IP\'nin RST\'lerinde rst_cause yazar.',
+                  fix: [{ cause: 'SYN\'e anında RST, sunucu tarafı yok (VS devre dışı ya da o portta dinleyen yok: No local listener)', cmd: 'tmsh list ltm virtual vs_web destination\ntmsh modify ltm virtual vs_web enabled' },
+                        { cause: 'GET\'ten sonra BIG-IP RST, rst_cause "No pool member available": gönderilecek üye yok', cmd: 'tmsh show ltm pool web_pool members\ntmsh list ltm monitor http mon_web recv' },
+                        { cause: 'Sunucudan RST, istemciye "{peer} TCP RST from remote system": sunucu o portta dinlemiyor', cmd: 'tmsh list ltm pool web_pool members\ncurl -v http://10.64.30.50:80/' },
+                        { cause: 'Sunucuya SYN yanıtsız tekrar ediyor ve kaynak istemci adresi: SNAT yok, yanıt BIG-IP\'ye dönmüyor', cmd: 'tmsh modify ltm virtual vs_web source-address-translation { type automap }' }] },
+                { code: 'grep 01230140 /var/log/ltm', desc: 'Satır: "RST sent from <kaynak> to <hedef>, [0x…:…] <neden>". {peer} nedenin karşı bağlantıda oluştuğunu söyler. Kaynak VIP ise RST BIG-IP\'den, kaynak üye ise sunucudan gelmiştir.' },
+                { code: 'tmsh show net rst-cause', desc: 'Nedene göre sayaçlar. Port denied: self IP port lockdown; Unable to select local port: SNAT kaynak portu tükendi (SNAT pool\'a adres ekleyin); RST from BIG-IP internal Linux host: çoğunlukla monitör kapanışları, normal.' },
+                { code: 'tcpdump -nni 0.0:nnnp -s0 -c 100000 -w /var/tmp/vip.pcap host 203.0.113.100', desc: 'Destek kaydı ya da Wireshark için dosyaya yazın; -c unutulan yakalamanın /var/tmp\'yi doldurmasını önler. Yönetim portu trafiği 0.0 ile değil, -i mgmt ile yakalanır.' },
+                { code: 'tmsh modify sys db tm.rstcause.log value disable', desc: 'Tanı ayarını geri alın. tm.rstcause.pkt açtıysanız onu da kapatın: nedeni istemciye giden RST paketine yazar.' },
+            ]
+        },
+];
 })();
