@@ -99,6 +99,7 @@ const CgLabFgt = (() => {
             action: { t: 'enum', v: ['accept', 'deny'], def: 'deny', d: 'Eylem' },
             srcaddr: { t: 'refs', ds: 'addr', d: 'Kaynak adres' }, dstaddr: { t: 'refs', ds: 'addrVip', d: 'Hedef adres (VIP dahil)' },
             schedule: { t: 'ref', ds: 'sched', d: 'Zamanlama' }, service: { t: 'refs', ds: 'svc', d: 'Servis' },
+            groups: { t: 'refs', ds: 'ugroups', d: 'Kimlik doğrulamalı kural: kullanıcı grupları' },
             'utm-status': { t: 'enum', v: ED, def: 'disable', d: 'Güvenlik profilleri' },
             logtraffic: { t: 'enum', v: ['all', 'utm', 'disable'], def: 'utm', d: 'Trafik logu' },
             nat: { t: 'enum', v: ED, def: 'disable', d: 'Kaynak NAT' },
@@ -126,6 +127,26 @@ const CgLabFgt = (() => {
             'dst-subnet': { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Uzak seçici (karşı ağ)' },
             keylifeseconds: { t: 'int', min: 120, max: 172800, def: 43200, d: 'SA ömrü (sn)' },
             comments: { t: 'str', max: 255, d: 'Açıklama' } } },
+        'user local': { key: 'name', req: ['passwd'], attrs: {
+            type: { t: 'enum', v: ['password'], def: 'password', d: 'Kimlik doğrulama tipi' },
+            passwd: { t: 'secret', d: 'Parola' },
+            status: { t: 'enum', v: ED, def: 'enable', d: 'Hesap durumu' } } },
+        'user group': { key: 'name', req: ['member'], attrs: { member: { t: 'refs', ds: 'users', d: 'Üye kullanıcılar' } } },
+        'vpn ssl web portal': { key: 'name', attrs: {
+            'tunnel-mode': { t: 'enum', v: ED, def: 'disable', d: 'Tünel (FortiClient) erişimi' },
+            'web-mode': { t: 'enum', v: ED, def: 'disable', d: 'Web portal erişimi' },
+            'ip-pools': { t: 'refs', ds: 'addr', when: o => o['tunnel-mode'] === 'enable', d: 'İstemci IP havuzu' },
+            'split-tunneling': { t: 'enum', v: ED, def: 'disable', when: o => o['tunnel-mode'] === 'enable', d: 'Yalnız iç ağ trafiği tünelden' },
+            'split-tunneling-routing-address': { t: 'refs', ds: 'addr', when: o => o['tunnel-mode'] === 'enable' && o['split-tunneling'] === 'enable', d: 'Tünelden gidecek ağlar' } } },
+        'vpn ssl settings': { single: true, children: ['authentication-rule'], attrs: {
+            servercert: { t: 'str', def: 'Fortinet_Factory', d: 'Sunucu sertifikası' },
+            'tunnel-ip-pools': { t: 'refs', ds: 'addr', d: 'Varsayılan istemci IP havuzu' },
+            'source-interface': { t: 'refs', ds: 'physIntf', d: 'SSL-VPN\'in dinlediği arayüz(ler)' },
+            'source-address': { t: 'refs', ds: 'addr', d: 'Bağlanabilecek kaynak adresler' },
+            port: { t: 'int', min: 1, max: 65535, def: 443, d: 'SSL-VPN portu' } } },
+        'vpn ssl settings authentication-rule': { key: 'id', num: true, parent: 'vpn ssl settings', sub: 'authentication-rule', req: ['portal'], attrs: {
+            groups: { t: 'refs', ds: 'ugroups', d: 'Kullanıcı grupları' },
+            portal: { t: 'ref', ds: 'portal', d: 'Portal' } } },
         'router static': { key: 'seq-num', num: true, attrs: {
             status: { t: 'enum', v: ED, def: 'enable', d: 'Durum' },
             dst: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Hedef ağ' },
@@ -136,9 +157,10 @@ const CgLabFgt = (() => {
             blackhole: { t: 'enum', v: ED, def: 'disable', d: 'Kara delik rota' },
             comment: { t: 'str', max: 255, d: 'Açıklama' } } },
     };
-    const PATHS = Object.keys(SCHEMA);
+    const ALLP = Object.keys(SCHEMA), PATHS = ALLP.filter(p => !SCHEMA[p].parent);
+    const childPath = (p, sub) => ALLP.find(q => SCHEMA[q].parent === p && SCHEMA[q].sub === sub);
     const SERVICES = ['ALL', 'ALL_TCP', 'ALL_UDP', 'ALL_ICMP', 'PING', 'HTTP', 'HTTPS', 'SSH', 'DNS', 'NTP', 'SMTP', 'RDP', 'TELNET', 'SNMP', 'FTP'];
-    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all', 'vpn ipsec tunnel summary', 'system arp', 'system ha status'];
+    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all', 'vpn ipsec tunnel summary', 'system arp', 'system ha status', 'vpn ssl monitor'];
 
     function session(lab, opts) {
         const S = { lab, ctx: null, ev: [], hist: [], pending: null, loggedOut: false, answers: {} };
@@ -148,7 +170,8 @@ const CgLabFgt = (() => {
         // ── model
         function baseModel() {
             const m = { host: lab.hostname || 'FortiGate-VM64', t: {}, links: {} };
-            for (const p of PATHS) m.t[p] = SCHEMA[p].single ? {} : { o: [], v: {} };
+            for (const p of ALLP) m.t[p] = SCHEMA[p].single ? {} : { o: [], v: {} };
+            ['full-access', 'tunnel-access', 'web-access'].forEach(n => tAdd(m, 'vpn ssl web portal', n, n === 'web-access' ? { 'web-mode': 'enable' } : n === 'tunnel-access' ? { 'tunnel-mode': 'enable' } : { 'tunnel-mode': 'enable', 'web-mode': 'enable' }));
             (lab.ports || ['port1', 'port2', 'port3', 'port4']).forEach((n, i) => { tAdd(m, 'system interface', n, { vdom: 'root', type: 'physical', 'snmp-index': String(i + 1) }); });
             tAdd(m, 'system admin', 'admin', { accprofile: 'super_admin' });
             tAdd(m, 'firewall address', 'all', { _builtin: true });
@@ -165,10 +188,11 @@ const CgLabFgt = (() => {
 
         // ── datasource
         const DS = {
-            intf: () => M().t['system interface'].o.concat(M().t['vpn ipsec phase1-interface'].o),
-            intfAny: () => ['any'].concat(M().t['system interface'].o, M().t['vpn ipsec phase1-interface'].o),
+            intf: () => M().t['system interface'].o.concat(M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
+            intfAny: () => ['any'].concat(M().t['system interface'].o, M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
             physIntf: () => M().t['system interface'].o,
             p1: () => M().t['vpn ipsec phase1-interface'].o,
+            users: () => M().t['user local'].o, ugroups: () => M().t['user group'].o, portal: () => M().t['vpn ssl web portal'].o,
             addr: () => M().t['firewall address'].o.concat(M().t['firewall addrgrp'].o),
             addrVip: () => M().t['firewall address'].o.concat(M().t['firewall addrgrp'].o, M().t['firewall vip'].o),
             addrgrpMember: () => M().t['firewall address'].o.filter(n => n !== 'none').concat(M().t['firewall addrgrp'].o),
@@ -246,7 +270,17 @@ const CgLabFgt = (() => {
         }
         function showPath(p, key, full) {
             const sc = SCHEMA[p], t = M().t[p], L = ['config ' + p];
-            if (sc.single) { L.push(...objLines(p, t, full, '    ')); L.push('end'); return L.join('\n'); }
+            if (sc.single) {
+                L.push(...objLines(p, t, full, '    '));
+                for (const sub of sc.children || []) {
+                    const cp = childPath(p, sub), ct = M().t[cp], cs = SCHEMA[cp];
+                    if (!ct.o.length) continue;
+                    L.push('    config ' + sub);
+                    for (const k of ct.o) { L.push('        edit ' + (cs.num ? k : qt(k)), ...objLines(cp, ct.v[k], full, '            '), '        next'); }
+                    L.push('    end');
+                }
+                L.push('end'); return L.join('\n');
+            }
             const keys = key !== undefined ? [String(key)] : t.o;
             for (const k of keys) {
                 const o = t.v[k];
@@ -434,6 +468,64 @@ const CgLabFgt = (() => {
             return '';
         }
 
+        // ── SSL-VPN istemci benzetimi (lab.sim.ssl: [{ user, pass, src, mode:'tunnel' }], sim.poolUsed)
+        function poolSize(names) { return (names || []).reduce((a, n) => { const o = M().t['firewall address'].v[n]; if (!o) return a; if ((o.type || 'ipmask') === 'iprange') return a + ip2n(o['end-ip'] || '0.0.0.0') - ip2n(o['start-ip'] || '0.0.0.0') + 1; const l = maskLen((o.subnet || '0.0.0.0 0.0.0.0').split(' ')[1]); return a + Math.max(0, 2 ** (32 - l) - 2); }, 0); }
+        function poolFirst(names) { const o = M().t['firewall address'].v[(names || [])[0]]; if (!o) return '0.0.0.0'; return (o.type || 'ipmask') === 'iprange' ? o['start-ip'] : n2ip(ip2n(o.subnet.split(' ')[0]) + 1); }
+        function sslConnect(cl) {
+            const st = M().t['vpn ssl settings'], R = { cl, ok: false };
+            const wan = st['source-interface'] || [];
+            if (!wan.length || !wan.some(n => ifUp(n))) return Object.assign(R, { reason: 'noservice' });
+            if ((st['source-address'] || []).length && !(st['source-address'] || []).some(a => addrMatch(a, cl.src))) return Object.assign(R, { reason: 'srcaddr' });
+            const u = M().t['user local'].v[cl.user];
+            if (!u || (u.status || 'enable') !== 'enable') return Object.assign(R, { reason: 'nouser' });
+            if (u.passwd !== cl.pass) return Object.assign(R, { reason: 'badpass' });
+            const ug = M().t['user group'].o.filter(g => (M().t['user group'].v[g].member || []).includes(cl.user));
+            R.groups = ug;
+            const rt = M().t['vpn ssl settings authentication-rule'];
+            const rule = rt.o.map(k => rt.v[k]).find(r => (r.groups || []).some(g => ug.includes(g)));
+            if (!rule) return Object.assign(R, { reason: 'norule' });
+            const portal = M().t['vpn ssl web portal'].v[rule.portal];
+            if (!portal || (cl.mode || 'tunnel') === 'tunnel' && portal['tunnel-mode'] !== 'enable') return Object.assign(R, { reason: 'notunnel', portal: rule.portal });
+            const pools = (portal['ip-pools'] || []).length ? portal['ip-pools'] : (st['tunnel-ip-pools'] || []);
+            const pol = M().t['firewall policy'].o.map(k => M().t['firewall policy'].v[k]).find(p => (p.status || 'enable') === 'enable' && (p.action || 'deny') === 'accept' && (p.srcintf || []).includes('ssl.root') && (p.groups || []).some(g => ug.includes(g)));
+            if (!pol) return Object.assign(R, { reason: 'nopolicy', portal: rule.portal });
+            if (!pools.length) return Object.assign(R, { reason: 'nopool', portal: rule.portal });
+            const size = poolSize(pools), used = SIM.poolUsed || 0;
+            if (used >= size) return Object.assign(R, { reason: 'nopool', portal: rule.portal });
+            return Object.assign(R, { ok: true, portal: rule.portal, ip: n2ip(ip2n(poolFirst(pools)) + used), group: ug.find(g => (pol.groups || []).includes(g)) });
+        }
+        const sslClients = () => SIM.ssl || [];
+        function sslMonitor() {
+            const ok = sslClients().map(sslConnect).filter(r => r.ok);
+            const L = ['SSL-VPN Login Users:', ' Index   User   Group   Auth Type      Timeout         From     HTTP in/out    HTTPS in/out     Two-factor Auth'];
+            ok.forEach((r, i) => L.push(' ' + i + '       ' + r.cl.user + '   ' + r.group + '   1(1)           287     ' + r.cl.src + '     0/0     0/0      0'));
+            L.push('', 'SSL-VPN sessions:', ' Index   User   Group   Source IP      Duration        I/O Bytes       Tunnel/Dest IP');
+            ok.forEach((r, i) => L.push(' ' + i + '       ' + r.cl.user + '   ' + r.group + '   ' + r.cl.src + '  ' + (12 + i) + '      10240/20480     ' + r.ip));
+            log({ sslmon: ok.map(r => r.cl.user) });
+            return L.join('\n');
+        }
+        function sslDebug() {
+            const L = ['# [Simülatör] sslvpn debug çıktısı eğitim için sadeleştirilmiştir; sıradaki bağlanma denemesi:'];
+            sslClients().forEach((cl, i) => {
+                const r = sslConnect(cl), id = '[' + (1337 + i) + ':root:' + (26 + i).toString(16) + ']';
+                if (r.reason === 'noservice') { L.push('# [Simülatör] ' + cl.src + ' bağlanamıyor: SSL-VPN hiçbir WAN arayüzünde dinlemiyor (source-interface).'); return; }
+                L.push(id + 'SSL state:before SSL initialization (' + cl.src + ')', id + 'SSL state:SSLv3/TLS read client hello (' + cl.src + ')', id + 'SSL established: TLSv1.3 TLS_AES_256_GCM_SHA384', id + 'req: /remote/logincheck');
+                if (r.reason === 'srcaddr') { L.push(id + 'sslvpn_login: source address ' + cl.src + ' is not allowed (source-address)'); return; }
+                L.push(id + 'sslvpn_auth_check_usrgroup:1683 forming user/group list from policy.');
+                if (r.reason === 'nouser') { L.push(id + 'sslvpn_auth_check_usrgroup: user \'' + cl.user + '\' not found in any user group', id + 'login_failed:414 user[' + cl.user + '],auth_type=1 failed [sslvpn_login_unknown_user]'); return; }
+                L.push(id + 'fam_auth_send_req_internal:426 fnbam_auth return: ' + (r.reason === 'badpass' ? '1' : '0'));
+                if (r.reason === 'badpass') { L.push(id + 'login_failed:414 user[' + cl.user + '],auth_type=1 failed [sslvpn_login_auth_fail]'); return; }
+                L.push(id + 'sslvpn_validate_user: user ' + cl.user + ' authenticated, groups: ' + ((r.groups || []).join(',') || '(yok)'));
+                if (r.reason === 'norule') { L.push(id + 'sslvpn_auth_check_usrgroup: no matching authentication-rule for user groups, permission denied'); return; }
+                if (r.reason === 'nopolicy') { L.push(id + 'sslvpn_auth_check_usrgroup: no ssl.root firewall policy allows groups ' + (r.groups || []).join(',') + ', permission denied'); return; }
+                if (r.reason === 'notunnel') { L.push(id + 'tunnel request rejected: portal \'' + r.portal + '\' has tunnel-mode disabled'); return; }
+                if (r.reason === 'nopool') { L.push(id + 'sslvpn_allocate_ip: no available IP address in tunnel-ip-pools'); return; }
+                L.push(id + 'rmt_web_session_create: user ' + cl.user + ' portal ' + r.portal, id + 'sslvpn_tunnel: tunnel established, assigned ' + r.ip);
+            });
+            log({ ssldebug: sslClients().map(cl => sslConnect(cl).reason || 'ok') });
+            return L.join('\n');
+        }
+
         // ── Bağlantı testleri (FortiGate kaynaklı trafik: kurala tabi değildir — local-out)
         S.pingOpt = { source: null, count: 5 }; S.arpDyn = {};
         const macOf = ip => '00:09:0f:' + [1, 2, 3].map(k => ((ip2n(ip) >> (k * 5)) & 255).toString(16).padStart(2, '0')).join(':');
@@ -558,6 +650,7 @@ const CgLabFgt = (() => {
                 const dOk = r.vip ? (p.dstaddr || []).includes(r.vip) : (p.dstaddr || []).some(a => addrMatch(a, r.dst));
                 if (!dOk) continue;
                 if (!(p.service || []).some(sv => svcMatch(sv, pf))) continue;
+                if ((p.groups || []).length && !(f.groups || []).some(g => p.groups.includes(g))) continue;
                 r.policy = k; r.action = p.action || 'deny';
                 if (r.action === 'accept' && p.nat === 'enable') {
                     const pool = p.ippool === 'enable' && (p.poolname || [])[0] && M().t['firewall ippool'].v[(p.poolname || [])[0]];
@@ -787,7 +880,7 @@ const CgLabFgt = (() => {
             debug: { reset: 'dreset', enable: 'denable', disable: 'ddisable', info: 'dinfo', crashlog: { read: 'crash' }, 'config-error-log': { read: 'cfgerr' },
                 flow: { filter: 'ffilter', show: { 'function-name': 'ffn' }, trace: { start: 'tstart', stop: 'tstop' } }, console: { timestamp: 'dts' } },
             sniffer: { packet: 'sniff' },
-            vpn: { ike: { gateway: { list: 'ikegw' }, 'log-filter': 'ikelf' }, tunnel: { list: 'tunlist' } },
+            vpn: { ike: { gateway: { list: 'ikegw' }, 'log-filter': 'ikelf' }, tunnel: { list: 'tunlist' }, ssl: { list: 'ssllist' } },
             ip: { arp: { list: 'arplist' } },
         };
         DIAG.debug.application = { ike: 'appike', sslvpn: 'appssl' };
@@ -898,6 +991,7 @@ const CgLabFgt = (() => {
                 case 'tstart': { const n = a[0] && /^\d+$/.test(a[0].t) ? +a[0].t : 0; if (!n) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (a[0] ? a[0].t : '') + '\''; } S.dbg.trace = n; log({ raw: line, canon }); return runTrace(); }
                 case 'tstop': S.dbg.trace = 0; return ok('');
                 case 'arplist': return ok(arpTable(true));
+                case 'ssllist': return ok(sslMonitor().split('\n').slice(sslMonitor().split('\n').indexOf('SSL-VPN sessions:')).join('\n'));
                 case 'hacsum': return ok(haChecksum());
                 case 'hahist': return ok(haHistory());
                 case 'ikegw': { const nm = a[0] && 'name'.startsWith(a[0].t) && a[1] ? a[1].t : null; if (nm && !M().t['vpn ipsec phase1-interface'].v[nm]) { log({ raw: line, err: 'invalid' }); return perr(a[1]); } return ok(ikeGw(nm)); }
@@ -913,7 +1007,7 @@ const CgLabFgt = (() => {
                     if (lv === null || !/^-?\d+$/.test(lv)) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (lv || '') + '\''; }
                     S.dbg.apps[node === 'appike' ? 'ike' : 'sslvpn'] = +lv !== 0;
                     log({ raw: line, canon });
-                    return S.dbg.on && node === 'appike' && +lv !== 0 ? ikeOut() : '';
+                    return S.dbg.on && +lv !== 0 ? (node === 'appike' ? ikeOut() : sslDebug()) : '';
                 }
                 case 'sniff': { const r = sniffer(a, line); if (r && r.err) { log({ raw: line, err: 'invalid' }); return r.err; } return r; }
             }
@@ -1019,6 +1113,7 @@ const CgLabFgt = (() => {
                         log({ raw: line, canon: 'get ' + g });
                         if (g === 'vpn ipsec tunnel summary') return tunSummary();
                         if (g === 'system arp') return arpTable(false);
+                        if (g === 'vpn ssl monitor') return sslMonitor();
                         if (g === 'system ha status') return haStatus();
                         return g === 'system status' ? sysStatus() : g === 'system performance status' ? perfStatus() : g === 'system session status' ? 'The total number of sessions for the current VDOM: ' + sessTotal() : g === 'system session list' ? sessTable() : showRib();
                     }
@@ -1071,7 +1166,7 @@ const CgLabFgt = (() => {
             const verbs = ['edit', 'delete', 'show', 'get', 'end', 'abort'].concat(sc.move ? ['move'] : []);
             const v = pick(t[0].t, verbs);
             if (!v.ok) { log({ raw: line, err: 'invalid' }); return perr(t[0]); }
-            if (v.ok === 'end' || v.ok === 'abort') { S.ctx = null; log({ raw: line, canon: v.ok, path: c.path }); return ''; }
+            if (v.ok === 'end' || v.ok === 'abort') { S.ctx = c.parent || null; log({ raw: line, canon: v.ok, path: c.path }); return ''; }
             if (v.ok === 'show' || v.ok === 'get') {
                 const full = t[1] && 'full-configuration'.startsWith(t[1].t.toLowerCase());
                 log({ raw: line, canon: (v.ok === 'show' ? 'show ' + (full ? 'full-configuration ' : '') : 'get ') + c.path });
@@ -1089,7 +1184,7 @@ const CgLabFgt = (() => {
                     msg = 'new entry \'' + k + '\' added';
                 }
                 if (tb.v[k] && tb.v[k]._builtin) { log({ raw: line, err: 'unsupported' }); return '# [Simülatör] "' + k + '" hazır (predefined) bir nesnedir; değiştirmeyin.'; }
-                S.ctx = { path: c.path, key: k, isNew: !tb.v[k], draft: JSON.parse(JSON.stringify(tb.v[k] || {})) };
+                S.ctx = { path: c.path, key: k, isNew: !tb.v[k], draft: JSON.parse(JSON.stringify(tb.v[k] || {})), parent: c.parent };
                 log({ raw: line, canon: 'edit ' + k, path: c.path });
                 return msg;
             }
@@ -1115,8 +1210,8 @@ const CgLabFgt = (() => {
         }
         function usedBy(p, k) {
             const out = [], map = { 'firewall address': ['addr', 'addrVip', 'addrgrpMember'], 'firewall addrgrp': ['addr', 'addrVip', 'addrgrpMember'], 'firewall vip': ['addrVip'],
-                'firewall service custom': ['svc', 'svcgrpMember'], 'firewall service group': ['svc', 'svcgrpMember'], 'firewall ippool': ['ippool'], 'vpn ipsec phase1-interface': ['p1', 'intf', 'intfAny'] }[p] || [];
-            for (const q of PATHS) {
+                'firewall service custom': ['svc', 'svcgrpMember'], 'firewall service group': ['svc', 'svcgrpMember'], 'firewall ippool': ['ippool'], 'vpn ipsec phase1-interface': ['p1', 'intf', 'intfAny'], 'user local': ['users'], 'user group': ['ugroups'], 'vpn ssl web portal': ['portal'] }[p] || [];
+            for (const q of ALLP) {
                 const sc = SCHEMA[q]; if (sc.single) continue;
                 for (const key of M().t[q].o) {
                     const o = M().t[q].v[key];
@@ -1143,15 +1238,22 @@ const CgLabFgt = (() => {
         }
         function editCmd(t, line) {
             const c = S.ctx, sc = SCHEMA[c.path];
-            const verbs = ['set', 'unset', 'append', 'unselect', 'show', 'get', 'end', 'abort'].concat(c.single ? [] : ['next']);
+            const verbs = ['set', 'unset', 'append', 'unselect', 'show', 'get', 'end', 'abort'].concat(c.single ? [] : ['next'], sc.children ? ['config'] : []);
             const v = pick(t[0].t, verbs);
             if (!v.ok) { log({ raw: line, err: 'invalid' }); return perr(t[0]); }
-            if (v.ok === 'abort') { S.ctx = null; log({ raw: line, canon: 'abort', path: c.path }); return ''; }
+            if (v.ok === 'abort') { S.ctx = c.parent || null; log({ raw: line, canon: 'abort', path: c.path }); return ''; }
+            if (v.ok === 'config') {
+                const sub = t[1] && pick(t[1].t, sc.children);
+                if (!sub || !sub.ok || t.length > 2) { log({ raw: line, err: 'invalid' }); return perr(t[1] || null); }
+                S.ctx = { path: childPath(c.path, sub.ok), parent: c };
+                log({ raw: line, canon: 'config ' + sub.ok, path: c.path });
+                return '';
+            }
             if (v.ok === 'next' || v.ok === 'end') {
                 const e = commit();
                 if (e) { log({ raw: line, err: 'required', path: c.path }); return e; }
                 log({ raw: line, canon: v.ok, path: c.path, key: c.key });
-                S.ctx = v.ok === 'next' && !c.single ? { path: c.path } : null;
+                S.ctx = v.ok === 'next' && !c.single ? { path: c.path, parent: c.parent } : (c.parent || null);
                 return '';
             }
             if (v.ok === 'show') {
@@ -1188,7 +1290,7 @@ const CgLabFgt = (() => {
             const t = tok(raw), trailing = raw === '' || /\s$/.test(raw);
             const done = trailing ? t : t.slice(0, -1);
             const c = S.ctx;
-            const verbList = !c ? ['config', 'show', 'get', 'execute', 'diagnose', 'exit'] : (c.key !== undefined || c.single) ? ['set', 'unset', 'append', 'unselect', 'show', 'get', 'end', 'abort'].concat(c.single ? [] : ['next']) : ['edit', 'delete', 'show', 'get', 'end', 'abort'].concat(SCHEMA[c.path].move ? ['move'] : []);
+            const verbList = !c ? ['config', 'show', 'get', 'execute', 'diagnose', 'exit'] : (c.key !== undefined || c.single) ? ['set', 'unset', 'append', 'unselect', 'show', 'get', 'end', 'abort'].concat(c.single ? [] : ['next'], SCHEMA[c.path].children ? ['config'] : []) : ['edit', 'delete', 'show', 'get', 'end', 'abort'].concat(SCHEMA[c.path].move ? ['move'] : []);
             if (!done.length) return verbList.map(w => [w, VERB_H[w] || '']);
             const v = pick(done[0].t, verbList);
             if (!v.ok) return null;
@@ -1212,10 +1314,11 @@ const CgLabFgt = (() => {
                 if (cands.some(x => x.length === k) && k) res.push(['<Enter>', '']);
                 return res;
             }
+            if (c && v.ok === 'config' && SCHEMA[c.path].children) return done.length === 1 ? SCHEMA[c.path].children.map(w => [w, 'Alt tablo']) : [];
             if (!c && v.ok === 'diagnose') {
                 let node = DIAG;
                 for (let k = 1; k < done.length; k++) { if (!node || typeof node !== 'object') return []; const r = pick(done[k].t, Object.keys(node)); if (!r.ok) return null; node = node[r.ok]; }
-                const DH = { sys: 'Sistem (süreç, oturum)', top: 'En çok CPU/bellek kullanan süreçler', session: 'Oturum tablosu', stat: 'Oturum istatistikleri', list: 'Oturumları listele (filtreyle)', clear: 'Filtredeki oturumları sil', filter: 'Filtre ayarla',
+                const DH = { ssl: 'SSL-VPN oturumları', sys: 'Sistem (süreç, oturum)', top: 'En çok CPU/bellek kullanan süreçler', session: 'Oturum tablosu', stat: 'Oturum istatistikleri', list: 'Oturumları listele (filtreyle)', clear: 'Filtredeki oturumları sil', filter: 'Filtre ayarla',
                     hardware: 'Donanım', sysinfo: 'Sistem bilgisi', memory: 'Bellek kullanımı', conserve: 'Bellek koruma (conserve) modu', debug: 'Debug', reset: 'Tüm debug ayarlarını sıfırla', enable: 'Debug çıktısını aç', disable: 'Debug çıktısını kapat', info: 'Debug durumu',
                     crashlog: 'Çökme kaydı', 'config-error-log': 'Yapılandırma hata kaydı', read: 'Oku', flow: 'Paket akışı izleme', show: 'Gösterim ayarı', 'function-name': 'Fonksiyon adlarını göster', trace: 'İzleme', start: 'N paket izle', stop: 'İzlemeyi durdur', console: 'Konsol', timestamp: 'Zaman damgası', sniffer: 'Paket yakalama', ha: 'HA', checksum: 'Yapılandırma sağlaması', cluster: 'Tüm üyeler', history: 'HA olay geçmişi', ip: 'IP', arp: 'ARP tablosu', vpn: 'VPN', ike: 'IKE (faz 1)', gateway: 'IKE ağ geçitleri', 'log-filter': 'IKE debug filtresi', tunnel: 'IPsec tünelleri', application: 'Uygulama debug\'ı (ike, sslvpn)', packet: '<arayüz|any> \'<filtre>\' <1-6> <adet>' };
                 return node && typeof node === 'object' ? Object.keys(node).map(w => [w, DH[w] || '']) : [['<Enter>', '']];
@@ -1289,6 +1392,7 @@ const CgLabFgt = (() => {
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
             _toRoot: () => { S.ctx = null; S.pending = null; S.loggedOut = false; },
             get answers() { return S.answers; }, set answers(v) { S.answers = v || {}; },
+            ssl: user => { const cl = sslClients().find(x => x.user === user); return cl ? sslConnect(cl) : null; },
             ha: () => { const E = haElect(); return { formed: E.formed, primary: E.formed ? E.meP : true, reason: E.reason || E.why, synced: haInSync(), onPeer: S.ha.onPeer }; },
             tun: n => { const T = tun(n); return { p1up: T.p1up, p2up: T.p2up, reason: T.reason }; },
             variant: () => S.variant, decide: f => decide(Object.assign({ sport: 50000, proto: 'tcp', reply: 'ok', arrives: true }, f)),
