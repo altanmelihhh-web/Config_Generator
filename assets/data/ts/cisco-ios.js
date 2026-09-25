@@ -188,5 +188,48 @@
                 { code: 'test aaa group TAC-GRP netadmin <parola> legacy', desc: 'Ayar değiştirmeden sunucuyla gerçek test: "User successfully authenticated" = sunucu yanıt veriyor ve hesabı kabul ediyor; "User rejected" = sunucu yanıt verdi ama reddetti (local denenmez); zaman aşımı/hata = sunucuya ulaşılamıyor.' },
             ],
         },
+        {
+            title: 'OSPF Komşuluğu Kurulmuyor ya da FULL Olmuyor', severity: 'err', topic: 'routing', lab: 'ios-44',
+            symptom: 'Uzak ağlara ulaşılamıyor; OSPF rotaları tabloda yok. Komşu hiç görünmüyor ya da EXSTART/EXCHANGE\'te takılı.',
+            steps: [
+                { code: 'show ip ospf neighbor', desc: 'Komşu FULL olmalı (yayın ağında FULL/DR, FULL/BDR ya da FULL/DROTHER; noktadan noktaya FULL/ -). Hiç satır yoksa sonraki adımlara; EXSTART/EXCHANGE\'te takılıysa son adıma (MTU) bakın.' },
+                { code: 'show ip ospf interface brief', desc: 'Komşuya bakan arayüz listede olmalı. Yoksa hiçbir network ifadesi o arayüzün adresini kapsamıyor (wildcard ya da ağ adresi yanlış).',
+                  fix: [{ cause: 'network ifadesi arayüzün ağını kapsamıyor: yanlışı silip doğrusunu yazın (wildcard, maske değil)', cmd: 'router ospf 1\n no network 10.64.21.0 0.0.0.3 area 0\n network 10.64.12.0 0.0.0.3 area 0' }] },
+                { code: 'show ip ospf interface GigabitEthernet0/0', desc: '"No Hellos (Passive interface)" satırı varsa arayüz pasif: hello gitmez, komşu olmaz. "Area" karşı taraftaki alanla, "Hello/Dead" süreleri karşı tarafla aynı olmalı.',
+                  fix: [{ cause: 'Komşuya bakan arayüz pasif', cmd: 'router ospf 1\n no passive-interface GigabitEthernet0/0' },
+                        { cause: 'Hello/dead süresi karşı taraftan farklı (hello değişince dead otomatik 4 katı olur)', cmd: 'interface GigabitEthernet0/0\n no ip ospf hello-interval' },
+                        { cause: 'Arayüz yanlış alanda', cmd: 'router ospf 1\n no network 10.64.12.0 0.0.0.3 area 1\n network 10.64.12.0 0.0.0.3 area 0' }] },
+                { code: 'show running-config interface GigabitEthernet0/0', desc: 'Komşu görünüyor ama EXSTART/EXCHANGE\'te kalıyorsa iki uçta IP MTU farklıdır; "ip mtu" satırı karşı taraftaki değerle aynı olmalı (varsayılan 1500).',
+                  fix: [{ cause: 'MTU farkı', cmd: 'interface GigabitEthernet0/0\n no ip mtu' }] },
+                { code: 'show ip route ospf', desc: 'Düzeltmeden sonra "O" (ve varsayılan için "O*E2") satırları gelmeli; [110/X] içinde 110 yönetimsel uzaklık, X maliyet toplamıdır.' },
+            ],
+        },
+        {
+            title: 'EtherChannel Üyesi Bağlanmıyor (s / I)', severity: 'warn', topic: 'l2', lab: 'ios-15',
+            symptom: 'Port-channel çalışıyor ama bir üye (P) değil: askıda (s) ya da bağımsız (I). Bant genişliği beklenenden düşük.',
+            steps: [
+                { code: 'show etherchannel summary', desc: 'Tüm üyeler (P) olmalı, port-channel (SU). (s) = askıda: ayarı diğer üyelerden farklı. (I) = bağımsız: pazarlık kurulamadı. (D) = üye kapalı.' },
+                { code: 'show running-config interface GigabitEthernet0/3', desc: 'Askıdaki üyenin hız, dupleks ve switchport ayarları (mod, allowed/native VLAN) diğer üyelerle ve port-channel ile aynı olmalı. Log\'daki %EC-5-CANNOT_BUNDLE2 satırı farkı parantez içinde söyler.',
+                  fix: [{ cause: 'Hız farklı (ör. 100)', cmd: 'interface GigabitEthernet0/3\n speed auto' },
+                        { cause: 'İzin verilen VLAN listesi farklı ("vlan mask is different")', cmd: 'interface GigabitEthernet0/3\n switchport trunk allowed vlan 10,20,99' }] },
+                { code: 'show running-config interface GigabitEthernet0/1', desc: '"channel-group N mode" satırı: LACP\'de en az bir uç active olmalı (passive+passive kurulmaz); "on" iki uçta da on olmalı, karşı taraf LACP konuşuyorsa kanal kurulmaz.',
+                  fix: [{ cause: 'İki uç da passive ya da bu uç "on", karşı uç LACP', cmd: 'interface range GigabitEthernet0/1 - 2\n channel-group 1 mode active' }] },
+                { code: 'show interfaces trunk', desc: 'Trunk listesinde üyeler değil port-channel (Po1) görünmeli; allowed VLAN\'lar port-channel üzerinde tanımlıdır. Ayarı port-channel\'a yapın, üyelere yayılır.',
+                  fix: [{ cause: 'Ayar üyelere tek tek yapılmış', cmd: 'interface port-channel 1\n switchport mode trunk\n switchport trunk allowed vlan 10,20,99' }] },
+            ],
+        },
+        {
+            title: 'HSRP: Tercih Edilen Router Aktif Olmuyor ya da WAN Kopunca Devir Olmuyor', severity: 'err', topic: 'ha', lab: 'ios-22',
+            symptom: 'Önceliği yüksek router Standby kalıyor ya da aktif router\'ın WAN\'ı koptuğu hâlde trafik ona gitmeye devam ediyor (kullanıcılar internetsiz).',
+            steps: [
+                { code: 'show standby brief', desc: 'Pri sütunu etkin öncelik, "P" preempt demektir. Öncelik yüksek ama State Standby ise ve P yoksa: preempt eksik — HSRP mevcut aktifi preempt olmadan yerinden etmez.',
+                  fix: [{ cause: 'Tercih edilen router\'da preempt yok', cmd: 'interface GigabitEthernet0/1\n standby 1 preempt' }] },
+                { code: 'show standby', desc: '"Priority X (configured Y)" satırında X, izlenen nesne düşünce azalmış öncelik; "Track object N state Down decrement D" satırı hangi izlemenin etkilediğini gösterir. Track satırı yoksa WAN izlenmiyor.',
+                  fix: [{ cause: 'WAN izlenmiyor', cmd: 'track 1 interface GigabitEthernet0/0 line-protocol\ninterface GigabitEthernet0/1\n standby 1 track 1 decrement 20' }] },
+                { code: 'show track', desc: 'İzlenen arayüzün durumu ("Line protocol is Up/Down") ve hangi HSRP grubunun izlediği görünür.' },
+                { code: 'show running-config interface GigabitEthernet0/1', desc: 'decrement, öncelik farkını aşmalı (ör. 110 − 20 = 90 < 100). Devralan tarafta (diğer router) da preempt olmalı; yoksa öncelik düşse bile aktif değişmez.',
+                  fix: [{ cause: 'decrement yetersiz', cmd: 'interface GigabitEthernet0/1\n standby 1 track 1 decrement 20' }] },
+            ],
+        },
     ];
 })();
