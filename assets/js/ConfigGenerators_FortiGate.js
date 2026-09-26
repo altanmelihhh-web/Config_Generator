@@ -266,7 +266,13 @@ FortiGate.policy = {
                         { name: 'pol_comments', why: 'Kuralın neden var olduğunu (talep/ticket no, sahibi) yazmak, kural temizliğinde "bunu silebilir miyiz?" sorusunu cevaplar.', label: 'Açıklama (comments)', type: 'text', placeholder: 'CHG-1234 web erişimi', hint: 'Kural açıklaması' },
                         { name: 'pol_groups', why: 'Kullanıcı grubu verilirse kural yalnız kimliği doğrulanmış o grup üyeleri için eşleşir. Grup adı <code>config user group</code> altında tanımlı olmalı.', label: 'Kullanıcı Grupları', type: 'text', placeholder: 'VPN_USERS', hint: 'Virgülle ayrılmış grup adları' },
                         { name: 'pol_users', why: 'Tek tek kullanıcıya bağlanan kural, grup tabanlı kurala göre bakımı zordur; mümkünse grup kullan.', label: 'Kullanıcılar', type: 'text', placeholder: 'user1', hint: 'Virgülle ayrılmış yerel kullanıcı adları' },
-                        { name: 'pol_disabled', why: 'Kuralı devre dışı oluşturmak, bakım penceresinde tek komutla (<code>set status enable</code>) açmayı sağlar.', label: 'Kuralı devre dışı oluştur', type: 'checkbox', checked: false, hint: 'set status disable' }
+                        { name: 'pol_disabled', why: 'Kuralı devre dışı oluşturmak, bakım penceresinde tek komutla (<code>set status enable</code>) açmayı sağlar.', label: 'Kuralı devre dışı oluştur', type: 'checkbox', checked: false, hint: 'set status disable' },
+                        { name: 'pol_move', why: 'Yeni kural listenin SONUNA eklenir; üstte daha geniş bir kural varsa hiç eşleşmez. "move" ile kuralı doğru yere taşıyın (fgt-05).', label: 'Kuralı taşı', type: 'select', options: [
+                            { value: '', label: 'Taşıma (sonda kalsın)', selected: true },
+                            { value: 'before', label: 'Şu kuralın ÖNÜNE (before)' },
+                            { value: 'after', label: 'Şu kuralın ARKASINA (after)' }
+                        ]},
+                        { name: 'pol_move_ref', why: 'Taşınacak yerin yanındaki kuralın ID\'si (show firewall policy ile bakın).', label: 'Referans Kural ID', type: 'text', validate: 'posint', requiredIf: { field: 'pol_move', in: ['before', 'after'] }, placeholder: '3', hint: 'move <id> before|after <ref>' }
                     ]
                 }
             ],
@@ -323,6 +329,14 @@ function cgFgPolicyGen(data) {
     if (data.pol_comments) c += '        set comments "' + cgEsc(data.pol_comments) + '"\n';
     if (data.pol_disabled) c += '        set status disable\n';
     c += '    next\nend\n\n';
+    // Kural sırası: tablo düzeyinde "move <id> before|after <id>" (FortiOS CLI tablo komutu)
+    const mv = data.pol_move === 'before' || data.pol_move === 'after' ? data.pol_move : '', mref = String(data.pol_move_ref || '').trim();
+    if (mv) {
+        if (!rid || rid === '0') w.push('⚠ Taşıma için kural ID\'si gerekli: "edit 0" ile oluşan kuralın numarasını görüp move komutunu elle yazın.');
+        else if (!/^\d+$/.test(mref)) w.push('⛔ Referans kural ID\'si sayı olmalı; move yazılamadı.');
+        else if (mref === rid) w.push('⛔ Kural kendi önüne/arkasına taşınamaz.');
+        else c += '# Kuralı sıraya yerleştir\nconfig firewall policy\n    move ' + rid + ' ' + mv + ' ' + cgEsc(mref) + '\nend\n\n';
+    }
     c += '# Doğrulama:\n# show firewall policy ' + rid + '\n# diagnose firewall iprope show 00100004 ' + rid + '\n';
     return { config: c, warnings: w };
 }
@@ -355,6 +369,9 @@ FortiGate.nat = {
                             { value: 'disable', label: 'Hayır', selected: true },
                             { value: 'enable',  label: 'Evet' }
                         ], hint: 'Belirli port eşleştirmesi gerekiyorsa Evet seçin' },
+                        { name: 'vip_proto', why: 'Port yönlendirmede protokol (varsayılan tcp). DNS/SIP gibi UDP servisleri için udp seçilmezse yönlendirme çalışmaz.', label: 'Protokol', type: 'select', options: [
+                            { value: 'tcp', label: 'TCP', selected: true }, { value: 'udp', label: 'UDP' }, { value: 'sctp', label: 'SCTP' }, { value: 'icmp', label: 'ICMP' }
+                        ], hint: 'Yalnız port yönlendirmede (set protocol)' },
                         { name: 'vip_extport', why: 'Dışarıdan gelinen port. Standart olmayan port kullanmak (ör. RDP için 3389 yerine başka bir port) otomatik taramaları azaltır ama güvenlik sağlamaz.',    label: 'External Port',        type: 'text', requiredIf: { field: 'vip_portfwd', in: ['enable'] }, validate: 'port',  placeholder: '80',    hint: 'Dışarıdan gelen port' },
                         { name: 'vip_mappedport', why: 'İç sunucunun dinlediği gerçek port. Dış 8080 → iç 80 gibi çevirmek mümkündür.', label: 'Mapped Port',          type: 'text', requiredIf: { field: 'vip_portfwd', in: ['enable'] }, validate: 'port',  placeholder: '80',    hint: 'Yönlendirilecek iç port' }
                     ]
@@ -366,7 +383,12 @@ FortiGate.nat = {
                     fields: [
                         { name: 'pool_name', why: "IP Pool, giden trafikte kaynak IP'yi belirler. Kurala bağlanmadan tek başına etkisizdir.",  label: 'Pool Adı',       type: 'text', required: true, placeholder: 'SNAT_POOL',     hint: 'Policy ippool parametresi için kullanılır' },
                         { name: 'pool_start', why: "Havuzun ilk IP'si. Bu adresler WAN arayüzüyle aynı subnet'te olmalı ve ISS tarafından yönlendirilmelidir.", label: 'Başlangıç IP',   type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.10',  hint: 'SNAT havuzunun ilk IP adresi' },
-                        { name: 'pool_end', why: "IP Pool'un son adresi. Havuz tükendiğinde yeni oturumlar NAT alamaz ve bağlantı kurulamaz.",   label: 'Bitiş IP',       type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.20',  hint: 'SNAT havuzunun son IP adresi' }
+                        { name: 'pool_end', why: "IP Pool'un son adresi. Havuz tükendiğinde yeni oturumlar NAT alamaz ve bağlantı kurulamaz.",   label: 'Bitiş IP',       type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.20',  hint: 'SNAT havuzunun son IP adresi' },
+                        { name: 'pool_type', why: 'overload: çok kullanıcı az IP (port çevirme). one-to-one: her iç adrese bir dış adres (port değişmez). fixed-port-range: iç aralık dış aralığa sabit port bloklarıyla eşlenir. port-block-allocation: kullanıcıya port blokları (CGNAT, log azaltır).', label: 'Havuz Tipi', type: 'select', options: [
+                            { value: 'overload', label: 'overload (varsayılan)', selected: true }, { value: 'one-to-one', label: 'one-to-one' }, { value: 'fixed-port-range', label: 'fixed-port-range' }, { value: 'port-block-allocation', label: 'port-block-allocation' }
+                        ]},
+                        { name: 'pool_srcstart', why: 'fixed-port-range: çevrilecek İÇ adres aralığının başı.', label: 'Kaynak (iç) Başlangıç', type: 'text', validate: 'ip', requiredIf: { field: 'pool_type', in: ['fixed-port-range'] }, placeholder: '10.64.10.1', hint: 'source-startip' },
+                        { name: 'pool_srcend', why: 'fixed-port-range: çevrilecek İÇ adres aralığının sonu.', label: 'Kaynak (iç) Bitiş', type: 'text', validate: 'ip', requiredIf: { field: 'pool_type', in: ['fixed-port-range'] }, placeholder: '10.64.10.254', hint: 'source-endip' }
                     ]
                 }
             ],
@@ -392,10 +414,13 @@ function cgFgNatGen(data) {
         c += '        set mappedip "' + mapped + '"\n';
         if (pf === 'enable') {
             c += '        set portforward enable\n';
+            const vp = ['udp', 'sctp', 'icmp'].includes(data.vip_proto) ? data.vip_proto : 'tcp';
+            if (vp !== 'tcp') c += '        set protocol ' + vp + '\n';
             c += '        set extport ' + cgEsc(data.vip_extport || '') + '\n';
             c += '        set mappedport ' + cgEsc(data.vip_mappedport || '') + '\n';
         }
         c += '    next\nend\n\n';
+        if (pf !== 'enable' && ['udp', 'sctp', 'icmp'].includes(data.vip_proto)) w.push('ℹ Protokol (' + data.vip_proto + ') yalnız port yönlendirmede yazılır; statik NAT tüm protokolleri çevirir.');
         c += '# VIP tek başına trafiği geçirmez: WAN → sunucu yönünde, hedefi bu VIP olan bir kural gerekir\n';
         c += '# (Security Policy aracı: Hedef Adres = ' + name + ', NAT = Disable).\n';
         if (_fgWIsIp(data.vip_extip) && String(data.vip_extip).trim() === String(data.vip_mappedip || '').trim()) w.push('⛔ Dış IP ile iç (mapped) IP aynı: çevrilecek bir şey yok.');
@@ -414,7 +439,13 @@ function cgFgNatGen(data) {
         const end   = cgEsc(data.pool_end || '');
         c += 'config firewall ippool\n    edit "' + name + '"\n';
         c += '        set startip ' + start + '\n        set endip ' + end + '\n';
-        c += '        set type overload\n    next\nend\n\n';
+        // CLI Ref 7.4.8 firewall ippool (182407590): type overload | one-to-one | fixed-port-range | port-block-allocation
+        const pt = ['one-to-one', 'fixed-port-range', 'port-block-allocation'].includes(data.pool_type) ? data.pool_type : 'overload';
+        c += '        set type ' + pt + '\n';
+        if (pt === 'fixed-port-range') c += '        set source-startip ' + cgEsc(data.pool_srcstart || '') + '\n        set source-endip ' + cgEsc(data.pool_srcend || '') + '\n';
+        c += '    next\nend\n\n';
+        if (pt === 'one-to-one') w.push('ℹ one-to-one: aynı anda en çok havuzdaki adres sayısı kadar iç adres çıkabilir; port çevrilmez.');
+        if (pt === 'port-block-allocation') w.push('ℹ port-block-allocation: varsayılan blok 128 port, kullanıcı başına 8 blok (block-size, num-blocks-per-user); log hacmini azaltır.');
         // Havuz kurala "set ippool enable" + "set poolname" ile bağlanır (FortiOS 7.4 firewall policy)
         c += '# Kurala bağlamak için (Security Policy):\n#     set nat enable\n#     set ippool enable\n#     set poolname "' + name + '"\n';
         if (_fgWIsIp(data.pool_start) && _fgWIsIp(data.pool_end) && _fgWN(data.pool_start) > _fgWN(data.pool_end)) w.push('⛔ Başlangıç IP bitiş IP\'sinden büyük: FortiOS havuzu kaydetmez.');
@@ -3101,5 +3132,134 @@ function cgFgAuthServerGen(data) {
         if (lt === 'anonymous') w.push('⚠ anonymous bağlanma çoğu Active Directory kurulumunda kapalıdır; arama başarısız olur.');
     }
     w.push('ℹ Sunucuyu bir kullanıcı grubuna ekleyin (config user group → config match / set member) ve gerekiyorsa yönetici hesabına bağlayın.');
+    return { config: c, warnings: w };
+}
+
+// ── FortiGate: Central SNAT — CLI Ref 7.4.8/7.6.6 config firewall central-snat-map (135632652), config system settings central-nat (130421147) ──
+FortiGate.centralsnat = {
+    label: 'Central SNAT',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-random',
+                title: 'Central SNAT (FortiGate)',
+                desc: 'Kaynak NAT\'ı kurallardan ayırıp merkezi bir tabloda yönetir: kural yalnız izin verir, SNAT central-snat-map\'teki ilk eşleşen kayıttan gelir.<br><code>config system settings\n  set central-nat enable\nend\nconfig firewall central-snat-map\n  edit 1\n    set srcintf "port2"\n    set dstintf "port1"\n    set orig-addr "LAN-NET"\n    set dst-addr "all"\n  next\nend</code>'
+            },
+            sections: [
+                {
+                    title: 'Merkezi NAT kaydı',
+                    icon: 'fas fa-random',
+                    fields: [
+                        { name: 'cs_enable', why: 'Central NAT açılınca kurallardaki NAT ayarı kullanılmaz ve kural düzenleyicide NAT alanı kaybolur; SNAT yalnız bu tablodan gelir. Mevcut NAT\'lı kuralların karşılığını tabloya eklemeden açmayın.', label: 'central-nat\'ı aç (system settings)', type: 'checkbox', checked: true, hint: 'set central-nat enable' },
+                        { name: 'cs_id', why: 'Tablo da yukarıdan aşağı ilk eşleşen kayıtla çalışır; özel kayıtları genelin önüne koyun (move).', label: 'Kayıt ID', type: 'text', validate: 'posint', required: true, placeholder: '1', hint: 'edit <id>' },
+                        { name: 'cs_srcintf', why: 'Trafiğin girdiği arayüz (iç).', label: 'Kaynak Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'port2', hint: 'srcintf' },
+                        { name: 'cs_dstintf', why: 'Trafiğin çıktığı arayüz (WAN).', label: 'Hedef Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'port1', hint: 'dstintf' },
+                        { name: 'cs_orig', why: 'Çevrilecek özgün kaynak adres nesnesi.', label: 'Özgün Kaynak Adres', type: 'text', validate: 'objname', required: true, placeholder: 'LAN-NET', hint: 'orig-addr' },
+                        { name: 'cs_dst', why: 'Hedef adres nesnesi; tüm hedefler için all.', label: 'Hedef Adres', type: 'text', validate: 'objname', required: true, placeholder: 'all', hint: 'dst-addr' },
+                        { name: 'cs_nat', why: 'disable: bu eşleşme için NAT YAPILMAZ (ör. site-to-site VPN trafiği). Böyle istisnaları genel kaydın önüne koyun.', label: 'NAT', type: 'select', options: [
+                            { value: 'enable', label: 'enable (çevir)', selected: true }, { value: 'disable', label: 'disable (çevirme — istisna)' }
+                        ]},
+                        { name: 'cs_pool', why: 'Boşsa çıkış arayüzünün IP\'si kullanılır; doluysa bu IP havuzu (firewall ippool).', label: 'IP Havuzu', type: 'text', validate: 'objname', placeholder: 'SNAT_POOL', hint: 'nat-ippool (isteğe bağlı)' },
+                        { name: 'cs_comments', why: 'Kaydın amacı (ör. "VPN istisnası").', label: 'Açıklama', type: 'text', placeholder: 'LAN internete', hint: 'comments' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFgCentralSnatGen(data));
+    }
+};
+function cgFgCentralSnatGen(data) {
+    const w = [], nat = data.cs_nat === 'disable' ? 'disable' : 'enable', pool = String(data.cs_pool || '').trim();
+    let c = '# ========================================\n# FortiGate — Central SNAT\n# ========================================\n\n';
+    if (data.cs_enable) c += 'config system settings\n    set central-nat enable\nend\n\n';
+    c += 'config firewall central-snat-map\n    edit ' + cgEsc(String(data.cs_id || '').trim()) + '\n';
+    c += '        set srcintf "' + cgEsc(String(data.cs_srcintf || '').trim()) + '"\n        set dstintf "' + cgEsc(String(data.cs_dstintf || '').trim()) + '"\n';
+    c += '        set orig-addr "' + cgEsc(String(data.cs_orig || '').trim()) + '"\n        set dst-addr "' + cgEsc(String(data.cs_dst || '').trim()) + '"\n';
+    if (nat === 'disable') c += '        set nat disable\n';
+    else if (pool) c += '        set nat-ippool "' + cgEsc(pool) + '"\n';
+    if (String(data.cs_comments || '').trim()) c += '        set comments "' + cgEsc(String(data.cs_comments).trim()) + '"\n';
+    c += '    next\nend\n\n';
+    c += '# Doğrulama:\n# show firewall central-snat-map\n# diagnose sys session list (SNAT satırı: act=snat)\n';
+    if (data.cs_enable) w.push('⚠ central-nat enable: kurallardaki NAT ayarı artık kullanılmaz; NAT\'lı her kuralın karşılığı bu tabloda olmalı, yoksa trafik çevrilmeden çıkar.');
+    else w.push('ℹ central-nat açılmadı: tablo kayıtları ancak "config system settings / set central-nat enable" sonrası etkindir.');
+    if (nat === 'disable') w.push('ℹ NAT istisnası: bu kaydı genel (enable) kaydın ÖNÜNE koyun (move ' + (data.cs_id || '<id>') + ' before <genel-id>).');
+    if (nat === 'disable' && pool) w.push('ℹ NAT kapalıyken havuz yazılmadı.');
+    w.push('ℹ Kural yine gerekir: central NAT yalnız çeviriyi belirler, izni firewall policy verir.');
+    return { config: c, warnings: w };
+}
+
+// ── FortiGate: Zamanlama — CLI Ref 7.4.8 firewall schedule recurring (161573977: day, start, end hh:mm) ve onetime (260188243: "hh:mm yyyy/mm/dd") ──
+FortiGate.schedule = {
+    label: 'Zamanlama (Schedule)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-calendar-alt',
+                title: 'Zamanlama — recurring / onetime (FortiGate)',
+                desc: 'Kuralı belirli gün ve saatlerde (mesai) ya da belirli bir tarih aralığında (geçici erişim) etkin kılar.<br><code>config firewall schedule recurring\n  edit "MESAI"\n    set day monday tuesday wednesday thursday friday\n    set start 08:00\n    set end 18:00\n  next\nend</code>'
+            },
+            configTypes: [
+                { id: 'recurring', label: 'Tekrarlayan', icon: 'fas fa-redo', desc: 'Her hafta aynı gün/saat', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'onetime', label: 'Tek seferlik', icon: 'fas fa-calendar-day', desc: 'Başlangıç ve bitiş tarihi' }
+            ],
+            sections: [
+                {
+                    title: 'Zamanlama',
+                    icon: 'fas fa-clock',
+                    fields: [
+                        { name: 'sc_name', why: 'Kuralda "set schedule <ad>" ile kullanılır.', label: 'Ad', type: 'text', validate: 'objname', required: true, placeholder: 'MESAI', hint: 'edit <ad>' },
+                        { name: 'sc_pol', why: 'Doluysa bu kuralın schedule alanı da güncellenir; zamanlama tek başına hiçbir şeyi kısıtlamaz.', label: 'Bağlanacak Kural ID', type: 'text', validate: 'posint', placeholder: '5', hint: 'isteğe bağlı' }
+                    ]
+                },
+                {
+                    title: 'Tekrarlayan',
+                    icon: 'fas fa-redo',
+                    showFor: ['recurring'],
+                    fields: [
+                        { name: 'sc_days', why: 'Zamanlamanın geçerli olduğu günler. CLI varsayılanı "none"dır: gün seçilmezse kural hiç eşleşmez.', label: 'Günler', type: 'select', options: [
+                            { value: 'monday tuesday wednesday thursday friday', label: 'Hafta içi', selected: true }, { value: 'saturday sunday', label: 'Hafta sonu' }, { value: 'sunday monday tuesday wednesday thursday friday saturday', label: 'Her gün' }
+                        ]},
+                        { name: 'sc_start', why: 'Başlangıç saati (ss:dd). Bitiş başlangıçtan küçükse zamanlama gece yarısını aşar (ör. 22:00 → 06:00).', label: 'Başlangıç', type: 'text', placeholder: '08:00', hint: 'start hh:mm' },
+                        { name: 'sc_end', why: 'Bitiş saati (ss:dd). Başlangıçla aynıysa gün boyu geçerlidir.', label: 'Bitiş', type: 'text', placeholder: '18:00', hint: 'end hh:mm' }
+                    ]
+                },
+                {
+                    title: 'Tek seferlik',
+                    icon: 'fas fa-calendar-day',
+                    showFor: ['onetime'],
+                    fields: [
+                        { name: 'sc_ostart', why: 'Biçim "ss:dd yyyy/aa/gg" (tırnak içinde yazılır).', label: 'Başlangıç', type: 'text', requiredIf: { field: '_cgtype', in: ['onetime'] }, placeholder: '09:00 2026/10/01', hint: 'start "hh:mm yyyy/mm/dd"' },
+                        { name: 'sc_oend', why: 'Bitişten sonra kural eşleşmez; geçici erişimin kendiliğinden kapanmasını sağlar.', label: 'Bitiş', type: 'text', requiredIf: { field: '_cgtype', in: ['onetime'] }, placeholder: '18:00 2026/10/07', hint: 'end "hh:mm yyyy/mm/dd"' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFgScheduleGen(data));
+    }
+};
+function cgFgScheduleGen(data) {
+    const ty = data._cgtype === 'onetime' ? 'onetime' : 'recurring', w = [], name = cgEsc(String(data.sc_name || '').trim());
+    const hm = /^([01]?\d|2[0-3]):[0-5]\d$/, dt = /^([01]?\d|2[0-3]):[0-5]\d \d{4}\/(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])$/;
+    let c = '# ========================================\n# FortiGate — Zamanlama (' + ty + ')\n# ========================================\n\n';
+    if (ty === 'recurring') {
+        const st = String(data.sc_start || '').trim(), en = String(data.sc_end || '').trim();
+        c += 'config firewall schedule recurring\n    edit "' + name + '"\n        set day ' + cgEsc(data.sc_days || 'monday tuesday wednesday thursday friday') + '\n';
+        if (st) c += '        set start ' + cgEsc(st) + '\n';
+        if (en) c += '        set end ' + cgEsc(en) + '\n';
+        c += '    next\nend\n\n';
+        if ((st && !hm.test(st)) || (en && !hm.test(en))) w.push('⛔ Saat "ss:dd" biçiminde olmalı (ör. 08:00).');
+        if (!st && !en) w.push('ℹ Saat verilmedi: start ve end 00:00 kalır, zamanlama seçilen günlerde gün boyu geçerlidir.');
+        else if (st && en && st > en) w.push('ℹ Bitiş başlangıçtan önce: zamanlama gece yarısını aşar (ör. 22:00 → ertesi gün 06:00).');
+    } else {
+        const st = String(data.sc_ostart || '').trim(), en = String(data.sc_oend || '').trim();
+        c += 'config firewall schedule onetime\n    edit "' + name + '"\n        set start "' + cgEsc(st) + '"\n        set end "' + cgEsc(en) + '"\n    next\nend\n\n';
+        if (!dt.test(st) || !dt.test(en)) w.push('⛔ Tarih biçimi "ss:dd yyyy/aa/gg" olmalı (ör. 09:00 2026/10/01).');
+        w.push('ℹ Varsayılan olarak bitişten 3 gün önce olay logu yazılır (expiration-days).');
+    }
+    const pol = String(data.sc_pol || '').trim();
+    if (pol) c += '# Kurala bağla\nconfig firewall policy\n    edit ' + cgEsc(pol) + '\n        set schedule "' + name + '"\n    next\nend\n\n';
+    else w.push('ℹ Zamanlama kurala bağlanmadı: kuralda "set schedule ' + (name || '<ad>') + '" gerekir.');
+    c += '# Doğrulama:\n# show firewall schedule ' + ty + ' ' + name + '\n';
+    w.push('ℹ Zamanlama cihaz saatine göre çalışır: NTP eşitlemesi ve saat dilimi doğru olmalı (diagnose sys ntp status).');
     return { config: c, warnings: w };
 }
