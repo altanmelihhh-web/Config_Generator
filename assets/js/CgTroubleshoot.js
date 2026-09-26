@@ -25,7 +25,9 @@ const CgTroubleshoot = {
         'juniper': ['juniper', 'juniper-srx', 'juniper-mx'], 'huawei': ['huawei', 'huawei-ce', 'huawei-usg'],
     },
     TS_EXTRA: ['cisco-ios', 'huawei', 'dell', 'juniper', 'fortigate', 'paloalto', 'checkpoint', 'f5-ltm'],   // assets/data/ts/<key>.js dosyası olan vendor'lar
-    _state: {},   // "<vendor>/<n>" → { ans: ['ok'|'bad'...], found: index|null }
+    _state: {},   // "<vendor>/<n>" → { ans: ['ok'|'bad'...], found: index|null, warn, qz }; tarayıcıda saklanır (cg-ts-v1)
+    _loadState() { if (this._loaded) return; this._loaded = true; try { const d = JSON.parse(localStorage.getItem('cg-ts-v1') || 'null'); if (d && typeof d === 'object') this._state = d; } catch (e) { /* yalnız oturum */ } },
+    _saveState() { try { localStorage.setItem('cg-ts-v1', JSON.stringify(this._state)); } catch (e) { /* yalnız oturum */ } },
 
     async render(root, arg1, arg2) {
         this._root = root;
@@ -117,6 +119,7 @@ const CgTroubleshoot = {
         const x = this._list.find(y => y.vendor === vendor && y.n === n);
         if (!x) { location.hash = '#/troubleshoot'; return; }
         const key = vendor + '/' + n;
+        this._loadState();
         const st = this._state[key] || (this._state[key] = { ans: [], found: null });
         const t = this.TOPICS.find(y => y.id === x.topic), steps = x.s.steps;
         const cur = st.found !== null ? -1 : st.ans.length;          // şu anki adım; -1 = bitti
@@ -134,6 +137,7 @@ const CgTroubleshoot = {
                     <code data-code="${cgEsc(s.code)}" title="Kopyala">${cgEsc(s.code)}</code>
                     ${s.desc ? `<div class="cg-ts-look"><b>Neye bakılır:</b> ${cgEsc(s.desc)}</div>` : ''}
                     ${s.sample ? `<details class="cg-ts-sample"><summary><i class="fas fa-file-alt"></i> Örnek çıktı: nasıl okunur?</summary><pre>${cgEsc(s.sample)}</pre></details>` : ''}
+                    ${state === 'cur' && st.warn === i ? `<div class="cg-ts-warn" role="status"><i class="fas fa-exclamation-triangle"></i> Örnek çıktıya tekrar bakın: bu adımda <b>beklenmeyen bir durum</b> görünüyor. Kendi çıktınız gerçekten normalse "Çıktı normal"e tekrar basın.</div>` : ''}
                     ${state === 'cur' ? `<div class="cg-ts-act">
                         <button class="cg-ts-btn ok" data-ans="ok"><i class="fas fa-check"></i> Çıktı normal — sonraki adım</button>
                         <button class="cg-ts-btn bad" data-ans="bad"><i class="fas fa-exclamation"></i> Sorun burada</button>
@@ -161,17 +165,21 @@ const CgTroubleshoot = {
         </div>`;
 
         this._root.querySelectorAll('[data-ans]').forEach(b => b.addEventListener('click', () => {
-            if (b.dataset.ans === 'bad') st.found = st.ans.length; else st.ans.push('ok');
+            const cs = steps[st.ans.length];
+            if (b.dataset.ans === 'bad') { st.found = st.ans.length; delete st.warn; }
+            else if (cs && cs.expect === 'bad' && st.warn !== st.ans.length) { st.warn = st.ans.length; this._saveState(); this._paintScenario(vendor, n); return; }
+            else { st.ans.push('ok'); delete st.warn; }
+            this._saveState();
             this._scroll = true; this._paintScenario(vendor, n);
         }));
         const r = this._root.querySelector('[data-reset]');
-        if (r) r.addEventListener('click', () => { this._state[key] = { ans: [], found: null }; this._paintScenario(vendor, n); });
+        if (r) r.addEventListener('click', () => { this._state[key] = { ans: [], found: null }; this._saveState(); this._paintScenario(vendor, n); });
         const bk = this._root.querySelector('[data-back]');
-        if (bk) bk.addEventListener('click', () => { st.ans.pop(); this._paintScenario(vendor, n); });
+        if (bk) bk.addEventListener('click', () => { st.ans.pop(); delete st.warn; this._saveState(); this._paintScenario(vendor, n); });
         // Kendini sına: seçimler taslakta, "Değerlendir" ile puan ve açıklamalar
-        this._root.querySelectorAll('[data-tsq]').forEach(b => b.addEventListener('click', () => { const q = st.qz || (st.qz = { ans: {}, shown: false }); q.ans[b.dataset.tsq] = b.dataset.v; q.shown = false; this._paintScenario(vendor, n); }));
+        this._root.querySelectorAll('[data-tsq]').forEach(b => b.addEventListener('click', () => { const q = st.qz || (st.qz = { ans: {}, shown: false }); q.ans[b.dataset.tsq] = b.dataset.v; q.shown = false; this._saveState(); const y0 = window.scrollY, fk = '[data-tsq="' + b.dataset.tsq + '"][data-v="' + CSS.escape(b.dataset.v) + '"]'; this._paintScenario(vendor, n); window.scrollTo(0, y0); const nb = this._root.querySelector(fk); if (nb) nb.focus({ preventScroll: true }); }));
         const qc = this._root.querySelector('[data-tsqchk]');
-        if (qc) qc.addEventListener('click', () => { st.qz.shown = true; this._paintScenario(vendor, n); });
+        if (qc) qc.addEventListener('click', () => { st.qz.shown = true; this._saveState(); const y0 = window.scrollY; this._paintScenario(vendor, n); window.scrollTo(0, y0); const nq = this._root.querySelector('[data-tsqchk]'); if (nq) nq.focus({ preventScroll: true }); });
         this._bindCopy();
         if (this._scroll) {   // cevaptan sonra yeni adımı / sonucu görünür yap
             this._scroll = false;

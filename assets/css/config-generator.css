@@ -1545,3 +1545,4 @@
     #config-generator-root .cg-ar-lamps li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #config-generator-root .cg-ar-srv { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
+#config-generator-root .cg-ts-warn { font-size: .82rem; margin: 6px 0; padding: 8px 10px; border-radius: 8px; background: rgba(245, 158, 11, .12); border: 1px solid rgba(245, 158, 11, .5); color: var(--text-primary, #111827); }
