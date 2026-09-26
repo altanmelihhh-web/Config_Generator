@@ -54,7 +54,7 @@ const CgLabGaia = (() => {
 
     function session(lab, opts) {
         const VAR = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
-        if (VAR) lab = Object.assign({}, lab, { start: (lab.start || []).concat(VAR.start || []), sim: Object.assign({}, lab.sim || {}, VAR.sim || {}), mgmtStart: (lab.mgmtStart || []).concat(VAR.mgmtStart || []), mgmtLate: (lab.mgmtLate || []).concat(VAR.mgmtLate || []) });
+        if (VAR) lab = Object.assign({}, lab, { start: (lab.start || []).concat(VAR.start || []), sim: Object.assign({}, lab.sim || {}, VAR.sim || {}), mgmtStart: (lab.mgmtStart || []).concat(VAR.mgmtStart || []), mgmtLate: (lab.mgmtLate || []).concat(VAR.mgmtLate || []), up: VAR.up || lab.up, hosts: VAR.hosts || lab.hosts });
         const SIM = lab.sim || {};
         // Yönetim API'si (mgmt_cli): yalnız lab.mgmt tanımlıysa (standalone kurulum)
         const MGF = lab.mgmt ? ((typeof CgGaiaMgmt !== 'undefined') ? CgGaiaMgmt : require('./gaia-mgmt.js')) : null;
@@ -574,6 +574,7 @@ const CgLabGaia = (() => {
             }
             if (s === 'ctl debug 0') { if (S.rt.kd) S.rt.kd.flags = KD_DEF.slice(); return { out: 'Defaulting all kernel debugging options', log: { dbg0: true } }; }
             const kr = kdebugCmd(a, s); if (kr) return kr;
+            if (/^ctl arp\b/.test(s)) return fwCtlArp(a);
             if (s === 'ctl iflist') return ifList().map((n, i) => pad(String(i + 1), 2) + ': ' + n).join('\n');
             if (s === 'tab -t connections -s') { const n = 120 + flows().length * 7; return pad('HOST', 22) + pad('NAME', 35) + pad('ID', 6) + pad('#VALS', 6) + pad('#PEAK', 6) + '#SLINKS\n' + pad('localhost', 22) + pad('connections', 35) + pad('8158', 6) + pad(String(n), 6) + pad(String(n * 3), 6) + (n * 2); }
             if (s === 'unloadlocal') return { out: '# [Simülatör] UYARI: "fw unloadlocal" gateway\'deki güvenlik politikasını tamamen kaldırır: tüm trafik denetimsiz kalır (ya da erişim kopar).\n# Sorun gidermede "önce politikayı kaldırıp bakayım" yanlış bir alışkanlıktır. Simülatörde engellendi.', log: { warn: 'unloadlocal' } };
@@ -814,12 +815,22 @@ const CgLabGaia = (() => {
                 if (['host', 'src', 'dst'].includes(t)) { const v = toks[i + 1]; if (!v || !isIp(v)) return null; conds.push({ k: t, v }); i += 2; continue; }
                 if (t === 'port') { const v = toks[i + 1]; if (!/^\d+$/.test(v || '')) return null; conds.push({ k: 'port', v: +v }); i += 2; continue; }
                 if (t === 'net') { const v = toks[i + 1]; if (!v || !/^[\d.]+\/\d+$/.test(v)) return null; conds.push({ k: 'net', v }); i += 2; continue; }
-                if (t === 'tcp' || t === 'udp' || t === 'icmp') { conds.push({ k: 'proto', v: t }); i++; continue; }
+                if (t === 'tcp' || t === 'udp' || t === 'icmp' || t === 'arp') { conds.push({ k: 'proto', v: t }); i++; continue; }
+                const fm = /^tcp\[tcpflags\]\s*(?:&\s*\(?\s*(tcp-[a-z]+(?:\s*\|\s*tcp-[a-z]+)*)\s*\)?\s*!=\s*0|==\s*(tcp-[a-z]+(?:\s*\|\s*tcp-[a-z]+)*))$/.exec(t);
+                if (fm) {
+                    const fl = (fm[1] || fm[2]).split('|').map(x => TCPF[x.trim()]);
+                    if (fl.some(x => !x)) return null;
+                    conds.push({ k: 'flags', v: fl, eq: !fm[1] }); i++; continue;
+                }
                 return null;
             }
             return conds;
         }
-        const pMatch = (p, conds) => conds.every(c => c.k === 'host' ? (p.src === c.v || p.dst === c.v) : c.k === 'src' ? p.src === c.v : c.k === 'dst' ? p.dst === c.v
+        // Linux tcpdump (pcap-filter) bayrak ifadeleri: 'tcp[tcpflags] & (tcp-syn|tcp-rst) != 0' ya da 'tcp[tcpflags] == tcp-syn' (tek tırnak içinde)
+        const TCPF = { 'tcp-fin': 'F', 'tcp-syn': 'S', 'tcp-rst': 'R', 'tcp-push': 'P', 'tcp-ack': 'A', 'tcp-urg': 'U' };
+        const flagSet = p => ['F', 'S', 'R', 'P', 'A', 'U'].filter(x => p.proto === 'tcp' && p.fl.includes(x));
+        const flagMatch = (p, c) => { if (p.proto !== 'tcp') return false; const f = flagSet(p); return c.eq ? f.length === c.v.length && c.v.every(x => f.includes(x)) : c.v.some(x => f.includes(x)); };
+        const pMatch = (p, conds) => conds.every(c => c.k === 'flags' ? flagMatch(p, c) : c.k === 'host' ? (p.src === c.v || p.dst === c.v) : c.k === 'src' ? p.src === c.v : c.k === 'dst' ? p.dst === c.v
             : c.k === 'port' ? (p.sp === c.v || p.dp === c.v) : c.k === 'net' ? (inNet(p.src, c.v) || inNet(p.dst, c.v)) : c.k === 'proto' ? p.proto === c.v : true);
         const tsOf = (p, k) => '10:21:' + String([3, 4, 6][p.t] || 6).padStart(2, '0') + '.' + String(123456 + k * 4111 + (p.rep ? 2100 : 0)).slice(0, 6);
         function tcpdump(a) {
@@ -838,9 +849,18 @@ const CgLabGaia = (() => {
             const conds = tcpFilter(a.slice(i));
             if (!conds) return { err: 'invalid', msg: 'tcpdump: syntax error in filter expression: syntax error' };
             const pk = [];
+            const L = ['tcpdump: verbose output suppressed, use -v or -vv for full protocol decode', 'listening on ' + dev + ', link-type ' + (dev === 'any' ? 'LINUX_SLL (Linux cooked v1)' : 'EN10MB (Ethernet)') + ', capture size 262144 bytes'];
+            if (conds.some(c => c.k === 'proto' && c.v === 'arp')) {
+                arpPackets().forEach(p => { if ((dev === 'any' || p.dev === dev) && conds.every(c => c.k === 'proto' ? c.v === 'arp' : c.k === 'host' ? (p.who === c.v || p.tell === c.v) : c.k === 'net' ? (inNet(p.who, c.v) || inNet(p.tell, c.v)) : false)) pk.push(p); });
+                const selA = cnt ? pk.slice(0, cnt) : pk;
+                selA.forEach((p, k) => L.push('10:21:0' + (3 + p.t) + '.' + String(223344 + k * 37 + (p.reply ? 612 : 0)).slice(0, 6) + ' ' + (dev === 'any' ? (p.o ? 'Out ' : 'In  ') : '') + (p.reply ? 'ARP, Reply ' + p.who + ' is-at ' + p.mac + ', length 28' : 'ARP, Request who-has ' + p.who + ' tell ' + p.tell + ', length 46')));
+                if (!cnt || selA.length < cnt) L.push('^C');
+                L.push(selA.length + ' packets captured', selA.length + ' packets received by filter', '0 packets dropped by kernel');
+                L.push(selA.length ? '# [Simülatör] Linux aracı (tcpdump); ARP satırları sadeleştirildi.' : '# [Simülatör] Eşleşen ARP paketi yok; Ctrl+C ile durduruldu.');
+                return { out: L.join('\n'), log: { tcpdump: { dev, expr: a.slice(i).join(' '), n: selA.length, arp: true } } };
+            }
             flows().forEach((f) => points(f).forEach(p => { if ((p.pt === 'i' || p.pt === 'O') && (dev === 'any' || p.dev === dev) && pMatch(p, conds)) pk.push(p); }));
             const sel = cnt ? pk.slice(0, cnt) : pk;
-            const L = ['tcpdump: verbose output suppressed, use -v or -vv for full protocol decode', 'listening on ' + dev + ', link-type ' + (dev === 'any' ? 'LINUX_SLL (Linux cooked v1)' : 'EN10MB (Ethernet)') + ', capture size 262144 bytes'];
             sel.forEach((p, k) => {
                 const fl = p.fl === '.S....' ? 'S' : p.fl === '.S..A.' ? 'S.' : 'R.';
                 const nm = x => (nflag ? x : x);
@@ -901,8 +921,54 @@ const CgLabGaia = (() => {
                 'Action: ' + act, 'Matched rule: ' + (r ? r.n : 'Implicit Cleanup'), '# [Simülatör] Çıktı sadeleştirildi. Kurulu politikaya bakar; yayınlanmamış ya da kurulmamış değişiklikleri görmez.'];
             return { out: L.join('\n'), log: { upexec: { src: f.src, dst: f.dst, dport: f.dport, rule: r ? r.n : null, name: r ? r.name : null, act } } };
         }
+        // ── ARP / komşu tablosu (Linux: ip neigh) ve Proxy ARP (fw ctl arp, CLI Reference R81.20 s. 1072)
+        // Kaynaklar: lab.hosts (yanıt veren komşular), SIM.arpOk (ARP'ye yanıt veren ama ping'e yanıt vermeyen),
+        // SIM.proxyArp [{ ip, dev }] ($FWDIR/conf/local.arp kayıtları), SIM.arpq [{ who, tell, dev }] (dışarıdan gelen ARP istekleri).
+        const nmac = ip => '00:50:56:8a:' + ip.split('.').slice(2).map(x => (+x).toString(16).padStart(2, '0')).join(':');
+        const connDev = ip => { const r = lookup(ip); return r && r.type === 'C' && r.dev !== 'lo' ? r.dev : null; };
+        const arpAnswers = ip => (lab.hosts || []).includes(ip) || (SIM.arpOk || []).includes(ip);
+        function neighTable() {
+            const T = [], seen = new Set();
+            const add = (ip, st) => { const dev = connDev(ip); if (!dev || seen.has(ip) || Object.values(M().ifs).some(i => i.ip === ip)) return; seen.add(ip); T.push({ ip, dev, st, mac: st === 'FAILED' ? null : nmac(ip) }); };
+            (lab.hosts || []).forEach(ip => add(ip, 'REACHABLE'));
+            S.ev.filter(e => e.ping).forEach(e => add(e.ping, arpAnswers(e.ping) ? 'REACHABLE' : 'FAILED'));
+            (SIM.arpOk || []).forEach(ip => add(ip, 'STALE'));
+            return T;
+        }
+        function arpPackets() {
+            const P = [];
+            (SIM.arpq || []).forEach(q => { for (let t = 0; t < 3; t++) { P.push({ dev: q.dev, who: q.who, tell: q.tell, t }); const pa = (SIM.proxyArp || []).find(x => x.ip === q.who && x.dev === q.dev); if (pa) { P.push({ dev: q.dev, who: q.who, reply: true, mac: mac(q.dev), o: true, t }); break; } } });
+            S.ev.filter(e => e.ping).forEach(e => { const dev = connDev(e.ping); if (!dev || !ifUp(dev) || Object.values(M().ifs).some(i => i.ip === e.ping)) return;
+                for (let t = 0; t < 3; t++) { P.push({ dev, who: e.ping, tell: ifIp(dev), o: true, t }); if (arpAnswers(e.ping)) { P.push({ dev, who: e.ping, reply: true, mac: nmac(e.ping), t }); break; } } });
+            return P;
+        }
+        function ipNeigh(a) {
+            // ip neigh | ip neigh show [dev <if>] [<ip>] (ip n / ip neighbor / ip neighbour)
+            let dev = null, ip = null, i = 2;
+            if (a[i] === 'show' || a[i] === 'list' || a[i] === 'ls') i++;
+            for (; i < a.length; i++) {
+                if (a[i] === 'dev' && a[i + 1]) { dev = a[++i]; if (!M().ifs[dev]) return { err: 'value', msg: 'Cannot find device "' + dev + '"' }; continue; }
+                if (isIp(a[i]) && !ip) { ip = a[i]; continue; }
+                if (['add', 'del', 'delete', 'change', 'replace', 'flush'].includes(a[i])) return U('# [Simülatör] ARP tablosunu elle değiştirmek bu lab\'da desteklenmiyor (Gaia\'da kalıcı ARP clish ile yapılır).');
+                return { err: 'invalid', msg: 'Command "' + a[i] + '" is unknown, try "ip neigh help".' };
+            }
+            const T = neighTable().filter(x => (!dev || x.dev === dev) && (!ip || x.ip === ip));
+            const L = T.map(x => x.ip + ' dev ' + x.dev + (x.mac ? ' lladdr ' + x.mac : '') + ' ' + x.st);
+            L.push('# [Simülatör] Linux aracı (iproute2); çıktı sadeleştirildi.');
+            return { out: L.join('\n'), log: { neigh: { dev, ip, n: T.length } } };
+        }
+        function fwCtlArp(a) {
+            const o = a.slice(3);
+            if (o.includes('-h')) return 'Usage: fw [-d] ctl arp [-h] [-n]';
+            if (o.some(x => x !== '-n')) return { err: 'invalid', msg: 'Usage: fw [-d] ctl arp [-h] [-n]' };
+            const P = SIM.proxyArp || [];
+            const L = P.length ? [pad('IP Address', 18) + pad('MAC Address', 20) + 'Interface'].concat(P.map(x => pad(x.ip, 18) + pad(mac(x.dev), 20) + x.dev)) : [];
+            L.push(P.length ? '# [Simülatör] Biçim sadeleştirildi (belgede örnek çıktı yok). Kayıtlar $FWDIR/conf/local.arp dosyasından gelir.' : '# [Simülatör] Proxy ARP kaydı yok ($FWDIR/conf/local.arp dosyasında kayıt bulunmuyor).');
+            return { out: L.join('\n'), log: { fwarp: { n: P.length } } };
+        }
         function ipCmd(a) {
             const s = a.slice(1).join(' ');
+            if (/^(n|neigh|neighbor|neighbour)$/.test(a[1] || '')) return ipNeigh(a);
             if (/^route get [\d.]+$/.test(s) && isIp(a[3])) {
                 const r = lookup(a[3]);
                 if (!r) return { err: 'value', msg: 'RTNETLINK answers: Network is unreachable' };

@@ -216,5 +216,53 @@
                 { code: 'fw tab -t connections -s\nfw ctl pstat', desc: 'Aralıklı düşmelerde tablo ve bellek doluluğunu dışlayın: bağlantı tablosu özeti (#VALS, #PEAK) ile "failed alloc" sayaçları ve "Memory used … watermark" satırı.' },
             ]
         },
+        {
+            title: 'Sunucu Yanıt Vermiyor: Katman Katman Sınama (Link, Rota, TCP)', severity: 'err', topic: 'traffic', lab: 'cp-17',
+            symptom: 'DMZ\'deki bir sunucu (ör. 172.24.50.10, https) yanıt vermiyor. Sorunun kablo, ağ, sunucu ya da uygulama katmanında mı olduğu bilinmiyor. ping, ip route get ve tcpdump Linux araçlarıdır (Gaia expert kabuğu); show interface Gaia clish komutudur.',
+            steps: [
+                { code: 'show interface eth3', desc: 'clish. "state" yönetimsel durumdur; kablo/anahtar portu durumu "link-state" satırındadır. link down ise bağlı rota da düşer.',
+                  fix: [{ cause: 'link-state link down: kablo, anahtar portu ya da karşı uç kapalı; kablolama/anahtar ekibine iletin' }, { cause: 'state off: arayüz yönetimsel kapalı', cmd: 'set interface eth3 state on\nsave config' }] },
+                { code: 'ping 172.24.50.10', desc: 'Expert modda (clish\'te de çalışır). Katman 3 sınaması. Yanıt yoksa nedeni sonraki adımlar ayırır; ICMP sunucuda süzülüyor da olabilir.' },
+                { code: 'ip route get 172.24.50.10', desc: 'Kernel\'in bu hedef için seçtiği arayüz ve kaynak adres. Beklenen "dev eth3 src 172.24.50.1". "via 203.0.113.1 dev eth1" görünüyorsa DMZ\'nin bağlı rotası yok (link düşük ya da arayüzde adres yok): trafik varsayılan rotaya kayıyor.' },
+                { code: 'tcpdump -nni eth3 host 172.24.50.10', desc: 'Sunucu tarafında TCP el sıkışması. [S] istemcinin SYN\'i, [S.] SYN-ACK, [R.] RST. Hiç paket yoksa trafik bu arayüze çıkmıyor; SYN tekrar ediyor ve yanıt yoksa sunucu yanıt vermiyor.',
+                  fix: [{ cause: 'SYN tekrar ediyor, yanıt yok: sunucu kapalı ya da IP/ağ geçidi/VLAN ayarı yanlış; sunucu ekibine iletin' }, { cause: '[R.] dönüyor: sunucu ayakta ama port dinlenmiyor; uygulama ekibine iletin' }] },
+            ]
+        },
+        {
+            title: 'Yeni Şube Alt Ağına Trafik Yanlış Yoldan Gidiyor: En Uzun Önek', severity: 'warn', topic: 'routing', lab: 'cp-18',
+            symptom: 'Yeni şube (ör. 10.128.40.0 – 10.128.41.255) yeni bir yönlendiriciye (10.64.10.253) bağlandı; trafik hâlâ eski WAN yönlendiricisine (10.64.10.254) gidiyor. Gateway\'de 10.128.0.0/16 için tek bir statik rota var. Komutlar Gaia clish içindir; statik rota parametreleri check_point.gaia koleksiyonundaki cp_gaia_static_route modülüyle aynıdır.',
+            steps: [
+                { code: 'show route destination 10.128.41.20', desc: 'Bu adres için seçilen rota. Birden çok rota eşleşiyorsa en uzun önek kazanır; /16 varsayılan rotadan önce gelir, daha özel bir rota da /16\'dan önce.' },
+                { code: 'show route static', desc: 'Tanımlı statik rotalar. Yeni şube için daha özel bir rota yoksa trafik /16 ile eski yola gider.',
+                  fix: [{ cause: 'Yeni şube için özel rota yok: /16\'ya dokunmadan daha özel rota ekleyin (512 adres = /23)', cmd: 'set static-route 10.128.40.0/23 nexthop gateway address 10.64.10.253 on\nsave config' },
+                        { cause: 'Rota /24 ile yazılmış: aralığın yarısı açıkta kalıyor; /24\'ü kaldırıp /23 ekleyin', cmd: 'set static-route 10.128.40.0/24 off\nset static-route 10.128.40.0/23 nexthop gateway address 10.64.10.253 on\nsave config' }] },
+                { code: 'show route destination 10.128.7.5\nping 10.128.41.20', desc: 'Doğrulama: eski şube adresi hâlâ /16 ile eski yönlendiriciye gitmeli, yeni şubeye ping gitmeli. Geniş rotanın sonraki atlamasını değiştirmek tüm eski şubeleri keser.' },
+                { code: 'show config-state', desc: '"unsaved" ise save config: kaydedilmemiş rota yeniden başlatmada kaybolur.' },
+            ]
+        },
+        {
+            title: 'Uygulama Açılmıyor: SYN Var, SYN-ACK Yok', severity: 'err', topic: 'traffic', lab: 'cp-19',
+            symptom: 'İstemci (ör. 10.64.10.60) DMZ\'deki uygulamaya (172.24.50.10:8443) bağlanamıyor; tarayıcı zaman aşımına düşüyor. İstemci tarafında SYN gidiyor, SYN-ACK görülmüyor. fw monitor sözdizimi R81.20 Performance Tuning Administration Guide\'a (s. 178–180) dayanır; tcpdump ve bayrak filtresi Linux aracıdır.',
+            steps: [
+                { code: 'tcpdump -nni eth2 host 172.24.50.10 and port 8443', desc: 'Expert modda, istemci tarafı. Aynı seq ile tekrar eden [S] satırları yeniden iletimdir: yanıt gelmiyor.' },
+                { code: 'tcpdump -nni eth3 \'tcp[tcpflags] & (tcp-syn|tcp-rst) != 0\'', desc: 'Sunucu tarafında yalnız SYN ve RST bayraklı paketler (filtre tek tırnak içinde). eth3\'te SYN yoksa gateway paketi sunucuya çıkarmıyor.' },
+                { code: 'fw monitor -F "10.64.10.60,0,172.24.50.10,8443,6" -F "172.24.50.10,8443,10.64.10.60,0,6"', desc: 'Gateway içinde iki yön; son alan protokol numarası (TCP 6), 0 = herhangi. -F tek yönlüdür. Yalnız i görünüyorsa gateway düşürüyor.',
+                  fix: [{ cause: 'Yalnız i: kural düşürüyor (ör. yeni port 8443 kurala eklenmemiş). Nedeni zdebug/up_execute ile doğrulayın, SmartConsole\'da servisi kurala ekleyip politikayı kurun', cmd: 'fw up_execute src=10.64.10.60 dst=172.24.50.10 ipp=6 dport=8443' },
+                        { cause: 'O noktasına kadar var, dönüş yok: sunucu yanıt vermiyor ya da yanıtı başka yoldan gönderiyor (varsayılan ağ geçidi 172.24.50.1 mi?); sunucu ekibine iletin' },
+                        { cause: 'Sunucudan RST: servis 8443\'te dinlemiyor; uygulama ekibine iletin' }] },
+            ]
+        },
+        {
+            title: 'Komşuya Ulaşılamıyor ya da NAT\'lı Genel Adres Yanıt Vermiyor: ARP ve Proxy ARP', severity: 'warn', topic: 'traffic', lab: 'cp-20',
+            symptom: 'Aynı alt ağdaki bir komşuya (ör. 10.64.10.253) ulaşılamıyor ya da manuel Static NAT ile yayınlanan genel adres (ör. 203.0.113.10) ISP tarafından erişilemiyor. fw ctl arp: R81.20 CLI Reference Guide s. 1072; manuel NAT ve local.arp: R81.20 Quantum Security Gateway Administration Guide s. 186, 224. ip neigh ve tcpdump Linux araçlarıdır.',
+            steps: [
+                { code: 'ping 10.64.10.253\nip neigh show dev eth2', desc: 'Expert modda. lladdr ve REACHABLE/STALE: MAC öğrenildi, katman 2 sağlam. FAILED: ARP isteğine yanıt yok. Aynı alt ağdaki komşuya rota gerekmez.',
+                  fix: [{ cause: 'FAILED: kablo, anahtar portu/VLAN ya da komşunun IP ayarı; komşunun ekibine iletin' }, { cause: 'MAC öğrenildi ama ping yok: ICMP komşuda süzülüyor olabilir; başka bir servisle sınayın' }] },
+                { code: 'tcpdump -nni eth2 arp', desc: '"Request who-has … tell …" istek, "Reply … is-at …" yanıt. Yanıtsız tekrar eden istekler komşunun ARP\'ye cevap vermediğini kanıtlar.' },
+                { code: 'tcpdump -nni eth1 arp host 203.0.113.10', desc: 'ISP yönlendiricisi genel adresin MAC\'ini soruyor mu, gateway yanıt veriyor mu? Yanıt yoksa trafik gateway\'e hiç gelmez; kural ve NAT devreye girmez.' },
+                { code: 'fw ctl arp -n', desc: '$FWDIR/conf/local.arp dosyasındaki Proxy ARP kayıtları. Manuel NAT kurallarında otomatik ARP çalışmaz; kayıt yoksa gateway genel adres için yanıt vermez.',
+                  fix: [{ cause: 'Manuel NAT için Proxy ARP kaydı yok: local.arp\'e kaydı ekleyin (sk30197), SmartConsole\'da Global Properties → NAT → "Merge manual proxy ARP configuration"ı seçin ve politikayı kurun; ardından fw ctl arp ve tcpdump\'ta Reply ile doğrulayın' }] },
+            ]
+        },
     ];
 })();
