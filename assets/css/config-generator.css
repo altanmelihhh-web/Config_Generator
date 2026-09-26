@@ -1511,3 +1511,5 @@
 #config-generator-root .cg-ar-pwarn { background: rgba(245, 158, 11, .12); color: var(--text-primary, #111827); border: 1px solid rgba(245, 158, 11, .5); }
 #config-generator-root .cg-ar-pok { background: rgba(22, 163, 74, .1); color: var(--text-primary, #111827); border: 1px solid rgba(22, 163, 74, .4); }
 #config-generator-root .cg-ar-why { display: block; font-size: .72rem; color: #b45309; margin-top: 2px; }
+#config-generator-root .cg-ar-lockn { font-size: .78rem; padding: 6px 10px; margin-bottom: 8px; border-radius: 8px; background: rgba(96, 165, 250, .12); color: var(--text-primary, #111827); border: 1px solid rgba(96, 165, 250, .45); }
+#config-generator-root .cg-ar-panel input:disabled + *, #config-generator-root .cg-ar-panel select:disabled { opacity: .6; }

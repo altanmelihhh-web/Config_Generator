@@ -86,12 +86,27 @@ const CgArena = {
         ta.addEventListener('input', () => { st.code = ta.value; this._save(); this._gutter(); });
         ta.addEventListener('scroll', () => { $('.cg-ar-gut').scrollTop = ta.scrollTop; });
         ta.addEventListener('keydown', e => { if (e.key === 'Tab') { e.preventDefault(); const a = ta.selectionStart; ta.setRangeText('    ', a, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); } if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); this._go(); } });
-        this._root.querySelectorAll('.cg-ar-spd button').forEach(b => b.addEventListener('click', () => { this._root.querySelectorAll('.cg-ar-spd button').forEach(x => x.classList.toggle('is-on', x === b)); this._speed = +b.dataset.s; }));
+        this._root.querySelectorAll('.cg-ar-spd button').forEach(b => b.addEventListener('click', () => { this._root.querySelectorAll('.cg-ar-spd button').forEach(x => x.classList.toggle('is-on', x === b)); this._speed = +b.dataset.s;
+            if (this._run) { const sb = this._$('[data-a="step"]'); sb.hidden = this._speed !== 0; if (this._speed !== 0 && this._stepRes) { const r = this._stepRes; this._stepRes = null; r(); } } }));
         $('[data-a="run"]').addEventListener('click', () => this._go());
         $('[data-a="step"]').addEventListener('click', () => { if (this._stepRes) { const r = this._stepRes; this._stepRes = null; r(); } });
         $('[data-a="reset"]').addEventListener('click', () => { if (this._run) return; ta.value = t.start; st.code = null; st.prof = null; this._prof = this._profDef(t); this._save(); this._edit(); this._gutter(); if (t.panel) this._panel(); });
         $('[data-a="hint"]').addEventListener('click', () => { const h = t.hints[Math.min(this._hint, t.hints.length - 1)]; this._hint = Math.min(this._hint + 1, t.hints.length); st.hints = Math.max(st.hints, this._hint); this._save(); const box = $('.cg-ar-hintbox'); box.hidden = false; box.innerHTML = t.hints.slice(0, this._hint).map((x, k) => `<p><b>İpucu ${k + 1}</b> ${x}</p>`).join('') + (this._hint >= t.hints.length ? `<details><summary>Örnek çözümü göster</summary><pre>${E(t.solution)}</pre></details>` : ''); });
         $('.cg-ar-view').addEventListener('click', () => { if (!this._run) this._edit(); });
+    },
+    // koşu süresince panel ve sıfırlama kilitli (değişiklik sessizce yok sayılmasın)
+    _lock(on) {
+        const box = this._$ && this._$('.cg-ar-panel'), rs = this._$ && this._$('[data-a="reset"]');
+        if (rs) rs.disabled = on;
+        if (!box) return;
+        box.querySelectorAll('input, select').forEach(x => { x.disabled = on; });
+        let n = box.querySelector('.cg-ar-lockn'); if (on && !n) { box.insertAdjacentHTML('afterbegin', '<div class="cg-ar-lockn" role="status"><i class="fas fa-lock"></i> Trafik akarken ayarlar kilitli; bitince değiştirip yeniden başlatın.</div>'); } else if (!on && n) n.remove();
+    },
+    // yeniden çizimden sonra odağı aynı öğeye geri ver (klavye kullanımı kopmasın)
+    _keepFocus(box, paint) {
+        const a = document.activeElement, key = a && box.contains(a) ? [...a.attributes].filter(x => x.name.startsWith('data-')).map(x => '[' + x.name + '="' + CSS.escape(x.value) + '"]').join('') : null, y = window.scrollY;
+        paint();
+        if (key) { const b = box.querySelector(key); if (b) { b.focus({ preventScroll: true }); window.scrollTo(0, y); } }
     },
     // profil paneli: HTTP profili metot politikası ve persistence; altında tmsh karşılığı
     _panel() {
@@ -109,9 +124,9 @@ const CgArena = {
             ${t.panel.includes('persist') ? `<div class="cg-ar-pf"><label class="cg-ar-pl">Persistence <select data-p="persist">${[['none', 'yok'], ['cookie', 'cookie (insert)'], ['source-addr', 'source-addr']].map(([v, l]) => `<option value="${v}"${P.persist === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>` : ''}
             </div>
             <pre class="cg-ar-tmsh">${cmds.length ? cmds.map(E).join('\n') : '# varsayılan ayarlar (değişiklik yok)'}</pre>`;
-        const save = () => { st.prof = JSON.parse(JSON.stringify(this._prof)); this._save(); this._panel(); };
-        box.querySelectorAll('[data-m]').forEach(x => x.addEventListener('change', () => { if (this._run) return; const m = x.dataset.m; P.known = x.checked ? P.known.concat([m]) : P.known.filter(y => y !== m); save(); }));
-        box.querySelectorAll('[data-p]').forEach(x => x.addEventListener('change', () => { if (this._run) return; P[x.dataset.p] = x.value; save(); }));
+        const save = () => { st.prof = JSON.parse(JSON.stringify(this._prof)); this._save(); this._keepFocus(box, () => this._panel()); };
+        box.querySelectorAll('[data-m]').forEach(x => x.addEventListener('change', () => { if (this._run) { this._panel(); return; } const m = x.dataset.m; P.known = x.checked ? P.known.concat([m]) : P.known.filter(y => y !== m); save(); }));
+        box.querySelectorAll('[data-p]').forEach(x => x.addEventListener('change', () => { if (this._run) { this._panel(); return; } P[x.dataset.p] = x.value; save(); }));
     },
     _gutter(hits) {
         const ta = this._$('textarea'), n = ta.value.split('\n').length;
@@ -347,9 +362,10 @@ const CgArena = {
             </div>
             <pre class="cg-ar-tmsh">${E(this._wJson(cfg))}</pre>
             <div class="cg-ar-ctl cg-waf-ctl"><button type="button" class="cg-ar-go" data-a="send"><i class="fas fa-paper-plane"></i> Politikayı yayınla ve trafiği gönder</button></div></div>`;
-            const save = () => { st.cfg = JSON.parse(JSON.stringify(cfg)); this._save(); paint(); };
+            const save = () => { st.cfg = JSON.parse(JSON.stringify(cfg)); this._save(); this._keepFocus(main, paint); };
             main.querySelector('[data-w="blocking"]').addEventListener('change', e => { cfg.blocking = e.target.value === '1'; save(); });
-            main.querySelector('[data-w="filetypes"]').addEventListener('change', e => { cfg.filetypes = e.target.value.split(/[\s,]+/).map(x => x.trim().toLowerCase()).filter(Boolean); save(); });
+            // yazarken kaydet, paneli yeniden çizme (aksi halde gönder düğmesine ilk tıklama kaybolur); yalnız önizleme güncellenir
+            main.querySelector('[data-w="filetypes"]').addEventListener('input', e => { cfg.filetypes = e.target.value.split(/[\s,]+/).map(x => x.trim().toLowerCase()).filter(Boolean); st.cfg = JSON.parse(JSON.stringify(cfg)); this._save(); const pr = main.querySelector('.cg-ar-tmsh'); if (pr) pr.textContent = this._wJson(cfg); });
             main.querySelectorAll('[data-wm]').forEach(x => x.addEventListener('change', () => { const m = x.dataset.wm; cfg.methods = x.checked ? cfg.methods.concat([m]) : cfg.methods.filter(y => y !== m); save(); }));
             main.querySelectorAll('[data-wp]').forEach(x => x.addEventListener('change', () => { cfg.params[x.dataset.wp] = Object.assign({}, cfg.params[x.dataset.wp], { meta: x.checked }); save(); }));
             main.querySelector('[data-a="send"]').addEventListener('click', () => this._wSend(this._wEval(t, cfg, t.traffic)));
@@ -402,7 +418,7 @@ const CgArena = {
                 <div class="cg-waf-v">${e.r.violations.map(v => `<div><b>${E(v.name)}</b> ${E(v.detail || '')}</div>`).join('')}${e.r.sigs.map(sg => `<div><code>${sg.id}</code> ${E(sg.name)} · ${E(sg.where)}</div>`).join('')}</div>
                 <label class="cg-ar-pl">Karar <select data-d="${i}"><option value="">— seçin —</option>${t.actions.map(([v, l]) => `<option value="${v}"${dec[i] === v ? ' selected' : ''}>${E(l)}</option>`).join('')}</select></label></div>`; }).join('')}</div>
             <div class="cg-ar-ctl"><button type="button" class="cg-ar-go" data-a="replay"${dec.every(Boolean) ? '' : ' disabled'}><i class="fas fa-redo"></i> Uygula ve tekrar oynat${dec.every(Boolean) ? '' : ' (tüm kayıtlara karar verin)'}</button></div></div>`;
-            main.querySelectorAll('[data-d]').forEach(x => x.addEventListener('change', () => { dec[+x.dataset.d] = x.value; st.dec = dec.slice(); this._save(); paint(); }));
+            main.querySelectorAll('[data-d]').forEach(x => x.addEventListener('change', () => { dec[+x.dataset.d] = x.value; st.dec = dec.slice(); this._save(); this._keepFocus(main, paint); }));
             main.querySelector('[data-a="replay"]').addEventListener('click', () => { const cfg = this._wFromDec(t, dec, entries); const res = this._wEval(t, cfg, t.traffic).concat(this._wEval(t, cfg, t.hidden).map(x => Object.assign(x, { hidden: true }))); this._wSend(res); });
             this._wBindHint(); };
         paint();
@@ -538,7 +554,7 @@ const CgArena = {
         this._view(code);
         const tb = $('.cg-ar-flow tbody'); tb.innerHTML = ''; $('.cg-ar-log').textContent = ''; $('.cg-ar-logn').textContent = ''; $('.cg-ar-done').hidden = true;
         this._root.querySelectorAll('.cg-ar-mem:not(.is-down) .cg-ar-hits').forEach(h => { h.textContent = '0'; });
-        $('[data-a="run"]').disabled = true; $('[data-a="step"]').hidden = this._speed !== 0;
+        $('[data-a="run"]').disabled = true; $('[data-a="step"]').hidden = this._speed !== 0; this._lock(true);
         const hits = {}, logs = [], all = this._runAll(t, k.c, this._prof); let ok = 0;
         for (let i = 0; i < all.length; i++) {
             if (run.stop || !this._root.isConnected) return;
@@ -555,7 +571,7 @@ const CgArena = {
             $('.cg-ar-score').textContent = ok + '/' + (i + 1) + ' doğru';
             if (logs.length) { $('.cg-ar-log').textContent = logs.map(l => 'Sep 25 10:' + String(i).padStart(2, '0') + ':0' + (i % 10) + ' bigip-a.lab.example ' + l).join('\n'); $('.cg-ar-logn').textContent = '(' + logs.length + ' satır)'; }
         }
-        this._run = null; $('[data-a="run"]').disabled = false; $('[data-a="step"]').hidden = true;
+        this._run = null; $('[data-a="run"]').disabled = false; $('[data-a="step"]').hidden = true; this._lock(false);
         this._verdict('');
         this._lastHits = Object.values(hits).reduce((a, b) => a + b, 0); this._lastProf = all.filter(x => x.res.out.byProf).length;
         this._finish(ok, t.traffic.length);
