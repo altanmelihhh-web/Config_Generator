@@ -736,5 +736,69 @@
                 { q: 'av-scan monitor ne yapar?', choices: [['log', 'Tespit eder ve loglar, engellemez'], ['block', 'Engeller'], ['off', 'Taramaz']], correct: 'log', why: 'monitor geçiş dönemi ve ölçüm için kullanılır.' },
             ],
         },
+        // ── Parti 13: kalite geçişi — sihirbazı olmayan temel lab'lar (fgt-00, fgt-01/17, fgt-13) ve güvenlik analitiği (fgt-68)
+        {
+            title: 'Yaptığım Ayar Kayboldu ya da İstemeden Kaydedildi: next, end ve abort', severity: 'info', topic: 'ops', lab: 'fgt-00',
+            symptom: 'CLI\'da yazılan bir ayar sonradan görünmüyor; ya da deneme amaçlı yazılan bir değer beklenmedik biçimde devreye girmiş.',
+            steps: [
+                { code: 'show full-configuration system global', desc: 'Değerin gerçekten kaydedilip kaydedilmediğine bakın. show yalnız varsayılandan farklı değerleri, show full-configuration tüm değerleri gösterir.' },
+                { expect: 'bad', code: 'abort', desc: 'Bir edit/config bağlamında abort, o bağlamdaki kaydedilmemiş değişiklikleri atar ve çıkar. next veya end denmeden abort edilen değişiklik kaydedilmez.',
+                  sample: 'FGT (global) # set admintimeout 30\nFGT (global) # abort\nFGT # show full-configuration system global | grep admintimeout\n    set admintimeout 5\n\n# abort: değişiklik atıldı',
+                  fix: [{ cause: 'Değişiklik kaydedilmeden çıkılmış: yeniden yazıp end ile kaydedin', cmd: 'config system global\nset admintimeout 30\nend' }] },
+                { code: 'end', desc: 'end bağlamdaki değişikliği hemen kaydeder ve uygular; ayrı bir "kaydet" adımı yoktur. Denenen yanlış bir değer de end ile anında devreye girer: emin değilseniz abort, sonra show ile doğrulama.' },
+            ],
+            quiz: [
+                { q: 'Tabloda bir kaydı kaydedip tabloda kalmak için?', choices: [['next', 'next'], ['end', 'end'], ['abort', 'abort']], correct: 'next', why: 'next kaydı kaydeder ve tablo bağlamında kalır; end kaydeder ve çıkar.' },
+                { q: 'FortiOS\'ta ayrı bir "write memory" adımı var mı?', choices: [['no', 'Yok: end ile değişiklik kaydedilir ve devreye girer'], ['yes', 'Var']], correct: 'no', why: 'Bu yüzden yanlış bir set de end ile anında uygulanır.' },
+            ],
+        },
+        {
+            title: 'Arayüze Yönetim Erişimi Yok ya da Yönetim Herkese Açık: allowaccess ve trusthost', severity: 'warn', topic: 'ops', lab: 'fgt-01',
+            symptom: 'Yöneticiler bir arayüzden cihaza ping atamıyor ya da web arayüzüne erişemiyor; ya da tersine WAN\'dan yönetim erişimi açık kalmış.',
+            steps: [
+                { expect: 'bad', code: 'show system interface port2', desc: 'allowaccess listesi o arayüzden hangi yönetim protokollerine (ping, https, ssh, …) izin verildiğini belirler. Listede olmayan protokol o arayüzde çalışmaz.',
+                  sample: 'config system interface\n    edit "port2"\n        set ip 10.64.10.1 255.255.255.0\n        set allowaccess ping\n    next\nend\n\n# https ve ssh yok: bu arayüzden web/SSH yönetimi yok',
+                  fix: [{ cause: 'Gerekli protokol listede yok (set yerine append; set mevcut listeyi siler)', cmd: 'config system interface\nedit port2\nappend allowaccess https ssh\nend' },
+                        { cause: 'WAN\'da gereksiz yönetim erişimi açık', cmd: 'config system interface\nedit port1\nset allowaccess ping\nend' }] },
+                { code: 'show system admin', desc: 'trusthost1…3 yöneticinin yalnız belirtilen ağlardan girişini sağlar. Erişilemeyen yönetici, kaynak adresi trusthost dışında olduğu için reddediliyor olabilir.' },
+                { code: 'show full-configuration system global', desc: 'admin-sport / admin-ssh-port yönetim portlarını gösterir; port değiştirildiyse tarayıcıda ya da SSH istemcisinde o port kullanılmalıdır.' },
+            ],
+            quiz: [
+                { q: 'allowaccess neyi belirler?', choices: [['intf', 'O arayüzden hangi yönetim protokollerinin kabul edileceğini'], ['fw', 'Kuraldan geçen trafiği'], ['user', 'Kullanıcı yetkilerini']], correct: 'intf', why: 'Yönetim erişimi arayüz bazındadır; forward trafiğini kurallar belirler.' },
+                { q: 'trusthost neyi sınırlar?', choices: [['src', 'Yöneticinin girebileceği kaynak ağları'], ['port', 'Yönetim portunu'], ['proto', 'Protokolü']], correct: 'src', why: 'Hesap bazında kaynak kısıtıdır.' },
+            ],
+        },
+        {
+            title: 'VLAN Arayüzünden Trafik Geçmiyor ya da Zone Üyeleri Arasında Trafik Engelleniyor', severity: 'warn', topic: 'l2', lab: 'fgt-13',
+            symptom: 'Yeni bir VLAN arayüzündeki istemciler FortiGate\'e ulaşamıyor; ya da aynı zone\'daki iki segment birbirine erişemiyor.',
+            steps: [
+                { expect: 'bad', code: 'show system interface', desc: 'VLAN arayüzünün üst (fiziksel) arayüzü (interface) ve VLAN kimliği (vlanid) anahtardaki etiketle aynı olmalı; üst arayüz kapalıysa VLAN arayüzü de çalışmaz.',
+                  sample: 'config system interface\n    edit "VLAN10"\n        set ip 10.64.20.1 255.255.255.0\n        set interface "port2"\n        set vlanid 11\n    next\nend\n\n# Anahtar VLAN 10 ile etiketliyor, arayüzde 11',
+                  fix: [{ cause: 'VLAN kimliği anahtarla uyuşmuyor: arayüzdeki vlanid, anahtarın bu segment için kullandığı etiketle aynı olmalı' }] },
+                { code: 'show system zone', desc: 'Zone içi (üyeler arası) trafik varsayılan olarak engellidir (intrazone deny). İzin vermek için intrazone allow ya da açık bir kural.',
+                  fix: [{ cause: 'Zone içi trafik engelli', cmd: 'config system zone\nedit LAN-ZONE\nset intrazone allow\nend' }] },
+                { code: 'diagnose firewall iprope lookup 10.64.20.50 50000 10.64.30.10 443 tcp VLAN10 policy', desc: 'Trafik hangi kurala düşüyor? policy 0 ise kural yok; zone kullanılan kurallarda arayüz yerine zone seçilir.' },
+            ],
+            quiz: [
+                { q: 'Zone içi trafiğin varsayılanı?', choices: [['deny', 'Engelli (intrazone deny)'], ['allow', 'Serbest']], correct: 'deny', why: 'Zone üyeleri arası trafik ayrıca izin ister.' },
+                { q: 'VLAN arayüzü hangi iki bilgiyle tanımlanır?', choices: [['pv', 'Üst fiziksel arayüz ve VLAN kimliği'], ['ip', 'Yalnız IP'], ['mac', 'MAC adresi']], correct: 'pv', why: '802.1Q etiketi üst arayüzde taşınır.' },
+            ],
+        },
+        {
+            title: 'FortiAnalyzer\'da Beklenen Olay Oluşmuyor ya da Rapor Boş', severity: 'info', topic: 'ops', lab: 'fgt-68',
+            symptom: 'FortiAnalyzer\'da bir saldırı dizisi için olay (event) üretilmiyor; ya da haftalık rapor boş geliyor.',
+            steps: [
+                { code: 'execute log fortianalyzer test-connectivity', desc: 'Önce FortiGate tarafı: bağlantı ve kayıt. Loglar gelmiyorsa analitik de yoktur.' },
+                { expect: 'bad', code: 'show firewall policy', desc: 'logtraffic utm (varsayılan) yalnız güvenlik profili olayı üreten oturumları loglar. Davranış analizi ve trafik raporları için ilgili kurallarda logtraffic all gerekir.',
+                  sample: '    edit 1\n        set name "LAN-TO-WAN"\n        …\n    next\n\n# logtraffic satırı yok: varsayılan utm, normal oturumlar loglanmıyor',
+                  fix: [{ cause: 'Trafik logu kapalı ya da yalnız UTM', cmd: 'config firewall policy\nedit 1\nset logtraffic all\nend' }] },
+                { code: 'config log fortianalyzer setting', desc: 'upload-option realtime değilse loglar toplu (varsayılan 5 dakika) gelir; olaylar gecikir. FortiAnalyzer tarafında ise handler\'ın etkin olduğu (hazır handler\'ların bir kısmı varsayılan olarak kapalı) ve correlation dizisinin doğru operatörle (FOLLOWED_BY…) kurulduğu kontrol edilir.',
+                  fix: [{ cause: 'Toplu gönderim gecikmesi', cmd: 'config log fortianalyzer setting\nset upload-option realtime\nend' }] },
+            ],
+            quiz: [
+                { q: 'Hazır bir event handler olay üretmiyor. İlk kontrol?', choices: [['en', 'Handler etkin mi (bazıları varsayılan kapalı)'], ['del', 'Silip yeniden oluşturmak'], ['fgt', 'FortiGate\'i yeniden başlatmak']], correct: 'en', why: 'FortiAnalyzer belgesi: olay üretmesi için handler etkinleştirilmelidir.' },
+                { q: 'Rapor boş. En olası neden?', choices: [['logs', 'Seçilen zaman aralığında ilgili loglar yok (logtraffic, gönderim)'], ['tpl', 'Şablon veri içermiyor'], ['pdf', 'PDF biçimi']], correct: 'logs', why: 'Şablon zaten veri içermez; grafikler dataset\'lerle loglardan beslenir.' },
+            ],
+        },
     ];
 })();

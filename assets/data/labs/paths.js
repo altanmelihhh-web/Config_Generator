@@ -47,7 +47,7 @@
     ];
     // FortiGate 7 seviyeli müfredat (notes/fortigate-mufredat-seviyeleri.md): modül = seviyenin alt başlığı.
     // Yalnız FortiGate yolları kullanır (FW() Palo Alto ve Check Point ile ortak kalır). d: modül açıklaması üzerine yazma (ör. 7.6 yolu).
-    // Planlanmış ama henüz yazılmamış lab kimlikleri (fgt-28…57) arayüzde gizlenir; yazıldıkları gün kendi modüllerinde görünür.
+    // Planlanmış ama henüz yazılmamış lab kimlikleri arayüzde gizlenir (parti 13 itibarıyla yolda yazılmamış kimlik kalmadı).
     const FGT = (ids, d) => [
         [1, 'Giriş: FortiOS CLI', 'config/edit/set/next/end akışı; get, show, execute ve diagnose fiilleri.'],
         [2, 'Seviye 1 · OSI/TCP-IP, alt ağ ve yönlendirme temeli', 'Katmanlar ve araçları, alt ağ hesabı, bağlı ve statik rotalar, en uzun önek eşleşmesi ve yönetsel mesafe.'],
@@ -55,9 +55,9 @@
         [4, 'Seviye 1 · Temel sorun giderme araçları', 'Sağlık turu, ping, ARP tablosu, telnet ile port testi ve kaynak adres seçimi.'],
         [5, 'Seviye 2 · Mimari, arayüzler, yönetim erişimi ve kimlik', 'Donanım/VM ve hızlandırma, arayüz ve allowaccess, yönetimi sıkılaştırma, RADIUS/LDAP ile yönetici doğrulama.'],
         [6, 'Seviye 2 · Sistem servisleri', 'DNS, NTP ve DHCP sunucusu.'],
-        [7, 'Seviye 2 · VLAN ve zone', 'Tek porttan çok segment; arayüzleri kural için gruplamak.'],
-        [8, 'Seviye 2 · Adres ve servis nesneleri', 'Kuralların yapı taşları: adres, servis, gruplar.'],
-        [9, 'Seviye 2 · Politikalar ve kural sırası', 'İlk kural, kaynak NAT, örtük deny, gölgelenen kural ve move.'],
+        [7, 'Seviye 2 · Adres ve servis nesneleri', 'Kuralların yapı taşları: adres, servis, gruplar.'],
+        [8, 'Seviye 2 · Politikalar ve kural sırası', 'İlk kural, kaynak NAT, örtük deny, gölgelenen kural ve move.'],
+        [9, 'Seviye 2 · VLAN ve zone', 'Tek porttan çok segment; arayüzleri kural için gruplamak.'],
         [10, 'Seviye 2 · Statik rota ve yedek hat', 'Mesafe/öncelik ve yük devri.'],
         [11, 'Seviye 2 · NAT: IP havuzu, VIP ve central NAT', 'Sabit çıkış adresi, sunucu yayınlama ve merkezi SNAT tablosu.'],
         [12, 'Seviye 2 · Yedekleme ve geri yükleme', 'TFTP yedeği, revizyon ve restore.'],
@@ -69,7 +69,7 @@
         [18, 'Seviye 4 · İleri yönlendirme, SD-WAN ve policy route', 'ECMP, öncelik, kara delik ve rota veritabanı; SD-WAN, PBR, OSPF ve BGP.'],
         [19, 'Seviye 5 · Yüksek erişilebilirlik (FGCP)', 'Aktif-pasif küme, kontrollü failover, split-brain.'],
         [20, 'Seviye 5 · FortiLink, FortiAP ve VDOM', 'Güvenlik yapısına bağlı switch ve AP; sanal alanlar.'],
-        [21, 'Seviye 6 · FortiManager ve FortiAnalyzer', 'Merkezi yönetim bağlantısı (FGFM), revizyonlar ve FortiAnalyzer\'a log.'],
+        [21, 'Seviye 6 · FortiManager ve FortiAnalyzer', 'Merkezi yönetim bağlantısı (FGFM), revizyonlar, FortiAnalyzer\'a log ve güvenlik analitiği.'],
         [22, 'Seviye 7 · debug flow, sniffer ve oturumlar', 'Paketin neden düştüğünü ve nerede kaybolduğunu kanıtla bulmak.'],
         [23, 'Seviye 7 · Performans ve sistem kayıtları', 'CPU/bellek, süreçler, crashlog ve config-error-log.'],
         [24, 'Seviye 7 · VPN tanılama', 'IPsec faz 1/faz 2 ve SSL-VPN bağlantı sorunları.'],
@@ -98,10 +98,10 @@
     ];
     // FortiGate yolunun lab kimlikleri (7.4). 7.6 yolu aynı modülleri f76- klonlarıyla kullanır (fortigate-76.js);
     // SSL-VPN tünel lab'ları (fgt-12, fgt-24) 7.6'da yok, yerlerine 7.6'ya özgü planlı lab'lar (f76-30 dial-up, f76-47 ZTNA, f76-54 dial-up tanılama).
-    const FGT_IDS = { 1: ['fgt-00'], 2: ['fgt-62', 'fgt-40'], 3: ['fgt-41', 'fgt-63'], 4: ['fgt-20', 'fgt-26'], 5: ['fgt-64', 'fgt-01', 'fgt-17', 'fgt-09', 'fgt-61'], 6: ['fgt-02'], 7: ['fgt-13'], 8: ['fgt-03'], 9: ['fgt-04', 'fgt-05'],
+    const FGT_IDS = { 1: ['fgt-00'], 2: ['fgt-62', 'fgt-40'], 3: ['fgt-41', 'fgt-63'], 4: ['fgt-20', 'fgt-26'], 5: ['fgt-64', 'fgt-01', 'fgt-17', 'fgt-09', 'fgt-61'], 6: ['fgt-02'], 7: ['fgt-03'], 8: ['fgt-04', 'fgt-05'], 9: ['fgt-13'],
               10: ['fgt-06'], 11: ['fgt-07', 'fgt-08', 'fgt-42'], 12: ['fgt-18'], 13: ['fgt-58'], 14: ['fgt-10', 'fgt-43', 'fgt-44', 'fgt-45', 'fgt-67'], 15: ['fgt-14', 'fgt-46'],
-              16: ['fgt-11', 'fgt-31'], 17: ['fgt-12', 'fgt-47'], 18: ['fgt-65', 'fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-60', 'fgt-52', 'fgt-53', 'fgt-66'], 21: ['fgt-59', 'fgt-56', 'fgt-57'],
-              22: ['fgt-15', 'fgt-16', 'fgt-32'], 23: ['fgt-21', 'fgt-22'], 24: ['fgt-23', 'fgt-24'], 25: ['fgt-27'], 26: ['fgt-55'] };
+              16: ['fgt-11'], 17: ['fgt-12', 'fgt-47'], 18: ['fgt-65', 'fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-60', 'fgt-52', 'fgt-53', 'fgt-66'], 21: ['fgt-59', 'fgt-56', 'fgt-57', 'fgt-68'],
+              22: ['fgt-15', 'fgt-16'], 23: ['fgt-21', 'fgt-22'], 24: ['fgt-23', 'fgt-24'], 25: ['fgt-27'], 26: ['fgt-55'] };
     const FGT_76 = {};
     Object.keys(FGT_IDS).forEach(n => { FGT_76[n] = FGT_IDS[n].filter(id => id !== 'fgt-12' && id !== 'fgt-24').map(id => id.replace(/^fgt-/, 'f76-')); });
     FGT_76[17] = ['f76-30', 'f76-47']; FGT_76[24] = FGT_76[24].concat(['f76-54']);

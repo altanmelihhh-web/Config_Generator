@@ -343,4 +343,8 @@
     LABS.forEach(l => { LABS_BY_ID[l.id] = l; });
     const root = typeof window !== 'undefined' ? window : globalThis;
     root.CG_LABS = (root.CG_LABS || []).filter(l => !LABS_BY_ID[l.id]).concat(LABS);
+    // Müfredat kalite geçişi (parti 13): sihirbaz bağlantısı olmayan özgün 7.4 lab'larına ilgili senaryo eklenir.
+    // Lab metinleri değişmez; yalnız links.wizard boşsa doldurulur (bu dosya fortigate.js'ten sonra yüklenir; 7.6 klonları bağlantıyı kopyalar).
+    const WIZ = { 'fgt-00': 144, 'fgt-01': 145, 'fgt-17': 145, 'fgt-02': 133, 'fgt-03': 114, 'fgt-08': 112, 'fgt-10': 121, 'fgt-13': 146, 'fgt-14': 124, 'fgt-18': 136, 'fgt-22': 104 };
+    root.CG_LABS.forEach(l => { if (WIZ[l.id] && l.vendor === 'fortigate' && !(l.links || {}).wizard) l.links = Object.assign({}, l.links, { wizard: '#/troubleshoot/fortigate/' + WIZ[l.id] }); });
 })();

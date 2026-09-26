@@ -871,7 +871,7 @@
         links: { tool: '#/fortigate/static', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/115' }, cert: 'NSE 4 · M3'
     },
     {
-        id: 'fgt-41', vendor: 'fortigate', level: 1, title: 'Sniffer ile ICMP, TCP el sıkışması ve UDP', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-26'],
+        id: 'fgt-41', vendor: 'fortigate', level: 1, title: 'Sniffer ile ICMP, TCP el sıkışması ve UDP', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-62'],
         up: ['port1', 'port2'], hosts: ['203.0.113.1'],
         start: BASE().concat(POL(['ALL'])),
         // İki tur: v1'de ping yanıtlanır ve 8080 RST döner; v2'de ping yanıtsız, 8080'e hiç yanıt gelmez (arada paketi yutan bir cihaz)
@@ -2385,6 +2385,47 @@
             links: { tool: '#/fortigate/antivirus', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/143' }, cert: 'NSE 4 · M7'
         };
     })(),
+    // ═══ Parti 13: Seviye 6 güvenlik analitiği (fgt-68) — FortiAnalyzer kavramları + FortiGate tarafında log gönderimi ═══
+    // Kaynak: FortiAnalyzer 7.4 Administration Guide — Event handlers (basic / correlation, operatörler), Incidents & Events, Reports (template, dataset, chart, schedule).
+    {
+        id: 'fgt-68', vendor: 'fortigate', level: 6, title: 'Güvenlik analitiği: FortiAnalyzer\'da olay, korelasyon, olay kaydı ve rapor', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-57'],
+        up: ['port1', 'port2'], hosts: ['203.0.113.1', '192.0.2.60'],
+        start: BASE().concat(POL(['HTTP', 'HTTPS', 'DNS'])),
+        sim: { faz: { ip: '192.0.2.60', host: 'FAZ-LAB' } },
+        story: 'Güvenlik ekibi FortiAnalyzer\'da (192.0.2.60) şüpheli davranışları otomatik yakalamak, olayları takip etmek ve haftalık rapor almak istiyor. Önce FortiGate\'in doğru ve yeterli log gönderdiğinden emin olun, sonra FortiAnalyzer\'daki analitik kavramlarını oturtun. <small>[Simülatör] FortiAnalyzer arayüzü (event handler, olay kaydı, rapor) bu simülatörde yok; bu kısımlar kavram sorularıyla işlenir.</small>',
+        lesson: L('FortiAnalyzer\'da <b>event handler</b>\'lar loglardan <b>olay (event)</b> üretir. <b>Basic</b> handler\'da kurallardan herhangi biri sağlanınca olay oluşur (kurallar arasında VEYA). <b>Correlation</b> handler\'da olay, bir kural dizisi sırayla sağlanınca oluşur; kurallar AND, AND_NOT, OR, FOLLOWED_BY ve NOT_FOLLOWED_BY ile bağlanır (ör. çok sayıda başarısız giriş FOLLOWED_BY başarılı giriş). Hazır handler\'lar vardır; bazıları varsayılan olarak kapalıdır ve etkinleştirilmeden olay üretmez. Analist bir olaydan <b>olay kaydı (incident)</b> açar; handler\'da ayar açıksa olay kaydı otomatik de açılabilir. <b>Raporlar</b> şablondan üretilir: şablon metin, grafik ve makroların yerleşimini tutar, veri içermez; grafikler loglara çalışan <b>dataset</b>\'lere dayanır; raporlar zamanlanabilir. Bütün bunlar FortiGate\'in gönderdiği loglara bağlıdır: log yoksa analitik de yoktur.',
+            'Tek tek log satırlarını izlemek ölçeklenmez. Korelasyon, tek başına masum görünen olayları anlamlı bir saldırı dizisine bağlar; olay kaydı ise takibi ve sorumluluğu netleştirir.',
+            'config log fortianalyzer setting\n    set status enable\n    set server 192.0.2.60\n    set upload-option realtime\nend\nexecute log fortianalyzer test-connectivity\n# FortiAnalyzer (arayüz): Incidents &amp; Events › Handlers › Basic / Correlation\n# Reports › Report Definitions › Templates / Chart Library / Datasets',
+            ['FortiGate\'te logtraffic utm bırakıp FortiAnalyzer\'da tüm trafiği aramak.', 'Hazır handler\'ı etkinleştirmeden olay beklemek.', 'Rapor şablonunun veri taşıdığını sanmak.']),
+        goals: ['FortiGate → FortiAnalyzer log gönderimini doğrulamak', 'Basic ve correlation event handler', 'Olaydan olay kaydına', 'Rapor: şablon, grafik, dataset, zamanlama'],
+        tasks: [
+            { t: 'FortiAnalyzer\'a gerçek zamanlı log gönderimi: sunucu 192.0.2.60, upload-option realtime. Bağlantıyı sınayın.',
+              why: 'Analitik ancak loglar geldiğinde çalışır; realtime gecikmeyi kaldırır. test-connectivity kayıt ve bağlantıyı doğrular.',
+              hints: ['config log fortianalyzer setting → set status enable → set server … → set upload-option realtime → end', '<code>execute log fortianalyzer test-connectivity</code>'],
+              steps: ['config log fortianalyzer setting', 'set status enable', 'set server 192.0.2.60', 'set upload-option realtime', 'end', 'execute log fortianalyzer test-connectivity'],
+              check: s => { const f = s.obj('log fortianalyzer setting'); return f.status === 'enable' && f.server === '192.0.2.60' && f['upload-option'] === 'realtime' && s.ev.list().some(e => e.faztest === 'ok'); } },
+            { t: 'LAN-TO-WAN kuralı tüm oturumları loglasın; aksi hâlde FortiAnalyzer yalnız güvenlik olaylarını görür.',
+              why: 'Varsayılan logtraffic utm yalnız güvenlik profili olayı üreten oturumları loglar. Davranış analizi (kim nereye, ne kadar) tüm oturumlar ister.',
+              hints: ['config firewall policy → edit 1', '<code>set logtraffic all</code> → <code>end</code>'],
+              steps: ['config firewall policy', 'edit 1', 'set logtraffic all', 'end'],
+              check: s => s.obj('firewall policy', '1').logtraffic === 'all' },
+            { t: 'Basic ve correlation event handler farkı ne?', ask: { choices: [['bc', 'Basic: kurallardan biri sağlanınca olay; correlation: kurallar belirli bir dizide (AND, FOLLOWED_BY…) sağlanınca olay'], ['same', 'Aynıdır'], ['dev', 'Basic FortiGate için, correlation yalnız FortiMail için']], correct: 'bc' },
+              why: 'FortiAnalyzer Administration Guide: basic handler\'da kurallar VEYA ilişkisindedir; correlation handler\'da kurallar ve operatörler (AND, AND_NOT, OR, FOLLOWED_BY, NOT_FOLLOWED_BY) birlikte tanımlanır.',
+              hints: ['Tek kural mı, dizi mi?', 'FOLLOWED_BY'] },
+            { t: '"Aynı kaynaktan çok sayıda başarısız VPN girişi, ardından başarılı giriş" hangi handler ile yakalanır?', ask: { choices: [['corr', 'Correlation handler: başarısız girişler FOLLOWED_BY başarılı giriş'], ['basic', 'Basic handler: başarılı giriş kuralı yeter'], ['report', 'Yalnız haftalık rapor']], correct: 'corr' },
+              why: 'Tek başına başarılı giriş olağandır; anlamı, önceki başarısız denemelerle sırası kurulunca ortaya çıkar.',
+              hints: ['Sıra önemli.', 'FOLLOWED_BY'] },
+            { t: 'Bir olay (event) incelemeye alınacak. FortiAnalyzer\'da ne yapılır?', ask: { choices: [['inc', 'Olaydan olay kaydı (incident) açılır; handler\'da ayar açıksa otomatik de açılabilir'], ['delete', 'Olay silinir'], ['fgt', 'FortiGate\'te kural yazılır']], correct: 'inc' },
+              why: 'Incidents & Events: olaydan "Create New Incident" ile kayıt açılır; handler\'da "Automatically Create Incident" açıksa kayıt kendiliğinden oluşur.',
+              hints: ['Takip için kayıt.', 'Incident'] },
+            { t: 'FortiAnalyzer rapor şablonu neyi tutar?', ask: { choices: [['layout', 'Metin, grafik ve makroların yerleşimini; veri içermez (grafikler dataset\'lerden beslenir)'], ['data', 'Hazır log verisini'], ['cfg', 'FortiGate yapılandırmasını']], correct: 'layout' },
+              why: 'Rapor çalıştırıldığında grafiklerin dataset\'leri seçilen zaman aralığındaki loglara uygulanır; rapor zamanlanabilir.',
+              hints: ['Şablon = iskelet.', 'Dataset = sorgu.'] },
+        ],
+        verify: ['show log fortianalyzer setting', 'execute log fortianalyzer test-connectivity', 'show firewall policy 1'],
+        learn: ['Analitik loglara bağlıdır: FortiAnalyzer\'a realtime gönderim + logtraffic all.', 'Basic handler: kurallardan biri; correlation: sıralı dizi (FOLLOWED_BY…).', 'Olay → olay kaydı (elle ya da otomatik).', 'Rapor: şablon (yerleşim) + grafik + dataset; zamanlanabilir.'],
+        links: { tool: '#/fortigate/logging', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/147' }, cert: 'FortiAnalyzer (FCP) · kavram'
+    },
     ];
     // Çoktan seçmeli (ask) görevler: cevap s.answers['<lab>:<görev>'] içinde
     LABS.forEach(l => l.tasks.forEach((t, i) => {
@@ -2403,4 +2444,8 @@
     const root = typeof window !== 'undefined' ? window : globalThis;
     // Yalnız bu dosyanın lab'ları değiştirilir (fortigate-yol.js'teki lab'lar korunur)
     root.CG_LABS = (root.CG_LABS || []).filter(l => !LABS_BY_ID[l.id]).concat(LABS);
+    // Müfredat kalite geçişi (parti 13): sihirbaz bağlantısı olmayan özgün 7.4 lab'larına ilgili senaryo (fortigate-yol.js ile aynı tablo;
+    // iki dosya da uygular, yükleme sırası fark etmez). Lab metinleri değişmez; yalnız links.wizard boşsa doldurulur.
+    const WIZ = { 'fgt-00': 144, 'fgt-01': 145, 'fgt-17': 145, 'fgt-02': 133, 'fgt-03': 114, 'fgt-08': 112, 'fgt-10': 121, 'fgt-13': 146, 'fgt-14': 124, 'fgt-18': 136, 'fgt-22': 104 };
+    root.CG_LABS.forEach(l => { if (WIZ[l.id] && l.vendor === 'fortigate' && !(l.links || {}).wizard) l.links = Object.assign({}, l.links, { wizard: '#/troubleshoot/fortigate/' + WIZ[l.id] }); });
 })();
