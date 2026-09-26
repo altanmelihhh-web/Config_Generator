@@ -9,6 +9,24 @@ const CgCli = {
     _cat: 'all',
     _q: '',
     _sev: 'all',
+    _ver: 'all',   // FortiOS sürüm süzgeci (?ver=7.4|7.6); ver alanı olmayan komut her iki sürümde görünür
+
+    // Sürüm rozeti (komut.ver / senaryo.fos): lab kartlarındaki cg-lab-ver diliyle aynı; CgTroubleshoot da kullanır
+    verBadge(v) {
+        if (v !== '7.4' && v !== '7.6') return '';
+        const l = v === '7.4' ? 'yalnız 7.4' : '7.6+', t = v === '7.4' ? 'Yalnız FortiOS 7.4 (7.6\'da yok ya da değişti)' : 'FortiOS 7.6 ve sonrası';
+        return `<span class="cg-lab-badge cg-lab-ver cg-ver-b${v === '7.4' ? ' cg-ver-old' : ''}" title="${t}">${l}</span>`;
+    },
+    // Adresteki ?ver= değeri (yalnız 7.4 / 7.6 geçerli)
+    verFromHash() { const q = (location.hash.split('?')[1] || ''), m = q.match(/(?:^|&)ver=([0-9.]+)/); return m && (m[1] === '7.4' || m[1] === '7.6') ? m[1] : 'all'; },
+    // Süzgeci adrese yaz (diğer sorgu parametreleri korunur); replaceState: yeniden yönlendirme ve geri yığını şişmesi yok
+    verToHash(v) {
+        const [p, q] = location.hash.split('?'), P = new URLSearchParams(q || '');
+        if (v === 'all') P.delete('ver'); else P.set('ver', v);
+        const h = p + (P.toString() ? '?' + P.toString() : '');
+        if (location.hash !== h) history.replaceState(null, '', h);
+    },
+    verOk(v, sel) { return sel === 'all' || !v || v === sel; },
 
     // Söz URL başına önbellekte: yükleme sürerken gelen ikinci çağrı aynı sözü alır (betik iki kez eklenmez → "already declared" hatası olmaz).
     // Hata olursa söz silinir ve betik etiketi kaldırılır; sonraki çağrı yeniden dener.
@@ -36,6 +54,7 @@ const CgCli = {
         if (!vendor || !idx.some(v => v.key === vendor)) vendor = idx[0] && idx[0].key;
         if (vendor !== this._vendor) { this._cat = 'all'; this._sev = 'all'; }
         this._vendor = vendor;
+        this._ver = this.verFromHash();
         try { await this._load('assets/data/cli/' + vendor + '.js'); }
         catch (e) { root.innerHTML = '<div class="cg-empty"><i class="fas fa-exclamation-triangle"></i><p>' + cgEsc(vendor) + ' verisi yüklenemedi.</p></div>'; return; }
         this._root = root;
@@ -69,6 +88,7 @@ const CgCli = {
             <div class="cg-cli-sev" role="group" aria-label="Önem">
                 ${[['all', 'Tümü'], ['i', 'Bilgi'], ['w', 'Dikkat'], ['e', 'Riskli']].map(([k, l]) => `<button class="cg-chip${this._sev === k ? ' active' : ''}" data-sev="${k}">${k !== 'all' ? `<span class="cg-sev cg-sev-${k}"></span>` : ''}<span class="cg-chip-l">${l}</span></button>`).join('')}
             </div>
+            ${this._verChips(d)}
             <div class="cg-chips cg-cat-chips" id="cg-cli-cats">${cchips}</div>
             <div id="cg-cli-list"></div>
             ${this._scenariosHtml(d)}
@@ -91,7 +111,20 @@ const CgCli = {
             const ok = () => { el.classList.add('is-copied'); setTimeout(() => el.classList.remove('is-copied'), 900); };
             if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(ok, ok); else ok();
         });
+        this._root.querySelectorAll('.cg-ver-chips .cg-chip').forEach(b => b.addEventListener('click', () => {
+            this._ver = b.dataset.ver; this.verToHash(this._ver);
+            this._root.querySelectorAll('.cg-ver-chips .cg-chip').forEach(x => { x.classList.toggle('active', x === b); x.setAttribute('aria-pressed', x === b); });
+            this._paintList();
+        }));
         this._paintList();
+    },
+
+    // Sürüm süzgeci: yalnız ver alanı taşıyan komutu olan kütüphanede (şimdilik FortiGate)
+    _verChips(d) {
+        if (!d.commands.some(c => c.ver)) { this._ver = 'all'; return ''; }
+        const n = v => d.commands.filter(c => this.verOk(c.ver, v)).length;
+        return `<div class="cg-chips cg-ver-chips" role="group" aria-label="FortiOS sürümü"><span class="cg-ver-lbl">FortiOS</span>${
+            [['all', 'Tümü'], ['7.4', '7.4'], ['7.6', '7.6']].map(([k, l]) => `<button type="button" class="cg-chip${this._ver === k ? ' active' : ''}" data-ver="${k}" aria-pressed="${this._ver === k}"><span class="cg-chip-l">${l}</span><span class="cg-chip-n">${n(k)}</span></button>`).join('')}</div>`;
     },
 
     _paintList() {
@@ -101,6 +134,7 @@ const CgCli = {
         const rows = d.commands.filter(c =>
             (this._cat === 'all' || c.cat === this._cat) &&
             (this._sev === 'all' || c.sev === this._sev) &&
+            this.verOk(c.ver, this._ver) &&
             terms.every(t => (c.code + ' ' + c.desc + ' ' + c.cat).toLowerCase().includes(t)));
         if (!rows.length) { host.innerHTML = '<div class="cg-empty"><i class="fas fa-search"></i><p>Eşleşen komut yok.</p></div>'; return; }
         const byCat = {};
@@ -113,7 +147,7 @@ const CgCli = {
                     <div class="cg-cli-row">
                         <span class="cg-sev cg-sev-${cgEsc(c.sev)}" title="${c.sev === 'e' ? 'Riskli — üretimde dikkatli kullanın' : c.sev === 'w' ? 'Dikkat' : 'Bilgi'}"></span>
                         <code data-code="${cgEsc(c.code)}" title="Kopyala">${cgEsc(c.code)}</code>
-                        <span class="cg-cli-desc">${cgEsc(c.desc)}</span>
+                        <span class="cg-cli-desc">${c.ver ? this.verBadge(c.ver) + ' ' : ''}${cgEsc(c.desc)}</span>
                     </div>`).join('')}</div>
             </section>`;
         }).join('');

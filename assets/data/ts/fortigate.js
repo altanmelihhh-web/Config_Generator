@@ -123,7 +123,7 @@
             ],
         },
         {
-            title: 'SSL-VPN Kullanıcısı Bağlanamıyor: debug ile Nedeni Bulmak', severity: 'err', topic: 'vpn', lab: 'fgt-24', replaces: 'SSL VPN Kullanicisi Baglanamiyorsa',
+            title: 'SSL-VPN Kullanıcısı Bağlanamıyor: debug ile Nedeni Bulmak', severity: 'err', topic: 'vpn', lab: 'fgt-24', fos: '7.4', replaces: 'SSL VPN Kullanicisi Baglanamiyorsa',
             symptom: 'Kullanıcı FortiClient ile bağlanamıyor ya da giriş yapıp hemen düşüyor. Not: SSL-VPN tünel modu FortiOS 7.6.3 ve sonrasında tüm modellerde kaldırıldı (yerine IPsec VPN); bu senaryo 7.4 içindir.',
             steps: [
                 { code: 'get vpn ssl monitor', desc: 'Belirtiyi doğrulayın: kullanıcı "SSL-VPN Login Users" ve "SSL-VPN sessions" listesinde görünüyor mu, tünel IP\'si atanmış mı? Listede yoksa bağlantı kurulamıyordur.' },
@@ -490,7 +490,7 @@
             ],
         },
         {
-            title: 'FortiOS 7.6.3 Yükseltmesi Sonrası SSL-VPN Tünel Bağlantısı Yok: Uzaktan Erişim Seçenekleri', severity: 'info', topic: 'vpn', lab: 'fgt-47',
+            title: 'FortiOS 7.6.3 Yükseltmesi Sonrası SSL-VPN Tünel Bağlantısı Yok: Uzaktan Erişim Seçenekleri', severity: 'info', topic: 'vpn', lab: 'fgt-47', fos: '7.6',
             symptom: 'FortiOS 7.6.3 ya da sonrasına yükseltilen cihazda FortiClient SSL-VPN tünel bağlantısı çalışmıyor; tünel modu ayarları yapılandırmada yok.',
             steps: [
                 { code: 'get system status', desc: 'Sürümü doğrulayın. 7.6.3 ve sonrasında SSL-VPN tünel modu kaldırıldı ve yerine IPsec VPN konuldu; tünel modu ayarları yükseltmede taşınmaz, silinir (7.6.3 sürüm notu).' },
@@ -505,7 +505,7 @@
         },
         // ── Parti 8: 7.6 IPsec dial-up (f76-30, f76-54), RADIUS Message-Authenticator (fgt-61)
         {
-            title: 'FortiOS 7.6: FortiClient IPsec Dial-up Kurulumu ve TCP 443 (Web Yönetimi Erişimi Kayboldu mu?)', severity: 'warn', topic: 'vpn', lab: 'f76-30',
+            title: 'FortiOS 7.6: FortiClient IPsec Dial-up Kurulumu ve TCP 443 (Web Yönetimi Erişimi Kayboldu mu?)', severity: 'warn', topic: 'vpn', lab: 'f76-30', fos: '7.6',
             symptom: 'SSL-VPN tünel modunun yerine IPsec dial-up kuruldu. Bazı kullanıcılar otel ağlarından bağlanamıyor; ya da TCP 443 açıldıktan sonra yöneticiler WAN\'dan web arayüzüne erişemiyor.',
             steps: [
                 { code: 'show vpn ipsec phase1-interface DIAL', desc: 'type dynamic, ike-version 2, mode-cfg ve havuz, eap + authusrgrp, transport. 7.6\'da transport değerleri udp / auto (varsayılan) / tcp; TCP taşıma yalnız IKEv2 ile ve FortiClient 7.4.1+ ile çalışır.',
@@ -522,7 +522,7 @@
             ],
         },
         {
-            title: 'Dial-up İstemci (FortiClient) Bağlanamıyor: IKE Debug ile Altı Neden', severity: 'err', topic: 'vpn', lab: 'f76-54',
+            title: 'Dial-up İstemci (FortiClient) Bağlanamıyor: IKE Debug ile Altı Neden', severity: 'err', topic: 'vpn', lab: 'f76-54', fos: '7.6',
             symptom: 'Uzaktan çalışan kullanıcı FortiClient ile IPsec dial-up\'a bağlanamıyor ya da bağlanıyor ama iç ağa erişemiyor.',
             steps: [
                 { code: 'get vpn ipsec tunnel summary', desc: 'İstemcinin genel IP\'siyle bir satır var mı? Yoksa IKE aşamasında takılıyordur; varsa ve IP almışsa sorun tünelden sonradır.' },
@@ -801,7 +801,7 @@
             ],
         },
         {
-            title: 'Aynı IPsec Betiği 7.4\'te Kalkıyor, 7.6.5+ Cihazda Kalkmıyor: DH Varsayılanı', severity: 'err', topic: 'vpn', lab: 'fgt-31',
+            title: 'Aynı IPsec Betiği 7.4\'te Kalkıyor, 7.6.5+ Cihazda Kalkmıyor: DH Varsayılanı', severity: 'err', topic: 'vpn', lab: 'fgt-31', fos: '7.6',
             symptom: 'Tünel betiğinde dhgrp satırı yok. Eski (7.4) cihazda tünel kurulu; yeni kurulan 7.6.5 ve sonrası cihazda aynı betikle faz 1 kurulmuyor. Karşı uç yalnız DH 14 kabul ediyor.',
             steps: [
                 { code: 'get system status', desc: 'Önce sürüm. FortiOS 7.6.5 sürüm notu (Changes in default behavior): CLI\'da oluşturulan faz 1/faz 2 için DH varsayılanı 14 ve 5\'ten 20 ve 21\'e değişti.' },

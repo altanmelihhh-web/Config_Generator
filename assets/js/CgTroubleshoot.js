@@ -47,18 +47,22 @@ const CgTroubleshoot = {
         try { await this._loadAll(); }
         catch (e) { root.innerHTML = '<div class="cg-empty"><i class="fas fa-exclamation-triangle"></i><p>Senaryolar yüklenemedi.</p></div>'; return; }
         if (location.hash !== want) return;   // yüklenirken başka sayfaya geçildi
-        this._fam = fam; this._ft = topic || 'all';
+        this._fam = fam; this._ft = topic || 'all'; this._fv = CgCli.verFromHash();
         this._paintFamily();
     },
     _paintFamily() {
-        const F = this._fam, all = this._list.filter(x => F.cli.includes(x.vendor));
+        const F = this._fam, fam = this._list.filter(x => F.cli.includes(x.vendor));
+        // FortiOS sürüm süzgeci (?ver=7.4|7.6): yalnız fos alanlı senaryo varsa; fos'suz senaryo her iki sürümde görünür
+        const hasVer = fam.some(x => x.s.fos);
+        if (!hasVer) this._fv = 'all';
+        const all = fam.filter(x => CgCli.verOk(x.s.fos, this._fv));
         const tops = this.TOPICS.filter(t => all.some(x => x.topic === t.id));
         if (this._ft !== 'all' && !tops.some(t => t.id === this._ft)) this._ft = 'all';
         const vs = [...new Set(all.map(x => x.vname))];
         const chip = (id, label, n) => `<button type="button" class="cg-chip${this._ft === id ? ' active' : ''}" data-ft="${id}" aria-pressed="${this._ft === id}"><span class="cg-chip-l">${cgEsc(label)}</span><span class="cg-chip-n">${n}</span></button>`;
         const scen = x => `<a class="cg-ts-scen" href="#/troubleshoot/${x.vendor}/${x.n}">
                     ${vs.length > 1 ? `<span class="cg-ts-scen-v">${this._mark(x.vendor)}${cgEsc(x.vname)}</span>` : ''}
-                    <span class="cg-ts-scen-t"><span class="cg-sev cg-sev-${this._sevCls(x.s)}"></span>${cgEsc(x.s.title)}</span>
+                    <span class="cg-ts-scen-t"><span class="cg-sev cg-sev-${this._sevCls(x.s)}"></span>${cgEsc(x.s.title)}${x.s.fos ? ' ' + CgCli.verBadge(x.s.fos) : ''}</span>
                     ${x.s.symptom ? `<span class="cg-ts-scen-s">${cgEsc(x.s.symptom)}</span>` : ''}
                     <span class="cg-ts-scen-n">${x.s.steps.length} adım <i class="fas fa-arrow-right" aria-hidden="true"></i></span>
                 </a>`;
@@ -69,18 +73,27 @@ const CgTroubleshoot = {
                 <h1>${cgEsc(F.name)} sorun giderme</h1>
                 <p><strong>${all.length}</strong> senaryo · <strong>${tops.length}</strong> konu${vs.length ? ' · ' + cgEsc(vs.join(', ')) : ''}. Belirtiyi seçin; sihirbaz kontrol komutlarıyla adım adım teşhise götürür.</p>
             </div>
+            ${hasVer ? `<div class="cg-chips cg-ver-chips" role="group" aria-label="FortiOS sürümü"><span class="cg-ver-lbl">FortiOS</span>${[['all', 'Tümü'], ['7.4', '7.4'], ['7.6', '7.6']].map(([k, l]) => `<button type="button" class="cg-chip${this._fv === k ? ' active' : ''}" data-fv="${k}" aria-pressed="${this._fv === k}"><span class="cg-chip-l">${l}</span><span class="cg-chip-n">${fam.filter(x => CgCli.verOk(x.s.fos, k)).length}</span></button>`).join('')}</div>` : ''}
             ${all.length ? `<div class="cg-chips cg-ts-fchips" role="group" aria-label="Konu">${chip('all', 'Tüm konular', all.length)}${tops.map(t => chip(t.id, t.label, all.filter(x => x.topic === t.id).length)).join('')}</div>
             ${shown.map(t => `<section class="cg-ts-fsec"><h2><i class="${t.icon}" aria-hidden="true"></i> ${cgEsc(t.label)}<span class="cg-lab-lc">${all.filter(x => x.topic === t.id).length}</span></h2>
                 <div class="cg-ts-scens">${all.filter(x => x.topic === t.id).map(scen).join('')}</div></section>`).join('')}`
             : '<div class="cg-empty"><i class="fas fa-stethoscope" aria-hidden="true"></i><p>' + cgEsc(F.name) + ' için henüz sorun giderme senaryosu yok.</p></div>'}
             <p class="cg-lab-lvhint">Tüm vendorların senaryoları konuya göre: <a href="#/troubleshoot">Sorun giderme sihirbazı</a>.</p>
         </div>`;
-        this._root.querySelectorAll('[data-ft]').forEach(b => b.addEventListener('click', () => {
-            this._ft = b.dataset.ft;
-            const h = '#/v/' + F.slug + '/sorun' + (this._ft === 'all' ? '' : '?k=' + this._ft);
+        const url = () => {
+            const q = [this._ft === 'all' ? '' : 'k=' + this._ft, this._fv === 'all' ? '' : 'ver=' + this._fv].filter(Boolean).join('&');
+            const h = '#/v/' + F.slug + '/sorun' + (q ? '?' + q : '');
             if (location.hash !== h) history.replaceState(null, '', h);   // süzgeç adreste (paylaşılabilir), geri yığını şişmez
+        };
+        this._root.querySelectorAll('[data-ft]').forEach(b => b.addEventListener('click', () => {
+            this._ft = b.dataset.ft; url();
             this._paintFamily();
             const nb = this._root.querySelector('[data-ft="' + this._ft + '"]'); if (nb) nb.focus();
+        }));
+        this._root.querySelectorAll('[data-fv]').forEach(b => b.addEventListener('click', () => {
+            this._fv = b.dataset.fv; url();
+            this._paintFamily();
+            const nb = this._root.querySelector('[data-fv="' + this._fv + '"]'); if (nb) nb.focus();
         }));
     },
 
@@ -147,7 +160,7 @@ const CgTroubleshoot = {
             <div class="cg-ts-scens">${list.map(x => `
                 <button class="cg-ts-scen" onclick="location.hash='#/troubleshoot/${x.vendor}/${x.n}'">
                     <span class="cg-ts-scen-v">${this._mark(x.vendor)}${cgEsc(x.vname)}</span>
-                    <span class="cg-ts-scen-t"><span class="cg-sev cg-sev-${this._sevCls(x.s)}"></span>${cgEsc(x.s.title)}</span>
+                    <span class="cg-ts-scen-t"><span class="cg-sev cg-sev-${this._sevCls(x.s)}"></span>${cgEsc(x.s.title)}${x.s.fos ? ' ' + CgCli.verBadge(x.s.fos) : ''}</span>
                     ${x.s.symptom ? `<span class="cg-ts-scen-s">${cgEsc(x.s.symptom)}</span>` : ''}
                     <span class="cg-ts-scen-n">${x.s.steps.length} adım <i class="fas fa-arrow-right"></i></span>
                 </button>`).join('')}
@@ -197,7 +210,7 @@ const CgTroubleshoot = {
             ${this._crumbs([[t.label, '#/troubleshoot/' + t.id], [x.vname + ' · ' + x.s.title]])}
             <div class="cg-ts-head">
                 <h1><span class="cg-sev cg-sev-${this._sevCls(x.s)}"></span>${cgEsc(x.s.title)}</h1>
-                <span class="cg-ts-plat">${this._mark(x.vendor)}${cgEsc(x.vname)}</span>
+                <span class="cg-ts-plat">${this._mark(x.vendor)}${cgEsc(x.vname)}${x.s.fos ? ' ' + CgCli.verBadge(x.s.fos) : ''}</span>
             </div>
             ${x.s.symptom ? `<p class="cg-cli-sym"><b>Belirti:</b> ${cgEsc(x.s.symptom)}</p>` : ''}
             <div class="cg-ts-prog" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div>
