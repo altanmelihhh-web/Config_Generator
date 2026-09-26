@@ -356,7 +356,7 @@ const CgLabFgt = (() => {
             'latency-threshold': { t: 'int', min: 0, max: 10000000, def: 5, d: 'Gecikme eşiği (ms)' },
             'jitter-threshold': { t: 'int', min: 0, max: 10000000, def: 5, d: 'Jitter eşiği (ms)' },
             'packetloss-threshold': { t: 'int', min: 0, max: 100, def: 0, d: 'Kayıp eşiği (%)' } } },
-        'system sdwan service': { key: 'id', num: true, parent: 'system sdwan', sub: 'service', children: ['sla'], attrs: {
+        'system sdwan service': { key: 'id', num: true, move: true, parent: 'system sdwan', sub: 'service', children: ['sla'], attrs: {
             name: { t: 'str', max: 35, d: 'Kural adı' },
             mode: { t: 'enum', v: ['auto', 'manual', 'priority', 'sla'], def: 'manual', d: 'Üye seçim modu' },
             dst: { t: 'refs', ds: 'addr', d: 'Hedef adres' }, src: { t: 'refs', ds: 'addr', d: 'Kaynak adres' },
@@ -375,6 +375,40 @@ const CgLabFgt = (() => {
             'output-device': { t: 'ref', ds: 'intf', d: 'Çıkış arayüzü' }, gateway: { t: 'ip', def: '0.0.0.0', d: 'Ağ geçidi' },
             action: { t: 'enum', v: ['deny', 'permit'], def: 'permit', d: 'permit = yönlendir, deny = politika yönlendirmeyi durdur (rota tablosu)' },
             status: { t: 'enum', v: ED, def: 'enable', d: 'Durum' }, comments: { t: 'str', max: 1023, d: 'Açıklama' } } },
+        // M21 — CLI Ref 7.4.8 config router ospf (103419153), config router bgp (225427711). Komşu/rota benzetimi sadeleştirilmiştir.
+        'router ospf': { single: true, children: ['area', 'network', 'ospf-interface', 'redistribute'], attrs: {
+            'router-id': { t: 'ip', def: '0.0.0.0', d: 'OSPF router ID (zorunlu)' },
+            'passive-interface': { t: 'refs', ds: 'intf', d: 'Pasif arayüzler (hello gönderilmez)' },
+            'default-information-originate': { t: 'enum', v: ['enable', 'always', 'disable'], def: 'disable', d: 'Varsayılan rotayı yay' } } },
+        'router ospf area': { key: 'id', parent: 'router ospf', sub: 'area', attrs: {
+            type: { t: 'enum', v: ['regular', 'nssa', 'stub'], def: 'regular', d: 'Alan tipi' } } },
+        'router ospf network': { key: 'id', num: true, parent: 'router ospf', sub: 'network', attrs: {
+            prefix: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Ağ' }, area: { t: 'ip', def: '0.0.0.0', d: 'Alan' } } },
+        'router ospf ospf-interface': { key: 'name', parent: 'router ospf', sub: 'ospf-interface', attrs: {
+            interface: { t: 'ref', ds: 'intf', d: 'Arayüz' }, cost: { t: 'int', min: 0, max: 65535, def: 0, d: 'Maliyet (0 = otomatik)' },
+            'hello-interval': { t: 'int', min: 1, max: 65535, def: 10, d: 'Hello (sn)' }, 'dead-interval': { t: 'int', min: 1, max: 65535, def: 40, d: 'Dead (sn)' },
+            'mtu-ignore': { t: 'enum', v: ED, def: 'disable', d: 'MTU uyuşmazlığını yok say' },
+            'network-type': { t: 'enum', v: ['broadcast', 'non-broadcast', 'point-to-point', 'point-to-multipoint'], def: 'broadcast', d: 'Ağ tipi' } } },
+        'router ospf redistribute': { key: 'name', parent: 'router ospf', sub: 'redistribute', attrs: { status: { t: 'enum', v: ED, def: 'disable', d: 'Yeniden dağıt' } } },
+        'router bgp': { single: true, children: ['neighbor', 'network', 'redistribute'], attrs: {
+            as: { t: 'str', max: 11, d: 'Yerel AS (0 = kapalı)' }, 'router-id': { t: 'ip', def: '0.0.0.0', d: 'BGP router ID' } } },
+        'router bgp neighbor': { key: 'ip', parent: 'router bgp', sub: 'neighbor', req: ['remote-as'], attrs: {
+            'remote-as': { t: 'str', max: 11, d: 'Komşu AS' }, description: { t: 'str', max: 63, d: 'Açıklama' },
+            password: { t: 'secret', d: 'MD5 parolası (iki uçta aynı)' }, 'ebgp-enforce-multihop': { t: 'enum', v: ED, def: 'disable', d: 'Doğrudan bağlı olmayan eBGP komşusu' },
+            shutdown: { t: 'enum', v: ED, def: 'disable', d: 'Komşuyu yönetsel kapat' }, bfd: { t: 'enum', v: ED, def: 'disable', d: 'BFD' } } },
+        'router bgp network': { key: 'id', num: true, parent: 'router bgp', sub: 'network', attrs: { prefix: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Duyurulan ağ' } } },
+        'router bgp redistribute': { key: 'name', parent: 'router bgp', sub: 'redistribute', attrs: { status: { t: 'enum', v: ED, def: 'disable', d: 'Yeniden dağıt' } } },
+        // M18 — CLI Ref 7.4.8 config antivirus profile (110338989): protokol bloklarında av-scan disable|block|monitor, quarantine
+        'antivirus profile': { key: 'name', children: ['http', 'ftp', 'smtp', 'imap', 'pop3'], attrs: {
+            comment: { t: 'str', max: 255, d: 'Açıklama' }, 'feature-set': { t: 'enum', v: ['flow', 'proxy'], def: 'flow', d: 'Akış / proxy' } } },
+        'antivirus profile http': { single: true, parent: 'antivirus profile', sub: 'http', attrs: { 'av-scan': { t: 'enum', v: ['disable', 'block', 'monitor'], def: 'disable', d: 'Tarama' }, quarantine: { t: 'enum', v: ED, def: 'disable', d: 'Karantina' } } },
+        'antivirus profile ftp': { single: true, parent: 'antivirus profile', sub: 'ftp', attrs: { 'av-scan': { t: 'enum', v: ['disable', 'block', 'monitor'], def: 'disable', d: 'Tarama' }, quarantine: { t: 'enum', v: ED, def: 'disable', d: 'Karantina' } } },
+        'antivirus profile smtp': { single: true, parent: 'antivirus profile', sub: 'smtp', attrs: { 'av-scan': { t: 'enum', v: ['disable', 'block', 'monitor'], def: 'disable', d: 'Tarama' }, quarantine: { t: 'enum', v: ED, def: 'disable', d: 'Karantina' } } },
+        'antivirus profile imap': { single: true, parent: 'antivirus profile', sub: 'imap', attrs: { 'av-scan': { t: 'enum', v: ['disable', 'block', 'monitor'], def: 'disable', d: 'Tarama' }, quarantine: { t: 'enum', v: ED, def: 'disable', d: 'Karantina' } } },
+        'antivirus profile pop3': { single: true, parent: 'antivirus profile', sub: 'pop3', attrs: { 'av-scan': { t: 'enum', v: ['disable', 'block', 'monitor'], def: 'disable', d: 'Tarama' }, quarantine: { t: 'enum', v: ED, def: 'disable', d: 'Karantina' } } },
+        // CLI Ref 7.4.8 config firewall wildcard-fqdn custom (315310253) — ssl-exempt wildcard-fqdn bu nesneye başvurur
+        'firewall wildcard-fqdn custom': { key: 'name', req: ['wildcard-fqdn'], attrs: {
+            'wildcard-fqdn': { t: 'str', max: 255, d: 'Joker alan adı (ör. *.bank.example)' }, comment: { t: 'str', max: 255, d: 'Açıklama' } } },
         'firewall schedule recurring': { key: 'name', attrs: {
             day: { t: 'menum', v: DAYS, def: ['none'], d: 'Günler' },
             start: { t: 'hhmm', def: '00:00', d: 'Başlangıç (ss:dd)' },
@@ -385,10 +419,10 @@ const CgLabFgt = (() => {
     // M12: çoklu VDOM kipinde "config global" altında kalan tablolar; geri kalanlar VDOM başınadır
     const GLOBALP = new Set(['system global', 'system ha', 'system admin', 'system dns', 'system ntp', 'system interface', 'system central-management', 'log fortianalyzer setting', 'log syslogd setting', 'system vdom-link']);
     const rootOf = p => { while (SCHEMA[p].parent) p = SCHEMA[p].parent; return p; };
-    const NEWP = new Set(['webfilter urlfilter', 'webfilter profile', 'dnsfilter domain-filter', 'dnsfilter profile', 'ips sensor', 'application list', 'firewall ssl-ssh-profile', 'system settings', 'log setting', 'firewall central-snat-map', 'firewall schedule recurring', 'system central-management', 'log fortianalyzer setting', 'system vdom-link', 'system sdwan', 'router policy']);
+    const NEWP = new Set(['webfilter urlfilter', 'webfilter profile', 'dnsfilter domain-filter', 'dnsfilter profile', 'ips sensor', 'application list', 'firewall ssl-ssh-profile', 'system settings', 'log setting', 'firewall central-snat-map', 'firewall schedule recurring', 'system central-management', 'log fortianalyzer setting', 'system vdom-link', 'system sdwan', 'router policy', 'router ospf', 'router bgp', 'antivirus profile', 'firewall wildcard-fqdn custom']);
     const childPath = (p, sub) => ALLP.find(q => SCHEMA[q].parent === p && SCHEMA[q].sub === sub);
     const SERVICES = ['ALL', 'ALL_TCP', 'ALL_UDP', 'ALL_ICMP', 'PING', 'HTTP', 'HTTPS', 'SSH', 'DNS', 'NTP', 'SMTP', 'RDP', 'TELNET', 'SNMP', 'FTP'];
-    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all', 'router info routing-table database', 'router info routing-table details', 'vpn ipsec tunnel summary', 'system arp', 'system ha status', 'vpn ssl monitor', 'wireless-controller wtp-status'];
+    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all', 'router info routing-table database', 'router info routing-table details', 'vpn ipsec tunnel summary', 'system arp', 'system ha status', 'vpn ssl monitor', 'wireless-controller wtp-status', 'router info ospf neighbor', 'router info bgp summary', 'router info routing-table ospf', 'router info routing-table bgp'];
 
     function session(lab, opts) {
         const S = { lab, ctx: null, ev: [], hist: [], pending: null, loggedOut: false, answers: {} };
@@ -424,7 +458,7 @@ const CgLabFgt = (() => {
             intfAny: () => ['any'].concat(sdwanOn() ? DS.sdwanZones() : [], vdIfs().filter(n => !zoneOf(n)), M().t['system zone'].o, M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
             zoneMember: () => vdIfs().filter(n => !zoneOf(n) || (S.ctx && S.ctx.path === 'system zone' && zoneOf(n) === S.ctx.key)),
             sslProf: () => ['certificate-inspection', 'deep-inspection', 'no-inspection', 'custom-deep-inspection'].concat(M().t['firewall ssl-ssh-profile'].o),
-            avProf: () => ['default', 'wifi-default'], wfProf: () => ['default', 'monitor-all', 'wifi-default'].concat(M().t['webfilter profile'].o),
+            avProf: () => ['default', 'wifi-default'].concat(M().t['antivirus profile'].o), wfProf: () => ['default', 'monitor-all', 'wifi-default'].concat(M().t['webfilter profile'].o),
             appList: () => ['default', 'block-high-risk', 'wifi-default'].concat(M().t['application list'].o), ipsSens: () => ['default', 'all_default', 'all_default_pass', 'high_security', 'protect_client', 'protect_http_server', 'wifi-default'].concat(M().t['ips sensor'].o),
             dnsProf: () => ['default'].concat(M().t['dnsfilter profile'].o),
             urlTbl: () => M().t['webfilter urlfilter'].o, dnsTbl: () => M().t['dnsfilter domain-filter'].o,
@@ -746,6 +780,7 @@ const CgLabFgt = (() => {
                 if (gw !== '0.0.0.0' && !isTun(r.device) && !R.some(c => c.c === 'C' && c.dev === r.device && sameNet(c.net, gw, c.len))) continue;
                 cands.push({ c: len === 0 ? 'S*' : 'S', net: n2ip(netOf(dip, len)), len, gw, dev: r.device, ad: +(r.distance || 10), pri: +(r.priority || 1) });
             }
+            if (!noTun && (M().t['router ospf']['router-id'] || M().t['router bgp'].as)) dynRoutes().forEach(x => cands.push(x));
             for (const r of cands) {
                 const best = Math.min(...cands.filter(x => x.net === r.net && x.len === r.len).map(x => x.ad));
                 if (r.ad === best && !R.some(c => c.c === 'C' && c.net === r.net && c.len === r.len)) R.push(r);
@@ -801,6 +836,7 @@ const CgLabFgt = (() => {
                 if (r.c === 'C') L.push(pad('C', 8) + r.net + '/' + r.len + ' is directly connected, ' + r.dev);
                 else if (r.bh) L.push(pad(r.c, 8) + r.net + '/' + r.len + ' [' + r.ad + '/0] is a summary, Null, [' + r.pri + '/0]');
                 else if (isTun(r.dev)) L.push(pad(r.c, 8) + r.net + '/' + r.len + ' [' + r.ad + '/0] via ' + r.dev + ' tunnel ' + (M().t['vpn ipsec phase1-interface'].v[r.dev]['remote-gw'] || '') + ', [' + r.pri + '/0]');
+                else if (r.dyn) L.push(pad(r.c, 8) + r.net + '/' + r.len + ' [' + r.ad + '/' + r.metric + '] via ' + r.gw + ', ' + r.dev + ', 00:05:12');
                 else L.push(pad(r.c, 8) + r.net + '/' + r.len + ' [' + r.ad + '/0] via ' + r.gw + ', ' + r.dev + ', [' + r.pri + '/0]');
             }
             return L.join('\n');
@@ -1109,7 +1145,8 @@ const CgLabFgt = (() => {
             const exempt = ex && ex.o.some(k => { const e = ex.v[k], ty = e.type || 'fortiguard-category';
                 if (ty === 'fortiguard-category') return f.cat !== undefined && String(f.cat) === String(e['fortiguard-category'] || '0');
                 if (ty === 'address') return !!e.address && addrMatch(e.address, f.dst);
-                return !!e['wildcard-fqdn'] && !!f.host && wild(e['wildcard-fqdn'], f.host); });
+                const wo = e['wildcard-fqdn'] && M().t['firewall wildcard-fqdn custom'].v[e['wildcard-fqdn']];
+                return !!e['wildcard-fqdn'] && !!f.host && wild(wo ? wo['wildcard-fqdn'] : e['wildcard-fqdn'], f.host); });
             return !exempt;
         }
         function utmEval(p, f, r) {
@@ -1121,6 +1158,18 @@ const CgLabFgt = (() => {
             if (al && f.app) {
                 const en = al._sub_entries, hit = en && en.o.map(k => en.v[k]).find(e => (!(e.category || []).length && !(e.application || []).length) || (e.category || []).includes(String(f.app.cat)) || (e.application || []).includes(String(f.app.id)));
                 if (hit) { const act = hit.action || 'block'; ev.push({ kind: 'app', action: act === 'pass' ? 'pass' : 'block', reset: act === 'reset', app: f.app, log: (hit.log || 'enable') === 'enable', list: p['application-list'] }); if (act !== 'pass') return out(); }
+            }
+            // M18 Antivirüs (akış: virus { name }, ptype ya da dport: 80/443 http, 21 ftp, 25 smtp, 143 imap, 110 pop3)
+            const avp = p['av-profile'] && M().t['antivirus profile'].v[p['av-profile']];
+            if (avp && f.virus) {
+                const pmap = { 80: 'http', 443: 'http', 8080: 'http', 21: 'ftp', 25: 'smtp', 143: 'imap', 110: 'pop3' }, proto = f.ptype || pmap[+r.dport];
+                const blk = proto && avp['_sub_' + proto], scan = blk ? (blk['av-scan'] || 'disable') : 'disable';
+                // HTTPS içeriği yalnız derin incelemeyle görülür
+                const visible = +r.dport !== 443 || sslDeep(p['ssl-ssh-profile'] || 'no-inspection', f);
+                if (scan !== 'disable' && visible) {
+                    ev.push({ kind: 'av', action: scan === 'block' ? 'block' : 'monitor', virus: f.virus, proto, file: f.file || 'eicar.com', quarantine: (blk.quarantine || 'disable') === 'enable', profile: p['av-profile'] });
+                    if (scan === 'block') return out();
+                }
             }
             // IPS
             const is = p['ips-sensor'] && M().t['ips sensor'].v[p['ips-sensor']];
@@ -1165,6 +1214,58 @@ const CgLabFgt = (() => {
             return out();
         }
         // ── M19: SD-WAN durumu. Bağlantı kalitesi lab.sim.links: { <arayüz>: { latency, jitter, loss, dead } } (yoksa 10 ms / 1 ms / %0)
+        // ── M21: OSPF / BGP komşuları (lab.sim.ospfPeers: [{ rid, ip, intf, area, pri, role, hello, dead, mtuMismatch, routes: [{ net, cost }] }],
+        // lab.sim.bgpPeers: [{ ip, as, rid, peerAs, password, routes: [{ net, path }] }]). Sadeleştirme: tek alan-içi durum makinesi yok, sonuç anlık.
+        function ospfNbrs() {
+            const O = M().t['router ospf'], R = [];
+            if (!O['router-id'] || O['router-id'] === '0.0.0.0') return R;
+            const nets = M().t['router ospf network'], oif = M().t['router ospf ospf-interface'];
+            for (const pr of (SIM.ospfPeers || [])) {
+                const I = M().t['system interface'].v[pr.intf]; if (!I || !I.ip || !ifUp(pr.intf)) continue;
+                const [iip, im] = I.ip.split(' ');
+                if (!sameNet(iip, pr.ip, maskLen(im))) continue;
+                const nk = nets.o.find(k => { const [n, m] = (nets.v[k].prefix || '0.0.0.0 0.0.0.0').split(' '); return sameNet(n, iip, maskLen(m)); });
+                if (nk === undefined) continue;                                   // arayüz OSPF'e katılmıyor
+                if ((O['passive-interface'] || []).includes(pr.intf)) continue;    // pasif: hello yok
+                if ((nets.v[nk].area || '0.0.0.0') !== (pr.area || '0.0.0.0')) { R.push({ pr, state: null, why: 'area' }); continue; }
+                const ik = oif.o.find(k => (oif.v[k].interface || k) === pr.intf), oi = ik !== undefined ? oif.v[ik] : {};
+                if (+(oi['hello-interval'] || 10) !== +(pr.hello || 10) || +(oi['dead-interval'] || 40) !== +(pr.dead || 40)) { R.push({ pr, state: null, why: 'hello' }); continue; }
+                if (pr.mtuMismatch && (oi['mtu-ignore'] || 'disable') !== 'enable') { R.push({ pr, state: 'ExStart', why: 'mtu' }); continue; }
+                R.push({ pr, state: 'Full', cost: +(oi.cost || 10) });
+            }
+            return R;
+        }
+        function bgpNbrs() {
+            const B = M().t['router bgp'], nt = M().t['router bgp neighbor'], R = [];
+            if (!B.as || B.as === '0') return R;
+            for (const k of nt.o) {
+                const n = nt.v[k], pr = (SIM.bgpPeers || []).find(x => x.ip === k);
+                let st = 'Active', why = 'nopeer';
+                if ((n.shutdown || 'disable') === 'enable') { st = 'Idle (Admin)'; why = 'shutdown'; }
+                else if (pr) {
+                    const rt = rib(true).filter(x => x.c !== 'B' && (x.len === 0 || sameNet(x.net, k, x.len))).sort((a, b) => b.len - a.len)[0];
+                    const ebgp = String(n['remote-as']) !== String(B.as), direct = rt && rt.c === 'C';
+                    if (!rt) why = 'noroute';
+                    else if (ebgp && !direct && (n['ebgp-enforce-multihop'] || 'disable') !== 'enable') why = 'multihop';
+                    else if (String(n['remote-as']) !== String(pr.as)) { st = 'Idle'; why = 'remoteas'; }
+                    else if (String(pr.peerAs || B.as) !== String(B.as)) { st = 'Idle'; why = 'peeras'; }
+                    else if ((n.password || '') !== (pr.password || '')) why = 'password';
+                    else { st = 'Established'; why = null; }
+                    R.push({ ip: k, n, pr, st, why, ebgp, dev: rt && rt.dev, gw: rt && (rt.c === 'C' ? k : rt.gw) }); continue;
+                }
+                R.push({ ip: k, n, pr: null, st, why });
+            }
+            return R;
+        }
+        function dynRoutes() {
+            const out = [];
+            if (S.inDyn) return out; S.inDyn = true;
+            try {
+                ospfNbrs().filter(x => x.state === 'Full').forEach(x => (x.pr.routes || []).forEach(rt => { const [n, l] = rt.net.split('/'); out.push({ c: 'O', net: n2ip(netOf(n, +l)), len: +l, gw: x.pr.ip, dev: x.pr.intf, ad: 110, metric: x.cost + +(rt.cost || 0), pri: 1, dyn: true }); }));
+                bgpNbrs().filter(x => x.st === 'Established').forEach(x => (x.pr.routes || []).forEach(rt => { const [n, l] = rt.net.split('/'); out.push({ c: 'B', net: n2ip(netOf(n, +l)), len: +l, gw: x.ip, dev: x.dev, ad: x.ebgp ? 20 : 200, metric: 0, pri: 1, dyn: true }); }));
+            } finally { S.inDyn = false; }
+            return out;
+        }
         const sdwanOn = () => (M().t['system sdwan'].status || 'disable') === 'enable';
         const linkQ = n => Object.assign({ latency: 10, jitter: 1, loss: 0, dead: false }, (SIM.links || {})[n] || {});
         function hcStates(hcName) {
@@ -1703,7 +1804,7 @@ const CgLabFgt = (() => {
         S.logf = { cat: '0', fields: [] };
         const SVCNAME = f => { const d = f.dport; const k = Object.keys(SVC).find(n => SVC[n].some(([pr, pt]) => pr === f.proto && pt === d)); return k || (f.proto === 'icmp' ? 'PING' : f.proto + '/' + d); };
         function genLogs() {
-            const L = { 0: [], 1: [], 3: [], 4: [], 10: [], 15: [] }, pn = { tcp: 6, udp: 17, icmp: 1 };
+            const L = { 0: [], 1: [], 2: [], 3: [], 4: [], 10: [], 15: [] }, pn = { tcp: 6, udp: 17, icmp: 1 };
             const implicitLog = (M().t['log setting']['fwpolicy-implicit-log'] || 'disable') === 'enable';
             flows().forEach((f, i) => {
                 const d = decide(f); if (d.stage === 'noarrive' || d.stage === 'noroute' || d.stage === 'blackhole') return;
@@ -1721,6 +1822,7 @@ const CgLabFgt = (() => {
                     if (e.log === false) return;
                     const act = e.action === 'block' ? 'blocked' : 'passthrough';
                     if (e.kind === 'web') L[3].push(t + ' type="utm" subtype="webfilter" eventtype="' + (e.how === 'ftgd' ? (e.action === 'block' ? 'ftgd_blk' : 'ftgd_allow') : 'urlfilter') + '" level="' + (e.action === 'block' ? 'warning' : 'notice') + '" vd="root" policyid=' + d.policy + ' ' + base + ' service="' + (+d.dport === 443 ? 'HTTPS' : 'HTTP') + '" hostname="' + e.host + '" action="' + act + '" url="' + (+d.dport === 443 ? 'https://' : 'http://') + e.url + '"' + (e.cat !== undefined ? ' cat=' + e.cat : '') + ' profile="' + pol['webfilter-profile'] + '"');
+                    if (e.kind === 'av') L[2].push(t + ' type="utm" subtype="virus" eventtype="infected" level="warning" vd="root" policyid=' + d.policy + ' ' + base + ' service="' + e.proto.toUpperCase() + '" action="' + (e.action === 'block' ? 'blocked' : 'monitored') + '" virus="' + (e.virus.name || e.virus) + '" filename="' + e.file + '"' + (e.quarantine ? ' quarskip="No-skip"' : '') + ' profile="' + e.profile + '"');
                     if (e.kind === 'ips') L[4].push(t + ' type="utm" subtype="ips" eventtype="signature" level="alert" vd="root" severity="' + e.attack.severity + '" ' + base + ' policyid=' + d.policy + ' action="' + (e.action === 'block' ? (e.reset ? 'reset' : 'dropped') : 'detected') + '" attack="' + e.attack.name + '"' + (e.attack.id ? ' attackid=' + e.attack.id : '') + ' profile="' + e.sensor + '"');
                     if (e.kind === 'app') L[10].push(t + ' type="utm" subtype="app-ctrl" eventtype="signature" level="warning" vd="root" appcat="' + (e.app.catName || e.app.cat) + '" app="' + e.app.name + '"' + (e.app.id ? ' appid=' + e.app.id : '') + ' ' + base + ' policyid=' + d.policy + ' action="' + (e.reset ? 'reset' : 'block') + '" applist="' + e.list + '"');
                     if (e.kind === 'dns') L[15].push(t + ' type="utm" subtype="dns" eventtype="dns-response" level="' + (e.action === 'block' ? 'warning' : 'notice') + '" vd="root" policyid=' + d.policy + ' ' + base + ' qname="' + e.qname + '" action="' + (e.action === 'block' ? 'block' : 'pass') + '"' + (e.cat !== undefined ? ' cat=' + e.cat : '') + ' profile="' + pol['dnsfilter-profile'] + '"');
@@ -1893,9 +1995,29 @@ const CgLabFgt = (() => {
         function sdwanPickById(id) {
             const T = M().t['system sdwan service'], keep = T.o;
             T.o = [id];
-            try { const sv = T.v[id]; const d = (sv.dst || [])[0], dsrc = (sv.src || [])[0]; const probe = n => { const o = n && M().t['firewall address'].v[n]; return o && (o.type || 'ipmask') === 'ipmask' ? o.subnet.split(' ')[0] : o && o['start-ip'] || '0.0.0.0'; };
+            try { const sv = T.v[id]; const d = (sv.dst || [])[0], dsrc = (sv.src || [])[0]; const probe = n => { const o = n && M().t['firewall address'].v[n]; if (!o) return '0.0.0.0'; return (o.type || 'ipmask') === 'iprange' ? (o['start-ip'] || '0.0.0.0') : (o.subnet || '0.0.0.0 0.0.0.0').split(' ')[0]; };   // M23: hazır "all" nesnesinde subnet yok
                 const T2 = Object.assign({}, sv); delete T2.dst; delete T2.src; const save = T.v[id]; T.v[id] = T2; try { return sdwanPick({ src: probe(dsrc) }, probe(d)) || { cand: [] }; } finally { T.v[id] = save; } }
             finally { T.o = keep; }
+        }
+        // M21 çıktıları. Biçim: OSPF komşu tablosu (Fortinet "Checking the state of OSPF neighbors"), BGP özeti
+        // (Fortinet "Verifying BGP routing on the hub" örneği). Sayaç/süre değerleri benzetimdir.
+        function ospfNbrOut() {
+            const L = ['OSPF process 0:', 'Neighbor ID     Pri   State           Dead Time   Address         Interface'];
+            const N = ospfNbrs(); log({ ospfnbr: N.map(x => x.state || x.why) });
+            N.filter(x => x.state).forEach(x => L.push(pad(x.pr.rid, 16) + pad(String(x.pr.pri === undefined ? 1 : x.pr.pri), 6) + pad(x.state + '/' + (x.state === 'Full' ? (x.pr.role || 'DR') : 'DROther'), 16) + pad('00:00:3' + (x.pr.pri || 1) % 10, 12) + pad(x.pr.ip, 16) + x.pr.intf));
+            const hid = N.filter(x => !x.state);
+            if (hid.length) L.push('# [Simülatör] Komşuluk kurulamayan uçlar listede görünmez: ' + hid.map(x => x.pr.ip + ' (' + ({ area: 'alan kimliği uyuşmuyor', hello: 'hello/dead aralıkları uyuşmuyor' })[x.why] + ')').join(', '));
+            return L.join('\n');
+        }
+        function bgpSumOut() {
+            const B = M().t['router bgp'];
+            if (!B.as || B.as === '0') return '# [Simülatör] BGP yapılandırılmamış (config router bgp → set as <AS>).';
+            const N = bgpNbrs(); log({ bgpsum: N.map(x => x.st) });
+            const L = ['VRF 0 BGP router identifier ' + (B['router-id'] || '0.0.0.0') + ', local AS number ' + B.as, 'BGP table version is ' + (1 + N.filter(x => x.st === 'Established').length), '1 BGP AS-PATH entries', '0 BGP community entries', '',
+                'Neighbor        V         AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd'];
+            N.forEach(x => L.push(pad(x.ip, 16) + pad('4', 2) + ('' + x.n['remote-as']).padStart(9) + ' ' + String(x.st === 'Established' ? 42 : 0).padStart(7) + ' ' + String(x.st === 'Established' ? 45 : 3).padStart(7) + ' ' + String(x.st === 'Established' ? 5 : 0).padStart(8) + '    0    0 ' + pad(x.st === 'Established' ? '00:05:12' : 'never', 9) + (x.st === 'Established' ? String((x.pr.routes || []).length) : x.st)));
+            L.push('', 'Total number of neighbors ' + N.length);
+            return L.join('\n');
         }
         function diagCmd(t, line) {
             let node = DIAG, i = 1, words = ['diagnose'];
@@ -2164,6 +2286,9 @@ const CgLabFgt = (() => {
                         if (g === 'system ha status') return haStatus();
                         if (g === 'router info routing-table database') return showRibDb();
                         if (g === 'wireless-controller wtp-status') return wtpStatus();
+                        if (g === 'router info ospf neighbor') return ospfNbrOut();
+                        if (g === 'router info bgp summary') return bgpSumOut();
+                        if (g === 'router info routing-table ospf' || g === 'router info routing-table bgp') { const code = g.endsWith('ospf') ? 'O' : 'B'; return showRib().split('\n').filter(l => !/^[A-Z*]/.test(l) || l.startsWith(code + ' ') || l.startsWith('Codes') || l.startsWith('Routing table')).join('\n'); }
                         if (g === 'router info routing-table details') return rib().map(r => showRibDetails(r.net)).join('\n');
                         return g === 'system status' ? sysStatus() : g === 'system performance status' ? perfStatus() : g === 'system session status' ? 'The total number of sessions for the current VDOM: ' + sessTotal() : g === 'system session list' ? sessTable() : showRib();
                     }
@@ -2540,7 +2665,7 @@ const CgLabFgt = (() => {
             ha: () => { const E = haElect(); return { formed: E.formed, primary: E.formed ? E.meP : true, reason: E.reason || E.why, synced: haInSync(), onPeer: S.ha.onPeer }; },
             tun: n => { const T = tun(n); return { p1up: T.p1up, p2up: T.p2up, reason: T.reason }; },
             variant: () => S.variant, decide: f => decide(Object.assign({ sport: 50000, proto: 'tcp', reply: 'ok', arrives: true }, f)), fos: FOS,
-            logs: () => genLogs(), sdwan: () => ({ members: sdwanMembers(), hc: M().t['system sdwan health-check'].o.map(h => ({ name: h, states: hcStates(h) })) }), adminScope: n => { const a = M().t['system admin'].v[n]; if (!a) return null; return { profile: a.accprofile, vdoms: a.vdom || ['root'], global: a.accprofile === 'super_admin' }; }, dialup: user => { const r = dialAll().find(x => x.user === user); return r || null; }, dialups: () => dialAll(), vdom: () => ({ mode: M().vdt ? 'multi-vdom' : 'no-vdom', where: S.vd ? S.vd.where : null, cur: M().curVd || 'root', list: M().vdt ? Object.keys(M().vdt) : ['root'] }), subObj: (p, k, sub) => { const o = M().t[p].v[k]; return o ? o['_sub_' + sub] || null : null; },
+            logs: () => genLogs(), ospf: () => ospfNbrs().map(x => ({ ip: x.pr.ip, state: x.state, why: x.why || null })), bgp: () => bgpNbrs().map(x => ({ ip: x.ip, state: x.st, why: x.why })), sdwan: () => ({ members: sdwanMembers(), hc: M().t['system sdwan health-check'].o.map(h => ({ name: h, states: hcStates(h) })) }), adminScope: n => { const a = M().t['system admin'].v[n]; if (!a) return null; return { profile: a.accprofile, vdoms: a.vdom || ['root'], global: a.accprofile === 'super_admin' }; }, dialup: user => { const r = dialAll().find(x => x.user === user); return r || null; }, dialups: () => dialAll(), vdom: () => ({ mode: M().vdt ? 'multi-vdom' : 'no-vdom', where: S.vd ? S.vd.where : null, cur: M().curVd || 'root', list: M().vdt ? Object.keys(M().vdt) : ['root'] }), subObj: (p, k, sub) => { const o = M().t[p].v[k]; return o ? o['_sub_' + sub] || null : null; },
             get model() { return S.m; }, ev: E, mode: () => (S.ctx ? (S.ctx.key !== undefined ? 'edit' : 'config') : 'root'),
             obj, keys: p => M().t[p].o.filter(k => !M().t[p].v[k]._builtin), order: p => M().t[p].o.slice(),
             rib, ifUp, saved: () => !S.ctx, dhcpLeases: () => dhcpLeases(), zoneOf: n => zoneOf(n), revs: () => S.revs.map(r => r.comment), tftp: () => Object.keys(S.tftp),

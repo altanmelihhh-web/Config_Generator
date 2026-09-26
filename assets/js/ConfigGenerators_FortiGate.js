@@ -144,7 +144,10 @@ FortiGate.address = {
             configTypes: [
                 { id: 'ipmask',  label: 'IP/Mask',   icon: 'fas fa-network-wired', desc: 'Subnet CIDR veya nokta-ondalık',    badge: { text: 'En Yaygın', cls: 'recommended' } },
                 { id: 'fqdn',    label: 'FQDN',      icon: 'fas fa-globe',          desc: 'Alan adı tabanlı nesne' },
-                { id: 'iprange', label: 'IP Range',  icon: 'fas fa-long-arrow-alt-right', desc: 'Başlangıç–bitiş IP aralığı' }
+                { id: 'iprange', label: 'IP Range',  icon: 'fas fa-long-arrow-alt-right', desc: 'Başlangıç–bitiş IP aralığı' },
+                { id: 'geography', label: 'Ülke (GeoIP)', icon: 'fas fa-flag', desc: 'Bir ülkenin IP adresleri' },
+                { id: 'wildcard', label: 'Wildcard', icon: 'fas fa-asterisk', desc: 'IP + joker maske (ör. her şubenin .10 adresi)' },
+                { id: 'mac', label: 'MAC', icon: 'fas fa-ethernet', desc: 'MAC adresine göre (aynı L2 ağ)' }
             ],
             sections: [
                 {
@@ -179,6 +182,32 @@ FortiGate.address = {
                         { name: 'range_start', why: "IP Range nesnesinin ilk adresi. Aralık, subnet sınırına oturmak zorunda değildir — bu, CIDR ile ifade edilemeyen adres kümeleri için kullanışlıdır.", label: 'Başlangıç IP', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.10', hint: 'Aralığın ilk IP adresi' },
                         { name: 'range_end', why: "Son adres. Başlangıçtan küçük olursa nesne oluşturulmaz ve kural sessizce eşleşmez.",   label: 'Bitiş IP',     type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.20', hint: 'Aralığın son IP adresi' }
                     ]
+                },
+                {
+                    // CLI Ref 7.4.8 firewall address (306021697): type geography (country, 2 harf), wildcard (ip + joker maske), mac (macaddr)
+                    title: 'Ülke Ayarları',
+                    icon: 'fas fa-flag',
+                    showFor: ['geography'],
+                    fields: [
+                        { name: 'country', why: 'ISO 3166 iki harfli ülke kodu (TR, DE…). FortiGuard GeoIP veritabanını kullanır; veritabanı güncel değilse eşleşme yanlış olabilir (diagnose geoip ip2country).', label: 'Ülke Kodu', type: 'text', requiredIf: { field: '_cgtype', in: ['geography'] }, placeholder: 'TR', hint: 'set country' }
+                    ]
+                },
+                {
+                    title: 'Wildcard Ayarları',
+                    icon: 'fas fa-asterisk',
+                    showFor: ['wildcard'],
+                    fields: [
+                        { name: 'wc_ip', why: 'Taban adres.', label: 'IP', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['wildcard'] }, placeholder: '10.64.0.10', hint: 'set wildcard <ip> <maske>' },
+                        { name: 'wc_mask', why: 'Joker maske: 255 olan sekizli sabit, 0 olan serbest (ör. 255.255.0.255 → 10.64.X.10). Kurallarda kullanılır; yönlendirme için değildir.', label: 'Joker Maske', type: 'text', validate: 'ip', requiredIf: { field: '_cgtype', in: ['wildcard'] }, placeholder: '255.255.0.255', hint: 'wildcard mask' }
+                    ]
+                },
+                {
+                    title: 'MAC Ayarları',
+                    icon: 'fas fa-ethernet',
+                    showFor: ['mac'],
+                    fields: [
+                        { name: 'macaddr', why: 'MAC tabanlı nesne yalnız FortiGate ile aynı L2 ağdaki cihazlarda anlamlıdır (yönlendirici arkasındaki cihazların MAC\'i görünmez).', label: 'MAC Adresi', type: 'text', validate: 'mac', requiredIf: { field: '_cgtype', in: ['mac'] }, placeholder: '00:09:0f:aa:bb:01', hint: 'set macaddr' }
+                    ]
                 }
             ],
             submit: 'Konfigürasyon Oluştur'
@@ -197,6 +226,12 @@ function cgFgAddrGen(data) {
         c += '        set subnet ' + cgEsc(data.subnet || '') + '\n';
     } else if (type === 'fqdn') {
         c += '        set fqdn "' + cgEsc(data.fqdn || '') + '"\n';
+    } else if (type === 'geography') {
+        c += '        set country "' + cgEsc(String(data.country || '').trim().toUpperCase()) + '"\n';
+    } else if (type === 'wildcard') {
+        c += '        set wildcard ' + cgEsc(String(data.wc_ip || '').trim()) + ' ' + cgEsc(String(data.wc_mask || '').trim()) + '\n';
+    } else if (type === 'mac') {
+        c += '        set macaddr "' + cgEsc(String(data.macaddr || '').trim().toLowerCase()) + '"\n';
     } else {
         c += '        set start-ip ' + cgEsc(data.range_start || '') + '\n        set end-ip ' + cgEsc(data.range_end || '') + '\n';
     }
@@ -206,6 +241,8 @@ function cgFgAddrGen(data) {
     // FQDN nesnesinin çözümlenen IP'leri 'fqdn list-all' ile görülür.
     c += '# Doğrulama:\n# show firewall address "' + name + '"\n';
     if (type === 'fqdn') c += '# diagnose firewall fqdn list-all\n';
+    if (type === 'geography') c += '# diagnose geoip ip2country <ip>\n';
+    if (type === 'geography' && !/^[A-Za-z]{2}$/.test(String(data.country || '').trim())) c += '# UYARI: ülke kodu iki harfli ISO 3166 kodu olmalı (ör. TR); FortiOS başka değeri reddeder.\n';
     return c;
 }
 
@@ -3261,5 +3298,123 @@ function cgFgScheduleGen(data) {
     else w.push('ℹ Zamanlama kurala bağlanmadı: kuralda "set schedule ' + (name || '<ad>') + '" gerekir.');
     c += '# Doğrulama:\n# show firewall schedule ' + ty + ' ' + name + '\n';
     w.push('ℹ Zamanlama cihaz saatine göre çalışır: NTP eşitlemesi ve saat dilimi doğru olmalı (diagnose sys ntp status).');
+    return { config: c, warnings: w };
+}
+
+// ── FortiGate: SSL/SSH İnceleme Profili — F76-G3. CLI Ref 7.4.8 firewall ssl-ssh-profile (116695140: https status
+// disable|certificate-inspection|deep-inspection, caname, ssl-exempt type fortiguard-category|address|wildcard-fqdn) ve
+// firewall wildcard-fqdn custom (315310253; ssl-exempt wildcard-fqdn bu nesneye başvurur).
+FortiGate.sslinspect = {
+    label: 'SSL/SSH İnceleme Profili',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-secret',
+                title: 'SSL/SSH İnceleme Profili (FortiGate)',
+                desc: 'HTTPS trafiğinde web filtre, AV ve IPS\'in ne görebileceğini belirler. certificate-inspection yalnız alan adını (SNI/sertifika), deep-inspection içeriği görür ve istemcilere CA dağıtımı ister.<br><code>config firewall ssl-ssh-profile\n  edit "DEEP-KURUM"\n    config https\n      set ports 443\n      set status deep-inspection\n    end\n    set caname "Fortinet_CA_SSL"\n  next\nend</code>'
+            },
+            configTypes: [
+                { id: 'deep', label: 'Derin inceleme', icon: 'fas fa-search-plus', desc: 'İçerik görülür (CA dağıtımı gerekir)', badge: { text: 'Tam koruma', cls: 'recommended' } },
+                { id: 'cert', label: 'Sertifika incelemesi', icon: 'fas fa-certificate', desc: 'Yalnız alan adı / kategori' }
+            ],
+            sections: [
+                {
+                    title: 'Profil',
+                    icon: 'fas fa-user-secret',
+                    fields: [
+                        { name: 'si_name', why: 'Kuralda "set ssl-ssh-profile <ad>" ile kullanılır. Hazır profiller (certificate-inspection, deep-inspection) salt okunurdur; özelleştirmek için yeni profil gerekir.', label: 'Profil Adı', type: 'text', validate: 'objname', required: true, placeholder: 'DEEP-KURUM', hint: 'edit <ad>' },
+                        { name: 'si_ports', why: 'HTTPS olarak incelenecek portlar. Standart dışı portta çalışan HTTPS uygulamaları buraya eklenmezse incelenmez.', label: 'HTTPS Portları', type: 'text', placeholder: '443', hint: 'set ports (boşluk ya da virgülle)' },
+                        { name: 'si_pol', why: 'Doluysa bu kurala profil bağlanır (utm-status enable ile). Profil tek başına hiçbir trafiği etkilemez.', label: 'Bağlanacak Kural ID', type: 'text', validate: 'posint', placeholder: '1', hint: 'isteğe bağlı' }
+                    ]
+                },
+                {
+                    title: 'Derin inceleme',
+                    icon: 'fas fa-search-plus',
+                    showFor: ['deep'],
+                    fields: [
+                        { name: 'si_ca', why: 'Sunucu sertifikalarını yeniden imzalayan CA. İstemcilere güvenilir olarak dağıtılmazsa her HTTPS sitesinde sertifika uyarısı çıkar.', label: 'CA Sertifikası', type: 'text', placeholder: 'Fortinet_CA_SSL', hint: 'caname (boşsa Fortinet_CA_SSL)' },
+                        { name: 'si_exfqdn', why: 'Bankacılık, sağlık gibi mahremiyet gerektiren ya da sertifika sabitleme (pinning) kullanan uygulamaları derin incelemeden muaf tutun.', label: 'Muaf Alan Adı (joker)', type: 'text', placeholder: '*.bank.example', hint: 'wildcard-fqdn custom nesnesi oluşturulur' },
+                        { name: 'si_excat', why: 'FortiGuard kategori numarasıyla muafiyet (kategori listesi cihazda / FortiGuard sitesinde).', label: 'Muaf FortiGuard Kategori No', type: 'text', validate: 'posint', placeholder: '31', hint: 'fortiguard-category (isteğe bağlı)' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFgSslInspectGen(data));
+    }
+};
+function cgFgSslInspectGen(data) {
+    const deep = data._cgtype !== 'cert', w = [], name = cgEsc(String(data.si_name || '').trim());
+    const ports = String(data.si_ports || '443').split(/[\s,]+/).filter(x => /^\d+$/.test(x) && +x >= 1 && +x <= 65535);
+    const exf = String(data.si_exfqdn || '').trim(), exc = String(data.si_excat || '').trim(), ca = String(data.si_ca || '').trim();
+    let c = '# ========================================\n# FortiGate — SSL/SSH İnceleme Profili (' + (deep ? 'deep-inspection' : 'certificate-inspection') + ')\n# ========================================\n\n';
+    const exName = exf ? ('EX-' + exf.replace(/^\*\./, '').replace(/[^A-Za-z0-9.-]/g, '')).slice(0, 35) : '';
+    if (deep && exf) c += '# Muafiyet için joker alan adı nesnesi\nconfig firewall wildcard-fqdn custom\n    edit "' + cgEsc(exName) + '"\n        set wildcard-fqdn "' + cgEsc(exf) + '"\n    next\nend\n\n';
+    c += 'config firewall ssl-ssh-profile\n    edit "' + name + '"\n';
+    c += '        config https\n            set ports ' + (ports.length ? ports.join(' ') : '443') + '\n            set status ' + (deep ? 'deep-inspection' : 'certificate-inspection') + '\n        end\n';
+    if (deep && ca) c += '        set caname "' + cgEsc(ca) + '"\n';
+    if (deep && (exf || exc)) {
+        c += '        config ssl-exempt\n';
+        let id = 1;
+        if (exf) c += '            edit ' + (id++) + '\n                set type wildcard-fqdn\n                set wildcard-fqdn "' + cgEsc(exName) + '"\n            next\n';
+        if (/^\d+$/.test(exc)) c += '            edit ' + (id++) + '\n                set type fortiguard-category\n                set fortiguard-category ' + cgEsc(exc) + '\n            next\n';
+        c += '        end\n';
+    }
+    c += '    next\nend\n\n';
+    const pol = String(data.si_pol || '').trim();
+    if (pol) c += '# Kurala bağla\nconfig firewall policy\n    edit ' + cgEsc(pol) + '\n        set utm-status enable\n        set ssl-ssh-profile "' + name + '"\n    next\nend\n\n';
+    c += '# Doğrulama:\n# show firewall ssl-ssh-profile ' + name + '\n';
+    if (deep) {
+        w.push('⚠ Derin inceleme: ' + (ca || 'Fortinet_CA_SSL') + ' sertifikası istemcilere (GPO/MDM) güvenilir kök olarak dağıtılmalı; aksi hâlde tüm HTTPS sitelerinde sertifika uyarısı çıkar.');
+        w.push('ℹ Sertifika sabitleme (pinning) kullanan uygulamalar derin incelemede bozulur; bunları ve mahremiyet gerektiren kategorileri (bankacılık, sağlık) muaf tutun. KVKK/iç politika onayı alın.');
+    } else w.push('ℹ Sertifika incelemesi yalnız alan adını görür: web filtre kategori/alan adıyla çalışır, AV ve IPS HTTPS içeriğini göremez.');
+    if (!pol) w.push('ℹ Profil kurala bağlanmadı: kuralda "set utm-status enable" ve "set ssl-ssh-profile ' + (name || '<ad>') + '" gerekir.');
+    if (String(data.si_ports || '').trim() && !ports.length) w.push('⛔ Port listesi geçersiz; 443 yazıldı.');
+    return { config: c, warnings: w };
+}
+
+// ── FortiGate: SNMP v1/v2c community — F76-G3. CLI Ref 7.4.8 config system snmp community (111967164): name, status,
+// query-v1/v2c-status ve trap-v1/v2c-status (varsayılan enable), config hosts (ip, host-type any|query|trap), events.
+FortiGate.snmpv2c = {
+    label: 'SNMP v2c Community',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-chart-line',
+                title: 'SNMP v1/v2c Community (FortiGate)',
+                desc: 'Community tabanlı SNMP. Community dizesi ağda açık metin gider; mümkünse SNMPv3 (SNMP v3 aracı) kullanın. Bu araç v1\'i kapatır, yalnız v2c açar ve erişimi tek yönetim sunucusuyla sınırlar.<br><code>config system snmp community\n  edit 1\n    set name "izleme-ro"\n    config hosts\n      edit 1\n        set ip 10.64.10.20 255.255.255.255\n      next\n    end\n  next\nend</code>'
+            },
+            sections: [
+                {
+                    title: 'Community',
+                    icon: 'fas fa-users',
+                    fields: [
+                        { name: 'sc_id', why: 'Community tablo kimliği.', label: 'ID', type: 'text', validate: 'posint', required: true, placeholder: '1', hint: 'edit <id>' },
+                        { name: 'sc_name', why: 'Community dizesi parola gibidir ve ağda açık gider: "public" gibi bilinen değerler kullanmayın.', label: 'Community Adı', type: 'text', required: true, placeholder: 'izleme-ro-2026', hint: 'set name' },
+                        { name: 'sc_host', why: 'Sorgu yapabilecek / trap alacak yönetim sunucusu. 0.0.0.0/0 bırakmak herkese sorgu izni verir.', label: 'Yönetim Sunucusu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.10.20', hint: 'config hosts → set ip' },
+                        { name: 'sc_hosttype', why: 'any: sorgu ve trap; query: yalnız sorgu; trap: yalnız trap alıcısı.', label: 'Sunucu Rolü', type: 'select', options: [
+                            { value: 'any', label: 'any (sorgu + trap)', selected: true }, { value: 'query', label: 'query (yalnız sorgu)' }, { value: 'trap', label: 'trap (yalnız trap)' }
+                        ]},
+                        { name: 'sc_iface', why: 'SNMP sorgusunun geleceği arayüzde allowaccess snmp açık olmalı; açık değilse sorgular yanıtsız kalır.', label: 'Sorgu Arayüzü', type: 'text', validate: 'iface', placeholder: 'port2', hint: 'allowaccess snmp eklenir (isteğe bağlı)' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFgSnmpV2cGen(data));
+    }
+};
+function cgFgSnmpV2cGen(data) {
+    const w = [], nm = String(data.sc_name || '').trim(), ht = ['query', 'trap'].includes(data.sc_hosttype) ? data.sc_hosttype : 'any', ifc = String(data.sc_iface || '').trim();
+    let c = '# ========================================\n# FortiGate — SNMP v2c Community\n# ========================================\n\n';
+    c += 'config system snmp sysinfo\n    set status enable\nend\n\n';
+    c += 'config system snmp community\n    edit ' + cgEsc(String(data.sc_id || '').trim()) + '\n        set name "' + cgEsc(nm) + '"\n';
+    c += '        set query-v1-status disable\n        set trap-v1-status disable\n';
+    c += '        config hosts\n            edit 1\n                set ip ' + cgEsc(String(data.sc_host || '').trim()) + ' 255.255.255.255\n';
+    if (ht !== 'any') c += '                set host-type ' + ht + '\n';
+    c += '            next\n        end\n    next\nend\n\n';
+    if (ifc) c += '# Sorgu arayüzünde SNMP yönetim erişimi\nconfig system interface\n    edit "' + cgEsc(ifc) + '"\n        append allowaccess snmp\n    next\nend\n\n';
+    c += '# Doğrulama:\n# show system snmp community\n# (yönetim sunucusundan) snmpwalk -v2c -c <community> <FortiGate-IP>\n';
+    if (/^(public|private)$/i.test(nm)) w.push('⛔ "' + nm + '" herkesçe bilinen community dizesidir; tahmin edilemez bir değer seçin.');
+    w.push('⚠ v2c community ağda açık metin gider; mümkünse SNMPv3 (auth-priv) kullanın. v1 sorgu ve trap\'leri kapatıldı (varsayılanları enable).');
+    if (!ifc) w.push('ℹ Sorgu arayüzü verilmedi: sunucunun geldiği arayüzde "allowaccess snmp" açık olmalı.');
     return { config: c, warnings: w };
 }
