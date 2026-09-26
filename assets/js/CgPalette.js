@@ -67,25 +67,42 @@ const CgPalette = {
         const drawer = document.body.classList.contains('cg-drawer-open');
         this._ret = from || (drawer ? document.getElementById('cg-menu-btn') : document.activeElement);
         if (typeof CgShell !== 'undefined' && CgShell.closeDrawer) CgShell.closeDrawer(true);
+        const y = window.scrollY;
         this._dlg.hidden = false;
         document.body.classList.add('cg-pal-open');
+        this._guard();
+        this._y = y;
         document.querySelectorAll('[data-pal-open]').forEach(b => b.setAttribute('aria-expanded', 'true'));
         this._in.value = ''; this._act = 0;
         this._build();
         this._paint();
-        this._in.focus();
+        // preventScroll: Chrome/Firefox 68+/Safari 15+; eskilerde kayma olursa aşağıda geri alınır
+        try { this._in.focus({ preventScroll: true }); } catch (e) { this._in.focus(); }
+        if (window.scrollY !== y) window.scrollTo(0, y);
         this._lazy();
+    },
+    // Sağlamlık: palette.css yüklenmemişse (eski önbellek, engellenen istek) diyalog satır içi stille sabit konumlanır ve sayfa kaydırması
+    // kilitlenir; böylece odaklanınca sayfa en alta kaymaz. CSS varsa hiçbir şey yapılmaz.
+    _guard() {
+        const d = this._dlg, box = d.querySelector('.cg-pal-box');
+        this._lock = null;
+        if (getComputedStyle(d).position !== 'fixed') {
+            Object.assign(d.style, { position: 'fixed', inset: '0', zIndex: '2600', background: 'rgba(2,6,23,.5)', overflow: 'auto' });
+            if (box) Object.assign(box.style, { position: 'relative', maxWidth: '680px', margin: '8vh auto 0', background: 'var(--bg, #fff)', color: 'var(--text, #0f172a)', borderRadius: '12px', maxHeight: '80vh', overflow: 'auto', padding: '4px' });
+        }
+        if (getComputedStyle(document.body).overflow !== 'hidden') { this._lock = document.body.style.overflow; document.body.style.overflow = 'hidden'; }
     },
     close(noFocus) {
         if (!this.isOpen()) return;
         this._dlg.hidden = true;
         document.body.classList.remove('cg-pal-open');
+        if (this._lock !== null && this._lock !== undefined) { document.body.style.overflow = this._lock; this._lock = null; }
         document.querySelectorAll('[data-pal-open]').forEach(b => b.setAttribute('aria-expanded', 'false'));
         let r = this._ret; this._ret = null;
         if (noFocus) return;
         const vis = el => el && el.isConnected && el.offsetParent !== null && el !== document.body;
         if (!vis(r)) r = [document.getElementById('cg-menu-btn'), document.querySelector('[data-pal-open]')].find(vis) || null;
-        if (r && r.focus) r.focus();
+        if (r && r.focus) { try { r.focus({ preventScroll: true }); } catch (e) { r.focus(); } }
     },
 
     // ── Dizin ────────────────────────────────────────────────────────────

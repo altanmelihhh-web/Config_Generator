@@ -17,7 +17,9 @@ const CgCli = {
         if (this._loaded[src]) return Promise.resolve();
         return this._p[src] || (this._p[src] = new Promise((res, rej) => {
             const s = document.createElement('script');
-            s.src = src;
+            // Önbellek damgası (index.html'deki window.CG_ASSET_V; ~/inventory/harness/stamp.js üretir): içerik değişince adres değişir
+            const v = typeof window !== 'undefined' && window.CG_ASSET_V && window.CG_ASSET_V[src];
+            s.src = v ? src + '?v=' + v : src;
             s.onload = () => { this._loaded[src] = true; res(); };
             s.onerror = () => { delete this._p[src]; s.remove(); rej(new Error(src)); };
             document.head.appendChild(s);
