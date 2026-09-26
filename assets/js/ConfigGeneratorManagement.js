@@ -48,21 +48,61 @@ function cgExpandIfList(s) {
 const CG_VALIDATORS = {
     ip:       { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli bir IPv4 adresi girin (örn: 10.0.0.1)' },
     cidr:     { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/, msg: 'CIDR formatında girin (örn: 10.0.0.0/24)' },
-    subnet:   { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli subnet mask girin (örn: 255.255.255.0)' },
+    ipv6:     { fn: v => _cgIpv6(String(v).trim()), msg: 'Geçerli IPv6 adresi girin (örn: 2001:db8::1)' },
+    ipv6_cidr:{ fn: v => { const p=String(v).trim().split('/'); return p.length === 2 && _cgIpv6(p[0]) && _cgInt(p[1], 0, 128); }, msg: 'IPv6 CIDR biçiminde girin (örn: 2001:db8::/32)' },
+    subnet:   { fn: v => cgMaskLen(String(v).trim()) !== '', msg: 'Bitişik bitli geçerli subnet mask girin (örn: 255.255.255.0)' },
     // ASA nameif: arayuzun mantiksal adi (outside, inside, dmz, partner). Fiziksel
     // arayuz adi degildir; 'iface' dogrulayicisi rakamsiz adlari reddediyordu.
     nameif:   { re: /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/, msg: 'Nameif girin (örn: outside, inside, dmz)' },
     // Genel nesne adi (VRF, VLAN adi, grup, profil): harfle baslar, bosluk yok.
     objname:  { re: /^[A-Za-z][A-Za-z0-9_.:-]{0,62}$/, msg: 'Geçerli bir ad girin (harfle başlar, boşluk içermez)' },
+    ios_acl:  { fn: v => /^(?:[1-9]|[1-9]\d|1[0-9]{2}|2[0-6]\d{2}|[A-Za-z][A-Za-z0-9_.:-]{0,62})$/.test(String(v).trim()), msg: 'ACL numarası (1-199/2000-2699) veya harfle başlayan ACL adı girin' },
+    // SNMPv3 USM auth/priv passphrase için Cisco'nun belgelediği asgari uzunluk.
+    // Genel PSK/TACACS/NTP sırlarına uygulanmaz; bu sınırlar sürüme/komuta göre değişir.
+    snmpv3_secret:{ fn: v => String(v).length >= 8, msg: 'SNMPv3 parolası en az 8 karakter olmalı' },
+    ios_domain:{ fn: v => { const t=String(v).trim(); return t.length <= 253 && t.includes('.') && t.split('.').every(x => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(x)); }, msg: 'Geçerli tam domain adı girin (örn: example.com)' },
+    ios_proto_list:{ fn: v => String(v).split(',').map(x=>x.trim().toLowerCase()).filter(Boolean).every(x => ['tcp','udp','icmp','ftp','http','https','dns','smtp','sip','h323'].includes(x)), msg: 'Desteklenen protokolleri virgülle ayırın (örn: tcp,udp,icmp)' },
+    isis_net: { re: /^[0-9a-fA-F]{2}(?:\.[0-9a-fA-F]{4}){3,6}\.00$/, msg: 'Geçerli IS-IS NET girin; selector .00 olmalı (örn: 49.0001.0000.0000.0001.00)' },
+    archive_path:{ fn: v => /^(?:flash:|bootflash:|nvram:|scp:\/\/|tftp:\/\/)[^\s\r\n]+$/i.test(String(v).trim()), msg: 'Geçerli flash/bootflash/nvram/scp/tftp arşiv yolu girin' },
     // Bitisik ag maskesi (255.255.255.0 gibi). 'subnet' her noktali dortluyu kabul eder;
     // prefix'e cevrilecek alanlarda bu kullanilir — 255.0.255.0 cevrilemez.
     netmask:  { fn: v => cgMaskLen(String(v).trim()) !== '', msg: 'Geçerli ağ maskesi girin (örn: 255.255.255.0)' },
     posint:   { fn: v => _cgInt(v, 1, 2147483647), msg: 'Pozitif tam sayı girin' },
+    track_id: { fn: v => _cgInt(v, 1, 1000), msg: 'Track object numarası 1-1000 arasında olmalı' },
+    ip_sla_id:{ fn: v => _cgInt(v, 1, 2147483647), msg: 'IP SLA operasyon numarası 1-2147483647 arasında olmalı' },
+    ospf_pid: { fn: v => _cgInt(v, 1, 65535), msg: 'OSPF process ID 1-65535 arasında olmalı' },
+    ospf_area:{ fn: v => _cgInt(v, 0, 4294967295) || CG_VALIDATORS.ip.re.test(String(v).trim()), msg: 'OSPF area 0-4294967295 veya dotted-decimal biçiminde olmalı' },
+    nxos_process_tag:{ re: /^[A-Za-z0-9]{1,63}$/, msg: 'NX-OS process/instance tag 1-63 alfanümerik karakter olmalı' },
+    objname_list:{ fn: v => String(v).trim().split(/\s+/).every(x => CG_VALIDATORS.objname.re.test(x)), msg: 'Adları boşlukla ayırın; her ad harfle başlamalı ve boşluk içermemeli' },
+    bgp_community_list:{ fn: v => String(v).trim().split(/\s+/).every(x => /^(?:\d+:\d+|internet|local-as|no-advertise|no-export|graceful-shutdown)$/i.test(x)), msg: 'BGP community girin (örn: 65000:100 no-export)' },
+    uint32_delta:{ fn: v => /^[+-]?\d+$/.test(String(v).trim()) && Math.abs(Number(v)) <= 4294967295, msg: '0-4294967295 aralığında sayı veya +/− değişim girin' },
+    uint32:{ fn: v => _cgInt(v, 0, 4294967295), msg: '0-4294967295 arasında tam sayı girin' },
+    tcpudp_port:{ fn: v => _cgInt(v, 1, 65535), msg: 'Port 1-65535 arasında olmalı' },
+    telemetry_id:{ re: /^[A-Za-z0-9]+$/, msg: 'Telemetry kimliği yalnız harf ve rakam içermeli' },
+    telemetry_depth:{ re: /^(?:unbounded|\d+)$/i, msg: 'Depth için 0, pozitif sayı veya unbounded girin' },
+    single_cli_line:{ fn: v => { const s=String(v); return s.trim().length > 0 && !/[\r\n\0]/.test(s); }, msg: 'Tek satırlık CLI değeri girin; satır sonu içeremez' },
+    fhrp_group:{ fn: (v, el) => {
+        const form = el && el.form, type = form && form.querySelector('[name="_cgtype"]')?.value;
+        if (type === 'vrrp') return _cgInt(v, 1, 255);
+        if (type === 'glbp') return _cgInt(v, 0, 1023);
+        const v2 = form && form.querySelector('[name="hsrp_v2"]')?.checked;
+        return _cgInt(v, 0, v2 ? 4095 : 255);
+    }, msg: 'Grup aralığı: VRRP 1-255, GLBP 0-1023, HSRPv1 0-255, HSRPv2 0-4095' },
     // Next-hop: IP adresi VEYA cikis arayuzu ('ip route 0.0.0.0 0.0.0.0 Gi0/0')
     nexthop:  { fn: v => { const t = String(v).trim(); return /^[\d.]+$/.test(t) ? CG_VALIDATORS.ip.re.test(t) : _cgIface(t); },
                 msg: 'Next-hop IP adresi veya çıkış arayüzü girin (örn: 192.168.1.1, GigabitEthernet0/0)' },
     // Wildcard (ters) maske: 0.0.0.255 = /24. Huawei VRP ve Cisco ACL'lerinde kullanilir.
     wildcard: { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Wildcard maske girin (örn: 0.0.0.255 = /24)' },
+    // Ağ/prefix seçen alanlarda güvenli Cisco wildcard: subnet maskesinin bit
+    // düzeyinde tersi olmalıdır (0*1*). IOS ACL'leri non-contiguous wildcard da
+    // destekler; fakat bunun yanlışlıkla girilmesi çok daha yaygındır. Bu sıkı
+    // doğrulayıcı bilinçli "advanced wildcard" desteği eklenene kadar onu reddeder.
+    wildcard_mask: { fn: v => {
+        const p = String(v).trim().split('.');
+        if (p.length !== 4 || !p.every(o => /^\d{1,3}$/.test(o) && +o <= 255)) return false;
+        const bits = p.map(o => (+o).toString(2).padStart(8, '0')).join('');
+        return /^0*1*$/.test(bits);
+    }, msg: 'Ters subnet maskesi girin (örn: /24 için 0.0.0.255); dağınık bitli wildcard güvenli modda kabul edilmez' },
     ip_cidr:  { fn: v => /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v) || /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/.test(v), msg: 'IP adresi veya CIDR (örn: 10.0.0.1 veya 10.0.0.0/24)' },
     vlan:     { fn: v => _cgInt(v, 1, 4094), msg: 'VLAN ID 1-4094 arasında olmalı' },
     asn:      { fn: v => { const n = parseInt(v); return (!isNaN(n) && n >= 1 && n <= 4294967295) || /^\d+\.\d+$/.test(v.trim()); }, msg: 'AS numarası 1-4294967295 veya dotted (ör: 65000 veya 1.100)' },
@@ -101,6 +141,7 @@ const CG_VALIDATORS = {
     // Gecerli bicimler: 65000:100 · 10.0.0.1:100 (IP:nn) · auto · target:65001:100 (Junos)
     rd:       { fn: v => _cgRdRt(String(v).trim()), msg: 'RD girin (örn: 65000:100, 10.0.0.1:100 veya auto)' },
     rt:       { fn: v => _cgRdRt(String(v).trim()), msg: 'RT girin (örn: 65000:100, target:65001:100 veya auto)' },
+    ios_rt:   { fn: v => /^(?:\d+|(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)){3}):\d+$/.test(String(v).trim()), msg: 'Cisco IOS route-target girin (örn: 65000:100 veya 192.0.2.1:100)' },
     vni:      { fn: v => _cgInt(v, 1, 16777215), msg: 'VNI 1-16777215 arasında olmalı' },
     bgp_timer:{ fn: v => _cgInt(v, 1, 65535), msg: 'Timer 1-65535 saniye arasında olmalı' },
 
@@ -110,6 +151,12 @@ const CG_VALIDATORS = {
     // Port-channel1, Vlan10, Loopback0, Tunnel0, mgmt0, 1.1 (F5)
     // Kabul edilmeyen: bosluk iceren serbest metin, rakamsiz uydurma kelime.
     iface:    { fn: v => _cgIface(String(v).trim()), msg: 'Geçerli bir arayüz adı girin (örn: GigabitEthernet0/1, ge-0/0/0, port1, Eth-Trunk1)' },
+
+    // IOS/IOS-XE arayüzü. Genel çok-vendor doğrulayıcı yalnızca "rakam içeriyor"
+    // kontrolü yaptığı için Gig1/21323123 gibi uydurma değerleri geçiriyordu.
+    ios_iface:{ fn: v => _cgIosIface(String(v).trim()), msg: 'Geçerli Cisco IOS arayüzü girin (örn: GigabitEthernet0/1, Gi1/0/24, Port-channel1, Vlan10)' },
+    ios_iface_or_ip:{ fn: v => CG_VALIDATORS.ip.re.test(String(v).trim()) || _cgIosIface(String(v).trim()), msg: 'Geçerli IPv4 adresi veya Cisco IOS arayüzü girin' },
+    ios_iface_lines:{ fn: v => String(v).split(/[\r\n,]+/).map(x=>x.trim()).filter(Boolean).length > 0 && String(v).split(/[\r\n,]+/).map(x=>x.trim()).filter(Boolean).every(_cgIosIface), msg: 'Her satıra geçerli bir Cisco IOS arayüzü girin' },
 
     // Arayuz araligi: 'Gi0/1-2', 'GigabitEthernet0/1 - 10', 'ethernet1/1/1-1/1/10'
     // veya virgulle ayrilmis liste.
@@ -169,6 +216,33 @@ function _cgInt(v, min, max) {
     return n >= min && n <= max;
 }
 
+// IPv6 sözdizimi: tek bir :: kısaltması, 8 adet 16-bit grup ve yalnız sonda
+// isteğe bağlı IPv4 kuyruğu. DNS çözümü yapmadan yalnız CLI adres biçimini sınar.
+function _cgIpv6(value) {
+    const s = String(value || '').trim();
+    if (!s || /[^0-9a-fA-F:.]/.test(s) || (s.match(/::/g) || []).length > 1) return false;
+    const sides = s.split('::');
+    const groups = [];
+    for (const side of sides) {
+        if (!side) continue;
+        const parts = side.split(':');
+        if (parts.some(x => !x)) return false;
+        groups.push(...parts);
+    }
+    let units = 0;
+    for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        if (g.includes('.')) {
+            if (i !== groups.length - 1 || !CG_VALIDATORS.ip.re.test(g)) return false;
+            units += 2;
+        } else {
+            if (!/^[0-9a-fA-F]{1,4}$/.test(g)) return false;
+            units++;
+        }
+    }
+    return sides.length === 2 ? units < 8 : units === 8;
+}
+
 // Bilinen adsiz arayuzler (rakam icermeyenler)
 // Rakam icermeyen gecerli arayuz / mantiksal arayuz adlari.
 // ASA'da arayuzlere nameif ile isim verilir ('outside', 'inside', 'management');
@@ -202,6 +276,20 @@ function _cgIface(t) {
     if (/[-./:]$/.test(t)) return false;               // 'Gi0/1-' yarim kalmis aralik
     if (/\d/.test(t)) return true;                     // rakam iceriyorsa gecerli say
     return _CG_BARE_IF.includes(t.toLowerCase());      // rakamsizsa bilinen ad olmali
+}
+
+function _cgIosIface(t) {
+    if (!t || /\s/.test(t)) return false;
+    // IOS/IOS-XE'de yaygın fiziksel ve mantıksal aileler. Kısaltmalar CLI'nin
+    // yerleşik kısaltmalarıyla sınırlı; rastgele harf+rakam adları kabul edilmez.
+    const m = t.match(/^(GigabitEthernet|Gig|Gi|FastEthernet|Fast|Fa|Ethernet|Eth|Et|TenGigabitEthernet|TenGig|Te|TwentyFiveGigE|Twe|FortyGigabitEthernet|Fo|HundredGigE|Hu|Serial|Se|Loopback|Lo|Tunnel|Tu|Vlan|Vl|Port-channel|Po|Bundle-Ether|BE|BDI|Dialer|Di|Cellular|Ce|ATM|Async|Null|Nu)(\d+(?:\/\d+){0,2})(?:\.(\d+))?$/i);
+    if (!m) return false;
+    const parts = m[2].split('/').map(Number);
+    // Gerçek slot/port üst sınırı modele bağlıdır. 0..255 yapısal bir korumadır;
+    // kesin donanım varlığı ancak platform/model seçimiyle doğrulanabilir.
+    if (parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+    if (m[3] !== undefined && (+m[3] < 0 || +m[3] > 4294967295)) return false;
+    return true;
 }
 
 // ─── Geçersizlik sebebi ("nesi yanlış") ─────────────────────────────────────
@@ -531,7 +619,7 @@ function cgValidate(form) {
         const vtype = el.dataset.cgv;
         if (vtype && val && CG_VALIDATORS[vtype]) {
             const v = CG_VALIDATORS[vtype];
-            const pass = v.re ? v.re.test(val) : v.fn(val);
+            const pass = v.re ? v.re.test(val) : v.fn(val, el);
             el.classList.toggle('is-invalid', !pass);
             if (!pass) { _cgSetError(el, cgFieldMsg(vtype, val)); ok = false; }
             else _cgClearError(el);
@@ -553,7 +641,7 @@ function cgValidateSoft(form) {
         if (!val) { _cgClearError(el); return; }
         const v = CG_VALIDATORS[el.dataset.cgv];
         if (!v) return;
-        const pass = v.re ? v.re.test(val) : v.fn(val);
+        const pass = v.re ? v.re.test(val) : v.fn(val, el);
         if (pass) _cgClearError(el);
         else { el.classList.add('is-invalid'); _cgSetError(el, cgFieldMsg(el.dataset.cgv, val)); }
     });
@@ -921,7 +1009,7 @@ function cgFormBuilder(container, schema, generateFn) {
             if (!raw) return;
             const v = CG_VALIDATORS[el.dataset.cgv];
             if (!v) return;
-            const pass = v.re ? v.re.test(raw) : v.fn(raw);
+            const pass = v.re ? v.re.test(raw) : v.fn(raw, el);
             if (!pass) {
                 data.__cgInvalid.push({ name: el.name, label: _cgLabelOf(el), value: raw,
                                         msg: cgFieldMsg(el.dataset.cgv, raw),
@@ -1114,11 +1202,15 @@ const CG_REGISTRY = {
         label: 'Cisco IOS', icon: 'fas fa-network-wired', color: '#1BA0D7',
         types: [
             { id: 'vlan',          cat: 'l2', label: 'VLAN',            gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.vlan },
+            { id: 'interface',     cat: 'iface', label: 'Interface',       gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.interface },
             { id: 'acl',           cat: 'secpol', label: 'ACL',             gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.acl },
             { id: 'nat',           cat: 'secpol', label: 'NAT / PAT',       gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.nat },
             { id: 'static-route',  cat: 'routing', label: 'Static Route',    gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.route },
             { id: 'ospf',          cat: 'routing', label: 'OSPF',            gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.ospf },
+            { id: 'ospf-interface',cat: 'routing', label: 'OSPF Interface',  gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.ospfInterface },
+            { id: 'ospfv3',        cat: 'routing', label: 'OSPFv3',          gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.ospfv3 },
             { id: 'bgp',           cat: 'routing', label: 'BGP',             gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.bgp },
+            { id: 'bgp-af',        cat: 'routing', label: 'BGP Address-Family', gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.bgpAddressFamily },
             { id: 'ipsec',         cat: 'vpn', label: 'IPSec VPN',       gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.ipsec },
             { id: 'dhcp',          cat: 'base', label: 'DHCP',            gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.dhcp },
             { id: 'snmp',          cat: 'mgmt', label: 'SNMP',            gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.snmp },
@@ -1138,12 +1230,15 @@ const CG_REGISTRY = {
             { id: 'dmvpn',         cat: 'vpn', label: 'DMVPN',              gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.dmvpn },
             { id: 'eigrpnamed',    cat: 'routing', label: 'EIGRP Named Mode',   gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.eigrpnamed },
             { id: 'vrflite',       cat: 'routing', label: 'VRF-Lite',           gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.vrflite },
+            { id: 'vrf-af',        cat: 'routing', label: 'VRF Address-Family', gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.vrfAddressFamily },
             { id: 'mpls',          cat: 'mpls', label: 'MPLS / LDP',         gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.mpls },
             { id: 'l3vpn',         cat: 'mpls', label: 'L3VPN (PE)',          gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.l3vpn },
             { id: 'routemap',      cat: 'routing', label: 'Route-Map & Redist.', gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.routemap },
+            { id: 'prefix-list',   cat: 'routing', label: 'IPv4 Prefix-List', gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.prefixList },
             { id: 'isis',          cat: 'routing', label: 'IS-IS',               gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.isis },
             { id: 'zbfw',          cat: 'secpol', label: 'Zone-Based Firewall',  gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.zbfw },
             { id: 'bfd',           cat: 'routing', label: 'BFD',                  gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.bfd },
+            { id: 'bfd-template',  cat: 'routing', label: 'BFD Template',         gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.bfdTemplate },
             { id: 'span',          cat: 'mgmt', label: 'SPAN / RSPAN',         gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.span },
             { id: 'ntp',           cat: 'mgmt', label: 'NTP / Saat',             gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.ntp },
             { id: 'logging',       cat: 'mgmt', label: 'Syslog / Logging',       gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.logging },
@@ -1180,15 +1275,21 @@ const CG_REGISTRY = {
             { id: 'vxlan', cat: 'overlay', label: 'VXLAN/EVPN',  gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.vxlan },
             { id: 'span',  cat: 'mgmt', label: 'SPAN/RSPAN',  gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.span },
             { id: 'ospf',  cat: 'routing', label: 'OSPF',        gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.ospf },
+            { id: 'ospfv3',cat: 'routing', label: 'OSPFv3',      gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.ospfv3 },
+            { id: 'bfd',   cat: 'routing', label: 'BFD Global / Interface', gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.bfd },
             { id: 'bgp',   cat: 'routing', label: 'BGP',         gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.bgp },
             { id: 'hsrp',       cat: 'ha', label: 'HSRP',        gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.hsrp },
             { id: 'evpn',       cat: 'overlay', label: 'EVPN',          gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.evpn },
             { id: 'fabricPath', cat: 'overlay', label: 'FabricPath',    gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.fabricPath },
             { id: 'aaa',        cat: 'aaa', label: 'AAA',           gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.aaa },
             { id: 'acl',        cat: 'secpol', label: 'ACL',           gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.acl },
+            { id: 'prefix-list',cat: 'routing', label: 'IPv4/IPv6 Prefix-List', gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.prefixList },
+            { id: 'route-map',  cat: 'routing', label: 'Route-Map', gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.routeMap },
             { id: 'qos',        cat: 'qos', label: 'QoS',           gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.qos },
             { id: 'syslog',     cat: 'mgmt', label: 'Syslog',        gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.syslog },
             { id: 'ntp',        cat: 'mgmt', label: 'NTP',           gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.ntp },
+            { id: 'telemetry',  cat: 'mgmt', label: 'Model-Driven Telemetry', gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.telemetry },
+            { id: 'nxapi',      cat: 'mgmt', label: 'NX-API', gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.nxapi },
             { id: 'features', cat: 'base', label: 'Feature Yönetimi', gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.features },
             { id: 'system', cat: 'base', label: 'Temel Sistem', gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.system },
             { id: 'vlan', cat: 'l2', label: 'VLAN', gen: () => typeof CiscoNXOS !== 'undefined' && CiscoNXOS.vlan },

@@ -2,6 +2,479 @@
 
 const CiscoNXOS = {};
 
+// ── NX-OS: IPv4 / IPv6 Prefix-List ──────────────────────────────────────────
+// Kaynak oracle: cisco.nxos.nxos_prefix_lists argspec ve koleksiyonun
+// tests/integration/targets/nxos_prefix_lists fixture'ları.
+CiscoNXOS.prefixList = {
+    label: 'IPv4/IPv6 Prefix-List',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-list-ol',
+                title: 'IPv4 / IPv6 Prefix-List (NX-OS)',
+                desc: 'NX-OS prefix-list; route-map ve yönlendirme politikalarında IPv4/IPv6 prefix eşleştirmesi. <code>ge</code>/<code>le</code> değerleri temel prefix uzunluğundan küçük olamaz.'
+            },
+            configTypes: [
+                { id: 'ipv4', label: 'IPv4', icon: 'fas fa-network-wired', desc: 'ip prefix-list', badge: { text: 'Yaygın', cls: 'recommended' } },
+                { id: 'ipv6', label: 'IPv6', icon: 'fas fa-project-diagram', desc: 'ipv6 prefix-list' }
+            ],
+            sections: [
+                {
+                    title: 'Liste ve Kural', icon: 'fas fa-filter',
+                    fields: [
+                        { name: 'pl_name', label: 'Prefix-List Adı', type: 'text', validate: 'objname', required: true, placeholder: 'ALLOW-PREFIX' },
+                        { name: 'pl_desc', label: 'Açıklama', type: 'text', placeholder: 'İzin verilen ağlar' },
+                        { name: 'pl_seq', label: 'Sequence', type: 'text', validate: 'posint', required: true, placeholder: '10' },
+                        { name: 'pl_action', label: 'Aksiyon', type: 'select', options: [
+                            { value: 'permit', label: 'permit', selected: true },
+                            { value: 'deny', label: 'deny' }
+                        ]},
+                        { name: 'pl_v4', label: 'IPv4 Prefix', type: 'text', validate: 'cidr', requiredIf: { field: '_cgtype', in: ['ipv4'] }, showFor: ['ipv4'], placeholder: '192.0.2.0/24' },
+                        { name: 'pl_v6', label: 'IPv6 Prefix', type: 'text', validate: 'ipv6_cidr', requiredIf: { field: '_cgtype', in: ['ipv6'] }, showFor: ['ipv6'], placeholder: '2001:db8::/32' },
+                        { name: 'pl_eq', label: 'Tam Prefix Uzunluğu (eq)', type: 'text', min: 0, max: 128, placeholder: '24', hint: 'Boşsa ge/le kullanılabilir' },
+                        { name: 'pl_ge', label: 'En Az Prefix (ge)', type: 'text', min: 0, max: 128, placeholder: '25' },
+                        { name: 'pl_le', label: 'En Çok Prefix (le)', type: 'text', min: 0, max: 128, placeholder: '32' }
+                    ]
+                }
+            ],
+            submit: 'Prefix-List Oluştur'
+        }, (data) => {
+            const afi = data._cgtype === 'ipv6' ? 'ipv6' : 'ipv4';
+            const prefix = String(afi === 'ipv6' ? data.pl_v6 || '' : data.pl_v4 || '').trim();
+            const base = Number(prefix.split('/')[1]);
+            const limit = afi === 'ipv6' ? 128 : 32;
+            const eq = String(data.pl_eq || '').trim(), ge = String(data.pl_ge || '').trim(), le = String(data.pl_le || '').trim();
+            const warnings = [];
+            if (eq && (ge || le)) warnings.push('eq ile ge/le aynı kuralda birlikte kullanılamaz.');
+            if (eq && (+eq < base || +eq > limit)) warnings.push(`eq ${base}-${limit} aralığında olmalı.`);
+            if (ge && (+ge < base || +ge > limit)) warnings.push(`ge ${base}-${limit} aralığında olmalı.`);
+            if (le && (+le < base || +le > limit)) warnings.push(`le ${base}-${limit} aralığında olmalı.`);
+            if (ge && le && +ge > +le) warnings.push('ge değeri le değerinden büyük olamaz.');
+            let c = cgNxHdr('IPv4 / IPv6 Prefix-List');
+            if (warnings.length) return { config: c + '! Geçersiz prefix-list kuralı; çıktı üretilmedi.\n', warnings };
+            const cmd = afi === 'ipv6' ? 'ipv6 prefix-list ' : 'ip prefix-list ';
+            const name = cgEsc(data.pl_name || ''), seq = cgEsc(data.pl_seq || ''), action = cgEsc(data.pl_action || 'permit');
+            if (data.pl_desc) c += cmd + name + ' description ' + cgEsc(data.pl_desc) + '\n';
+            c += cmd + name + ' seq ' + seq + ' ' + action + ' ' + cgEsc(prefix);
+            if (eq) c += ' eq ' + cgEsc(eq);
+            else {
+                if (ge) c += ' ge ' + cgEsc(ge);
+                if (le) c += ' le ' + cgEsc(le);
+            }
+            c += '\n\n! Doğrulama:\n! show ' + (afi === 'ipv6' ? 'ipv6' : 'ip') + ' prefix-list ' + name + '\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: BFD Global / Interface ───────────────────────────────────────────
+// Kaynaklar: cisco.nxos nxos_bfd_global + nxos_bfd_interfaces fixture'ları;
+// Cisco Nexus 9000 NX-OS Interfaces Configuration Guide 10.6(x).
+CiscoNXOS.bfd = {
+    label: 'BFD Global / Interface',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-heartbeat',
+                title: 'BFD Global / Interface (NX-OS)',
+                desc: 'NX-OS BFD zamanlayıcılarını global veya arayüz düzeyinde üretir. Nexus 3000/5000/6000/7000 ve eski sürümlerde varsayılanlar/destek farklı olabilir; hedef model ve sürümü ayrıca doğrulayın.'
+            },
+            configTypes: [
+                { id: 'global', label: 'Global BFD', icon: 'fas fa-globe', desc: 'Tüm BFD oturumlarının varsayılanları', badge: { text: 'Genel', cls: 'recommended' } },
+                { id: 'interface', label: 'Arayüz BFD', icon: 'fas fa-ethernet', desc: 'Arayüz bazında BFD ve echo' }
+            ],
+            sections: [
+                {
+                    title: 'Zamanlayıcılar', icon: 'fas fa-stopwatch',
+                    fields: [
+                        { name: 'bfd_tx', label: 'Minimum TX (ms)', type: 'text', min: 50, max: 999, required: true, value: '50', hint: 'N9K: 50-999 ms; bazı N3K modellerinde varsayılan 250 ms' },
+                        { name: 'bfd_rx', label: 'Minimum RX (ms)', type: 'text', min: 50, max: 999, required: true, value: '50' },
+                        { name: 'bfd_mult', label: 'Detect Multiplier', type: 'text', min: 1, max: 50, required: true, value: '3' },
+                        { name: 'bfd_slow', label: 'Slow Timer (ms)', type: 'text', min: 1000, max: 30000, showFor: ['global'], value: '2000', hint: 'Global mod; 1000-30000 ms' }
+                    ]
+                },
+                {
+                    title: 'Global Echo', icon: 'fas fa-reply', showFor: ['global'],
+                    fields: [
+                        { name: 'bfd_echo_if', label: 'Echo Loopback', type: 'text', validate: 'iface', placeholder: 'loopback1', hint: 'Boş = echo-interface yazılmaz; bazı Nexus ailelerinde desteklenmez' }
+                    ]
+                },
+                {
+                    title: 'Arayüzler', icon: 'fas fa-network-wired', showFor: ['interface'],
+                    fields: [
+                        { name: 'bfd_ifaces', label: 'Arayüz(ler)', type: 'text', validate: 'iface_range', requiredIf: { field: '_cgtype', in: ['interface'] }, placeholder: 'Ethernet1/1,Ethernet1/2' },
+                        { name: 'bfd_enable', label: 'BFD etkinleştir', type: 'checkbox', checked: true },
+                        { name: 'bfd_echo', label: 'BFD echo etkinleştir', type: 'checkbox', checked: true }
+                    ]
+                }
+            ],
+            submit: 'BFD Konfigürasyonu Oluştur'
+        }, (data) => {
+            const type = data._cgtype === 'interface' ? 'interface' : 'global';
+            const tx = cgEsc(data.bfd_tx || '50'), rx = cgEsc(data.bfd_rx || '50'), mult = cgEsc(data.bfd_mult || '3');
+            let c = cgNxHdr('BFD Global / Interface') + 'feature bfd\n\n';
+            if (type === 'global') {
+                c += 'bfd interval ' + tx + ' min_rx ' + rx + ' multiplier ' + mult + '\n';
+                if (data.bfd_slow) c += 'bfd slow-timer ' + cgEsc(data.bfd_slow) + '\n';
+                // Koleksiyondaki komut sıralamasıyla uyumlu olarak echo-interface en son yazılır.
+                if (data.bfd_echo_if) c += 'bfd echo-interface ' + cgEsc(data.bfd_echo_if) + '\n';
+            } else {
+                cgNxList(data.bfd_ifaces || '').forEach(iface => {
+                    c += 'interface ' + cgEsc(iface) + '\n';
+                    c += data.bfd_enable ? '  bfd\n' : '  no bfd\n';
+                    c += data.bfd_echo ? '  bfd echo\n' : '  no bfd echo\n';
+                    c += '  bfd interval ' + tx + ' min_rx ' + rx + ' multiplier ' + mult + '\n';
+                });
+            }
+            c += '\n! Doğrulama:\n! show running-config bfd\n! show bfd neighbors details\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: OSPFv3 ───────────────────────────────────────────────────────────
+// Kaynaklar: cisco.nxos nxos_ospfv3 + nxos_ospf_interfaces argspec/fixture;
+// Cisco Nexus 9000 NX-OS OSPFv3 Configuration Guide 10.5(x).
+CiscoNXOS.ospfv3 = {
+    label: 'OSPFv3',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'OSPFv3 (NX-OS)',
+                desc: 'IPv6 unicast OSPFv3 instance ve interface katılımı. NX-OS OSPFv3 interface üzerinde geçerli bir IPv6 adresi olmadan etkinleşmez.'
+            },
+            sections: [
+                {
+                    title: 'Instance', icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'o3_tag', label: 'Instance Tag', type: 'text', validate: 'nxos_process_tag', required: true, placeholder: '201', hint: '1-63 case-sensitive alfanümerik karakter' },
+                        { name: 'o3_rid', label: 'Router ID', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.1', hint: 'Sistemde yapılandırılmış sabit bir IPv4 adresi' },
+                        { name: 'o3_area', label: 'Area', type: 'text', validate: 'ospf_area', required: true, placeholder: '0.0.0.0' },
+                        { name: 'o3_area_type', label: 'Area Türü', type: 'select', options: [
+                            { value: 'normal', label: 'Normal', selected: true },
+                            { value: 'stub', label: 'Stub' },
+                            { value: 'nssa', label: 'NSSA' }
+                        ]},
+                        { name: 'o3_no_summary', label: 'no-summary', type: 'checkbox', hint: 'Yalnız Stub/NSSA alanında uygulanır' },
+                        { name: 'o3_log_detail', label: 'Komşuluk değişikliklerini ayrıntılı logla', type: 'checkbox', checked: true }
+                    ]
+                },
+                {
+                    title: 'IPv6 Address Family', icon: 'fas fa-route',
+                    fields: [
+                        { name: 'o3_distance', label: 'Administrative Distance', type: 'text', min: 1, max: 255, placeholder: '110', hint: 'Boş = varsayılan 110' },
+                        { name: 'o3_max_paths', label: 'Maximum Paths', type: 'text', validate: 'posint', placeholder: '4', hint: 'Desteklenen üst sınır platform/sürüme bağlıdır' },
+                        { name: 'o3_range', label: 'Area Summary Prefix', type: 'text', validate: 'ipv6_cidr', placeholder: '2001:db8::/32', hint: 'Boş = area range üretilmez' },
+                        { name: 'o3_range_cost', label: 'Summary Cost', type: 'text', min: 0, max: 16777215, placeholder: '100', hint: 'Yalnız summary prefix verilirse' },
+                        { name: 'o3_not_adv', label: 'Summary’yi advertise etme', type: 'checkbox' }
+                    ]
+                },
+                {
+                    title: 'Interface', icon: 'fas fa-ethernet',
+                    fields: [
+                        { name: 'o3_iface', label: 'Interface', type: 'text', validate: 'iface', required: true, placeholder: 'Ethernet1/2' },
+                        { name: 'o3_ipv6', label: 'IPv6 / Prefix', type: 'text', validate: 'ipv6_cidr', required: true, placeholder: '2001:db8:10::1/64' },
+                        { name: 'o3_network', label: 'Network Type', type: 'select', options: [
+                            { value: '', label: 'Varsayılan', selected: true },
+                            { value: 'broadcast', label: 'broadcast' },
+                            { value: 'point-to-point', label: 'point-to-point' }
+                        ]},
+                        { name: 'o3_cost', label: 'Cost', type: 'text', min: 1, max: 65535, placeholder: '25' },
+                        { name: 'o3_hello', label: 'Hello Interval (sn)', type: 'text', min: 1, max: 65535, placeholder: '10' },
+                        { name: 'o3_dead', label: 'Dead Interval (sn)', type: 'text', min: 1, max: 65535, placeholder: '40' },
+                        { name: 'o3_instance', label: 'Link-local Instance ID', type: 'text', min: 0, max: 255, placeholder: '0' },
+                        { name: 'o3_priority', label: 'DR Priority', type: 'text', min: 0, max: 255, placeholder: '1' },
+                        { name: 'o3_passive', label: 'Passive Interface', type: 'checkbox' },
+                        { name: 'o3_mtu_ignore', label: 'MTU uyuşmazlığını yok say', type: 'checkbox' }
+                    ]
+                }
+            ],
+            submit: 'OSPFv3 Konfigürasyonu Oluştur'
+        }, (data) => {
+            const tag = cgEsc(data.o3_tag || ''), area = cgEsc(data.o3_area || ''), iface = cgEsc(data.o3_iface || '');
+            let c = cgNxHdr('OSPFv3') + 'feature ospfv3\n\n';
+            c += 'router ospfv3 ' + tag + '\n';
+            c += '  router-id ' + cgEsc(data.o3_rid || '') + '\n';
+            if (data.o3_log_detail) c += '  log-adjacency-changes detail\n';
+            if (data.o3_area_type !== 'normal') {
+                c += '  area ' + area + ' ' + cgEsc(data.o3_area_type || '');
+                if (data.o3_no_summary) c += ' no-summary';
+                c += '\n';
+            }
+            c += '  address-family ipv6 unicast\n';
+            if (data.o3_distance) c += '    distance ' + cgEsc(data.o3_distance) + '\n';
+            if (data.o3_max_paths) c += '    maximum-paths ' + cgEsc(data.o3_max_paths) + '\n';
+            if (data.o3_range) {
+                c += '    area ' + area + ' range ' + cgEsc(data.o3_range);
+                if (data.o3_not_adv) c += ' not-advertise';
+                else if (data.o3_range_cost) c += ' cost ' + cgEsc(data.o3_range_cost);
+                c += '\n';
+            }
+            c += '\ninterface ' + iface + '\n';
+            c += '  ipv6 address ' + cgEsc(data.o3_ipv6 || '') + '\n';
+            c += '  ipv6 router ospfv3 ' + tag + ' area ' + area + '\n';
+            if (data.o3_network) c += '  ospfv3 network ' + cgEsc(data.o3_network) + '\n';
+            if (data.o3_cost) c += '  ospfv3 cost ' + cgEsc(data.o3_cost) + '\n';
+            if (data.o3_hello) c += '  ospfv3 hello-interval ' + cgEsc(data.o3_hello) + '\n';
+            if (data.o3_dead) c += '  ospfv3 dead-interval ' + cgEsc(data.o3_dead) + '\n';
+            if (data.o3_instance !== undefined && data.o3_instance !== '') c += '  ospfv3 instance ' + cgEsc(data.o3_instance) + '\n';
+            if (data.o3_priority !== undefined && data.o3_priority !== '') c += '  ospfv3 priority ' + cgEsc(data.o3_priority) + '\n';
+            if (data.o3_passive) c += '  ospfv3 passive-interface\n';
+            if (data.o3_mtu_ignore) c += '  ospfv3 mtu-ignore\n';
+            c += '  no shutdown\n\n! Doğrulama:\n! show ipv6 ospfv3 ' + tag + '\n! show ipv6 ospfv3 ' + tag + ' interface ' + iface + '\n! show ipv6 route ospfv3\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: Route-Map ────────────────────────────────────────────────────────
+// Kaynaklar: cisco.nxos.nxos_route_maps argspec, parsed/rendered fixture'ları;
+// Cisco Nexus 9000 Route Policy Manager rehberi.
+CiscoNXOS.routeMap = {
+    label: 'Route-Map',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-random',
+                title: 'Route-Map (NX-OS)',
+                desc: 'Prefix-list, ACL, community, AS-path veya interface eşleşmesine göre BGP/IGP öznitelikleri ayarlar. Route-map satırları en düşük sequence numarasından başlayarak işlenir.'
+            },
+            configTypes: [
+                { id: 'ipv4-prefix', label: 'IPv4 Prefix-List', icon: 'fas fa-network-wired', desc: 'match ip address prefix-list', badge: { text: 'Yaygın', cls: 'recommended' } },
+                { id: 'ipv6-prefix', label: 'IPv6 Prefix-List', icon: 'fas fa-project-diagram', desc: 'match ipv6 address prefix-list' },
+                { id: 'acl', label: 'IPv4 ACL', icon: 'fas fa-filter', desc: 'match ip address ACL' },
+                { id: 'community', label: 'BGP Community', icon: 'fas fa-tags', desc: 'match community' },
+                { id: 'as-path', label: 'AS-Path List', icon: 'fas fa-route', desc: 'match as-path' },
+                { id: 'interface', label: 'Interface', icon: 'fas fa-ethernet', desc: 'match interface' }
+            ],
+            sections: [
+                {
+                    title: 'Route-Map Girdisi', icon: 'fas fa-list-ol',
+                    fields: [
+                        { name: 'rm_name', label: 'Route-Map Adı', type: 'text', validate: 'objname', required: true, placeholder: 'RM-BGP-IN' },
+                        { name: 'rm_action', label: 'Aksiyon', type: 'select', options: [
+                            { value: 'permit', label: 'permit', selected: true },
+                            { value: 'deny', label: 'deny' }
+                        ]},
+                        { name: 'rm_seq', label: 'Sequence', type: 'text', min: 1, max: 65535, required: true, value: '10' },
+                        { name: 'rm_desc', label: 'Açıklama', type: 'text', placeholder: 'BGP giriş politikası' },
+                        { name: 'rm_continue', label: 'Continue Sequence', type: 'text', min: 1, max: 65535, placeholder: '20', hint: 'Boş = ilk eşleşmede dur' }
+                    ]
+                },
+                {
+                    title: 'Match', icon: 'fas fa-filter',
+                    fields: [
+                        { name: 'rm_v4_pl', label: 'IPv4 Prefix-List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['ipv4-prefix'] }, showFor: ['ipv4-prefix'], placeholder: 'ALLOW-PREFIX BACKUP-PREFIX' },
+                        { name: 'rm_v6_pl', label: 'IPv6 Prefix-List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['ipv6-prefix'] }, showFor: ['ipv6-prefix'], placeholder: 'ALLOW-V6' },
+                        { name: 'rm_acl', label: 'IPv4 ACL Adı', type: 'text', validate: 'objname', requiredIf: { field: '_cgtype', in: ['acl'] }, showFor: ['acl'], placeholder: 'ACL-BGP-SOURCES' },
+                        { name: 'rm_comm_match', label: 'Community-List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['community'] }, showFor: ['community'], placeholder: 'COMM-INTERNAL COMM-CUSTOMER' },
+                        { name: 'rm_aspath', label: 'AS-Path List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['as-path'] }, showFor: ['as-path'], placeholder: 'ASPATH-CUSTOMER' },
+                        { name: 'rm_iface', label: 'Interface', type: 'text', validate: 'iface', requiredIf: { field: '_cgtype', in: ['interface'] }, showFor: ['interface'], placeholder: 'Ethernet1/1' }
+                    ]
+                },
+                {
+                    title: 'Set', icon: 'fas fa-sliders-h',
+                    fields: [
+                        { name: 'rm_local_pref', label: 'Local Preference', type: 'text', min: 0, max: 4294967295, placeholder: '200' },
+                        { name: 'rm_metric', label: 'Metric / MED', type: 'text', validate: 'uint32_delta', placeholder: '+100', hint: 'Sayı veya +/− değişim; 0-4294967295' },
+                        { name: 'rm_weight', label: 'BGP Weight', type: 'text', min: 0, max: 65535, placeholder: '100' },
+                        { name: 'rm_community', label: 'Community Değerleri', type: 'text', validate: 'bgp_community_list', placeholder: '65000:100 no-export' },
+                        { name: 'rm_additive', label: 'Community additive', type: 'checkbox' },
+                        { name: 'rm_next_hop', label: 'IPv4 Next-Hop', type: 'text', validate: 'ip', placeholder: '192.0.2.1' }
+                    ]
+                }
+            ],
+            submit: 'Route-Map Oluştur'
+        }, (data) => {
+            const type = data._cgtype || 'ipv4-prefix';
+            const name = cgEsc(data.rm_name || ''), action = cgEsc(data.rm_action || 'permit'), seq = cgEsc(data.rm_seq || '10');
+            let c = cgNxHdr('Route-Map') + 'route-map ' + name + ' ' + action + ' ' + seq + '\n';
+            if (type === 'ipv4-prefix') c += '  match ip address prefix-list ' + cgEsc(data.rm_v4_pl || '') + '\n';
+            else if (type === 'ipv6-prefix') c += '  match ipv6 address prefix-list ' + cgEsc(data.rm_v6_pl || '') + '\n';
+            else if (type === 'acl') c += '  match ip address ' + cgEsc(data.rm_acl || '') + '\n';
+            else if (type === 'community') c += '  match community ' + cgEsc(data.rm_comm_match || '') + '\n';
+            else if (type === 'as-path') c += '  match as-path ' + cgEsc(data.rm_aspath || '') + '\n';
+            else if (type === 'interface') c += '  match interface ' + cgEsc(data.rm_iface || '') + '\n';
+            if (data.rm_desc) c += '  description ' + cgEsc(data.rm_desc) + '\n';
+            if (data.rm_local_pref !== undefined && data.rm_local_pref !== '') c += '  set local-preference ' + cgEsc(data.rm_local_pref) + '\n';
+            if (data.rm_metric) c += '  set metric ' + cgEsc(data.rm_metric) + '\n';
+            if (data.rm_weight !== undefined && data.rm_weight !== '') c += '  set weight ' + cgEsc(data.rm_weight) + '\n';
+            if (data.rm_community) c += '  set community ' + cgEsc(data.rm_community) + (data.rm_additive ? ' additive' : '') + '\n';
+            if (data.rm_next_hop) c += '  set ip next-hop ' + cgEsc(data.rm_next_hop) + '\n';
+            if (data.rm_continue) c += '  continue ' + cgEsc(data.rm_continue) + '\n';
+            c += '\n! Doğrulama:\n! show route-map ' + name + '\n! show running-config | section "^route-map ' + name + '"\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: Model-Driven Telemetry ───────────────────────────────────────────
+// Kaynaklar: cisco.nxos.nxos_telemetry argspec/integration fixture'ları;
+// Cisco Nexus 9000 NX-OS Programmability Guide 10.5(x).
+CiscoNXOS.telemetry = {
+    label: 'Model-Driven Telemetry',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-stream',
+                title: 'Model-Driven Telemetry (NX-OS)',
+                desc: 'Collector hedefi, sensör yolu ve subscription örnekleme aralığını birbirine bağlar. Ansible modülü bu özelliği N9K 7.0(3)I7(5 ve sonrasında destekler; Cisco MDS desteklenmez.'
+            },
+            sections: [
+                {
+                    title: 'Destination Profile', icon: 'fas fa-paper-plane',
+                    fields: [
+                        { name: 'tm_dst_id', label: 'Destination Group ID', type: 'text', validate: 'telemetry_id', required: true, placeholder: '100' },
+                        { name: 'tm_ip', label: 'Collector IPv4', type: 'text', validate: 'ip', required: true, placeholder: '192.0.2.50' },
+                        { name: 'tm_port', label: 'Collector Port', type: 'text', validate: 'tcpudp_port', required: true, placeholder: '50051' },
+                        { name: 'tm_protocol', label: 'Protokol', type: 'select', options: [
+                            { value: 'gRPC', label: 'gRPC', selected: true },
+                            { value: 'HTTP', label: 'HTTP' },
+                            { value: 'TCP', label: 'TCP' },
+                            { value: 'UDP', label: 'UDP' }
+                        ]},
+                        { name: 'tm_encoding', label: 'Encoding', type: 'select', options: [
+                            { value: 'GPB', label: 'GPB', selected: true },
+                            { value: 'JSON', label: 'JSON' }
+                        ]},
+                        { name: 'tm_vrf', label: 'VRF', type: 'text', validate: 'objname', placeholder: 'management' },
+                        { name: 'tm_source', label: 'Source Interface', type: 'text', validate: 'iface', placeholder: 'loopback0', hint: 'NX-OS 9.1+ platformlarda desteklenir' },
+                        { name: 'tm_gzip', label: 'gzip sıkıştırma', type: 'checkbox' }
+                    ]
+                },
+                {
+                    title: 'Sensor Group', icon: 'fas fa-satellite-dish',
+                    fields: [
+                        { name: 'tm_sensor_id', label: 'Sensor Group ID', type: 'text', validate: 'telemetry_id', required: true, placeholder: '100' },
+                        { name: 'tm_source_type', label: 'Data Source', type: 'select', options: [
+                            { value: 'DME', label: 'DME', selected: true },
+                            { value: 'NX-API', label: 'NX-API' },
+                            { value: 'YANG', label: 'YANG' }
+                        ]},
+                        { name: 'tm_path', label: 'Sensor Path / Show Komutu', type: 'text', validate: 'single_cli_line', required: true, placeholder: 'sys/intf', hint: 'NX-API seçilirse show komutu otomatik tırnaklanır' },
+                        { name: 'tm_depth', label: 'Depth', type: 'text', validate: 'telemetry_depth', value: '0', placeholder: '0', hint: '0 veya unbounded' },
+                        { name: 'tm_query', label: 'Query Condition', type: 'text', validate: 'single_cli_line', placeholder: 'updates_only' },
+                        { name: 'tm_filter', label: 'Filter Condition', type: 'text', validate: 'single_cli_line', placeholder: 'eq(eqptFt.operSt,"ok")' }
+                    ]
+                },
+                {
+                    title: 'Subscription', icon: 'fas fa-link',
+                    fields: [
+                        { name: 'tm_sub_id', label: 'Subscription ID', type: 'text', validate: 'telemetry_id', required: true, placeholder: '100' },
+                        { name: 'tm_interval', why: '0 event-based yayın yapar; pozitif değer milisaniye cinsinden periyodik örneklemedir.', label: 'Sample Interval (ms)', type: 'text', validate: 'uint32', required: true, value: '10000', hint: '0 = yalnız değişiklik olduğunda gönder' }
+                    ]
+                }
+            ],
+            submit: 'Telemetry Konfigürasyonu Oluştur'
+        }, (data) => {
+            const dst = cgEsc(data.tm_dst_id || ''), sensor = cgEsc(data.tm_sensor_id || ''), sub = cgEsc(data.tm_sub_id || '');
+            const sourceType = data.tm_source_type || 'DME';
+            let c = cgNxHdr('Model-Driven Telemetry') + 'feature telemetry\n';
+            if (sourceType === 'NX-API') c += 'feature nxapi\n';
+            c += '\ntelemetry\n';
+            if (data.tm_vrf || data.tm_source || data.tm_gzip) {
+                c += '  destination-profile\n';
+                if (data.tm_vrf) c += '    use-vrf ' + cgEsc(data.tm_vrf) + '\n';
+                if (data.tm_gzip) c += '    use-compression gzip\n';
+                if (data.tm_source) c += '    source-interface ' + cgEsc(data.tm_source) + '\n';
+            }
+            c += '  destination-group ' + dst + '\n';
+            c += '    ip address ' + cgEsc(data.tm_ip || '') + ' port ' + cgEsc(data.tm_port || '') +
+                ' protocol ' + cgEsc(data.tm_protocol || 'gRPC') + ' encoding ' + cgEsc(data.tm_encoding || 'GPB') + '\n';
+            c += '  sensor-group ' + sensor + '\n';
+            c += '    data-source ' + cgEsc(sourceType) + '\n';
+            let path = String(data.tm_path || '').trim();
+            if (sourceType === 'NX-API') path = '"' + path.replace(/^"|"$/g, '') + '"';
+            c += '    path ' + cgEsc(path);
+            if (data.tm_depth !== undefined && data.tm_depth !== '') c += ' depth ' + cgEsc(data.tm_depth);
+            if (data.tm_query) c += ' query-condition ' + cgEsc(data.tm_query);
+            if (data.tm_filter) c += ' filter-condition ' + cgEsc(data.tm_filter);
+            c += '\n';
+            c += '  subscription ' + sub + '\n';
+            c += '    dst-grp ' + dst + '\n';
+            c += '    snsr-grp ' + sensor + ' sample-interval ' + cgEsc(data.tm_interval || '0') + '\n';
+            c += '\n! Doğrulama:\n! show running-config telemetry\n! show telemetry control database sensor-groups\n! show telemetry control database subscriptions\n';
+            return c;
+        });
+    }
+};
+
+// ── NX-OS: NX-API ───────────────────────────────────────────────────────────
+// Kaynaklar: cisco.nxos.nxos_nxapi modülü/testleri; Cisco Nexus 9000
+// Programmability Guide 10.2(x) ve NX-OS command reference.
+CiscoNXOS.nxapi = {
+    label: 'NX-API',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-code',
+                title: 'NX-API (NX-OS)',
+                desc: 'NX-API CLI servisini HTTP/HTTPS, VRF ve TLS politikasıyla yapılandırır. HTTPS kullanın; HTTP Basic kimlik bilgilerini şifrelemeden taşır.'
+            },
+            configTypes: [
+                { id: 'enable', label: 'Etkinleştir / Yapılandır', icon: 'fas fa-toggle-on', desc: 'feature nxapi ve güvenli transport', badge: { text: 'HTTPS', cls: 'recommended' } },
+                { id: 'disable', label: 'Devre Dışı Bırak', icon: 'fas fa-toggle-off', desc: 'no feature nxapi' }
+            ],
+            sections: [
+                {
+                    title: 'Transport', icon: 'fas fa-lock', showFor: ['enable'],
+                    fields: [
+                        { name: 'na_http', why: 'HTTP, kullanıcı adı ve parolayı şifrelemeden taşır; yalnız kontrollü ve izole laboratuvarlarda değerlendirin.', label: 'HTTP etkin', type: 'checkbox', checked: false },
+                        { name: 'na_http_port', label: 'HTTP Port', type: 'text', validate: 'tcpudp_port', requiredIf: { field: 'na_http', checked: true }, placeholder: '80' },
+                        { name: 'na_https', label: 'HTTPS etkin', type: 'checkbox', checked: true },
+                        { name: 'na_https_port', label: 'HTTPS Port', type: 'text', validate: 'tcpudp_port', requiredIf: { field: 'na_https', checked: true }, value: '443', placeholder: '443' },
+                        { name: 'na_vrf', label: 'NX-API VRF', type: 'text', validate: 'objname', placeholder: 'management', hint: 'Boş = cihaz varsayılanı' }
+                    ]
+                },
+                {
+                    title: 'TLS Güvenliği', icon: 'fas fa-shield-alt', showFor: ['enable'],
+                    fields: [
+                        { name: 'na_strong', label: 'Zayıf cipher’ları kapat', type: 'checkbox', checked: true, hint: 'N3K/N9K NX-OS 9.2+ için no nxapi ssl ciphers weak' },
+                        { name: 'na_tls12', label: 'TLS 1.2', type: 'checkbox', checked: true },
+                        { name: 'na_tls13', label: 'TLS 1.3', type: 'checkbox', checked: false, hint: 'Nexus 9000 NX-OS 10.2(4)M ve sonrası' },
+                        { name: 'na_tls11', label: 'TLS 1.1 (eski istemci)', type: 'checkbox', checked: false },
+                        { name: 'na_tls10', label: 'TLS 1.0 (önerilmez)', type: 'checkbox', checked: false }
+                    ]
+                },
+                {
+                    title: 'Developer Sandbox', icon: 'fas fa-flask', showFor: ['enable'],
+                    warn: 'Ansible koleksiyonu Sandbox seçeneğini yalnız Nexus 7000 platformunda destekler.',
+                    fields: [
+                        { name: 'na_sandbox', label: 'NX-API Sandbox’ı etkinleştir (yalnız N7K)', type: 'checkbox', checked: false }
+                    ]
+                }
+            ],
+            submit: 'NX-API Konfigürasyonu Oluştur'
+        }, (data) => {
+            let c = cgNxHdr('NX-API');
+            if (data._cgtype === 'disable') {
+                c += 'no feature nxapi\n\n! Doğrulama:\n! show feature | include nxapi\n';
+                return c;
+            }
+            const warnings = [];
+            if (!data.na_http && !data.na_https) warnings.push('HTTP ve HTTPS birlikte kapalı; NX-API etkin olsa da uzaktan erişilemez.');
+            if (data.na_https && !data.na_tls10 && !data.na_tls11 && !data.na_tls12 && !data.na_tls13) {
+                warnings.push('HTTPS seçili fakat hiçbir TLS sürümü seçilmedi.');
+            }
+            c += 'feature nxapi\n';
+            c += data.na_http ? 'nxapi http port ' + cgEsc(data.na_http_port || '80') + '\n' : 'no nxapi http\n';
+            c += data.na_https ? 'nxapi https port ' + cgEsc(data.na_https_port || '443') + '\n' : 'no nxapi https\n';
+            if (data.na_vrf) c += 'nxapi use-vrf ' + cgEsc(data.na_vrf) + '\n';
+            if (data.na_strong) c += 'no nxapi ssl ciphers weak\n';
+            const tls = [];
+            if (data.na_tls10) tls.push('TLSv1');
+            if (data.na_tls11) tls.push('TLSv1.1');
+            if (data.na_tls12) tls.push('TLSv1.2');
+            if (data.na_tls13) tls.push('TLSv1.3');
+            if (data.na_https && tls.length) c += 'nxapi ssl protocols ' + tls.join(' ') + '\n';
+            if (data.na_sandbox) c += 'nxapi sandbox\n'; else c += 'no nxapi sandbox\n';
+            c += '\n! Doğrulama:\n! show nxapi\n! show running-config | include ^nxapi\n';
+            return warnings.length ? { config: c, warnings } : c;
+        });
+    }
+};
+
 // ── NX-OS: OSPF ───────────────────────────────────────────────────────────────
 CiscoNXOS.ospf = {
     label: 'OSPF',
