@@ -58,13 +58,19 @@ const CgLab = {
         if (lab) this._paintLab(lab); else this._paintCatalog();
     },
 
+    // Katalog adresi süzgeci yansıtır: #/lab veya #/lab?v=<vendor> (replaceState; geri yığını şişmez)
+    _syncVf() {
+        if (typeof location === 'undefined' || (location.hash || '').split('?')[0] !== '#/lab') return;
+        const want = '#/lab' + (this._vf && this._vf !== 'all' ? '?v=' + this._vf : '');
+        if (location.hash !== want) history.replaceState(null, '', want);
+    },
     // ═══ Katalog ═══════════════════════════════════════════════════════════
     _paintCatalog() {
         const all = window.CG_LABS || [];
         const labs = all.filter(l => this._vf === 'all' || l.vendor === this._vf), real = labs.filter(l => !l.sandbox);
         const vchips = ['all'].concat(Object.keys(this.VENDORS)).map(v => {
             const n = all.filter(l => !l.sandbox && (v === 'all' || l.vendor === v)).length;
-            return `<button class="cg-chip${this._vf === v ? ' active' : ''}" data-vf="${v}">${v === 'all' ? '' : this._mark(v)}<span class="cg-chip-l">${v === 'all' ? 'Tümü' : cgEsc(this.VENDORS[v].name)}</span><span class="cg-chip-n">${n}</span></button>`;
+            return `<button class="cg-chip${this._vf === v ? ' active' : ''}" data-vf="${v}" aria-pressed="${this._vf === v}">${v === 'all' ? '' : this._mark(v)}<span class="cg-chip-l">${v === 'all' ? 'Tümü' : cgEsc(this.VENDORS[v].name)}</span><span class="cg-chip-n">${n}</span></button>`;
         }).join('');
         const doneN = real.filter(l => this._st(l.id).tDone).length;
         const stars = real.reduce((a, l) => a + (this._st(l.id).stars || 0), 0);
@@ -105,6 +111,7 @@ const CgLab = {
                 <span class="cg-lab-card-t">${cgEsc(l.title)}</span><span class="cg-lab-card-m">Görev yok, serbest deneme</span></a>`).join('')}</div></section>` : ''}
         </div>`;
         this._root.querySelectorAll('[data-vf]').forEach(b => b.addEventListener('click', () => { this._vf = b.dataset.vf; this._paintCatalog(); }));
+        this._syncVf();
         this._root.querySelector('[data-exp]').addEventListener('click', () => this._export());
         this._root.querySelector('[data-imp]').addEventListener('change', e => this._import(e.target.files[0]));
     },

@@ -1812,88 +1812,179 @@ const ConfigGenerator = {
     },
 
     _route() {
-        const h = location.hash || '';
+        const t = document.getElementById('cg-toast'); if (t) t.hidden = true;
+        let full = location.hash || '';
+        // #/V/Cisco/ → #/v/cisco (yalnız vendor rotaları; sorgu kısmı korunur)
+        const nv = full.match(/^#\/v(\/[^?]*)?(\?.*)?$/i);
+        if (nv) { const fix = '#/v' + (nv[1] || '').toLowerCase().replace(/\/+$/, '') + (nv[2] || ''); if (fix !== full) { history.replaceState(null, '', fix); full = fix; } }
+        const qi = full.indexOf('?'), h = qi < 0 ? full : full.slice(0, qi);
+        const P = new URLSearchParams(qi < 0 ? '' : full.slice(qi + 1));
+        // Vendor rotaları en başta: #/v/<aile>/… (aile adları kayıt kimlikleriyle çakıştığı için önekli)
+        const vr = h.match(/^#\/v(?:\/([a-z0-9-]+))?(?:\/([a-z]+))?(?:\/([a-z0-9-]+))?$/);
+        if (vr) { this._routeFamily(vr[1], vr[2], vr[3], P); return; }
+        if (h === '#/araclar') { this._renderHome({ fam: null, p: P.get('p'), k: P.get('k'), q: P.get('q') }); return; }
         const cli = h.match(/^#\/cli(?:\/([a-z0-9-]+))?$/);
         if (cli) { this._renderCli(cli[1]); return; }
         const lp = h.match(/^#\/lab\/path\/([a-z0-9-]+)$/);
         if (lp) { this._renderLab(null, lp[1]); return; }
         const lab = h.match(/^#\/lab(?:\/([a-z0-9-]+))?$/);
-        if (lab) { this._renderLab(lab[1]); return; }
+        if (lab) { this._renderLab(lab[1], null, P.get('v')); return; }
         const ar = h.match(/^#\/arena(?:\/(masa|meydan|waf|nobet)\/([a-z0-9-]+))?$/);
         if (ar) { this._renderArena(ar[1], ar[2]); return; }
         const ts = h.match(/^#\/troubleshoot(?:\/([a-z0-9-]+))?(?:\/(\d+))?$/);
         if (ts) { this._renderTs(ts[1], ts[2]); return; }
         const m = h.match(/^#\/([^/]+)\/([^/]+)$/);
         if (m && CG_REGISTRY[m[1]]) this._renderWork(m[1], m[2]);
-        else if ((location.hash || '') === '#/converter') this._renderConverter();
-        else this._renderHome();
+        else if (h === '#/converter') this._renderConverter();
+        else this._renderHome({ fam: null });
+    },
+
+    // #/v → tüm araçlar (vendor kartları A4'te); #/v/<aile>[/bölüm]. Bilinmeyen aile/bölüm → #/v
+    _routeFamily(slug, sec, sub, P) {
+        // Yönlendirme; note verilirse kullanıcıya kısa bilgi şeridi gösterilir (sessiz yönlendirme yok)
+        const redirect = (hash, note) => { history.replaceState(null, '', hash); this._route(); if (note) this._toast(note); };
+        const qs = P.toString() ? '?' + P.toString() : '';
+        // A4'e kadar: vendor kartları yok → tüm araçlar; aile kökü → kanonik ızgara adresi /araclar
+        if (!slug) { redirect('#/araclar' + qs); return; }
+        const f = typeof CG_FAMILY_BY_SLUG !== 'undefined' && CG_FAMILY_BY_SLUG[slug];
+        if (!f) { redirect('#/araclar', '“' + slug + '” adlı bir vendor ailesi yok; tüm araçlar gösteriliyor.'); return; }
+        if (!sec) { redirect('#/v/' + slug + '/araclar' + qs); return; }
+        if (sec === 'araclar') {
+            if (sub) { redirect('#/v/' + slug + '/araclar'); return; }
+            this._renderHome({ fam: slug, p: P.get('p'), k: P.get('k'), q: P.get('q') });
+            return;
+        }
+        if (sec === 'lab' && !sub) {
+            if (!f.lab.length) { redirect('#/v/' + slug + '/araclar', f.name + ' için henüz CLI lab yok; ' + f.name + ' araçları gösteriliyor.'); return; }
+            redirect('#/lab?v=' + f.lab[0]);
+            return;
+        }
+        if (sec === 'yol' && !sub) {
+            if (!f.lab.length || typeof CgLab === 'undefined' || typeof CgCli === 'undefined') { redirect('#/v/' + slug + '/araclar', f.name + ' için henüz öğrenme yolu yok; ' + f.name + ' araçları gösteriliyor.'); return; }
+            const want = location.hash;
+            this._setNav('lab');
+            this._root.innerHTML = '<div class="cg-empty"><i class="fas fa-spinner fa-spin"></i><p>Öğrenme yolu yükleniyor…</p></div>';
+            CgLab._loadAll().then(() => {
+                if (location.hash !== want) return;   // bu arada başka yere gidildi
+                const p = CgLab._paths().find(x => f.lab.includes(x.vendor));
+                if (p) redirect('#/lab/path/' + p.id); else redirect('#/lab?v=' + f.lab[0], f.name + ' için henüz öğrenme yolu yok; lablar gösteriliyor.');
+            }, () => redirect('#/lab?v=' + f.lab[0]));
+            return;
+        }
+        if (sec === 'komutlar') {
+            if (sub && !f.cli.includes(sub)) { redirect('#/v/' + slug + '/komutlar', '“' + sub + '” ' + f.name + ' komut kütüphanelerinden biri değil.'); return; }
+            this._renderCli(sub || f.cli[0]);
+            return;
+        }
+        if (sec === 'sorun' && !sub) { this._renderTs(); return; }
+        if (sec === 'arena' && !sub && f.arena) { redirect('#/arena'); return; }
+        redirect('#/v/' + slug + '/araclar', 'Bu bölüm ' + f.name + ' için yok; ' + f.name + ' araçları gösteriliyor.');
+    },
+
+    // Kısa bilgi şeridi (role=status, 5 sn)
+    _toast(msg) {
+        let el = document.getElementById('cg-toast');
+        if (!el) { el = document.createElement('div'); el.id = 'cg-toast'; el.className = 'cg-toast'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.appendChild(el); }
+        el.textContent = msg; el.hidden = false;
+        clearTimeout(this._toastT); this._toastT = setTimeout(() => { el.hidden = true; }, 5000);
     },
 
     go(vendorId, typeId) { location.hash = '#/' + vendorId + '/' + typeId; },
-    goHome()             { location.hash = ''; if (!location.hash) this._route(); },
+    // Üst çubuktaki "Araçlar": süzgeçsiz tüm araçlar (bellekteki süzgeç ve aile kilidi taşınmaz)
+    goHome() {
+        this._filter = 'all'; this._cat = 'all'; this._query = ''; this._fam = null;
+        if (location.hash === '#/araclar') this._route(); else location.hash = '#/araclar';
+    },
+    // Araç sayfasından geri: son liste görünümü (aile kilidi, süzgeç ve arama korunur)
+    backToList() {
+        const h = this._lastList || '#/araclar';
+        if (location.hash === h) this._route(); else location.hash = h;
+    },
 
     // ── Üst çubuktaki aktif sekmeyi işaretle ────────────────────────────
     _setNav(which) {
         document.querySelectorAll('.app-nav-tab').forEach(b =>
             b.classList.toggle('active', b.dataset.nav === which));
+        const T = { tools: 'Config araçları', cli: 'Komut kütüphanesi', lab: 'CLI Laboratuvarı', arena: 'iRule Arenası', ts: 'Sorun giderme', conv: 'Dönüştürücü' };
+        document.title = (T[which] ? T[which] + ' · ' : '') + 'Config Generator';
     },
 
     // ── ANA SAYFA: aranabilir araç ızgarası ──────────────────────────────
-    _renderHome() {
+    // o: { fam, p, k, q } rotadan gelir (#/araclar, #/v/<aile>); URL durumu yetkilidir. Düz ana sayfada bellekteki süzgeç korunur.
+    _renderHome(o) {
         this._vendor = this._type = null;
-        const chips = ['all', ...Object.keys(CG_REGISTRY)].map(id => {
+        o = o || {};
+        const fam = o.fam && typeof CG_FAMILY_BY_SLUG !== 'undefined' ? CG_FAMILY_BY_SLUG[o.fam] : null;
+        const url = 'p' in o || !!fam;   // #/araclar ve #/v/…: URL tek kaynak; düz ana sayfa: bellek
+        if (!url && this._fam) { this._filter = 'all'; this._cat = 'all'; this._query = ''; }   // aile kilidinden çıkış
+        this._fam = fam ? fam.slug : null;
+        const ids = this._regIds();
+        if (url) { this._filter = o.p && ids.includes(o.p) ? o.p : 'all'; this._cat = o.k || 'all'; this._query = o.q || ''; }
+        else if (this._filter !== 'all' && !ids.includes(this._filter)) this._filter = 'all';
+        // Kategori seçili platform(lar)da yoksa düşer (ör. #/v/fortinet/araclar?k=mpls)
+        if (this._cat !== 'all' && !(CG_CAT_BY_ID[this._cat] && this._regEntries().some(([vid, v]) => (this._filter === 'all' || this._filter === vid) && v.types.some(t => t.cat === this._cat)))) this._cat = 'all';
+
+        const chips = ['all', ...ids].map(id => {
             const v = CG_REGISTRY[id];
-            const lbl = id === 'all' ? 'Tümü' : v.label;
-            const n   = id === 'all' ? this._totalTools() : v.types.length;
+            const lbl = id === 'all' ? (fam ? 'Tüm ' + fam.name : 'Tümü') : v.label;
+            const n   = id === 'all' ? this._totalTools(ids) : v.types.length;
             const mark = id === 'all'
                 ? '<span class="cg-mark cg-mark-txt" style="--bc:#6B7280"><i class="fas fa-layer-group"></i></span>'
                 : cgBrandMark(id, 14);
-            return `<button class="cg-chip${this._filter === id ? ' active' : ''}" data-f="${id}"
+            return `<button class="cg-chip${this._filter === id ? ' active' : ''}" data-f="${id}" aria-pressed="${this._filter === id}"
                         onclick="ConfigGenerator._setFilter('${id}')" title="${cgEsc(lbl)}">
                         ${mark}<span class="cg-chip-l">${cgEsc(lbl)}</span><span class="cg-chip-n">${n}</span>
                     </button>`;
         }).join('');
 
         this._setNav('tools');
+        document.title = (fam ? fam.name + ' araçları' : 'Tüm araçlar') + ' · Config Generator';
+        const ph = fam ? fam.name + ' araçlarında ara: ' + (fam.slug === 'f5' ? 'pool, monitor, irule…' : 'vlan, nat, bgp…') : 'Araç ara: vlan, ipsec, bgp, nat, interface…';
         this._root.innerHTML = `
         <div class="cg-home">
-
+            <h1 class="cg-sr-only">${fam ? cgEsc(fam.name) + ' config araçları' : 'Tüm config araçları'}</h1>
+            ${fam ? `<div class="cg-famlock"><span>${cgBrandMark(fam.reg[0], 14)} <b>${cgEsc(fam.name)}</b> araçları gösteriliyor</span>
+                <a class="cg-famlock-x" href="#/araclar" onclick="ConfigGenerator.goHome();return false">Tüm vendorlar <i class="fas fa-times" aria-hidden="true"></i></a></div>` : ''}
             <div class="cg-home-search">
-                <i class="fas fa-search"></i>
-                <input type="text" id="cg-home-q" placeholder="Araç ara: vlan, ipsec, bgp, nat, interface…"
+                <i class="fas fa-search" aria-hidden="true"></i>
+                <input type="text" id="cg-home-q" placeholder="${cgEsc(ph)}" aria-label="${fam ? cgEsc(fam.name) + ' araçlarında ara' : 'Araç ara'}"
                        autocomplete="off" value="${cgEsc(this._query)}"
                        oninput="ConfigGenerator._setQuery(this.value)">
-                <kbd>/</kbd>
+                <kbd aria-hidden="true">/</kbd>
             </div>
             <div class="cg-meta">
-                <strong>${this._totalTools()}</strong> şablon ·
-                <strong>${Object.keys(CG_REGISTRY).length}</strong> platform ·
+                <strong>${this._totalTools(ids)}</strong> şablon ·
+                <strong>${ids.length}</strong> platform ·
                 tamamı tarayıcıda çalışır
             </div>
-            <div class="cg-chips" id="cg-chips">${chips}</div>
-            <div class="cg-chips cg-cat-chips" id="cg-cat-chips">${this._catChips()}</div>
+            <div class="cg-chips" id="cg-chips" role="group" aria-label="Platform süzgeci"${ids.length < 2 ? ' hidden' : ''}>${chips}</div>
+            <div class="cg-chips cg-cat-chips" id="cg-cat-chips" role="group" aria-label="Kategori süzgeci">${this._catChips()}</div>
+            <p class="cg-sr-only" id="cg-home-live" aria-live="polite"></p>
             <div id="cg-home-grid"></div>
         </div>`;
 
         this._renderGrid();
+        if (url) this._syncUrl();
+        this._lastList = location.hash || '#/araclar';
         const q = document.getElementById('cg-home-q');
-        if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+        // Dokunmatik ekranda otomatik odak klavyeyi açar; yalnız fare/izleme dörtgeninde
+        if (q && window.matchMedia && matchMedia('(pointer: fine)').matches) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
         this._bindSlash();
     },
 
     // Secili vendor filtresine gore kategori cipleri (arac sayisiyla); bos kategori cikmaz.
     _catChips() {
         const cnt = {};
-        for (const [vid, v] of Object.entries(CG_REGISTRY)) {
+        for (const [vid, v] of this._regEntries()) {
             if (this._filter !== 'all' && this._filter !== vid) continue;
             v.types.forEach(t => { cnt[t.cat] = (cnt[t.cat] || 0) + 1; });
         }
         const cur = this._cat || 'all';
         const total = Object.values(cnt).reduce((a, b) => a + b, 0);
-        return [`<button class="cg-chip cg-cat-chip${cur === 'all' ? ' active' : ''}" onclick="ConfigGenerator._setCat('all')">
+        return [`<button class="cg-chip cg-cat-chip${cur === 'all' ? ' active' : ''}" aria-pressed="${cur === 'all'}" onclick="ConfigGenerator._setCat('all')">
                     <i class="fas fa-th"></i><span class="cg-chip-l">Tüm kategoriler</span><span class="cg-chip-n">${total}</span></button>`]
             .concat(CG_CATEGORIES.filter(c => cnt[c.id]).map(c =>
-                `<button class="cg-chip cg-cat-chip${cur === c.id ? ' active' : ''}" onclick="ConfigGenerator._setCat('${c.id}')">
+                `<button class="cg-chip cg-cat-chip${cur === c.id ? ' active' : ''}" aria-pressed="${cur === c.id}" onclick="ConfigGenerator._setCat('${c.id}')">
                     <i class="${c.icon}"></i><span class="cg-chip-l">${cgEsc(c.label)}</span><span class="cg-chip-n">${cnt[c.id]}</span></button>`))
             .join('');
     },
@@ -1903,24 +1994,49 @@ const ConfigGenerator = {
         const host = document.getElementById('cg-cat-chips');
         if (host) host.innerHTML = this._catChips();
         this._renderGrid();
+        this._syncUrl();
     },
 
-    _totalTools() {
-        return Object.values(CG_REGISTRY).reduce((a, v) => a + v.types.length, 0);
+    // Aile kilidi varsa yalnız o ailenin kayıtları (kayıt sırasıyla)
+    _regIds() {
+        const f = this._fam && typeof CG_FAMILY_BY_SLUG !== 'undefined' ? CG_FAMILY_BY_SLUG[this._fam] : null;
+        return Object.keys(CG_REGISTRY).filter(id => !f || f.reg.includes(id));
+    },
+    _regEntries() { return this._regIds().map(id => [id, CG_REGISTRY[id]]); },
+
+    _totalTools(ids) {
+        return (ids || Object.keys(CG_REGISTRY)).reduce((a, id) => a + CG_REGISTRY[id].types.length, 0);
+    },
+
+    // Süzgeç durumunu hash'e yaz (replaceState: geri tuşu yığını şişmez, hashchange tetiklenmez)
+    _syncUrl() {
+        const h = location.hash || '', path = h.split('?')[0];
+        const onTools = path === '#/araclar' || /^#\/v(\/[a-z0-9-]+(\/araclar)?)?$/.test(path);
+        const P = new URLSearchParams();
+        if (this._filter && this._filter !== 'all') P.set('p', this._filter);
+        if (this._cat && this._cat !== 'all') P.set('k', this._cat);
+        if ((this._query || '').trim()) P.set('q', this._query.trim());
+        const qs = P.toString();
+        if (!onTools && !qs) return;
+        const base = onTools ? path : '#/araclar';
+        const next = base + (qs ? '?' + qs : '');
+        if (next !== h) history.replaceState(null, '', next);
+        this._lastList = next;
     },
 
     _setFilter(id) {
         this._filter = id;
-        document.querySelectorAll('#cg-chips .cg-chip').forEach(c => c.classList.toggle('active', c.dataset.f === id));
+        document.querySelectorAll('#cg-chips .cg-chip').forEach(c => { c.classList.toggle('active', c.dataset.f === id); c.setAttribute('aria-pressed', c.dataset.f === id); });
         // Vendor degisince o vendor'da olmayan kategori secili kalmasin
-        const has = Object.entries(CG_REGISTRY).some(([vid, v]) => (id === 'all' || id === vid) && v.types.some(t => t.cat === this._cat));
+        const has = this._regEntries().some(([vid, v]) => (id === 'all' || id === vid) && v.types.some(t => t.cat === this._cat));
         if (this._cat && this._cat !== 'all' && !has) this._cat = 'all';
         const host = document.getElementById('cg-cat-chips');
         if (host) host.innerHTML = this._catChips();
         this._renderGrid();
+        this._syncUrl();
     },
 
-    _setQuery(q) { this._query = q; this._renderGrid(); },
+    _setQuery(q) { this._query = q; this._renderGrid(); this._syncUrl(); },
 
     _bindSlash() {
         if (this._slashBound) return;
@@ -1930,7 +2046,8 @@ const ConfigGenerator = {
                 const el = document.getElementById('cg-home-q');
                 if (el) { e.preventDefault(); el.focus(); el.select(); }
             }
-            if (e.key === 'Escape' && location.hash) this.goHome();
+            // Esc yalnız araç çalışma sayfasında listeye döner; form alanında, lab terminalinde ve diğer bölümlerde gezinmez
+            if (e.key === 'Escape' && this._type && location.hash === '#/' + this._vendor + '/' + this._type && !e.target.closest?.('input,textarea,select,[contenteditable]')) this.backToList();
         });
     },
 
@@ -1940,7 +2057,7 @@ const ConfigGenerator = {
         const term = (this._query || '').trim().toLowerCase();
         let html = '', hits = 0;
 
-        for (const [vid, v] of Object.entries(CG_REGISTRY)) {
+        for (const [vid, v] of this._regEntries()) {
             if (this._filter !== 'all' && this._filter !== vid) continue;
             const cat = this._cat && this._cat !== 'all' ? this._cat : null;
             const types = v.types.filter(t => {
@@ -1976,14 +2093,19 @@ const ConfigGenerator = {
                 `</div></section>`;
         }
 
+        const live = document.getElementById('cg-home-live');
+        if (live) live.textContent = hits + ' araç listeleniyor';
         host.innerHTML = hits ? html : `
             <div class="cg-empty">
-                <i class="fas fa-search"></i>
-                <p><strong>“${cgEsc(this._query)}”</strong> için sonuç yok.</p>
-                <button class="cg-btn-ghost" onclick="ConfigGenerator._setQuery('');document.getElementById('cg-home-q').value=''">
-                    Aramayı temizle
-                </button>
+                <i class="fas fa-search" aria-hidden="true"></i>
+                <p>${term ? '<strong>“' + cgEsc(this._query.trim()) + '”</strong> için bu süzgeçte sonuç yok.' : 'Bu süzgeçte araç yok.'}</p>
+                <button class="cg-btn-ghost" onclick="ConfigGenerator._clearFilters()">Süzgeçleri temizle</button>
             </div>`;
+    },
+
+    _clearFilters() {
+        this._query = ''; this._cat = 'all'; this._setFilter('all');
+        const q = document.getElementById('cg-home-q'); if (q) q.value = '';
     },
 
     // ── ÇALIŞMA SAYFASI: tam genişlik, 2 kolon ───────────────────────────
@@ -1999,7 +2121,7 @@ const ConfigGenerator = {
                 <div class="cg-work"><div class="cg-empty">
                     <i class="fas fa-clock"></i>
                     <p>Bu generator henüz tamamlanmadı.</p>
-                    <button class="cg-btn-ghost" onclick="ConfigGenerator.goHome()">← Tüm araçlar</button>
+                    <button class="cg-btn-ghost" onclick="ConfigGenerator.backToList()">← Tüm araçlar</button>
                 </div></div>`;
             return;
         }
@@ -2012,7 +2134,7 @@ const ConfigGenerator = {
         this._root.innerHTML = `
         <div class="cg-work">
             <div class="cg-work-hd">
-                <button class="cg-back" onclick="ConfigGenerator.goHome()">
+                <button class="cg-back" onclick="ConfigGenerator.backToList()">
                     <i class="fas fa-arrow-left"></i> Tüm araçlar
                 </button>
                 <div class="cg-crumb">
@@ -2084,10 +2206,12 @@ const ConfigGenerator = {
     },
 
     // ── CLI LABORATUVARI: görevli terminal simülatörü ────────────────────
-    _renderLab(id, pathId) {
+    _renderLab(id, pathId, vf) {
         this._setNav('lab');
         this._vendor = this._type = null;
         if (typeof CgLab === 'undefined' || typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Laboratuvar yüklenemedi.</p></div>'; return; }
+        // #/lab?v=<vendor>: katalog süzgeci URL'den (geçersizse tümü); ?v yoksa bellekteki süzgeç, katalog adresi ona göre güncellenir
+        if (!id && !pathId && vf !== null && vf !== undefined) CgLab._vf = CgLab.VENDORS[vf] ? vf : 'all';
         CgLab.render(this._root, id, pathId);
         window.scrollTo(0, 0);
     },

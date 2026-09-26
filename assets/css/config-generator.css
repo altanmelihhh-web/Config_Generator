@@ -1580,3 +1580,12 @@
 #config-generator-root p kbd, #config-generator-root li kbd { color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; box-shadow: none; }
 #config-generator-root .cg-mark-txt, .cg-mark-txt { color: color-mix(in srgb, var(--bc, #6B7280) 65%, #000000); }
 [data-theme="dark"] #config-generator-root .cg-mark, [data-theme="dark"] .cg-mark { color: color-mix(in srgb, var(--bc, #6B7280) 45%, #FFFFFF); background: color-mix(in srgb, var(--bc, #6B7280) 22%, transparent); }
+
+/* S4: aile kilidi, ekran okuyucu metni, bilgi şeridi */
+.cg-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+#config-generator-root .cg-famlock { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; max-width: 620px; margin: 0 auto 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); background: var(--surface); color: var(--muted); font-size: .88rem; }
+#config-generator-root .cg-famlock span { display: inline-flex; align-items: center; gap: 8px; }
+#config-generator-root .cg-famlock b { color: var(--text); }
+#config-generator-root .cg-famlock-x { color: var(--primary); font-weight: 600; text-decoration: none; min-height: 32px; display: inline-flex; align-items: center; gap: 6px; }
+#config-generator-root .cg-famlock-x:hover { text-decoration: underline; }
+.cg-toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 2000; max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: .9rem; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
