@@ -303,5 +303,50 @@
                 { code: 'save config', desc: 'Bond durumunu set interface bond1 state ile elle değiştirmeyin; bunu bonding sürücüsü yönetir. Değişiklikleri kaydedin.' },
             ]
         },
+        {
+            title: 'Nesne Silinemiyor ya da Kural Tabanı Servis Listeleriyle Doldu: Servis Grubu ve Where Used', severity: 'info', topic: 'traffic', lab: 'cp-24',
+            symptom: 'Artık kullanılmayan bir servis ya da host nesnesi silinmek isteniyor ama "is used by other objects or rules" hatası geliyor; ya da aynı servis üçlüsü birçok kuralda tek tek yazılmış. Sözdizimi: Management API Reference (add-service-group, set-service-group members.add/members.remove, where-used); SmartConsole Help R81.20 s. 49 (Where Used).',
+            steps: [
+                { code: 'mgmt_cli where-used name OLD-APP -r true', desc: 'Expert modda, yönetim sunucusunda. used-directly altında objects (gruplar), access-control-rules ve nat-rules. Devre dışı kural da kullanım sayılır. indirect true grup üzerinden dolaylı kullanımları da gösterir.',
+                  fix: [{ cause: 'Nesne bir grubun üyesi', cmd: 'mgmt_cli set service-group name APP-OLD members.remove OLD-APP -r true' }, { cause: 'Nesne kullanılmayan (devre dışı) bir kuralda', cmd: 'mgmt_cli delete access-rule layer Network name Legacy-APP -r true' }] },
+                { code: 'mgmt_cli delete service-tcp name OLD-APP -r true', desc: 'Kullanım kaldırıldıktan sonra nesne silinir. -r true tek başına çalışınca kendi oturumunda otomatik yayınlanır.' },
+                { code: 'mgmt_cli add service-group name WEB-SVCS members.1 https members.2 http members.3 WEB-8443 -r true\nmgmt_cli set access-rule layer Network name LAN-to-WEB service WEB-SVCS -r true', desc: 'Tekrarlanan servis listesini grupla değiştirin; yeni port gerektiğinde yalnız grup güncellenir (members.add).' },
+                { code: 'mgmt_cli install-policy policy-package standard targets.1 gw-a -r true', desc: 'Silme ve grup değişikliği de politikanın parçasıdır; gateway\'e kurulumla gider.' },
+            ]
+        },
+        {
+            title: 'Kural Var Ama Hiç Eşleşmiyor: Gölgelenen Kural ve Bölümler (Section)', severity: 'warn', topic: 'traffic', lab: 'cp-25',
+            symptom: 'Bir izin ya da engelleme kuralı kurulu, ama trafik ona hiç düşmüyor: üstteki daha geniş bir kural (ör. LAN → DMZ-NET) önce eşleşiyor. Bölüm başlıkları eşleşmeyi değiştirmez. Sözdizimi: Management API Reference (add-access-section, add-access-rule "position.bottom <section>"), check_point.mgmt cp_mgmt_access_section.',
+            steps: [
+                { code: 'fw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=443', desc: 'Expert modda. Kurulu politikada eşleşen kural numarası. Beklenen kural değilse gölgelenme vardır.' },
+                { code: 'mgmt_cli show access-rulebase name Network -r true', desc: 'Kural numaraları bölümlerden bağımsız, baştan sona süreklidir. Eşleşen kuralın hedefi daha dar kuralın hedefini kapsıyor mu bakın.',
+                  fix: [{ cause: 'Geniş kural dar kuralın üstünde: genel kuralı silmeyin, istisnayı üste taşıyın', cmd: 'mgmt_cli add access-section layer Network name Exceptions position.above General -r true\nmgmt_cli set access-rule layer Network name LAN-to-WEB new-position.top Exceptions -r true' }] },
+                { code: 'mgmt_cli install-policy policy-package standard targets.1 gw-a -r true\nfw up_execute src=10.64.10.50 dst=172.24.50.10 ipp=6 dport=443', desc: 'Kurulumdan sonra aynı sorgu taşınan kuralı göstermeli.' },
+            ]
+        },
+        {
+            title: 'İş Ortağı Bağlantıyı Kabul Etmiyor ya da Kural Saat Dışında Çalışıyor: Manuel Hide NAT ve Zaman Nesnesi', severity: 'info', topic: 'traffic', lab: 'cp-26',
+            symptom: 'Karşı taraf yalnız belirli bir genel adresten (ör. 203.0.113.10) gelen bağlantıyı kabul ediyor, ama LAN gateway adresiyle çıkıyor; ya da erişim yalnız mesai saatinde açık olmalı. Kaynak: check_point.mgmt cp_mgmt_nat_rule (method static|hide|nat64|nat46|cgnat) ve cp_mgmt_time; R81.20 Quantum Security Gateway Admin Guide s. 186 (manuel NAT ve local.arp); SmartConsole Help R81.20 s. 594 (Time).',
+            steps: [
+                { code: 'fw monitor -e "accept host(198.51.100.25);"', desc: 'Expert modda. eth1:O noktasındaki kaynak adres, dışarı çıkan gerçek adrestir.',
+                  fix: [{ cause: 'Kaynak istenen adres değil: hedefe özel manuel Hide NAT kuralı yazın ve politikayı kurun', cmd: 'mgmt_cli add nat-rule package standard position top name Partner-Hide original-source LAN-NET original-destination PARTNER-SRV translated-source NAT-PARTNER method hide -r true' }] },
+                { code: 'fw ctl arp -n', desc: 'Manuel NAT adresi gateway arayüzünde değilse dönüş paketleri için proxy ARP ($FWDIR/conf/local.arp) kaydı gerekir; manuel NAT\'ta otomatik ARP çalışmaz (GW Admin Guide s. 186, sk30197).' },
+                { code: 'date\nmgmt_cli show time name Mesai -r true', desc: 'Zaman nesneli kural gateway saatine (saat dilimine) göre uygulanır ve yalnız aralıkta başlayan bağlantılara eşleşir; aralık dışına taşan bağlantı sürer.',
+                  fix: [{ cause: 'Kural her saatte çalışıyor: time alanı boş', cmd: 'mgmt_cli set access-rule layer Network name Partner-Mesai time Mesai -r true' }] },
+            ]
+        },
+        {
+            title: 'Yayınlanan Sunucu Dışarıdan Açılmıyor: Static NAT (Hedef Çevirisi)', severity: 'err', topic: 'traffic', lab: 'cp-27',
+            symptom: 'DMZ\'deki sunucu (ör. 172.24.50.10) genel bir adresle (ör. 203.0.113.20) yayınlandı ama internetten bağlanılamıyor. Kaynak: R81.20 Quantum Security Gateway Admin Guide s. 186 (Original Destination genel adres, Translated Destination özel adres; manuel NAT\'ta local.arp); CLI Reference s. 1072 (fw ctl arp).',
+            steps: [
+                { code: 'fw monitor -e "accept host(203.0.113.20) or host(172.24.50.10);"', desc: 'Expert modda. Filtre iki adresi de içermeli: çeviriden sonra paket özel adresle görünür. i genel adres, I özel adres ise hedef çevrilmiştir; yalnız i varsa paket girişte düşüyor ya da çevrilmiyor; i bile yoksa paket gateway\'e gelmiyor.',
+                  fix: [{ cause: 'i bile yok: genel adres için ARP yanıtı yok (manuel NAT\'ta local.arp gerekir)', cmd: 'fw ctl arp -n' }] },
+                { code: 'mgmt_cli show nat-rulebase package standard -r true\nfw stat', desc: 'NAT kuralı var mı, Translated Destination doğru sunucu mu, politika kurulmuş mu?',
+                  fix: [{ cause: 'NAT kuralı yok', cmd: 'mgmt_cli add nat-rule package standard position top name Web-Static original-destination WEB-PUB translated-destination WEB-SRV method static -r true' },
+                        { cause: 'Translated Destination yanlış sunucu', cmd: 'mgmt_cli set nat-rule package standard name Web-Static translated-destination WEB-SRV -r true' },
+                        { cause: 'Kural yayınlanmış ama kurulmamış', cmd: 'mgmt_cli install-policy policy-package standard targets.1 gw-a -r true' }] },
+                { code: 'mgmt_cli install-policy policy-package standard targets.1 gw-a -r true', desc: 'NAT değişikliği de kurulumla gateway\'e gider; ardından aynı fw monitor ile i/I noktalarını doğrulayın.' },
+            ]
+        }
     ];
 })();
