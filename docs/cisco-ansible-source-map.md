@@ -60,7 +60,7 @@ Bu çalışma sonunda yerel envanter 114 araca ulaştı:
 |---|---:|---:|---|
 | IOS | 38 | 45 | Interface, IPv4 Prefix-List, OSPF Interface, OSPFv3, BFD Template, BGP Address-Family, VRF Address-Family |
 | FTD | 14 | 14 | Henüz yeni bağımsız araç yok; mevcut alan denetimi bekliyor |
-| NX-OS | 28 | 37 | IPv4/IPv6 Prefix-List, BFD Global/Interface, OSPFv3, Route-Map, Model-Driven Telemetry, NX-API, BGP AF, BGP Neighbor AF, BGP Peer Template (son üçü kayıt bekliyor) |
+| NX-OS | 28 | 44 | IPv4/IPv6 Prefix-List, BFD Global/Interface, OSPFv3, Route-Map, Model-Driven Telemetry, NX-API, BGP AF, BGP Neighbor AF, BGP Peer Template, IGMP, IGMP Snooping, PIM, UDLD, VRRP, VRRPv3, VTP (parti 3'ün yedisi kayıt bekliyor) |
 | ASA | 21 | 21 | Henüz yeni bağımsız araç yok; mevcut alan denetimi bekliyor |
 
 Tamamlanan altyapı:
@@ -127,6 +127,24 @@ AF'ye uymayan prefix; `advertise l2vpn evpn` yalnız VRF'te; inherit peer-policy
 sıra numarasıyla. Kayıt satırları yönetici onayında; o zamana kadar
 `cisco-family-schema-audit` bu üç aracı "bekleyen kayıt" olarak listeler.
 
+### 26 Eylül 2026 — Cisco parti 3 (NX-OS IGMP/PIM/UDLD/VRRP/VTP)
+
+Mevcut araçlar değişmedi. Yedi yeni araç `ConfigGenerators_NX-OS.js` sonunda. Kaynak:
+`cisco.nxos` @5645581 eski tip modüller (`argument_spec` modül içinde) ve Nexus 9000
+NX-OS 10.4(x) Multicast Routing / Interfaces / Unicast Routing / Layer 2 CG.
+
+| Araç (NX-OS) | Ansible modülü | Sınırlar ve kurallar | Platform |
+|---|---|---|---|
+| IGMP | `nxos_igmp`, `nxos_igmp_interface` | startup-query-interval 1-18000, count 1-10, robustness 1-7, querier-timeout 1-65535, MRT 1-25 (< query-interval), query-interval 1-18000, LMQRT 1-25, LMQC 1-5, group-timeout 3-65535; static-oif grup/route-map dışlar; (S,G) yalnız IGMPv3 notu | Nexus 9000, NX-OS 10.x |
+| IGMP Snooping | `nxos_igmp_snooping` + CG VLAN düzeyi | group-timeout 1-10080 dk / never, snooping kapalıyken reddedilir; VLAN last-member-query-interval 1-25 | 〃 |
+| PIM | `nxos_pim`, `nxos_pim_rp_address`, `nxos_pim_interface` | RP unicast; group-list/route-map/prefix-list dışlar; SSM/group-list multicast prefix; dr-priority 1-4294967295, hello 1000-18724286 ms | 〃 |
+| UDLD | `nxos_udld`, `nxos_udld_interface` | message-time yalnız pozitif tam sayı (belgede sınır yok) | 〃 |
+| VRRP | `nxos_vrrp` | grup 1-255, priority 1-254, interval 1-255; mgmt reddi; VIP alt ağ ve adres sahibi kontrolü; parola yer tutucu | 〃 |
+| VRRPv3 | yok (yalnız Cisco belgesi) | grup 1-255, priority 1-254, timers 100-40950 ms, preempt delay 0-3600; vrrp2 yalnız IPv4 | 〃 |
+| VTP | `nxos_vtp_domain`, `_version`, `_password` | sürüm 3 seçeneği korunur ama N9K belgesinde yok → reddedilir; parola yer tutucu; transparent notu | 〃 |
+
+Kapsam dışı: PIM hello-authentication (gizli veri), VRRP track (belgede sınır yok).
+
 Kalan Config Generator işleri, öncelik sırasıyla:
 
 1. ~~IOS EVPN global/EVI/Ethernet ve VXLAN VTEP.~~ (parti 1; kayıt bekliyor)
@@ -134,7 +152,7 @@ Kalan Config Generator işleri, öncelik sırasıyla:
    tarama; genel `iface` kullanılan yerleri IOS'a özgü doğrulayıcıya taşıma.
 3. ~~NX-OS BGP address-family/neighbor AF/template.~~ (parti 2; kayıt bekliyor) —
    BGP global (`nxos_bgp_global`) alt seçenekleri kaldı.
-4. NX-OS IGMP/PIM, UDLD, VRRP, VTP ve FC/VSAN/zoning başlıkları.
+4. ~~NX-OS IGMP/PIM, UDLD, VRRP, VTP~~ (parti 3; kayıt bekliyor) — FC/VSAN/zoning kaldı.
 5. NX-OS mevcut 28 başlıktaki doğrulayıcısız zorunlu alanları argspec ve Cisco
    ürün belgeleriyle kapatma.
 6. ASA `asa_acls`, `asa_objects` ve `asa_ogs` kapsamını mevcut araçlara aktarma;

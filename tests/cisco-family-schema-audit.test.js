@@ -34,8 +34,9 @@ const families = [
       // (ConfigGeneratorManagement.js başka iş kolunda). Kayda girince bu liste boşaltılır.
       pendingRegistry: [] },
     { id: 'cisco-ftd', file: 'assets/js/ConfigGenerators_FTD.js', symbol: 'CiscoFTD', expected: 14 },
-    { id: 'cisco-nxos', file: 'assets/js/ConfigGenerators_NX-OS.js', symbol: 'CiscoNXOS', expected: 37,
+    { id: 'cisco-nxos', file: 'assets/js/ConfigGenerators_NX-OS.js', symbol: 'CiscoNXOS', expected: 44,
       // Cisco parti 2 araçları: registry satırları yönetici onayında (scratchpad/cisco-p2-registry.txt).
+      // Cisco parti 3 araçları: scratchpad/cisco-p3-registry.txt (kayda girince listeden çıkar).
       pendingRegistry: [] },
     { id: 'cisco-asa', file: 'assets/js/ConfigGenerators_ASA.js', symbol: 'CiscoASA', expected: 21 },
 ];
@@ -88,7 +89,7 @@ for (const family of families) {
     familyRuntime[family.id] = { generators, captured };
 }
 
-assert.strictEqual(families.reduce((sum, family) => sum + family.expected, 0), 121);
+assert.strictEqual(families.reduce((sum, family) => sum + family.expected, 0), 128);
 
 assert.strictEqual(context.__validators.ipv6.fn('2001:db8::1'), true);
 assert.strictEqual(context.__validators.ipv6.fn('2001:db8:::1'), false);
@@ -198,4 +199,4 @@ const nxapiDisabled = nxapiGen.generateFn({ _cgtype: 'disable' });
 assert.ok(nxapiDisabled.includes('no feature nxapi'));
 
 console.log(JSON.stringify(audit, null, 2));
-console.log('OK: Cisco aile envanteri 49 IOS + 14 FTD + 37 NX-OS + 21 ASA = 121.');
+console.log('OK: Cisco aile envanteri 49 IOS + 14 FTD + 44 NX-OS + 21 ASA = 128.');

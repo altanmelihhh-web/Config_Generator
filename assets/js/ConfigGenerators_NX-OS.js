@@ -2912,3 +2912,579 @@ function cgNxBgpTemplateGen(data) {
     c += '! Doğrulama:\n! show running-config bgp\n! show bgp peer-template ' + cgEsc(v('bt_name')) + '\n';
     return c;
 }
+
+// ── NX-OS: IGMP / IGMP Snooping / PIM / UDLD / VRRP / VRRPv3 / VTP (Cisco parti 3) ──
+// Mevcut araçlara dokunmadan ayrı araçlar. Kaynaklar: ansible-collections/cisco.nxos @5645581
+//   eski tip modüller (argument_spec plugins/modules içinde): nxos_igmp, nxos_igmp_interface,
+//   nxos_igmp_snooping, nxos_pim, nxos_pim_interface, nxos_pim_rp_address, nxos_udld,
+//   nxos_udld_interface, nxos_vrrp, nxos_vtp_domain, nxos_vtp_password, nxos_vtp_version.
+// Cisco Nexus 9000 NX-OS 10.4(x): Multicast Routing CG (IGMP, IGMP Snooping, PIM),
+//   Interfaces CG + Command Reference (UDLD), Unicast Routing CG (VRRP, VRRPv3),
+//   Layer 2 Switching CG (VTP). vrrpv3 Ansible'da yok; yalnız Cisco belgesinden.
+// Belgede sınırı olmayan değerler (udld message-time, track nesnesi) yalnız tür olarak doğrulanır.
+const CG_NX_P3_PLATFORM = 'Hedef: Nexus 9000, NX-OS 10.x; diğer Nexus ailelerinde seçenek ve sınırlar farklı olabilir.';
+const CG_NX_P3_BADGE = { text: 'NX-OS N9K', cls: 'recommended' };
+function cgNxOk(type, v) { const x = CG_VALIDATORS[type]; return !!x && (x.re ? x.re.test(v) : x.fn(v)); }
+// Sayısal alan: boşsa sorun yok; doluysa [min,max] içinde olmalı. Uyarı girilen değeri içerir.
+function cgNxRng(data, key, min, max, label, w) {
+    const v = cgNxStr(data[key]);
+    if (v && !cgNxInt(v, min, max)) w.push(label + ' "' + v + '" geçersiz; ' + min + '-' + max + ' aralığında tam sayı olmalı.');
+    return v;
+}
+function cgNxMcast(ip) { return CG_VALIDATORS.ip.re.test(ip) && +ip.split('.')[0] >= 224 && +ip.split('.')[0] <= 239; }
+function cgNxMcastPfx(p) { const s = String(p).split('/'); return CG_VALIDATORS.cidr.re.test(p) && cgNxMcast(s[0]) && +s[1] >= 4; }
+function cgNxP3Fail(title, w) { return { config: cgNxHdr(title) + '! Geçersiz girdi; çıktı üretilmedi.\n', warnings: w }; }
+
+// ── IGMP (nxos_igmp + nxos_igmp_interface) ──
+CiscoNXOS.igmp = {
+    label: 'IGMP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-users',
+                title: 'IGMP (NX-OS)',
+                desc: 'IGMP global (flush-routes, enforce-router-alert) ve arayüz parametreleri: sürüm, sorgu zamanlayıcıları, static-oif. ' + CG_NX_P3_PLATFORM
+            },
+            configTypes: [
+                { id: 'global', label: 'Global', icon: 'fas fa-globe', desc: 'ip igmp flush-routes / enforce-router-alert', badge: CG_NX_P3_BADGE },
+                { id: 'interface', label: 'Arayüz', icon: 'fas fa-ethernet', desc: 'interface altında ip igmp …' }
+            ],
+            sections: [
+                {
+                    title: 'Global IGMP', icon: 'fas fa-globe', showFor: ['global'],
+                    fields: [
+                        { name: 'ig_flush', label: 'ip igmp flush-routes', type: 'checkbox', hint: 'IGMP süreci yeniden başlarken rotaları siler (varsayılan: silmez)' },
+                        { name: 'ig_rtr_alert', label: 'enforce-router-alert', type: 'select', options: [
+                            { value: '', label: '(yazma — varsayılan: etkin)', selected: true },
+                            { value: 'enable', label: 'ip igmp enforce-router-alert' },
+                            { value: 'disable', label: 'no ip igmp enforce-router-alert' }] }
+                    ]
+                },
+                {
+                    title: 'Arayüz ve Sürüm', icon: 'fas fa-ethernet', showFor: ['interface'],
+                    fields: [
+                        { name: 'igi_if', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Ethernet1/1' },
+                        { name: 'igi_ver', label: 'ip igmp version', type: 'select', options: [
+                            { value: '', label: '(yazma — varsayılan 2)', selected: true },
+                            { value: '2', label: '2' }, { value: '3', label: '3' },
+                            { value: 'default', label: 'default (no ip igmp version → 2)' }] }
+                    ]
+                },
+                {
+                    title: 'Sorgu Zamanlayıcıları', icon: 'fas fa-clock', showFor: ['interface'],
+                    fields: [
+                        { name: 'igi_sqi', label: 'startup-query-interval (1-18000 sn)', type: 'text', min: 1, max: 18000, placeholder: '31' },
+                        { name: 'igi_sqc', label: 'startup-query-count (1-10)', type: 'text', min: 1, max: 10, placeholder: '2' },
+                        { name: 'igi_rob', label: 'robustness-variable (1-7)', type: 'text', min: 1, max: 7, placeholder: '2' },
+                        { name: 'igi_qto', label: 'querier-timeout (1-65535 sn)', type: 'text', min: 1, max: 65535, placeholder: '255' },
+                        { name: 'igi_mrt', label: 'query-max-response-time (1-25 sn)', type: 'text', min: 1, max: 25, placeholder: '10', hint: 'query-interval değerinden küçük olmalı' },
+                        { name: 'igi_qi', label: 'query-interval (1-18000 sn)', type: 'text', min: 1, max: 18000, placeholder: '125' },
+                        { name: 'igi_lmqrt', label: 'last-member-query-response-time (1-25 sn)', type: 'text', min: 1, max: 25, placeholder: '1' },
+                        { name: 'igi_lmqc', label: 'last-member-query-count (1-5)', type: 'text', min: 1, max: 5, placeholder: '2' },
+                        { name: 'igi_gto', label: 'group-timeout (3-65535 sn)', type: 'text', min: 3, max: 65535, placeholder: '260' }
+                    ]
+                },
+                {
+                    title: 'Rapor ve Static OIF', icon: 'fas fa-share-alt', showFor: ['interface'],
+                    fields: [
+                        { name: 'igi_llg', label: 'report-link-local-groups', type: 'checkbox', hint: '224.0.0.0/24 grupları için de rapor gönderir' },
+                        { name: 'igi_il', label: 'immediate-leave', type: 'checkbox', hint: 'Yalnız arayüz arkasında grup başına tek alıcı varken (IGMPv2 leave gecikmesi)' },
+                        { name: 'igi_oif_grp', label: 'static-oif grup', type: 'text', validate: 'ip', placeholder: '233.252.0.10', hint: 'Multicast grup (224.0.0.0-239.255.255.255); route-map ile birlikte kullanılmaz' },
+                        { name: 'igi_oif_src', label: 'static-oif kaynak (opsiyonel)', type: 'text', validate: 'ip', placeholder: '192.0.2.10', hint: '(S,G) kaynak ağacı yalnız IGMPv3 ile kurulur' },
+                        { name: 'igi_oif_rm', label: 'static-oif route-map', type: 'text', validate: 'objname', placeholder: 'RM-OIF', hint: 'Grup/kaynak ile birbirini dışlar (Ansible mutually_exclusive)' }
+                    ]
+                }
+            ],
+            submit: 'IGMP Konfigürasyonu Oluştur'
+        }, (data) => cgNxIgmpGen(data));
+    }
+};
+function cgNxIgmpGen(data) {
+    const w = [];
+    if ((data._cgtype || 'global') === 'global') {
+        let c = cgNxHdr('IGMP Global');
+        const ra = cgNxStr(data.ig_rtr_alert);
+        if (!data.ig_flush && !ra) return { config: c + '! Seçim yapılmadı; yazılacak satır yok.\n', warnings: ['En az bir global IGMP seçeneği seçin.'] };
+        if (data.ig_flush) c += 'ip igmp flush-routes\n';
+        if (ra === 'enable') c += 'ip igmp enforce-router-alert\n';
+        if (ra === 'disable') c += 'no ip igmp enforce-router-alert\n';
+        return c + '\n! Doğrulama:\n! show running-config igmp\n';
+    }
+    const ifn = cgNxStr(data.igi_if);
+    if (!cgNxOk('iface', ifn)) w.push('Arayüz adı geçersiz veya boş.');
+    const ver = cgNxStr(data.igi_ver);
+    const num = [['igi_sqi', 1, 18000, 'startup-query-interval', 'startup-query-interval'], ['igi_sqc', 1, 10, 'startup-query-count', 'startup-query-count'],
+        ['igi_rob', 1, 7, 'robustness-variable', 'robustness-variable'], ['igi_qto', 1, 65535, 'querier-timeout', 'querier-timeout'],
+        ['igi_mrt', 1, 25, 'query-max-response-time', 'query-max-response-time'], ['igi_qi', 1, 18000, 'query-interval', 'query-interval'],
+        ['igi_lmqrt', 1, 25, 'last-member-query-response-time', 'last-member-query-response-time'], ['igi_lmqc', 1, 5, 'last-member-query-count', 'last-member-query-count'],
+        ['igi_gto', 3, 65535, 'group-timeout', 'group-timeout']].map(([k, a, b, l, cmd]) => ({ v: cgNxRng(data, k, a, b, l, w), cmd }));
+    const mrt = cgNxStr(data.igi_mrt), qi = cgNxStr(data.igi_qi);
+    if (qi && cgNxInt(qi, 1, 18000) && +(mrt || 10) >= +qi) w.push('query-max-response-time (' + (mrt || '10, varsayılan') + ') query-interval (' + qi + ') değerinden küçük olmalı.');
+    const grp = cgNxStr(data.igi_oif_grp), src = cgNxStr(data.igi_oif_src), rm = cgNxStr(data.igi_oif_rm);
+    if (grp && !cgNxMcast(grp)) w.push('static-oif grubu "' + grp + '" multicast (224-239) adresi değil.');
+    if (src && !cgNxOk('ip', src)) w.push('static-oif kaynağı "' + src + '" geçerli IPv4 değil.');
+    if (src && !grp) w.push('static-oif kaynağı grup olmadan yazılamaz.');
+    if (rm && (grp || src)) w.push('static-oif route-map ile grup/kaynak birlikte kullanılamaz (birbirini dışlar).');
+    if (rm && !cgNxOk('objname', rm)) w.push('static-oif route-map adı geçersiz.');
+    if (w.length) return cgNxP3Fail('IGMP Arayüz', w);
+    let c = cgNxHdr('IGMP Arayüz') + 'interface ' + cgEsc(ifn) + '\n';
+    if (ver === '2' || ver === '3') c += '  ip igmp version ' + ver + '\n';
+    if (ver === 'default') c += '  no ip igmp version\n';
+    num.forEach(n => { if (n.v) c += '  ip igmp ' + n.cmd + ' ' + cgEsc(n.v) + '\n'; });
+    if (data.igi_llg) c += '  ip igmp report-link-local-groups\n';
+    if (data.igi_il) c += '  ip igmp immediate-leave\n';
+    if (grp) c += '  ip igmp static-oif ' + cgEsc(grp) + (src ? ' source ' + cgEsc(src) : '') + '\n';
+    if (rm) c += '  ip igmp static-oif route-map ' + cgEsc(rm) + '\n';
+    if (src && ver !== '3') c += '! Not: (S,G) static-oif kaynak ağacı yalnız IGMPv3 etkinken kurulur (ip igmp version 3).\n';
+    return c + '\n! Doğrulama:\n! show ip igmp interface ' + cgEsc(ifn) + '\n';
+}
+
+// ── IGMP Snooping (nxos_igmp_snooping + Cisco belgesi VLAN düzeyi) ──
+CiscoNXOS.igmpSnooping = {
+    label: 'IGMP Snooping',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-filter',
+                title: 'IGMP Snooping (NX-OS)',
+                desc: 'Global IGMP snooping ve bastırma seçenekleri; VLAN düzeyinde querier, fast-leave, mrouter. Varsayılan etkindir; kapatmak aşırı flooding yaratır. vPC eşlerinde ayar aynı olmalı. ' + CG_NX_P3_PLATFORM
+            },
+            sections: [
+                {
+                    title: 'Global', icon: 'fas fa-globe',
+                    fields: [
+                        { name: 'sn_state', label: 'ip igmp snooping', type: 'select', options: [
+                            { value: 'enable', label: 'etkin (ip igmp snooping)', selected: true },
+                            { value: 'disable', label: 'kapalı (no ip igmp snooping — tüm VLAN\'lar)' }] },
+                        { name: 'sn_gto', label: 'group-timeout (1-10080 dk veya never)', type: 'text', placeholder: '50', hint: 'Snooping kapalıyken yazılamaz' },
+                        { name: 'sn_llg', label: 'link-local-groups-suppression', type: 'select', options: [
+                            { value: '', label: '(yazma)', selected: true }, { value: 'enable', label: 'etkin' }, { value: 'disable', label: 'no …' }] },
+                        { name: 'sn_rs', label: 'report-suppression', type: 'select', options: [
+                            { value: '', label: '(yazma)', selected: true }, { value: 'enable', label: 'etkin' }, { value: 'disable', label: 'no …' }] },
+                        { name: 'sn_v3rs', label: 'v3-report-suppression', type: 'select', options: [
+                            { value: '', label: '(yazma)', selected: true }, { value: 'enable', label: 'etkin' }, { value: 'disable', label: 'no …' }] }
+                    ]
+                },
+                {
+                    title: 'VLAN Düzeyi (opsiyonel)', icon: 'fas fa-layer-group',
+                    fields: [
+                        { name: 'sn_vlan', label: 'VLAN', type: 'text', validate: 'vlan', placeholder: '10', hint: 'vlan configuration <id> altında yazılır' },
+                        { name: 'sn_querier', label: 'querier adresi', type: 'text', validate: 'ip', placeholder: '192.0.2.1' },
+                        { name: 'sn_fl', label: 'fast-leave', type: 'checkbox' },
+                        { name: 'sn_lmqi', label: 'last-member-query-interval (1-25 sn)', type: 'text', min: 1, max: 25, placeholder: '1' },
+                        { name: 'sn_mrouter', label: 'mrouter arayüzü', type: 'text', validate: 'iface', placeholder: 'Ethernet1/2' }
+                    ]
+                }
+            ],
+            submit: 'IGMP Snooping Oluştur'
+        }, (data) => cgNxIgmpSnoopGen(data));
+    }
+};
+function cgNxIgmpSnoopGen(data) {
+    const w = [], on = cgNxStr(data.sn_state) !== 'disable';
+    const gto = cgNxStr(data.sn_gto);
+    if (gto && gto !== 'never' && !cgNxInt(gto, 1, 10080)) w.push('group-timeout "' + gto + '" geçersiz; 1-10080 dakika veya never olmalı.');
+    if (gto && !on) w.push('group-timeout, IGMP snooping kapalıyken etkinleştirilemez veya değiştirilemez.');
+    const vlan = cgNxStr(data.sn_vlan), q = cgNxStr(data.sn_querier), mr = cgNxStr(data.sn_mrouter);
+    const lmqi = cgNxRng(data, 'sn_lmqi', 1, 25, 'last-member-query-interval', w);
+    const vlanOpts = q || mr || lmqi || data.sn_fl;
+    if (vlan && !cgNxOk('vlan', vlan)) w.push('VLAN "' + vlan + '" 1-4094 aralığında olmalı.');
+    if (vlanOpts && !vlan) w.push('VLAN düzeyi seçenekler için VLAN numarası zorunlu.');
+    if (vlanOpts && !on) w.push('Snooping global olarak kapalıyken VLAN düzeyi snooping ayarı etkisizdir.');
+    if (q && !cgNxOk('ip', q)) w.push('querier adresi "' + q + '" geçerli IPv4 değil.');
+    if (mr && !cgNxOk('iface', mr)) w.push('mrouter arayüzü "' + mr + '" geçersiz.');
+    if (w.length) return cgNxP3Fail('IGMP Snooping', w);
+    let c = cgNxHdr('IGMP Snooping');
+    if (!on) return c + 'no ip igmp snooping\n\n! Uyarı: tüm VLAN\'larda snooping kapanır; multicast trafiği flood edilir.\n! Doğrulama:\n! show ip igmp snooping\n';
+    c += 'ip igmp snooping\n';
+    if (gto) c += 'ip igmp snooping group-timeout ' + cgEsc(gto) + '\n';
+    [['sn_llg', 'link-local-groups-suppression'], ['sn_rs', 'report-suppression'], ['sn_v3rs', 'v3-report-suppression']].forEach(([k, cmd]) => {
+        const v = cgNxStr(data[k]);
+        if (v === 'enable') c += 'ip igmp snooping ' + cmd + '\n';
+        if (v === 'disable') c += 'no ip igmp snooping ' + cmd + '\n';
+    });
+    if (vlan && vlanOpts) {
+        c += '\nvlan configuration ' + cgEsc(vlan) + '\n';
+        if (q) c += '  ip igmp snooping querier ' + cgEsc(q) + '\n';
+        if (data.sn_fl) c += '  ip igmp snooping fast-leave\n';
+        if (lmqi) c += '  ip igmp snooping last-member-query-interval ' + cgEsc(lmqi) + '\n';
+        if (mr) c += '  ip igmp snooping mrouter interface ' + cgEsc(mr) + '\n';
+    }
+    return c + '\n! Doğrulama:\n! show ip igmp snooping' + (vlan && vlanOpts ? ' vlan ' + cgEsc(vlan) : '') + '\n! show ip igmp snooping groups\n';
+}
+
+// ── PIM (nxos_pim + nxos_pim_rp_address + nxos_pim_interface) ──
+const CG_NX_PIM_PTYPE = [{ value: 'prefix', label: 'prefix-list', selected: true }, { value: 'routemap', label: 'route-map' }];
+CiscoNXOS.pim = {
+    label: 'PIM',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-sitemap',
+                title: 'PIM Sparse-Mode (NX-OS)',
+                desc: 'Global: statik RP, SSM aralığı, PIM BFD. Arayüz: sparse-mode, DR önceliği, hello aralığı, border, neighbor/join-prune politikaları. NX-OS dense mode desteklemez; bidir yalnız bazı platformlarda. ' + CG_NX_P3_PLATFORM
+            },
+            configTypes: [
+                { id: 'global', label: 'Global (RP / SSM)', icon: 'fas fa-globe', desc: 'ip pim rp-address, ip pim ssm range', badge: CG_NX_P3_BADGE },
+                { id: 'interface', label: 'Arayüz', icon: 'fas fa-ethernet', desc: 'ip pim sparse-mode …' }
+            ],
+            sections: [
+                {
+                    title: 'Statik RP', icon: 'fas fa-bullseye', showFor: ['global'],
+                    fields: [
+                        { name: 'pm_rp', label: 'RP adresi (unicast)', type: 'text', validate: 'ip', placeholder: '192.0.2.100', hint: 'Loopback adresi önerilir' },
+                        { name: 'pm_rp_grp', label: 'group-list', type: 'text', validate: 'cidr', placeholder: '233.252.0.0/24', hint: 'group-list / route-map / prefix-list birbirini dışlar' },
+                        { name: 'pm_rp_rm', label: 'route-map', type: 'text', validate: 'objname', placeholder: 'RM-RP' },
+                        { name: 'pm_rp_pl', label: 'prefix-list', type: 'text', validate: 'objname', placeholder: 'PL-RP' },
+                        { name: 'pm_rp_bidir', label: 'bidir', type: 'checkbox', hint: 'Yalnız bazı platformlarda; TCAM bölgesi gerekebilir' }
+                    ]
+                },
+                {
+                    title: 'SSM ve BFD', icon: 'fas fa-cog', showFor: ['global'],
+                    fields: [
+                        { name: 'pm_ssm', label: 'ssm range (virgülle veya none)', type: 'text', placeholder: '232.0.0.0/8', hint: 'Varsayılan 232.0.0.0/8; yalnız multicast prefix' },
+                        { name: 'pm_bfd', label: 'ip pim bfd', type: 'select', options: [
+                            { value: '', label: '(yazma)', selected: true }, { value: 'enable', label: 'enable' }, { value: 'disable', label: 'disable' }] }
+                    ]
+                },
+                {
+                    title: 'Arayüz', icon: 'fas fa-ethernet', showFor: ['interface'],
+                    fields: [
+                        { name: 'pi_if', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Ethernet1/1' },
+                        { name: 'pi_sparse', label: 'ip pim sparse-mode', type: 'checkbox', checked: true },
+                        { name: 'pi_dr', label: 'dr-priority (1-4294967295)', type: 'text', min: 1, max: 4294967295, placeholder: '10', hint: 'Varsayılan 1' },
+                        { name: 'pi_hello', label: 'hello-interval (1000-18724286 ms)', type: 'text', min: 1000, max: 18724286, placeholder: '30000', hint: 'Varsayılan 30000 ms; değiştirilmemesi önerilir' },
+                        { name: 'pi_border', label: 'ip pim border', type: 'checkbox' },
+                        { name: 'pi_bfd', label: 'bfd-instance', type: 'select', options: [
+                            { value: '', label: '(yazma)', selected: true }, { value: 'enable', label: 'enable' },
+                            { value: 'disable', label: 'disable' }, { value: 'default', label: 'default (no ip pim bfd-instance)' }] }
+                    ]
+                },
+                {
+                    title: 'Politikalar', icon: 'fas fa-filter', showFor: ['interface'],
+                    fields: [
+                        { name: 'pi_nbr', label: 'neighbor-policy', type: 'text', validate: 'objname', placeholder: 'PL-PIM-NBR' },
+                        { name: 'pi_nbr_type', label: 'neighbor-policy türü', type: 'select', options: CG_NX_PIM_PTYPE },
+                        { name: 'pi_jp_in', label: 'jp-policy in', type: 'text', validate: 'objname', placeholder: 'PL-JP-IN' },
+                        { name: 'pi_jp_in_type', label: 'jp-policy in türü', type: 'select', options: CG_NX_PIM_PTYPE },
+                        { name: 'pi_jp_out', label: 'jp-policy out', type: 'text', validate: 'objname', placeholder: 'PL-JP-OUT' },
+                        { name: 'pi_jp_out_type', label: 'jp-policy out türü', type: 'select', options: CG_NX_PIM_PTYPE }
+                    ]
+                }
+            ],
+            submit: 'PIM Konfigürasyonu Oluştur'
+        }, (data) => cgNxPimGen(data));
+    }
+};
+function cgNxPimGen(data) {
+    const w = [];
+    if ((data._cgtype || 'global') === 'global') {
+        const rp = cgNxStr(data.pm_rp), grp = cgNxStr(data.pm_rp_grp), rm = cgNxStr(data.pm_rp_rm), pl = cgNxStr(data.pm_rp_pl);
+        const ssm = cgNxList(data.pm_ssm), bfd = cgNxStr(data.pm_bfd);
+        if (rp && (!cgNxOk('ip', rp) || cgNxMcast(rp) || +rp.split('.')[0] >= 240 || rp === '0.0.0.0')) w.push('RP adresi "' + rp + '" geçerli unicast IPv4 değil.');
+        if ((grp || rm || pl || data.pm_rp_bidir) && !rp) w.push([grp && 'group-list ' + grp, rm && 'route-map ' + rm, pl && 'prefix-list ' + pl, data.pm_rp_bidir && 'bidir'].filter(Boolean).join(', ') + ' için RP adresi zorunlu.');
+        if ([grp, rm, pl].filter(Boolean).length > 1) w.push('RP için group-list, route-map ve prefix-list birbirini dışlar; yalnız biri girilmeli.');
+        if (grp && !cgNxMcastPfx(grp)) w.push('group-list "' + grp + '" multicast prefix değil (224.0.0.0/4 içinde olmalı).');
+        [rm, pl].forEach(n => { if (n && !cgNxOk('objname', n)) w.push('Politika adı "' + n + '" geçersiz.'); });
+        if (ssm.includes('none') && ssm.length > 1) w.push('ssm range "none" başka prefix ile birlikte yazılamaz.');
+        ssm.filter(s => s !== 'none').forEach(s => { if (!cgNxMcastPfx(s)) w.push('ssm range "' + s + '" multicast prefix değil.'); });
+        if (!rp && !ssm.length && !bfd) w.push('En az RP adresi, SSM aralığı veya BFD seçimi girilmeli.');
+        if (w.length) return cgNxP3Fail('PIM Global', w);
+        let c = cgNxHdr('PIM Global') + 'feature pim\n\n';
+        if (rp) c += 'ip pim rp-address ' + cgEsc(rp) + (grp ? ' group-list ' + cgEsc(grp) : '') + (rm ? ' route-map ' + cgEsc(rm) : '') + (pl ? ' prefix-list ' + cgEsc(pl) : '') + (data.pm_rp_bidir ? ' bidir' : '') + '\n';
+        if (ssm.length) c += 'ip pim ssm range ' + ssm.map(cgEsc).join(' ') + '\n';
+        if (bfd === 'enable') c += 'ip pim bfd\n';
+        if (bfd === 'disable') c += 'no ip pim bfd\n';
+        return c + '\n! Doğrulama:\n! show ip pim rp\n! show ip pim group-range\n';
+    }
+    const ifn = cgNxStr(data.pi_if);
+    if (!cgNxOk('iface', ifn)) w.push('Arayüz adı geçersiz veya boş.');
+    const dr = cgNxRng(data, 'pi_dr', 1, 4294967295, 'dr-priority', w);
+    const hello = cgNxRng(data, 'pi_hello', 1000, 18724286, 'hello-interval (ms)', w);
+    const pol = [['pi_nbr', 'pi_nbr_type', 'neighbor-policy', ''], ['pi_jp_in', 'pi_jp_in_type', 'jp-policy', ' in'], ['pi_jp_out', 'pi_jp_out_type', 'jp-policy', ' out']]
+        .map(([k, t, cmd, dir]) => ({ n: cgNxStr(data[k]), t: cgNxStr(data[t]) || 'prefix', cmd, dir }));
+    pol.forEach(p => { if (p.n && !cgNxOk('objname', p.n)) w.push(p.cmd + p.dir + ' adı "' + p.n + '" geçersiz.'); });
+    if (w.length) return cgNxP3Fail('PIM Arayüz', w);
+    let c = cgNxHdr('PIM Arayüz') + 'feature pim\n\ninterface ' + cgEsc(ifn) + '\n';
+    if (data.pi_sparse) c += '  ip pim sparse-mode\n';
+    if (dr) c += '  ip pim dr-priority ' + cgEsc(dr) + '\n';
+    if (hello) c += '  ip pim hello-interval ' + cgEsc(hello) + '\n';
+    if (data.pi_border) c += '  ip pim border\n';
+    const bfd = cgNxStr(data.pi_bfd);
+    if (bfd === 'enable') c += '  ip pim bfd-instance\n';
+    if (bfd === 'disable') c += '  ip pim bfd-instance disable\n';
+    if (bfd === 'default') c += '  no ip pim bfd-instance\n';
+    pol.forEach(p => { if (p.n) c += '  ip pim ' + p.cmd + (p.t === 'prefix' ? ' prefix-list ' : ' ') + cgEsc(p.n) + p.dir + '\n'; });
+    if (!data.pi_sparse) c += '! Not: sparse-mode yazılmadı; arayüzde PIM komşuluğu kurulmaz.\n';
+    return c + '\n! Doğrulama:\n! show ip pim interface ' + cgEsc(ifn) + '\n! show ip pim neighbor\n';
+}
+
+// ── UDLD (nxos_udld + nxos_udld_interface) ──
+CiscoNXOS.udld = {
+    label: 'UDLD',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-exchange-alt',
+                title: 'UDLD (NX-OS)',
+                desc: 'Tek yönlü bağlantı tespiti. Varsayılan: fiber portlarda etkin, bakırda kapalı; message-time 15 sn; aggressive kapalı. Her iki uç UDLD desteklemeli; aggressive yalnız noktadan noktaya bağlantılarda. ' + CG_NX_P3_PLATFORM
+            },
+            configTypes: [
+                { id: 'global', label: 'Global', icon: 'fas fa-globe', desc: 'feature udld, message-time, aggressive', badge: CG_NX_P3_BADGE },
+                { id: 'interface', label: 'Arayüz', icon: 'fas fa-ethernet', desc: 'udld enable | disable | aggressive' }
+            ],
+            sections: [
+                {
+                    title: 'Global', icon: 'fas fa-globe', showFor: ['global'],
+                    fields: [
+                        { name: 'ud_agg', label: 'udld aggressive (tüm fiber portlar)', type: 'select', options: [
+                            { value: '', label: '(yazma)', selected: true }, { value: 'enabled', label: 'enabled' }, { value: 'disabled', label: 'disabled' }] },
+                        { name: 'ud_msg', label: 'message-time (sn)', type: 'text', validate: 'posint', placeholder: '15', hint: 'Varsayılan 15; belgede üst sınır yok' },
+                        { name: 'ud_reset', label: 'udld reset (UDLD ile kapanan portları aç)', type: 'checkbox' }
+                    ]
+                },
+                {
+                    title: 'Arayüz', icon: 'fas fa-ethernet', showFor: ['interface'],
+                    fields: [
+                        { name: 'ui_if', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Ethernet1/1' },
+                        { name: 'ui_mode', label: 'Mod', type: 'select', options: [
+                            { value: 'enabled', label: 'enabled (udld enable — bakır port)', selected: true },
+                            { value: 'disabled', label: 'disabled (udld disable — fiber port)' },
+                            { value: 'aggressive', label: 'aggressive (udld aggressive)' }] }
+                    ]
+                }
+            ],
+            submit: 'UDLD Konfigürasyonu Oluştur'
+        }, (data) => cgNxUdldGen(data));
+    }
+};
+function cgNxUdldGen(data) {
+    const w = [];
+    if ((data._cgtype || 'global') === 'global') {
+        const agg = cgNxStr(data.ud_agg), msg = cgNxStr(data.ud_msg);
+        if (msg && !cgNxOk('posint', msg)) w.push('message-time "' + msg + '" pozitif tam sayı olmalı.');
+        if (w.length) return cgNxP3Fail('UDLD Global', w);
+        let c = cgNxHdr('UDLD Global') + 'feature udld\n';
+        if (agg === 'enabled') c += 'udld aggressive\n';
+        if (agg === 'disabled') c += 'no udld aggressive\n';
+        if (msg) c += 'udld message-time ' + cgEsc(msg) + '\n';
+        if (data.ud_reset) c += 'udld reset\n';
+        return c + '\n! Doğrulama:\n! show udld global\n! show udld neighbors\n';
+    }
+    const ifn = cgNxStr(data.ui_if), mode = cgNxStr(data.ui_mode) || 'enabled';
+    if (!cgNxOk('iface', ifn)) w.push('Arayüz adı geçersiz veya boş.');
+    if (!['enabled', 'disabled', 'aggressive'].includes(mode)) w.push('UDLD modu geçersiz.');
+    if (w.length) return cgNxP3Fail('UDLD Arayüz', w);
+    const cmd = { enabled: 'udld enable', disabled: 'udld disable', aggressive: 'udld aggressive' }[mode];
+    let c = cgNxHdr('UDLD Arayüz') + 'feature udld\n\ninterface ' + cgEsc(ifn) + '\n  ' + cmd + '\n';
+    if (mode === 'aggressive') c += '! Not: aggressive yalnız karşı ucu da UDLD aggressive destekleyen noktadan noktaya bağlantıda kullanılmalı.\n';
+    return c + '\n! Doğrulama:\n! show udld ' + cgEsc(ifn) + '\n';
+}
+
+// ── VRRP v2 (nxos_vrrp) ──
+function cgNxIpInt(ip) { return ip.split('.').reduce((a, o) => a * 256 + +o, 0); }
+function cgNxSameNet(cidr, ip) { const [a, l] = cidr.split('/'); const d = Math.pow(2, 32 - +l); return Math.floor(cgNxIpInt(a) / d) === Math.floor(cgNxIpInt(ip) / d); }
+CiscoNXOS.vrrp = {
+    label: 'VRRP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-random',
+                title: 'VRRP v2 (NX-OS)',
+                desc: 'VRRPv2 grubu (yalnız IPv4): sanal adres, öncelik, advertisement-interval, preempt, düz metin kimlik doğrulama. Aynı arayüzde başka FHRP ile ve mgmt arayüzünde kullanılamaz; VRRPv3 açıkken VRRPv2 kullanılamaz. ' + CG_NX_P3_PLATFORM
+            },
+            sections: [
+                {
+                    title: 'Grup', icon: 'fas fa-random',
+                    fields: [
+                        { name: 'vr_if', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Vlan10' },
+                        { name: 'vr_ifip', label: 'Arayüz IP/prefix (opsiyonel)', type: 'text', validate: 'cidr', placeholder: '192.0.2.2/24', hint: 'Girilirse sanal adresin aynı alt ağda olduğu denetlenir' },
+                        { name: 'vr_grp', label: 'Grup (1-255)', type: 'text', min: 1, max: 255, required: true, placeholder: '10' },
+                        { name: 'vr_vip', label: 'Sanal IPv4 adresi', type: 'text', validate: 'ip', placeholder: '192.0.2.1' },
+                        { name: 'vr_prio', label: 'priority (1-254)', type: 'text', min: 1, max: 254, placeholder: '110', hint: 'Varsayılan 100; adres sahibi (255) için değiştirilemez' },
+                        { name: 'vr_int', label: 'advertisement-interval (1-255 sn)', type: 'text', min: 1, max: 255, placeholder: '1' },
+                        { name: 'vr_preempt', label: 'preempt', type: 'select', options: [
+                            { value: '', label: '(yazma — varsayılan etkin)', selected: true }, { value: 'enable', label: 'preempt' }, { value: 'disable', label: 'no preempt' }] },
+                        { name: 'vr_auth', label: 'authentication text (parola yer tutucu)', type: 'checkbox', hint: 'Parola çıktıya yazılmaz; <VRRP-PAROLA> yerine en fazla 8 karakter girin' },
+                        { name: 'vr_admin', label: 'Yönetim durumu', type: 'select', options: [
+                            { value: 'no shutdown', label: 'no shutdown', selected: true }, { value: 'shutdown', label: 'shutdown' },
+                            { value: 'default', label: 'default (satır yazma)' }] }
+                    ]
+                }
+            ],
+            submit: 'VRRP Konfigürasyonu Oluştur'
+        }, (data) => cgNxVrrpGen(data));
+    }
+};
+function cgNxVrrpGen(data) {
+    const w = [];
+    const ifn = cgNxStr(data.vr_if), ifip = cgNxStr(data.vr_ifip), vip = cgNxStr(data.vr_vip);
+    if (!cgNxOk('iface', ifn)) w.push('Arayüz adı geçersiz veya boş.');
+    if (/^mgmt/i.test(ifn)) w.push('VRRP yönetim (mgmt) arayüzünde yapılandırılamaz.');
+    const grp = cgNxStr(data.vr_grp);
+    if (!cgNxInt(grp, 1, 255)) w.push('VRRP grubu "' + grp + '" 1-255 aralığında olmalı.');
+    const prio = cgNxRng(data, 'vr_prio', 1, 254, 'priority', w);
+    const itv = cgNxRng(data, 'vr_int', 1, 255, 'advertisement-interval', w);
+    if (vip && !cgNxOk('ip', vip)) w.push('Sanal adres "' + vip + '" geçerli IPv4 değil.');
+    if (ifip && !cgNxOk('cidr', ifip)) w.push('Arayüz IP/prefix "' + ifip + '" geçersiz.');
+    if (ifip && vip && cgNxOk('cidr', ifip) && cgNxOk('ip', vip)) {
+        if (!cgNxSameNet(ifip, vip)) w.push('Sanal adres ' + vip + ' arayüz alt ağında (' + ifip + ') değil.');
+        if (ifip.split('/')[0] === vip && prio) w.push('Sanal adres arayüz adresiyle aynı (adres sahibi, öncelik 255); priority değiştirilemez.');
+    }
+    if (w.length) return cgNxP3Fail('VRRP', w);
+    let c = cgNxHdr('VRRP') + 'feature vrrp\n\ninterface ' + cgEsc(ifn) + '\n';
+    if (ifip) c += '  ip address ' + cgEsc(ifip) + '\n';
+    c += '  vrrp ' + cgEsc(grp) + '\n';
+    const admin = cgNxStr(data.vr_admin) || 'no shutdown';
+    if (admin !== 'default') c += '    shutdown\n';
+    if (vip) c += '    address ' + cgEsc(vip) + '\n';
+    if (prio) c += '    priority ' + cgEsc(prio) + '\n';
+    if (itv) c += '    advertisement-interval ' + cgEsc(itv) + '\n';
+    if (data.vr_preempt === 'enable') c += '    preempt\n';
+    if (data.vr_preempt === 'disable') c += '    no preempt\n';
+    if (data.vr_auth) c += '    authentication text <VRRP-PAROLA>\n';
+    if (admin === 'no shutdown') c += '    no shutdown\n';
+    if (!vip) c += '! Not: sanal adres girilmedi; grup adres olmadan etkinleşmez.\n';
+    if (data.vr_auth) c += '! <VRRP-PAROLA> yer tutucusunu gerçek parola (en fazla 8 karakter) ile değiştirin.\n';
+    return c + '\n! Doğrulama:\n! show vrrp\n! show vrrp detail interface ' + cgEsc(ifn) + '\n';
+}
+
+// ── VRRPv3 (yalnız Cisco belgesi; Ansible cisco.nxos @5645581'de modül yok) ──
+CiscoNXOS.vrrpv3 = {
+    label: 'VRRPv3',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-random',
+                title: 'VRRPv3 (NX-OS)',
+                desc: 'vrrpv3 &lt;grup&gt; address-family ipv4|ipv6: adres, öncelik, ms zamanlayıcı, preempt gecikmesi, nesne takibi, VRRS. VRRPv3 kullanılırken VRRPv2 kullanılamaz (önce VRRPv2 yapılandırmasını kaldırın). Ansible modülü yok; kaynak Cisco belgesi. ' + CG_NX_P3_PLATFORM
+            },
+            configTypes: [
+                { id: 'ipv4', label: 'IPv4', icon: 'fas fa-network-wired', desc: 'address-family ipv4', badge: CG_NX_P3_BADGE },
+                { id: 'ipv6', label: 'IPv6', icon: 'fas fa-project-diagram', desc: 'address-family ipv6' }
+            ],
+            sections: [
+                {
+                    title: 'Grup', icon: 'fas fa-random',
+                    fields: [
+                        { name: 'v3_if', label: 'Arayüz', type: 'text', validate: 'iface', required: true, placeholder: 'Vlan20' },
+                        { name: 'v3_grp', label: 'Grup (1-255)', type: 'text', min: 1, max: 255, required: true, placeholder: '20' }
+                    ]
+                },
+                {
+                    title: 'IPv4 Adres', icon: 'fas fa-network-wired', showFor: ['ipv4'],
+                    fields: [
+                        { name: 'v3_a4', label: 'Birincil adres', type: 'text', validate: 'ip', required: true, placeholder: '198.51.100.1' },
+                        { name: 'v3_s4', label: 'İkincil adres (opsiyonel)', type: 'text', validate: 'ip', placeholder: '198.51.100.254' },
+                        { name: 'v3_v2', label: 'vrrp2 (VRRPv2 uyumluluğu)', type: 'checkbox', hint: 'Yalnız IPv4' }
+                    ]
+                },
+                {
+                    title: 'IPv6 Adres', icon: 'fas fa-project-diagram', showFor: ['ipv6'],
+                    fields: [
+                        { name: 'v3_a6', label: 'Birincil adres', type: 'text', validate: 'ipv6', required: true, placeholder: '2001:db8:20::1' },
+                        { name: 'v3_s6', label: 'İkincil adres (opsiyonel)', type: 'text', validate: 'ipv6', placeholder: '2001:db8:20::fe' }
+                    ]
+                },
+                {
+                    title: 'Seçenekler', icon: 'fas fa-sliders-h',
+                    fields: [
+                        { name: 'v3_prio', label: 'priority (1-254)', type: 'text', min: 1, max: 254, placeholder: '110', hint: 'Varsayılan 100' },
+                        { name: 'v3_tmr', label: 'timers advertise (100-40950 ms)', type: 'text', min: 100, max: 40950, placeholder: '1000', hint: 'Milisaniye zamanlayıcıları yalnız gerektiğinde' },
+                        { name: 'v3_preempt', label: 'preempt', type: 'checkbox', checked: true },
+                        { name: 'v3_pdelay', label: 'preempt delay minimum (0-3600 sn)', type: 'text', min: 0, max: 3600, placeholder: '30', hint: 'Yalnız preempt ile' },
+                        { name: 'v3_track', label: 'track nesnesi', type: 'text', validate: 'posint', placeholder: '5', hint: 'Nesne ayrıca track … ile tanımlanmalı' },
+                        { name: 'v3_dec', label: 'track decrement', type: 'text', validate: 'posint', placeholder: '20', hint: 'Yalnız track nesnesi ile' },
+                        { name: 'v3_desc', label: 'description (en fazla 80 karakter)', type: 'text', placeholder: 'GW-VLAN20' },
+                        { name: 'v3_vrrs', label: 'vrrs leader adı', type: 'text', validate: 'objname', placeholder: 'VRRS-A' },
+                        { name: 'v3_shut', label: 'Yönetim durumu', type: 'select', options: [
+                            { value: 'no shutdown', label: 'no shutdown', selected: true }, { value: 'shutdown', label: 'shutdown' }] }
+                    ]
+                }
+            ],
+            submit: 'VRRPv3 Konfigürasyonu Oluştur'
+        }, (data) => cgNxVrrpv3Gen(data));
+    }
+};
+function cgNxVrrpv3Gen(data) {
+    const w = [], af = data._cgtype === 'ipv6' ? 'ipv6' : 'ipv4';
+    const ifn = cgNxStr(data.v3_if), grp = cgNxStr(data.v3_grp);
+    if (!cgNxOk('iface', ifn)) w.push('Arayüz adı geçersiz veya boş.');
+    if (!cgNxInt(grp, 1, 255)) w.push('VRRPv3 grubu "' + grp + '" 1-255 aralığında olmalı.');
+    const vt = af === 'ipv6' ? 'ipv6' : 'ip';
+    const a = cgNxStr(af === 'ipv6' ? data.v3_a6 : data.v3_a4), s = cgNxStr(af === 'ipv6' ? data.v3_s6 : data.v3_s4);
+    if (!cgNxOk(vt, a)) w.push('Birincil ' + af + ' adresi "' + a + '" geçersiz veya boş.');
+    if (s && !cgNxOk(vt, s)) w.push('İkincil ' + af + ' adresi "' + s + '" geçersiz.');
+    if (s && s.toLowerCase() === a.toLowerCase()) w.push('İkincil adres birincil adresle aynı olamaz.');
+    const prio = cgNxRng(data, 'v3_prio', 1, 254, 'priority', w);
+    const tmr = cgNxRng(data, 'v3_tmr', 100, 40950, 'timers advertise (ms)', w);
+    const pd = cgNxRng(data, 'v3_pdelay', 0, 3600, 'preempt delay minimum', w);
+    if (pd && !data.v3_preempt) w.push('preempt delay yalnız preempt etkinken yazılabilir.');
+    const tr = cgNxStr(data.v3_track), dec = cgNxStr(data.v3_dec);
+    if (tr && !cgNxOk('posint', tr)) w.push('track nesnesi "' + tr + '" pozitif tam sayı olmalı.');
+    if (dec && !cgNxOk('posint', dec)) w.push('track decrement "' + dec + '" pozitif tam sayı olmalı.');
+    if (dec && !tr) w.push('track decrement, track nesnesi olmadan yazılamaz.');
+    const desc = cgNxStr(data.v3_desc), vrrs = cgNxStr(data.v3_vrrs);
+    if (desc.length > 80 || /[\r\n]/.test(desc)) w.push('description en fazla 80 karakter ve tek satır olmalı.');
+    if (vrrs && !cgNxOk('objname', vrrs)) w.push('vrrs leader adı "' + vrrs + '" geçersiz.');
+    if (data.v3_v2 && af === 'ipv6') w.push('vrrp2 (VRRPv2 uyumluluğu) yalnız IPv4 address-family için geçerlidir.');
+    if (w.length) return cgNxP3Fail('VRRPv3', w);
+    let c = cgNxHdr('VRRPv3') + 'feature vrrpv3\n! VRRPv2 (feature vrrp / vrrp <grup>) yapılandırması önce kaldırılmalı.\n\n';
+    c += 'interface ' + cgEsc(ifn) + '\n  vrrpv3 ' + cgEsc(grp) + ' address-family ' + af + '\n';
+    const L = x => { c += '    ' + x + '\n'; };
+    if (desc) L('description ' + cgEsc(desc));
+    L('address ' + cgEsc(a) + ' primary');
+    if (s) L('address ' + cgEsc(s) + ' secondary');
+    if (prio) L('priority ' + cgEsc(prio));
+    if (tmr) L('timers advertise ' + cgEsc(tmr));
+    if (data.v3_preempt) L('preempt' + (pd ? ' delay minimum ' + cgEsc(pd) : ''));
+    else L('no preempt');
+    if (tr) L('track ' + cgEsc(tr) + (dec ? ' decrement ' + cgEsc(dec) : ''));
+    if (vrrs) L('vrrs leader ' + cgEsc(vrrs));
+    if (data.v3_v2 && af === 'ipv4') L('vrrp2');
+    if ((cgNxStr(data.v3_shut) || 'no shutdown') === 'shutdown') L('shutdown'); else L('no shutdown');
+    if (tmr && +tmr < 1000) c += '! Not: 1 sn altı zamanlayıcıları yalnız gerektiğinde ve dikkatle kullanın.\n';
+    return c + '\n! Doğrulama:\n! show vrrpv3 brief\n! show vrrpv3 interface ' + cgEsc(ifn) + '\n';
+}
+
+// ── VTP (nxos_vtp_domain + nxos_vtp_version + nxos_vtp_password) ──
+CiscoNXOS.vtp = {
+    label: 'VTP',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-project-diagram',
+                title: 'VTP (NX-OS)',
+                desc: 'VTP domain, sürüm, dosya ve parola (yer tutucu). Nexus 9000 VTP yalnız transparent modda çalışır: VTP paketlerini iletir, VLAN yapılandırmasını yaymaz/senkronize etmez; pruning yapılamaz. Belgedeki sürümler 1 ve 2. ' + CG_NX_P3_PLATFORM
+            },
+            sections: [
+                {
+                    title: 'VTP', icon: 'fas fa-project-diagram',
+                    fields: [
+                        { name: 'vt_domain', label: 'vtp domain', type: 'text', validate: 'objname', required: true, placeholder: 'LAB-DOMAIN' },
+                        { name: 'vt_ver', label: 'vtp version', type: 'select', options: [
+                            { value: '', label: '(yazma — varsayılan 1)', selected: true }, { value: '1', label: '1' }, { value: '2', label: '2' },
+                            { value: '3', label: '3 (Ansible seçeneği; N9K belgesinde yok — üretilmez)' }] },
+                        { name: 'vt_file', label: 'vtp file (opsiyonel)', type: 'text', placeholder: 'bootflash:vtp.dat', hint: 'IFS dosya yolu; boşluk içermez' },
+                        { name: 'vt_pass', label: 'vtp password (yer tutucu)', type: 'checkbox', hint: 'Parola çıktıya yazılmaz; <VTP-PAROLA> yer tutucusu üretilir' }
+                    ]
+                }
+            ],
+            submit: 'VTP Konfigürasyonu Oluştur'
+        }, (data) => cgNxVtpGen(data));
+    }
+};
+function cgNxVtpGen(data) {
+    const w = [], dom = cgNxStr(data.vt_domain), ver = cgNxStr(data.vt_ver), file = cgNxStr(data.vt_file);
+    if (!cgNxOk('objname', dom)) w.push('VTP domain adı geçersiz veya boş.');
+    if (ver === '3') w.push('VTP sürüm 3 Nexus 9000 belgesinde (vtp version {1 | 2}) yok; 1 veya 2 seçin.');
+    if (ver && !['1', '2', '3'].includes(ver)) w.push('VTP sürümü geçersiz.');
+    if (file && (/\s/.test(file) || !/^[A-Za-z][A-Za-z0-9_-]*:\/?[A-Za-z0-9_./-]+$/.test(file))) w.push('vtp file "' + file + '" geçerli IFS yolu değil (örn: bootflash:vtp.dat).');
+    if (w.length) return cgNxP3Fail('VTP', w);
+    let c = cgNxHdr('VTP') + 'feature vtp\nvtp domain ' + cgEsc(dom) + '\n';
+    if (ver) c += 'vtp version ' + ver + '\n';
+    if (file) c += 'vtp file ' + cgEsc(file) + '\n';
+    if (data.vt_pass) c += 'vtp password <VTP-PAROLA>\n! <VTP-PAROLA> yer tutucusunu gerçek parola ile değiştirin.\n';
+    c += '! Nexus 9000: VTP yalnız transparent modda çalışır; VLAN değişiklikleri yalnız yerel cihazı etkiler.\n';
+    return c + '\n! Doğrulama:\n! show vtp status\n' + (data.vt_pass ? '! show vtp password\n' : '');
+}

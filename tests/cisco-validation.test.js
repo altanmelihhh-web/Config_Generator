@@ -284,3 +284,107 @@ console.log(`OK: ${captured.length} Cisco IOS generator şeması ve kritik valid
     bad(nxGen('bgpTemplate')({ _cgtype: 'peer', bt_as: '65000', bt_name: 'T', bt_afi: 'l2vpn', bt_safi: 'unicast' }), 'template peer', 'template l2vpn unicast reddedilmeli');
     console.log('OK: NX-OS BGP AF / neighbor AF / peer template regresyonları geçti.');
 }
+
+// ── NX-OS IGMP / IGMP Snooping / PIM / UDLD / VRRP / VRRPv3 / VTP (Cisco parti 3) ──
+// Kaynak: cisco.nxos @5645581 eski tip modüller (argument_spec, choices, komut şablonları);
+// Nexus 9000 NX-OS 10.4(x) Multicast / Interfaces / Unicast Routing / Layer 2 CG sınırları.
+{
+    const cap = [];
+    context.__capture = (schema, generateFn) => cap.push({ schema, generateFn });
+    vm.runInContext('cgFormBuilder = (container, schema, generateFn) => __capture(schema, generateFn);', context);
+    const nx = context.__CiscoNXOS; // parti 2 bloğunda yüklendi
+    const tool = name => { cap.length = 0; nx[name].init({}); return cap[0]; };
+    const G = (name, d) => tool(name).generateFn(d);
+    const F = (name, f) => tool(name).schema.sections.flatMap(s => s.fields).find(x => x.name === f);
+    const O = (name, f) => F(name, f).options.map(o => o.value).filter(Boolean);
+    const R = (name, f) => [F(name, f).min, F(name, f).max];
+    const txt = r => (typeof r === 'string' ? r : r.config);
+    const bad = (r, needle, m) => assert.ok(r.warnings && r.warnings.length > 0 && !r.config.includes(needle), m);
+    const has = (r, s, m) => assert.ok(typeof r === 'string' && r.includes(s), m + '\n' + txt(r));
+
+    // Platform etiketi + korunan choices + Cisco/Ansible sınırları.
+    for (const n of ['igmp', 'igmpSnooping', 'pim', 'udld', 'vrrp', 'vrrpv3', 'vtp']) assert.ok(/Nexus 9000/.test(tool(n).schema.topic.desc), n + ': platform etiketi');
+    same(O('igmp', 'igi_ver'), ['2', '3', 'default']);
+    same(O('pim', 'pi_bfd'), ['enable', 'disable', 'default']);
+    same(O('pim', 'pm_bfd'), ['enable', 'disable']);
+    same(O('pim', 'pi_nbr_type'), ['prefix', 'routemap']);
+    same(O('udld', 'ud_agg'), ['enabled', 'disabled']);
+    same(O('udld', 'ui_mode'), ['enabled', 'disabled', 'aggressive']);
+    same(O('vrrp', 'vr_admin'), ['no shutdown', 'shutdown', 'default']);
+    same(O('vtp', 'vt_ver'), ['1', '2', '3']);
+    same(R('igmp', 'igi_sqi'), [1, 18000]); same(R('igmp', 'igi_sqc'), [1, 10]); same(R('igmp', 'igi_rob'), [1, 7]);
+    same(R('igmp', 'igi_mrt'), [1, 25]); same(R('igmp', 'igi_lmqc'), [1, 5]); same(R('igmp', 'igi_gto'), [3, 65535]);
+    same(R('pim', 'pi_dr'), [1, 4294967295]); same(R('pim', 'pi_hello'), [1000, 18724286]);
+    same(R('vrrp', 'vr_grp'), [1, 255]); same(R('vrrp', 'vr_prio'), [1, 254]); same(R('vrrp', 'vr_int'), [1, 255]);
+    same(R('vrrpv3', 'v3_tmr'), [100, 40950]); same(R('vrrpv3', 'v3_pdelay'), [0, 3600]);
+
+    // IGMP — olumlu (Ansible örnek komutları), olumsuz, koşullu.
+    has(G('igmp', { _cgtype: 'global', ig_flush: true, ig_rtr_alert: 'disable' }), 'ip igmp flush-routes\nno ip igmp enforce-router-alert\n', 'IGMP global');
+    has(G('igmp', { _cgtype: 'interface', igi_if: 'Ethernet1/32', igi_ver: '3', igi_sqc: '10', igi_oif_grp: '233.252.0.6', igi_oif_src: '192.0.2.1' }),
+        'interface Ethernet1/32\n  ip igmp version 3\n  ip igmp startup-query-count 10\n  ip igmp static-oif 233.252.0.6 source 192.0.2.1\n', 'IGMP arayüz');
+    bad(G('igmp', { _cgtype: 'interface', igi_if: 'Ethernet1/1', igi_rob: '8' }), 'interface', 'robustness 8 reddedilmeli');
+    bad(G('igmp', { _cgtype: 'interface', igi_if: 'Ethernet1/1', igi_gto: '2' }), 'interface', 'group-timeout 2 reddedilmeli');
+    bad(G('igmp', { _cgtype: 'interface', igi_if: 'Ethernet1/1', igi_mrt: '20', igi_qi: '20' }), 'interface', 'MRT < query-interval');
+    bad(G('igmp', { _cgtype: 'interface', igi_if: 'Ethernet1/1', igi_oif_grp: '233.252.0.6', igi_oif_rm: 'RM' }), 'static-oif', 'static-oif grup + route-map dışlar');
+    bad(G('igmp', { _cgtype: 'interface', igi_if: 'Ethernet1/1', igi_oif_grp: '192.0.2.5' }), 'static-oif', 'unicast grup reddedilmeli');
+    bad(G('igmp', { _cgtype: 'interface', igi_if: '' }), 'interface', 'arayüzsüz üretilmemeli');
+    has(G('igmp', { _cgtype: 'interface', igi_if: 'Ethernet1/1', igi_oif_grp: '233.252.0.6', igi_oif_src: '192.0.2.1' }), 'yalnız IGMPv3', '(S,G) v2 notu');
+    bad(G('igmp', { _cgtype: 'global' }), 'ip igmp', 'boş global');
+
+    // IGMP snooping.
+    has(G('igmpSnooping', { sn_state: 'enable', sn_gto: '50', sn_llg: 'enable', sn_rs: 'disable', sn_v3rs: 'disable' }),
+        'ip igmp snooping\nip igmp snooping group-timeout 50\nip igmp snooping link-local-groups-suppression\nno ip igmp snooping report-suppression\nno ip igmp snooping v3-report-suppression\n', 'snooping global');
+    has(G('igmpSnooping', { sn_state: 'enable', sn_gto: 'never', sn_vlan: '10', sn_querier: '192.0.2.1', sn_fl: true }), 'vlan configuration 10\n  ip igmp snooping querier 192.0.2.1\n  ip igmp snooping fast-leave\n', 'snooping VLAN');
+    bad(G('igmpSnooping', { sn_state: 'disable', sn_gto: '50' }), 'group-timeout', 'kapalıyken group-timeout reddedilmeli');
+    bad(G('igmpSnooping', { sn_state: 'enable', sn_gto: '10081' }), 'group-timeout', 'group-timeout 10081 reddedilmeli');
+    bad(G('igmpSnooping', { sn_state: 'enable', sn_querier: '192.0.2.1' }), 'querier', 'VLAN olmadan querier reddedilmeli');
+
+    // PIM.
+    has(G('pim', { _cgtype: 'global', pm_rp: '192.0.2.100', pm_rp_grp: '233.252.0.0/24', pm_rp_bidir: true, pm_ssm: '232.0.0.0/8, 233.252.1.0/24', pm_bfd: 'enable' }),
+        'ip pim rp-address 192.0.2.100 group-list 233.252.0.0/24 bidir\nip pim ssm range 232.0.0.0/8 233.252.1.0/24\nip pim bfd\n', 'PIM global');
+    has(G('pim', { _cgtype: 'global', pm_ssm: 'none' }), 'ip pim ssm range none\n', 'ssm none');
+    bad(G('pim', { _cgtype: 'global', pm_rp: '192.0.2.100', pm_rp_grp: '233.252.0.0/24', pm_rp_rm: 'RM' }), 'rp-address', 'group-list + route-map dışlar');
+    bad(G('pim', { _cgtype: 'global', pm_rp: '233.252.0.1' }), 'rp-address', 'multicast RP reddedilmeli');
+    bad(G('pim', { _cgtype: 'global', pm_ssm: '192.0.2.0/24' }), 'ssm range', 'unicast SSM reddedilmeli');
+    bad(G('pim', { _cgtype: 'global', pm_rp_pl: 'PL' }), 'rp-address', 'RP olmadan prefix-list reddedilmeli');
+    has(G('pim', { _cgtype: 'interface', pi_if: 'Ethernet1/32', pi_sparse: true, pi_dr: '10', pi_hello: '40000', pi_border: true, pi_bfd: 'disable',
+        pi_nbr: 'test', pi_nbr_type: 'prefix', pi_jp_in: 'JPIN', pi_jp_in_type: 'routemap', pi_jp_out: 'JPOUT', pi_jp_out_type: 'prefix' }),
+        '  ip pim sparse-mode\n  ip pim dr-priority 10\n  ip pim hello-interval 40000\n  ip pim border\n  ip pim bfd-instance disable\n  ip pim neighbor-policy prefix-list test\n  ip pim jp-policy JPIN in\n  ip pim jp-policy prefix-list JPOUT out\n', 'PIM arayüz');
+    bad(G('pim', { _cgtype: 'interface', pi_if: 'Ethernet1/1', pi_hello: '999' }), 'interface', 'hello 999 ms reddedilmeli');
+    bad(G('pim', { _cgtype: 'interface', pi_if: 'Ethernet1/1', pi_dr: '0' }), 'interface', 'dr-priority 0 reddedilmeli');
+
+    // UDLD.
+    has(G('udld', { _cgtype: 'global', ud_agg: 'enabled', ud_msg: '40' }), 'feature udld\nudld aggressive\nudld message-time 40\n', 'UDLD global');
+    has(G('udld', { _cgtype: 'interface', ui_if: 'Ethernet1/1', ui_mode: 'disabled' }), 'interface Ethernet1/1\n  udld disable\n', 'UDLD arayüz');
+    has(G('udld', { _cgtype: 'interface', ui_if: 'Ethernet1/1', ui_mode: 'aggressive' }), 'noktadan noktaya', 'aggressive notu');
+    bad(G('udld', { _cgtype: 'global', ud_msg: '0' }), 'message-time', 'message-time 0 reddedilmeli');
+    bad(G('udld', { _cgtype: 'interface', ui_if: '' }), 'interface', 'arayüzsüz UDLD');
+
+    // VRRP (Ansible örneği: vlan10, grup 150, 10.1.15.1 → güvenli adres).
+    has(G('vrrp', { vr_if: 'Vlan10', vr_grp: '150', vr_vip: '192.0.2.1', vr_prio: '110', vr_int: '1', vr_preempt: 'disable', vr_auth: true, vr_admin: 'no shutdown' }),
+        'interface Vlan10\n  vrrp 150\n    shutdown\n    address 192.0.2.1\n    priority 110\n    advertisement-interval 1\n    no preempt\n    authentication text <VRRP-PAROLA>\n    no shutdown\n', 'VRRP');
+    bad(G('vrrp', { vr_if: 'Vlan10', vr_grp: '256', vr_vip: '192.0.2.1' }), 'vrrp ', 'grup 256 reddedilmeli');
+    bad(G('vrrp', { vr_if: 'Vlan10', vr_grp: '1', vr_prio: '255' }), 'vrrp ', 'priority 255 reddedilmeli');
+    bad(G('vrrp', { vr_if: 'Vlan10', vr_grp: '1', vr_int: '256' }), 'vrrp ', 'interval 256 reddedilmeli');
+    bad(G('vrrp', { vr_if: 'mgmt0', vr_grp: '1', vr_vip: '192.0.2.1' }), 'vrrp ', 'mgmt reddedilmeli');
+    bad(G('vrrp', { vr_if: 'Vlan10', vr_ifip: '192.0.2.2/24', vr_grp: '1', vr_vip: '198.51.100.1' }), 'vrrp ', 'VIP farklı alt ağ');
+    bad(G('vrrp', { vr_if: 'Vlan10', vr_ifip: '192.0.2.1/24', vr_grp: '1', vr_vip: '192.0.2.1', vr_prio: '120' }), 'vrrp ', 'adres sahibi priority');
+    assert.ok(!txt(G('vrrp', { vr_if: 'Vlan10', vr_grp: '1', vr_vip: '192.0.2.1' })).includes('PAROLA'), 'auth seçilmezse parola satırı yok');
+
+    // VRRPv3 (yalnız Cisco belgesi).
+    has(G('vrrpv3', { _cgtype: 'ipv4', v3_if: 'Vlan20', v3_grp: '20', v3_a4: '198.51.100.1', v3_s4: '198.51.100.254', v3_prio: '110', v3_tmr: '1000', v3_preempt: true, v3_pdelay: '30', v3_track: '5', v3_dec: '20', v3_v2: true, v3_shut: 'no shutdown' }),
+        '  vrrpv3 20 address-family ipv4\n    address 198.51.100.1 primary\n    address 198.51.100.254 secondary\n    priority 110\n    timers advertise 1000\n    preempt delay minimum 30\n    track 5 decrement 20\n    vrrp2\n    no shutdown\n', 'VRRPv3 v4');
+    has(G('vrrpv3', { _cgtype: 'ipv6', v3_if: 'Vlan20', v3_grp: '20', v3_a6: '2001:db8:20::1' }), 'address-family ipv6\n    address 2001:db8:20::1 primary\n', 'VRRPv3 v6');
+    bad(G('vrrpv3', { _cgtype: 'ipv4', v3_if: 'Vlan20', v3_grp: '20', v3_a4: '198.51.100.1', v3_tmr: '99' }), 'vrrpv3 ', 'timer 99 ms reddedilmeli');
+    bad(G('vrrpv3', { _cgtype: 'ipv4', v3_if: 'Vlan20', v3_grp: '20', v3_a4: '198.51.100.1', v3_pdelay: '10' }), 'vrrpv3 ', 'preempt yokken delay reddedilmeli');
+    bad(G('vrrpv3', { _cgtype: 'ipv4', v3_if: 'Vlan20', v3_grp: '20', v3_a4: '198.51.100.1', v3_dec: '10' }), 'vrrpv3 ', 'track yokken decrement reddedilmeli');
+    bad(G('vrrpv3', { _cgtype: 'ipv6', v3_if: 'Vlan20', v3_grp: '20', v3_a6: '2001:db8::1', v3_v2: true }), 'vrrpv3 ', 'IPv6 + vrrp2 reddedilmeli');
+    bad(G('vrrpv3', { _cgtype: 'ipv4', v3_if: 'Vlan20', v3_grp: '20', v3_a4: '' }), 'vrrpv3 ', 'adres zorunlu');
+
+    // VTP (parola gizli veri: yer tutucu).
+    has(G('vtp', { vt_domain: 'LAB-DOMAIN', vt_ver: '2', vt_pass: true }), 'feature vtp\nvtp domain LAB-DOMAIN\nvtp version 2\nvtp password <VTP-PAROLA>\n', 'VTP');
+    bad(G('vtp', { vt_domain: 'LAB', vt_ver: '3' }), 'vtp domain', 'N9K v3 reddedilmeli');
+    bad(G('vtp', { vt_domain: '' }), 'vtp domain', 'domain zorunlu');
+    bad(G('vtp', { vt_domain: 'LAB', vt_file: 'bad file' }), 'vtp domain', 'boşluklu dosya reddedilmeli');
+    console.log('OK: NX-OS IGMP / snooping / PIM / UDLD / VRRP / VRRPv3 / VTP regresyonları geçti.');
+}
