@@ -332,6 +332,21 @@ const CgLab = {
         if (show) this._paintSide();
     },
     // Tamamlanmış görevde "çalışır ama yanlış" uyarısı: kontrol geçti ama yapılandırma riskli (fb "Çalışır ama…" ile başlar)
+    _fillHtml(t, i, done) {
+        const st = this._stt, saved = (st.answers || {})[this._lab.id + ':' + i] || [], dr = (this._fillDraft || {})[i] || [], v = done ? saved : saved.map((x, k) => (dr[k] !== undefined ? dr[k] : x)).concat(dr.slice(saved.length)), bad = (this._fillBad || {})[i] || []; let k = -1;
+        const body = t.fill.map(x => { if (typeof x === 'string') return cgEsc(x); k++; const val = v[k] !== undefined ? v[k] : ''; const w = Math.max(10, ...t.fill.filter(y => typeof y === 'object').map(y => Math.max(...y.a.map(a => a.length)))) + 1;   // eşit genişlik: uzunluk cevabı ele vermesin
+            return `<input class="cg-lab-blank${done ? ' ok' : bad[k] ? ' bad' : ''}" data-fill="${i}" value="${cgEsc(val)}" size="${w}" spellcheck="false" autocapitalize="off" aria-label="Boşluk ${k + 1}"${done ? ' disabled' : ''}>`; }).join('');
+        return `<pre class="cg-lab-fill">${body}</pre>${done ? '' : `<button class="cg-lab-hbtn cg-lab-fillchk" data-fillchk="${i}"><i class="fas fa-check"></i> Kontrol et</button>`}`;
+    },
+    _quizHtml(t, i, done) {
+        const st = this._stt, saved = (st.answers || {})[this._lab.id + ':' + i] || {}, d = done ? saved : Object.assign({}, saved, (this._qzDraft || {})[i]), shown = done || (this._qzShown || {})[i];
+        const qs = t.quiz.qs.map((q, k) => `<div class="cg-lab-qq"><div class="cg-lab-qt"><b>${k + 1}.</b> ${q.q}</div><div class="cg-lab-ask">${q.choices.map(([cv, cl]) => {
+            const pick = d[k] === cv, cls = shown && pick ? (cv === q.correct ? ' ok' : ' bad') : pick ? ' pick' : shown && cv === q.correct && done ? ' ok' : '';
+            return `<button class="cg-lab-choice${cls}" data-qz="${i}:${k}" data-v="${cgEsc(cv)}"${done ? ' disabled' : ''}>${cgEsc(cl)}</button>`; }).join('')}</div>
+            ${shown && q.why ? `<div class="cg-lab-qwhy${d[k] === q.correct ? '' : ' bad'}">${d[k] === q.correct ? '✓' : '✗'} ${q.why}</div>` : ''}</div>`).join('');
+        const all = t.quiz.qs.every((q, k) => d[k] !== undefined);
+        return `<div class="cg-lab-quiz">${qs}${done ? `<div class="cg-lab-qscore"><i class="fas fa-award"></i> ${t.quizScore(saved)}/${t.quiz.qs.length}</div>` : `<button class="cg-lab-hbtn cg-lab-qzchk" data-qzchk="${i}"${all ? '' : ' disabled'}><i class="fas fa-clipboard-check"></i> Değerlendir${all ? '' : ' (tüm soruları cevaplayın)'}</button>`}</div>`;
+    },
     _warnHtml(t) {
         let m = null; try { m = t.fb ? t.fb(this._sess) : null; } catch (e) { m = null; }
         return m && /^Çalışır ama/i.test(m) ? `<div class="cg-lab-warn"><i class="fas fa-exclamation-triangle"></i> ${m}</div>` : '';
@@ -343,7 +358,7 @@ const CgLab = {
         const cur = lab.ordered ? st.done.findIndex((d, i) => !d) : -1;
         const V = this._V || {};
         const stepsOf = t => typeof t.steps === 'function' ? t.steps(V) : (t.steps || []);
-        const ansLabel = (t, v) => { const c = t.ask && t.ask.choices.find(x => x[0] === v); return c ? c[1] : v; };
+        const ansLabel = (t, v) => { if (t.fill) return (v || []).join(' · '); if (t.quiz) return t.quiz.qs.map((q, k) => (k + 1) + ') ' + ((q.choices.find(c => c[0] === (v || {})[k]) || [])[1] || '')).join('  '); const c = t.ask && t.ask.choices.find(x => x[0] === v); return c ? c[1] : v; };
         const stepsHtml = t => stepsOf(t).map(x => x && typeof x === 'object' && x.answer !== undefined ? 'Cevap: <b>' + cgEsc(ansLabel(t, x.v)) + '</b>' : typeof x === 'object' ? '<code>' + cgEsc(x.help) + '</code> yazıp <kbd>?</kbd>' : x === '' ? '(Enter)' : '<code>' + cgEsc(x) + '</code>').join('<br>');
         // Tam çözümün hangi modda yazılacağı (IOS: yapılandırma modu komutları conf t ister)
         const EXEC = /^(en|ena|enable|conf|configure|sh|show|shw|copy|wr|write|reload|exit|do|ping)\b/i;
@@ -365,7 +380,9 @@ const CgLab = {
                     ${t.ask && !locked ? `<div class="cg-lab-ask" role="group" aria-label="Cevap seçenekleri">${t.ask.choices.map(([v, l]) => {
                         const key = lab.id + ':' + i, picked = (st.answers || {})[key] === v;
                         return `<button class="cg-lab-choice${picked ? (done ? ' ok' : ' bad') : ''}" data-ask="${i}" data-v="${cgEsc(v)}"${done ? ' disabled' : ''}>${cgEsc(l)}</button>`; }).join('')}</div>` : ''}
-                    ${!locked && (!t.ask || done) ? `<details class="cg-lab-why"${t.ask && done ? ' open' : ''}><summary>Neden?</summary><div>${t.why}</div></details>` : ''}
+                    ${t.fill && !locked ? this._fillHtml(t, i, done) : ''}
+                    ${t.quiz && !locked ? this._quizHtml(t, i, done) : ''}
+                    ${!locked && (!(t.ask || t.fill || t.quiz) || done) ? `<details class="cg-lab-why"${(t.ask || t.fill || t.quiz) && done ? ' open' : ''}><summary>Neden?</summary><div>${t.why}</div></details>` : ''}
                     ${!done && !locked ? `<div class="cg-lab-hints">${hintsOf(t).slice(0, hl).map((h, k) => `<div class="cg-lab-hint lv${k + 1}"><b>${['İpucu', 'Komut iskeleti', 'Çözüm'][k]}:</b> ${h}</div>`).join('')}
                         ${hl < 3 ? `<button class="cg-lab-hbtn" data-hint="${i}"><i class="far fa-lightbulb"></i> ${['İpucu', 'Komut iskeleti', 'Tam çözüm'][hl]}${hl >= 1 ? ' <small>(★ düşürür)</small>' : ''}</button>` : ''}</div>` : ''}
                     ${this._fb && this._fb[i] && !done ? `<div class="cg-lab-fb"><i class="fas fa-exclamation-circle"></i> ${this._fb[i]}</div>` : ''}
@@ -391,6 +408,31 @@ const CgLab = {
             st.answers[key] = b.dataset.v; this._sess.answers = st.answers;
             this._evalTasks(true);
             if (!st.done[i]) { st.wrong[key] = (st.wrong[key] || 0) + 1; this._fb = Object.assign({}, this._fb, { [i]: 'Yanlış — terminal çıktısına yeniden bakın ve tekrar deneyin.' }); this._toast('Yanlış cevap', true); }
+            else if (this._fb) delete this._fb[i];
+            this._save(); this._paintSide();
+        }));
+        // boşluk doldurma: tüm kutular birlikte değerlendirilir; yanlış kutular işaretlenir
+        side.querySelectorAll('[data-fillchk]').forEach(b => b.addEventListener('click', () => {
+            const i = +b.dataset.fillchk, t = lab.tasks[i], key = lab.id + ':' + i;
+            const vals = [...side.querySelectorAll('[data-fill="' + i + '"]')].map(x => x.value);
+            st.answers[key] = vals; this._sess.answers = st.answers; this._evalTasks(true);
+            if (!st.done[i]) { st.wrong[key] = (st.wrong[key] || 0) + 1; const bl = t.fill.filter(x => typeof x === 'object'); const bad = vals.map((v, k) => !bl[k].a.some(a => a.trim().replace(/\s+/g, ' ').toLowerCase() === String(v).trim().replace(/\s+/g, ' ').toLowerCase()));
+                this._fb = Object.assign({}, this._fb, { [i]: bad.filter(Boolean).length + ' boşluk hatalı — kırmızı kutulara yeniden bakın.' }); this._fillBad = Object.assign({}, this._fillBad, { [i]: bad }); this._toast('Hatalı boşluk var', true); }
+            else { if (this._fb) delete this._fb[i]; if (this._fillBad) delete this._fillBad[i]; }
+            this._save(); this._paintSide();
+        }));
+        side.querySelectorAll('[data-fill]').forEach((x, n, all) => x.addEventListener('input', () => { const i = +x.dataset.fill, k = [...side.querySelectorAll('[data-fill="' + i + '"]')].indexOf(x); this._fillDraft = this._fillDraft || {}; (this._fillDraft[i] = this._fillDraft[i] || [])[k] = x.value; }));
+        side.querySelectorAll('[data-fill]').forEach(x => x.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const b = side.querySelector('[data-fillchk="' + x.dataset.fill + '"]'); if (b) b.click(); } }));
+        // mini test: seçimler taslakta tutulur, "Değerlendir" ile puanlanır
+        side.querySelectorAll('[data-qz]').forEach(b => b.addEventListener('click', () => {
+            const [i, k] = b.dataset.qz.split(':').map(Number); this._qzDraft = this._qzDraft || {}; const d = this._qzDraft[i] = Object.assign({}, this._qzDraft[i]); d[k] = b.dataset.v; this._qzShown = Object.assign({}, this._qzShown, { [i]: false }); this._paintSide();
+        }));
+        side.querySelectorAll('[data-qzchk]').forEach(b => b.addEventListener('click', () => {
+            const i = +b.dataset.qzchk, t = lab.tasks[i], key = lab.id + ':' + i, d = (this._qzDraft || {})[i] || {};
+            st.answers[key] = Object.assign({}, d); this._sess.answers = st.answers; this._evalTasks(true);
+            this._qzShown = Object.assign({}, this._qzShown, { [i]: true });
+            const sc = t.quizScore(d), need = Math.ceil(t.quiz.qs.length * (t.quiz.pass || 0.8) - 0.05);
+            if (!st.done[i]) { st.wrong[key] = (st.wrong[key] || 0) + 1; this._fb = Object.assign({}, this._fb, { [i]: 'Puan ' + sc + '/' + t.quiz.qs.length + ' — geçmek için en az ' + need + '. Yanlışların açıklamasını okuyup tekrar deneyin.' }); this._toast('Puan ' + sc + '/' + t.quiz.qs.length, true); }
             else if (this._fb) delete this._fb[i];
             this._save(); this._paintSide();
         }));

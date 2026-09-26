@@ -74,6 +74,17 @@
     const SERVERS_IR = SERVERS.map(x => (x.name === 'srv-app' ? Object.assign({}, x, { ports: { 8080: { paths: { '/health': 200, '*': { code: 200, body: 'API sunucusu (srv-app) OK' } } } } }) : Object.assign({}, x, { ports: { 80: Object.assign({}, x.ports[80], { paths: Object.assign({ '*': 200, '/yok': 404 }, x.ports[80].paths) }) } })));
     const SIMIR = Object.assign({}, SIM2, { servers: SERVERS_IR });
     const IRSTART = NET.concat(LTM3, ['create ltm pool api_pool members add { 10.64.30.53:8080 } monitor tcp']);
+    // HTTP labları: kusurlu yanıt örnekleri (f5-63) ve büyük SSO çerezi (f5-62)
+    const HTTP_BAD = {
+        '/eski': { code: 302, loc: '/yeni', body: '' },
+        '/giris': { code: 200, headers: ['Set-Cookie: oturum=ab12cd34; path=/'], body: 'Giris sayfasi' },
+        '/api/bilgi': { code: 200, headers: ['Server: Apache/2.2.15 (CentOS)', 'X-Powered-By: PHP/5.3.3', 'Content-Type: application/json'], body: '{"surum":"1.0"}' },
+        '/bakim': { code: 200, body: 'Hata: veritabanina baglanilamadi' },
+    };
+    const SERVERS_HTTP = SERVERS_IR.map(x => (x.ports[80] ? Object.assign({}, x, { ports: { 80: Object.assign({}, x.ports[80], { paths: Object.assign({}, x.ports[80].paths, HTTP_BAD) }) } }) : x));
+    const SIMHTTP = Object.assign({}, SIMIR, { servers: SERVERS_HTTP });
+    const SSO_JAR = '/var/tmp/sso_cerez.txt';
+    const SIMSSO = Object.assign({}, SIMIR, { jars: { [SSO_JAR]: { SSO_OTURUM: 'eyJ' + 'A'.repeat(19997) } } });
     // Log Okuyucu (f5-49): gece biriken iRule logları (biçim notes/f5-irule-arastirma.md)
     const IRH = ' bigip-a.lab.example ';
     const IRNIGHT = [
@@ -1544,6 +1555,113 @@
         verify: ['list ltm rule r_yavas'], learn: ['starts_with/equals < switch -glob < regexp.', 'Aynı sonucu veren dalları birleştir.', 'Davranışı test isteğiyle kanıtla.'],
         links: { tool: '#/f5-ltm/irulelib', cli: '#/cli/f5-ltm' }, cert: 'iRule · Arena'
     },
+
+    // ═══ HTTP: mesaj okuma, metot politikası, başlık sınırları (T4) ═══
+    {
+        id: 'f5-63', vendor: 'f5-ltm', level: 2, title: 'HTTP mesajını oku ve eleştir: bu yanıtta ne yanlış?', minutes: 25, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-09'],
+        up: UP, sim: SIMHTTP, start: IRSTART, startMode: 'bash',
+        story: 'Uygulama ekibi yeni sürümü yayına aldı; güvenlik ve izleme ekipleri "bazı yanıtlar tuhaf" diyor. Elinizde yalnız <code>curl -v</code> var. Her yanıtı satır satır okuyun: durum kodu, başlıklar, gövde. Kusuru bulun ve doğrusunu söyleyin.',
+        lesson: L('Bir HTTP yanıtı üç parçadır: <b>durum satırı</b> (<code>HTTP/1.1 302 Found</code>), <b>başlıklar</b> (<code>Location</code>, <code>Set-Cookie</code>, <code>Server</code> …) ve <b>gövde</b>. <code>curl -v</code>\'de <code>&gt;</code> satırları giden istek, <code>&lt;</code> satırları gelen yanıttır. Kod sınıfları: 2xx başarı, 3xx yönlendirme (301/308 kalıcı, 302/307 geçici), 4xx istemci hatası (401 kimlik yok, 403 yetki yok, 404 yok, 405 metot izinli değil), 5xx sunucu tarafı hata (502 geçersiz yanıt, 503 hizmet yok, 504 zaman aşımı).',
+            'Yanlış kod izlemeyi (200 dönen hata sayfası "sağlıklı" görünür), önbelleği ve arama motorlarını (302 ile kalıcı taşıma) yanıltır; eksik çerez bayrakları ve sürüm sızıntısı güvenlik taramasında bulgu olur.',
+            'curl -v http://203.0.113.100/eski\n&lt; HTTP/1.1 302 Found\n&lt; Location: /yeni', ['Yalnız gövdeye bakıp durum kodunu atlamak.', '302 ile 301 farkını önemsememek.', 'Set-Cookie bayraklarını (Secure, HttpOnly) okumamak.']),
+        goals: ['curl -v çıktısını satır satır okumak', 'Durum kodunun anlamını ve doğruluğunu sorgulamak', 'Başlık kusurlarını bulmak'],
+        tasks: [
+            { t: '<code>curl -v http://203.0.113.100/eski</code> ile eski adresi isteyin ve yanıtın durum satırını ve <code>Location</code> başlığını okuyun.', why: 'Yönlendirmenin kodu, tarayıcının ve arama motorunun bu bilgiyi ne kadar süre saklayacağını belirler.',
+              hints: ['curl -v …/eski', '<code>curl -v http://203.0.113.100/eski</code>'], steps: ['curl -v http://203.0.113.100/eski'], check: s => curls(s).some(c => c.path === '/eski') },
+            { t: 'Soru: Sayfa kalıcı olarak <code>/yeni</code>\'ye taşındı. Bu yanıttaki kusur ne?', ask: { choices: [['302', '302 geçici yönlendirmedir; kalıcı taşımada 301 (ya da metodu koruyan 308) olmalı'], ['loc', 'Location göreli olamaz, hata verir'], ['body', 'Gövde boş olduğu için tarayıcı sayfayı açamaz'], ['ok', 'Kusur yok']], correct: '302' },
+              why: '302 ile arama motoru eski adresi dizinde tutar, tarayıcı yönlendirmeyi önbelleğe almaz. Göreli Location (RFC 9110) geçerlidir.', hints: ['Durum satırındaki kod', 'Geçici mi kalıcı mı?'], needs: [0] },
+            { t: '<code>curl -v http://203.0.113.100/giris</code> ile giriş sayfasını isteyin; <code>Set-Cookie</code> başlığına bakın.', why: 'Oturum çerezi, hesabın anahtarıdır.',
+              hints: ['curl -v …/giris', '<code>curl -v http://203.0.113.100/giris</code>'], steps: ['curl -v http://203.0.113.100/giris'], check: s => curls(s).some(c => c.path === '/giris') },
+            { t: 'Boşluk doldurma: oturum çerezi yalnız HTTPS\'te gönderilsin ve JavaScript onu okuyamasın. Başlığı tamamlayın (önce HTTPS bayrağı).',
+              fill: ['Set-Cookie: oturum=ab12cd34; path=/; ', { a: ['Secure'] }, '; ', { a: ['HttpOnly'] }],
+              why: '<code>Secure</code>: çerez yalnız şifreli bağlantıda gider. <code>HttpOnly</code>: tarayıcıdaki betikler (XSS) çereze erişemez. (Ek olarak <code>SameSite</code> çapraz site isteklerini sınırlar.)', hints: ['İki bayrak: biri HTTPS, biri JavaScript için', 'Secure ve HttpOnly'], needs: [2] },
+            { t: '<code>/api/bilgi</code> ve <code>/bakim</code> yanıtlarını <code>curl -v</code> ile inceleyin.', why: 'Kusurların bir kısmı başlıklarda, bir kısmı durum kodunda.',
+              hints: ['İki curl -v', '<code>curl -v http://203.0.113.100/api/bilgi</code> → <code>curl -v http://203.0.113.100/bakim</code>'], steps: ['curl -v http://203.0.113.100/api/bilgi', 'curl -v http://203.0.113.100/bakim'],
+              check: s => curls(s).some(c => c.path === '/api/bilgi') && curls(s).some(c => c.path === '/bakim') },
+            { t: 'Mini test: gördüklerinizi değerlendirin (geçmek için 5 sorunun 4\'ü).', needs: [4], why: 'Kusuru görmek yetmez; doğru kodu ve düzeltmeyi söyleyebilmek gerekir.', hints: ['Yanıtları yeniden curl -v ile okuyun', 'Kod sınıfları: 2xx/3xx/4xx/5xx; 401 kimlik, 403 yetki; 502 geçersiz yanıt, 504 zaman aşımı'],
+              quiz: { pass: 0.8, qs: [
+                  { q: '<code>/api/bilgi</code> yanıtındaki kusur?', choices: [['leak', 'Server ve X-Powered-By, eski ve açıklı yazılım sürümlerini sızdırıyor'], ['json', 'JSON gövde 200 ile dönemez'], ['ctype', 'Content-Type yanlış']], correct: 'leak', why: 'Saldırgan sürüm bilgisini bilinen açıklarla eşleştirir; BIG-IP\'de HTTP_RESPONSE\'ta ya da profilde silinir.' },
+                  { q: '<code>/bakim</code> gövdesi "veritabanına bağlanılamadı" diyor ama kod 200. Sorun?', choices: [['503', 'Hata 200 ile dönüyor: izleme ve monitor "sağlıklı" sanır; 503 olmalı'], ['404', '404 olmalı'], ['ok', 'Gövde hatayı söylediği için sorun yok']], correct: '503', why: 'Durum kodu makinelerin okuduğu sözleşmedir; BIG-IP monitörü de receive string yoksa yalnız koda bakar.' },
+                  { q: 'Kimliği doğrulanmamış kullanıcıya dönülmesi gereken kod?', choices: [['401', '401 Unauthorized'], ['403', '403 Forbidden'], ['404', '404 Not Found']], correct: '401', why: '401: kimlik yok ya da geçersiz. 403: kimlik belli ama yetkisi yok.' },
+                  { q: 'BIG-IP arkasındaki sunucu 60 sn\'de yanıt vermiyor. Bir ara proxy\'nin döneceği en uygun kod?', choices: [['504', '504 Gateway Timeout'], ['502', '502 Bad Gateway'], ['500', '500 Internal Server Error']], correct: '504', why: '504: arka uç zamanında yanıt vermedi. 502: arka uçtan geçersiz yanıt geldi.' },
+                  { q: '<code>HEAD</code> isteği hakkında doğru olan?', choices: [['nobody', 'GET ile aynı başlıklar döner ama gövde dönmez'], ['post', 'Veri göndermek içindir'], ['cache', 'Önbelleği temizler']], correct: 'nobody', why: '<code>curl -I</code> HEAD gönderir; başlıkları görmek için idealdir.' },
+              ] } },
+        ],
+        verify: ['curl -v http://203.0.113.100/giris'], learn: ['Durum satırı + başlıklar + gövde: üçünü de oku.', 'Kalıcı taşıma 301/308, hata 5xx; 200 ile hata dönme.', 'Oturum çerezi: Secure; HttpOnly.', 'Sürüm sızdıran başlıkları kaldır.'],
+        links: { tool: '#/f5-ltm/httpprofile', cli: '#/cli/f5-ltm' }, cert: 'HTTP'
+    },
+    {
+        id: 'f5-60', vendor: 'f5-ltm', level: 3, title: 'HTTP profili: metot politikası (TRACE ve WebDAV kapat)', minutes: 25, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-09'],
+        up: UP, sim: SIMIR, start: IRSTART, startMode: 'tmsh',
+        story: 'Güvenlik taraması iki bulgu verdi: "HTTP TRACE açık" ve "WebDAV metotları (PROPFIND) yanıt alıyor". Uygulama yalnız GET, HEAD ve POST kullanıyor. <code>vs_web</code> varsayılan <code>http</code> profilini kullanıyor; o profili başka VS\'ler de paylaşıyor.',
+        lesson: L('HTTP profilinin <code>enforcement</code> bölümü BIG-IP\'nin tanıdığı metotları (<code>known-methods</code>) ve tanımadığı metoda ne yapacağını (<code>unknown-method allow | reject | pass-through</code>) belirler. Varsayılan liste CONNECT, DELETE, GET, HEAD, LOCK, OPTIONS, POST, PROPFIND, PUT, TRACE, UNLOCK; varsayılan kural <code>allow</code>. Listeden çıkarılan metot bilinmeyen sayılır; <code>reject</code> ile BIG-IP bağlantıyı sıfırlar ve istek sunucuya hiç ulaşmaz (K85840901).',
+            'Sunucunun kendisi TRACE\'e 405 dönse bile istek arka uca kadar gider; kontrol ön kapıda (BIG-IP) yapılırsa tüm uygulamalar tek yerden korunur. Varsayılan <code>http</code> profilini değiştirmek onu kullanan tüm VS\'leri etkiler: özel profil türetilir.',
+            'create ltm profile http http_web defaults-from http enforcement { known-methods replace-all-with { GET HEAD POST } unknown-method reject }\nmodify ltm virtual vs_web profiles delete { http } profiles add { http_web }',
+            ['Varsayılan http profilini değiştirmek.', 'Listeden çıkarıp unknown-method\'u allow bırakmak (hiçbir şey değişmez).', 'API\'nin kullandığı PUT/DELETE\'i unutmak.']),
+        goals: ['Metot isteklerinin kime ulaştığını görmek', 'known-methods / unknown-method', 'Türetilmiş profil ve VS\'ye bağlama', 'curl ile doğrulama'],
+        tasks: [
+            { t: 'Keşif: bash\'te <code>curl -v -X TRACE http://203.0.113.100/</code> ve <code>curl -v -X PROPFIND http://203.0.113.100/</code> çalıştırın, yanıtların kodunu ve <code>Server</code> başlığını not edin.', why: 'Yanıtın kimden geldiğini Server başlığı ve kod söyler.',
+              hints: ['run util bash, iki curl -X', '<code>run util bash</code> → <code>curl -v -X TRACE http://203.0.113.100/</code> → <code>curl -v -X PROPFIND http://203.0.113.100/</code> → <code>exit</code>'],
+              steps: ['run util bash', 'curl -v -X TRACE http://203.0.113.100/', 'curl -v -X PROPFIND http://203.0.113.100/', 'exit'],
+              check: s => curls(s).some(c => c.method === 'TRACE' && c.code === 405) && curls(s).some(c => c.method === 'PROPFIND' && c.code === 501) },
+            { t: 'Soru: TRACE isteğine 405\'i kim döndürdü?', ask: { choices: [['srv', 'Arka uç sunucu: istek BIG-IP\'den geçip sunucuya ulaştı (Server: Apache)'], ['bigip', 'BIG-IP HTTP profili'], ['curl', 'curl\'ün kendisi']], correct: 'srv' },
+              why: 'Varsayılan profilde TRACE bilinen metottur ve geçer; sunucu kendi kuralıyla reddediyor. Tarama bu yüzden "TRACE açık" diyor: istek arka uca ulaşıyor.', hints: ['Server başlığı', 'BIG-IP kendi yanıtında Server: BigIP yazar'], needs: [0] },
+            { t: 'Boşluk doldurma: yalnız GET/HEAD/POST\'a izin veren, diğerlerini reddeden türetilmiş profil komutunu tamamlayın.',
+              fill: ['create ltm profile http http_web defaults-from ', { a: ['http', '/Common/http'] }, ' enforcement { known-methods ', { a: ['replace-all-with'] }, ' { GET HEAD POST } unknown-method ', { a: ['reject'] }, ' }'],
+              why: '<code>defaults-from http</code> diğer tüm ayarları varsayılandan miras alır; <code>replace-all-with</code> listeyi tamamen değiştirir (add/delete yalnız ekler/çıkarır); <code>reject</code> listede olmayanları keser.', hints: ['Ebeveyn profil, liste işlemi, kural', 'http · replace-all-with · reject'] },
+            { t: 'Profili oluşturup <code>vs_web</code>\'de varsayılan <code>http</code> profilinin yerine bağlayın.', why: 'Bir VS\'de tek HTTP profili olur; önce eskisi çıkar.',
+              hints: ['create … ; modify ltm virtual vs_web profiles delete { http } profiles add { http_web }', '<code>create ltm profile http http_web defaults-from http enforcement { known-methods replace-all-with { GET HEAD POST } unknown-method reject }</code> → <code>modify ltm virtual vs_web profiles delete { http } profiles add { http_web }</code>'],
+              steps: ['create ltm profile http http_web defaults-from http enforcement { known-methods replace-all-with { GET HEAD POST } unknown-method reject }', 'modify ltm virtual vs_web profiles delete { http } profiles add { http_web }'],
+              check: s => { const p = s.model.httpProfiles.http_web, v = s.model.virtuals.vs_web; return !!p && p.enf && (p.enf.known || []).join() === 'GET,HEAD,POST' && p.enf.unknown === 'reject' && v.profiles.includes('http_web') && !v.profiles.includes('http'); } },
+            { t: 'Doğrulayın: TRACE ve PROPFIND artık sunucuya ulaşmadan kesilmeli, normal sayfa açılmalı.', why: 'Kontrol "istek engellendi mi" ve "iş bozulmadı mı" sorularının ikisini de yanıtlamalı.',
+              hints: ['Üç curl', '<code>run util bash</code> → <code>curl -v -X TRACE http://203.0.113.100/</code> → <code>curl -v -X PROPFIND http://203.0.113.100/</code> → <code>curl -I http://203.0.113.100/</code> → <code>exit</code>'],
+              steps: ['run util bash', 'curl -v -X TRACE http://203.0.113.100/', 'curl -v -X PROPFIND http://203.0.113.100/', 'curl -I http://203.0.113.100/', 'exit'], needs: [3],
+              check: s => { const c = curlsAfter(s, /profiles add \{ http_web \}/); return c.some(x => x.method === 'TRACE' && x.why === 'httpmethod') && c.some(x => x.method === 'PROPFIND' && x.why === 'httpmethod') && c.some(x => (x.method === 'GET' || x.method === 'HEAD') && x.code === 200); } },
+            { t: 'Mini test (3 sorunun 3\'ü).', needs: [4], why: 'Ayarı yapmak kadar sonuçlarını bilmek de önemli.', hints: ['Varsayılan profil kimlerle paylaşılıyor?', 'Listede olmayan metot hangi kurala düşer?'],
+              quiz: { pass: 1, qs: [
+                  { q: 'Neden varsayılan <code>http</code> profilini değiştirmedik?', choices: [['all', 'Onu kullanan tüm virtual server\'lar etkilenirdi'], ['ro', 'Varsayılan profil değiştirilemez'], ['perf', 'Performans düşerdi']], correct: 'all', why: 'Varsayılan profil değiştirilebilir, ama paylaşıldığı için etki alanı büyüktür.' },
+                  { q: 'API ekibi PATCH kullanmaya başladı; profil değişmezse ne olur?', choices: [['rst', 'PATCH listede yok → unknown-method reject → bağlantı sıfırlanır'], ['pass', 'Sunucuya iletilir'], ['405', 'BIG-IP 405 döner']], correct: 'rst', why: 'Listede olmayan her metot kuralın konusu olur; API VS\'i için ayrı profil ya da listeye ekleme gerekir.' },
+                  { q: '<code>unknown-method pass-through</code> ne yapar?', choices: [['pt', 'İstek geçer ama BIG-IP o bağlantıda HTTP işlemeyi bırakır (iRule HTTP olayları, persistence çalışmaz)'], ['rej', 'reject ile aynıdır'], ['405', 'BIG-IP 405 üretir']], correct: 'pt', why: 'pass-through güvenlik kontrolü değil, "HTTP\'yi burada bırak" demektir.' },
+              ] } },
+        ],
+        verify: ['list ltm profile http http_web', 'curl -v -X TRACE http://203.0.113.100/'], learn: ['known-methods + unknown-method reject = metot beyaz listesi.', 'Varsayılan profili değil, türetilmişi değiştir.', 'Engelleme kapıda: istek sunucuya ulaşmaz.'],
+        links: { tool: '#/f5-ltm/httpprofile', cli: '#/cli/f5-ltm' }, cert: 'HTTP'
+    },
+    {
+        id: 'f5-62', vendor: 'f5-ltm', level: 3, title: 'HTTP profili: başlık sınırları ve büyük SSO çerezi', minutes: 20, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-60'],
+        up: UP, sim: SIMSSO, startMode: 'tmsh',
+        start: IRSTART.concat(['create ltm profile http http_web defaults-from http enforcement { max-header-size 16384 }', 'modify ltm virtual vs_web profiles delete { http } profiles add { http_web }']),
+        story: 'Tek oturum açma (SSO) sonrası bazı kullanıcılar siteye giremiyor: tarayıcı "bağlantı sıfırlandı" diyor. Diğer kullanıcılar sorunsuz. Geçen hafta biri "sıkılaştırma" için <code>http_web</code> profilinde bir değer düşürmüş. SSO kullanıcısının çerezleri <code>' + SSO_JAR + '</code> dosyasında.',
+        lesson: L('<code>max-header-size</code>, istek satırı dahil tüm başlıkların toplam boyut sınırıdır (varsayılan 32768 bayt); <code>max-header-count</code> başlık satırı sayısıdır (varsayılan 64). Aşılırsa BIG-IP bağlantıyı TCP RST ile keser ve <code>/var/log/ltm</code>\'e <code>011f0005:3: HTTP header (N) exceeded maximum allowed size of M (Client side: vip=… profile=… pool=…)</code> yazar (K8482). Log satırı gelen boyutu ve sınırı birlikte verir.',
+            'SSO/JWT ve analitik çerezleri başlıkları hızla büyütür; sınır çok düşükse yalnız bazı kullanıcılar etkilenir ve sorun "rastgele" görünür. Sınırı sınırsız büyütmek de bellek ve saldırı yüzeyi demektir: ölçülü artırılır.',
+            'grep 011f0005 /var/log/ltm\ntmsh modify ltm profile http http_web enforcement { max-header-size 32768 }', ['Sınırı 1 MB gibi ölçüsüz büyütmek.', 'Sorunu yalnız kendi (küçük çerezli) tarayıcınızla test edip "çalışıyor" demek.', 'Logdaki boyutu okumadan değer seçmek.']),
+        goals: ['Sorunu çerezli istemciyle yeniden üretmek', 'Logdan boyut ve sınırı okumak', 'Sınırı ölçülü ayarlamak'],
+        tasks: [
+            { t: 'Yeniden üretin: bash\'te önce çerezsiz <code>curl -I http://203.0.113.100/</code>, sonra SSO çerezleriyle <code>curl -I -b ' + SSO_JAR + ' http://203.0.113.100/</code>.', why: 'Aynı istek, farklı başlık boyutu: fark sorunun yerini gösterir.',
+              hints: ['İki curl, biri -b ile', '<code>run util bash</code> → <code>curl -I http://203.0.113.100/</code> → <code>curl -I -b ' + SSO_JAR + ' http://203.0.113.100/</code> → <code>exit</code>'],
+              steps: ['run util bash', 'curl -I http://203.0.113.100/', 'curl -I -b ' + SSO_JAR + ' http://203.0.113.100/', 'exit'],
+              check: s => curls(s).some(c => c.code === 200) && curls(s).some(c => c.kind === 'reset' && c.why === 'hdrsize') },
+            { t: 'Logda nedeni bulun: <code>grep 011f0005 /var/log/ltm</code>.', why: 'Mesaj gelen boyutu ve sınırı verir: ayarın ne olması gerektiğini buradan okursunuz.',
+              hints: ['grep ile mesaj kodu', '<code>run util bash</code> → <code>grep 011f0005 /var/log/ltm</code> → <code>exit</code>'], steps: ['run util bash', 'grep 011f0005 /var/log/ltm', 'exit'], needs: [0], check: s => s.ev.list().some(e => e.raw && /grep\s.*011f0005/.test(e.raw)) },
+            { t: 'Soru: Logdaki iki sayı ne anlatıyor?', ask: { choices: [['ok', 'İsteğin başlık boyutu (≈20 KB) profildeki 16384 sınırını aşmış'], ['cookie', 'Çerez sayısı 16384\'ü aşmış'], ['body', 'İstek gövdesi büyük']], correct: 'ok' },
+              why: 'Sınır, istek satırı dahil tüm başlıkların toplamıdır; SSO çerezi tek başına ~20 KB.', hints: ['HTTP header (N) … of M', 'Boyut mu sayı mı?'], needs: [1] },
+            { t: 'Boşluk doldurma: sınırı varsayılana (32768) döndüren komut.',
+              fill: ['tmsh modify ltm profile http http_web enforcement { ', { a: ['max-header-size'] }, ' ', { a: ['32768'] }, ' }'],
+              why: 'Varsayılan 32768 bu çerezi karşılar; daha büyüğü gerekiyorsa ölçülen gerçek boyuta göre artırılır.', hints: ['Ayar adı logdaki mesajda geçiyor', 'max-header-size 32768'] },
+            { t: 'Sınırı düzeltin ve SSO kullanıcısıyla doğrulayın.', why: 'Düzeltmenin kanıtı, sorunu yaşayan istemciyle yapılan başarılı istektir.',
+              hints: ['tmsh modify … → run util bash → curl -b', '<code>modify ltm profile http http_web enforcement { max-header-size 32768 }</code> → <code>run util bash</code> → <code>curl -I -b ' + SSO_JAR + ' http://203.0.113.100/</code> → <code>exit</code>'],
+              steps: ['modify ltm profile http http_web enforcement { max-header-size 32768 }', 'run util bash', 'curl -I -b ' + SSO_JAR + ' http://203.0.113.100/', 'exit'], needs: [0],
+              check: s => { const p = s.model.httpProfiles.http_web; const lim = p && p.enf && p.enf.maxHdrSize; return (!lim || lim >= 20480) && curlsAfter(s, /max-header-size/).some(c => c.code === 200); } },
+            { t: 'Mini test (3 sorunun 2\'si).', needs: [4], why: 'Benzer "rastgele" kesintileri ileride hızlı tanımak için.', hints: ['Kullanıcılar arasında ne farklı?', 'K8482: BIG-IP yanıt üretmez'],
+              quiz: { pass: 0.67, qs: [
+                  { q: 'Neden yalnız bazı kullanıcılar etkilendi?', choices: [['size', 'Başlık boyutu kullanıcıya göre değişir (SSO/analitik çerezleri); küçük çerezliler sınırın altında kaldı'], ['rand', 'BIG-IP rastgele bağlantı keser'], ['browser', 'Yalnız belirli tarayıcılar HTTP/1.1 kullanır']], correct: 'size', why: '"Rastgele" görünen kesintilerde istemciye özgü farkı arayın: çerez, başlık, metot.' },
+                  { q: 'Sınırı 1 MB yapmak neden kötü fikir?', choices: [['mem', 'Her bağlantı için büyük arabellek ayrılır; büyük başlıklı saldırılara kapı açar'], ['nope', 'tmsh 32768\'den büyük değeri kabul etmez'], ['ssl', 'SSL çalışmaz']], correct: 'mem', why: 'Ölçülen gerçek ihtiyaç + makul pay.' },
+                  { q: 'Sınır aşıldığında kullanıcı ne görür?', choices: [['rst', 'Bağlantı sıfırlanır (tarayıcı: bağlantı sıfırlandı)'], ['413', '413 Payload Too Large sayfası'], ['431', '431 hata sayfası']], correct: 'rst', why: 'BIG-IP HTTP profili bu durumda yanıt üretmez, TCP RST gönderir (K8482).' },
+              ] } },
+        ],
+        verify: ['grep 011f0005 /var/log/ltm', 'list ltm profile http http_web'], learn: ['max-header-size = istek satırı + tüm başlıklar.', 'Aşım: TCP RST + 011f0005 log satırı (boyut ve sınır).', 'Sorunu, sorunu yaşayan istemciyle doğrula.'],
+        links: { tool: '#/f5-ltm/httpaudit', cli: '#/cli/f5-ltm' }, cert: 'HTTP'
+    },
     // ═══ 8 · iRule Arenası — ikinci dalga ═══
     {
         id: 'f5-48', vendor: 'f5-ltm', level: 8, title: 'Arena · Eksik Satır: kuralı tamamla', minutes: 15, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-33'],
@@ -1691,6 +1809,22 @@
         goals: [], tasks: [], links: { cli: '#/cli/f5-ltm' }
     },
     ];
+    // Boşluk doldurma (fill) ve puanlı mini test (quiz): cevap s.answers[lab:i] içinde (fill: dizi, quiz: { soru: seçenek })
+    const fillNorm = x => String(x == null ? '' : x).trim().replace(/\s+/g, ' ').toLowerCase();
+    LABS.forEach(l => l.tasks.forEach((t, i) => {
+        const key = l.id + ':' + i;
+        if (t.fill) {
+            const blanks = t.fill.filter(x => typeof x === 'object');
+            t.fillOk = v => Array.isArray(v) && blanks.every((b, k) => b.a.some(ok => fillNorm(ok) === fillNorm(v[k])));
+            t.check = s => !!s.answers && t.fillOk(s.answers[key]);
+            t.steps = t.steps || [{ answer: i, v: blanks.map(b => b.a[0]) }];
+        }
+        if (t.quiz) {
+            t.quizScore = v => (v ? t.quiz.qs.filter((q, k) => v[k] === q.correct).length : 0);
+            t.check = s => !!s.answers && t.quizScore(s.answers[key]) >= Math.ceil(t.quiz.qs.length * (t.quiz.pass || 0.8) - 0.05);   // 0.67 × 3 → 2
+            t.steps = t.steps || [{ answer: i, v: Object.fromEntries(t.quiz.qs.map((q, k) => [k, q.correct])) }];
+        }
+    }));
     // Çoktan seçmeli (ask) görevler ve adımlardan türetilen örnek çözüm
     LABS.forEach(l => l.tasks.forEach((t, i) => {
         if (!t.ask) return;

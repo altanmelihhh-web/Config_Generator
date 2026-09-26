@@ -1111,9 +1111,9 @@ const CgLabTmsh = (function () {
             if (!allow.includes(method)) return { code: method === 'TRACE' ? 405 : 501, headers: [], body: '' };
             const ent = P.paths ? (P.paths[path] !== undefined ? P.paths[path] : (P.paths['*'] !== undefined ? P.paths['*'] : 404)) : 200;
             const e = typeof ent === 'number' ? { code: ent } : ent;
-            const H = []; if (e.loc) H.push('Location: ' + e.loc);
+            const H = []; if (e.loc) H.push('Location: ' + e.loc); (e.headers || []).forEach(h => H.push(h));
             const body = e.body !== undefined ? e.body : (e.code === 200 ? (P.body || srv.name || srv.ip) + ' OK' : e.code + ' ' + (REASON[e.code] || ''));
-            return { code: e.code, headers: H, body: method === 'HEAD' ? '' : body };
+            return { code: e.code, headers: H, body: method === 'HEAD' ? '' : body, noServerHdr: H.some(h => /^server:/i.test(h)) };
         }
         // monitör sonucu: { up, err, disabled }
         function monCheck(mname, ip, port) {
@@ -1648,7 +1648,7 @@ const CgLabTmsh = (function () {
             return { out, ok: true, log: r.log };
         }
         // curl: VIP'e istek dış istemciden (lab.sim.client) gönderilmiş kabul edilir; sunucu IP'sine istek BIG-IP'nin kendisinden gider
-        const JARS = {};
+        const JARS = JSON.parse(JSON.stringify(SIM.jars || {}));   // lab önceden çerez dosyası verebilir (ör. büyük SSO çerezi)
         // curl -L: 3xx yanıtında Location izlenir (en çok --max-redirs, varsayılan 50; curl 7.81: "curl: (47) Maximum (50) redirects followed")
         function curl(a, depth) {
             depth = depth || 0;
