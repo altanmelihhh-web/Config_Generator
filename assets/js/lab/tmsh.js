@@ -443,21 +443,25 @@ const CgLabTmsh = (function () {
         };
         const persistT = (typ, parent) => ({
             kind: 'persistence profile', named: true, coll: () => new Proxy(M().persists, { get: (t, k) => (t[k] && t[k].type === typ ? t[k] : undefined), has: (t, k) => !!(t[k] && t[k].type === typ), ownKeys: t => Object.keys(t).filter(k => t[k].type === typ), getOwnPropertyDescriptor: (t, k) => (t[k] && t[k].type === typ ? { enumerable: true, configurable: true, value: t[k] } : undefined), set: (t, k, v) => { t[k] = v; return true; }, deleteProperty: (t, k) => { delete t[k]; return true; } }),
-            fresh: () => (typ === 'cookie' ? { type: typ, parent, method: 'insert', cookieName: '', expiration: '0' } : { type: typ, parent, timeout: 180, mask: 'none' }),
+            fresh: () => (typ === 'cookie' ? { type: typ, parent, method: 'insert', cookieName: '', expiration: '0', enc: 'disabled', pass: '' } : { type: typ, parent, timeout: 180, mask: 'none' }),
             set(o, P) {
                 for (const p of P) {
                     if (p.k === 'defaults-from') { if (persistType(p.v) !== typ) return NF('persistence profile', p.v); o.parent = p.v; }
                     else if (typ === 'cookie' && p.k === 'method') { if (!['insert', 'rewrite', 'passive', 'hash'].includes(p.v)) return SYNx('"' + p.v + '" invalid method'); o.method = p.v; }
                     else if (typ === 'cookie' && p.k === 'cookie-name') o.cookieName = p.v;
                     else if (typ === 'cookie' && p.k === 'expiration') o.expiration = p.v;
+                    else if (typ === 'cookie' && p.k === 'cookie-encryption') { if (!['required', 'preferred', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value (required|preferred|disabled)'); o.enc = p.v; }
+                    else if (typ === 'cookie' && p.k === 'cookie-encryption-passphrase') o.pass = p.v === 'none' ? '' : p.v;
+                    else if (typ === 'cookie' && (p.k === 'httponly' || p.k === 'secure')) { if (!['enabled', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o[p.k] = p.v; }
                     else if (typ === 'source-addr' && p.k === 'timeout') { if (!/^\d+$/.test(p.v)) return SYNx('"' + p.v + '" invalid value'); o.timeout = +p.v; }
                     else if (typ === 'source-addr' && p.k === 'mask') o.mask = p.v;
                     else return SYN(p.k);
                 }
+                if (typ === 'cookie' && o.enc !== 'disabled' && !o.pass) return E('# [Simülatör] cookie-encryption ' + o.enc + ' için cookie-encryption-passphrase gerekli.', 'value');
                 return null;
             },
-            list(n, o) { return typ === 'cookie' ? ['ltm persistence cookie ' + n + ' {', '    app-service none', o.cookieName ? '    cookie-name ' + o.cookieName : null, '    defaults-from /Common/' + o.parent, '    expiration ' + o.expiration, '    method ' + o.method, '}'].filter(Boolean) : ['ltm persistence source-addr ' + n + ' {', '    app-service none', '    defaults-from /Common/' + o.parent, '    mask ' + o.mask, '    timeout ' + o.timeout, '}']; },
-            props: typ === 'cookie' ? ['defaults-from', 'method', 'cookie-name', 'expiration'] : ['defaults-from', 'timeout', 'mask'],
+            list(n, o) { return typ === 'cookie' ? ['ltm persistence cookie ' + n + ' {', '    app-service none', o.cookieName ? '    cookie-name ' + o.cookieName : null, '    defaults-from /Common/' + o.parent, '    expiration ' + o.expiration, o.enc !== 'disabled' ? '    cookie-encryption ' + o.enc : null, o.pass ? '    cookie-encryption-passphrase $M$' + 'x'.repeat(12) : null, '    method ' + o.method, '}'].filter(Boolean) : ['ltm persistence source-addr ' + n + ' {', '    app-service none', '    defaults-from /Common/' + o.parent, '    mask ' + o.mask, '    timeout ' + o.timeout, '}']; },
+            props: typ === 'cookie' ? ['defaults-from', 'method', 'cookie-name', 'expiration', 'cookie-encryption', 'cookie-encryption-passphrase', 'httponly', 'secure'] : ['defaults-from', 'timeout', 'mask'],
         });
         T['ltm persistence cookie'] = persistT('cookie', 'cookie'); T['ltm persistence source-addr'] = persistT('source-addr', 'source_addr');
         // HTTP profili: yalnız açıkça ayarlanan alanlar saklanır; gerisi defaults-from zincirinden (httpEff) gelir
@@ -1196,7 +1200,11 @@ const CgLabTmsh = (function () {
             if (t === 'tcp_half_open' || (t === 'tcp' && !mo.recv)) return { up: true };
             if (t === 'https' && !srv.ports[dport].tls) return { up: false, err: 'SSL handshake failed.' };
             const m = String(mo.send || '').match(/^([A-Z]+)\s+(\S+)/); const method = m ? m[1] : 'GET', path = m ? m[2] : '/';
-            const resp = serverResp(srv, dport, path, method);
+            // send string doğruluğu (K2167, K13397): HTTP/1.x isteği boş satırla (\r\n\r\n) bitmezse sunucu isteğin sonunu bekler → zaman aşımı;
+            // HTTP/1.1'de Host başlığı zorunludur → sunucu 400 döner. "GET /\r\n" gibi eski (HTTP/0.9) biçim başlık gerektirmez.
+            const sraw = String(mo.send || ''), l1 = sraw.split('\\r\\n')[0].trim();
+            if (/HTTP\/1\.[01]$/.test(l1) && !/\\r\\n\\r\\n$/.test(sraw)) return { up: false, err: 'No successful responses received before deadline.' };
+            const resp = /HTTP\/1\.1$/.test(l1) && !/\\r\\nHost:/i.test(sraw) ? { code: 400, headers: ['Content-Type: text/html'], body: '<h1>Bad Request</h1>' } : serverResp(srv, dport, path, method);
             if (!resp) return { up: false, err: 'Unable to connect.' };
             const raw = 'HTTP/1.1 ' + resp.code + ' ' + (REASON[resp.code] || '') + '\r\n' + resp.headers.join('\r\n') + '\r\n\r\n' + resp.body;
             if (mo.recvDisable && raw.includes(mo.recvDisable)) return { up: true, disabled: true };
@@ -1294,6 +1302,8 @@ const CgLabTmsh = (function () {
             S.rt.ms = now; S.rt.ps = nowP; S.rt.vs = nowV; S.rt.ns = nowN;
         }
         // ── istemciden VIP'e istek: { kind: 'ok'|'refused'|'reset'|'timeout', resp, member, setCookie }
+        // şifreli BIGipServer değeri: "!" ile başlayan base64 benzeri metin (biçim temsilidir; gerçek algoritma değil). IP/port okunamaz.
+        function f5cookieEnc(ip, port, pass, pool) { let h = 2166136261; const t = ip + ':' + port + '|' + pass + '|' + pool; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; let o = '!'; for (let i = 0; i < 44; i++) { h = Math.imul(h ^ (h >>> 13), 2246822507) >>> 0; o += A[h % 64]; } return o + '=='; }
         function f5cookie(ip, port) { const o = ip.split('.').map(Number); const n = o[0] + o[1] * 256 + o[2] * 65536 + o[3] * 16777216; const pp = ((port & 0xff) << 8) | (port >> 8); return n + '.' + pp + '.0000'; }
         function eligible(pn) {
             const pl = M().pools[pn];
@@ -1462,14 +1472,15 @@ const CgLabTmsh = (function () {
             const cname = pers === 'cookie' ? ((M().persists[v.persist[0]] || {}).cookieName || 'BIGipServer' + PN) : null;
             // devre dışı (session user-disabled) üye yeni bağlantı almaz ama kalıcılık kaydı olan istemcileri kabul eder; forced offline kabul etmez
             const persistOk = k => { if (!pl.members[k]) return false; if (L.includes(k)) return true; const st = memberStatus(PN, k); return (st.avail === 'available' || st.avail === 'unknown') && st.session === 'user-disabled'; };
-            if (pers === 'cookie' && o.cookie && o.cookie[cname]) { key = pl.order.find(k => f5cookie(pl.members[k].ip, pl.members[k].port) === o.cookie[cname] && persistOk(k)) || null; persisted = !!key; }
+            const cprof = pers === 'cookie' ? (M().persists[v.persist[0]] || { enc: 'disabled' }) : null;
+            if (pers === 'cookie' && o.cookie && o.cookie[cname]) { const cv = o.cookie[cname]; key = pl.order.find(k => persistOk(k) && ((cprof.enc !== 'required' && f5cookie(pl.members[k].ip, pl.members[k].port) === cv) || (cprof.enc !== 'disabled' && f5cookieEnc(pl.members[k].ip, pl.members[k].port, cprof.pass, PN) === cv))) || null; persisted = !!key; }
             if (pers === 'source-addr' || (!key && pers === 'cookie' && v.fallback && persistType(v.fallback) === 'source-addr')) { const pr = (S.rt.persist || (S.rt.persist = {}))[PN + '|' + o.src]; if (pr && persistOk(pr)) { key = pr; persisted = true; } }
             // iRule pool … member <ip> [port]: belirtilen üye (kullanılabilirse) seçilir
             if (!key && X.act.member) { const mk = pl.order.find(k => k === X.act.member || k.split(':')[0] === X.act.member); if (mk && (L.includes(mk) || persistOk(mk))) key = mk; }
             if (!key) key = lbPick(PN, L);
             const m = pl.members[key];
             if (pers === 'source-addr' || (pers === 'cookie' && v.fallback)) { S.rt.persist[PN + '|' + o.src] = key; (S.rt.pmeta || (S.rt.pmeta = {}))[PN + '|' + o.src] = { vs: vn, age: 12 + (ip2n(o.src) % 150) }; }
-            if (pers === 'cookie' && hasHttp && !persisted) { const mt = (M().persists[v.persist[0]] || {}).method || 'insert'; if (mt === 'insert') setCookie = cname + '=' + f5cookie(m.ip, m.port) + '; path=/; Httponly'; }
+            if (pers === 'cookie' && hasHttp && !persisted) { const mt = (M().persists[v.persist[0]] || {}).method || 'insert'; if (mt === 'insert') setCookie = cname + '=' + (cprof.enc !== 'disabled' ? f5cookieEnc(m.ip, m.port, cprof.pass, PN) : f5cookie(m.ip, m.port)) + '; path=/; Httponly'; }
             (S.rt.conns || (S.rt.conns = {}))[PN + '|' + key] = ((S.rt.conns || {})[PN + '|' + key] || 0);
             (S.rt.hits || (S.rt.hits = {}))[PN + '|' + key] = (S.rt.hits[PN + '|' + key] || 0) + 1;
             const sport = v.tport === 'enabled' ? m.port : o.port, sip = v.taddr === 'enabled' ? m.ip : o.ip;

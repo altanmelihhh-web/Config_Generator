@@ -266,5 +266,35 @@
                 { q: 'Policy blocking modda ama saldırı yalnız loglanıyor. İlk bakılacak yer?', choices: [['stg', 'İlgili imza/varlık staging\'de mi (enforcement readiness)'], ['dns', 'DNS kaydı'], ['mon', 'Pool monitor']], correct: 'stg', why: 'Staging\'deki imza ihlal üretir ama engellemez.' },
             ]
         },
+        {
+            title: 'Monitor Kırmızı ama Sunucu Tarayıcıdan Açılıyor: send/recv, Host, Boş Satır, Port ve Kaynak IP', severity: 'err', topic: 'adc', lab: 'f5-66',
+            symptom: 'Pool üyeleri (ya da biri) kırmızı/offline; uygulama ekibi sunucunun ayakta olduğunu, sağlık sayfasının tarayıcıdan açıldığını söylüyor.',
+            steps: [
+                { code: 'tmsh show ltm pool web_pool members', desc: 'Reason satırı monitorün gördüğünü söyler. "Response Code: 400 (Bad Request)": send dizgesi hatalı (HTTP/1.1\'de Host yok). "Response Code: 404/500": yanlış yol ya da uygulama hatası. "No successful responses received before deadline": istek boş satırla bitmiyor, yanıt yavaş ya da trafik engelleniyor. "Unable to connect; Connection refused": yanlış port.',
+                  sample: 'Ltm::Pool Member: 10.64.30.50:80\n  Availability : offline\n  Reason       : /Common/mon_app: Response Code: 400 (Bad Request) @2026/09/26 10:25:07.\n\n# 400: sunucu isteği anlamadı → send dizgesini okuyun (Host başlığı, satır sonları)\n# Kod 200 ama yine offline ise recv dizgesi yanıtta bulunamıyordur' },
+                { code: 'tmsh list ltm monitor http mon_app send recv recv-disable destination interval timeout', desc: 'send ham HTTP isteğidir: satırlar \\r\\n ile ayrılır, istek \\r\\n\\r\\n ile biter; HTTP/1.1\'de Host başlığı zorunludur (K2167, K13397). destination "*:8080" gibi bir alias port varsa monitor üyenin değil o portun yanıtına bakar. Önerilen timeout = 3 × interval + 1.',
+                  fix: [{ cause: 'Host başlığı ya da son boş satır eksik', cmd: 'tmsh modify ltm monitor http mon_app send "GET /health HTTP/1.1\\r\\nHost: app.lab.example\\r\\nConnection: close\\r\\n\\r\\n"' }, { cause: 'recv yanıtta yok (yanlış metin ya da 0K/OK gibi yazım)', cmd: 'tmsh modify ltm monitor http mon_app recv "200 OK"' }] },
+                { code: "printf 'GET /health HTTP/1.1\\r\\nHost: app.lab.example\\r\\nConnection: close\\r\\n\\r\\n' | nc 10.64.30.50 80", desc: 'Monitorün gönderdiği isteğin aynısını BIG-IP bash\'ten elle gönderin; tarayıcı kendi doğru isteğini gönderdiği için onun açılması monitorün doğru olduğunu göstermez. Yanıtın ilk satırı ve recv dizgesinin gövdede olup olmadığına bakın.' },
+                { code: 'tcpdump -ni 0.0:nnn host 10.64.30.50 and port 80', desc: 'Monitor istekleri BIG-IP\'nin sunucu ağındaki non-floating self IP\'sinden çıkar. SYN gidip yanıt gelmiyorsa sunucu güvenlik duvarı ya da yönlendirme bu adresi engelliyordur.' },
+            ],
+            quiz: [
+                { q: 'Reason "Response Code: 400 (Bad Request)" diyor. En olası neden?', choices: [['host', 'send dizgesi HTTP/1.1 ama Host başlığı yok'], ['fw', 'Güvenlik duvarı'], ['down', 'Sunucu kapalı']], correct: 'host', why: '400 yanıtı sunucunun ayakta olduğunu ama isteği anlamadığını gösterir.' },
+                { q: 'Bakıma alınacak sunucuyu, açık oturumları kesmeden devreden çıkarmak için?', choices: [['rd', 'recv-disable dizgesi (ya da üyeyi session disabled)'], ['del', 'Üyeyi pool\'dan silmek'], ['down', 'Üyeyi forced offline yapmak']], correct: 'rd', why: 'disabled: yeni bağlantı yok, mevcut oturumlar sürer; forced offline mevcutları da reddeder.' },
+            ]
+        },
+        {
+            title: 'Güvenlik Taraması: BIGipServer Çerezi İç Sunucu Adresini Açığa Çıkarıyor', severity: 'warn', topic: 'adc', lab: 'f5-67',
+            symptom: 'Sızma testi ya da tarama aracı, "BIGipServer<pool>" çerezinin iç IP adresi ve port bilgisi içerdiğini raporluyor.',
+            steps: [
+                { code: 'curl -I http://203.0.113.100/', desc: 'Set-Cookie satırında BIGipServer<pool> değeri "sayı.sayı.0000" biçimindeyse şifresizdir: ilk sayı IP\'nin baytlarının ters sırayla yazılmışı, ikincisi baytları çevrilmiş porttur.',
+                  sample: 'Set-Cookie: BIGipServerweb_pool=840843274.20480.0000; path=/; Httponly\n\n# 840843274 → 10.64.30.50 (10 + 64×256 + 30×65536 + 50×16777216)\n# 20480 → 0x5000 → baytları çevir → 0x0050 → port 80\n# Şifreli değer "!" ile başlar ve adres içermez' },
+                { code: 'tmsh list ltm persistence cookie p_cookie cookie-encryption cookie-encryption-passphrase', desc: 'cookie-encryption disabled ise değer çözülebilir. Seçenekler: required (yalnız şifreli çerez), preferred (ikisi de), disabled.',
+                  fix: [{ cause: 'Kesintisiz geçiş: önce preferred', cmd: 'tmsh modify ltm persistence cookie p_cookie cookie-encryption preferred cookie-encryption-passphrase <parola>' }, { cause: 'Eski çerezler yenilendikten sonra required', cmd: 'tmsh modify ltm persistence cookie p_cookie cookie-encryption required' }] },
+                { code: 'tmsh run cm config-sync to-group <device-group>', desc: 'HA çiftinde parola iki cihazda aynı olmalı; aksi halde failover sonrası çerezler çözülemez ve kullanıcılar başka sunuculara dağılır.' },
+            ],
+            quiz: [
+                { q: 'Doğrudan required\'a geçmenin riski?', choices: [['lost', 'Şifresiz çerezli kullanıcıların kalıcılığı kaybolur (oturum/sepet kopar)'], ['none', 'Risk yok'], ['rst', 'Bağlantılar sıfırlanır']], correct: 'lost', why: 'required eski çerezi tanımaz; geçiş preferred ile yapılır.' },
+            ]
+        },
 ];
 })();

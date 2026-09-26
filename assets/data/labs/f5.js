@@ -83,6 +83,9 @@
     };
     const SERVERS_HTTP = SERVERS_IR.map(x => (x.ports[80] ? Object.assign({}, x, { ports: { 80: Object.assign({}, x.ports[80], { paths: Object.assign({}, x.ports[80].paths, HTTP_BAD) }) } }) : x));
     const SIMHTTP = Object.assign({}, SIMIR, { servers: SERVERS_HTTP });
+    // f5-66: srv-b bakım modunda: sağlık sayfası 200 döner ama gövdesinde BAKIM yazar (recv-disable dersi)
+    const SERVERS_MON = SERVERS_IR.map(x => (x.name === 'srv-b' ? Object.assign({}, x, { ports: { 80: Object.assign({}, x.ports[80], { paths: Object.assign({}, x.ports[80].paths, { '/health': { code: 200, body: 'BAKIM: sunucu bakim modunda' } }) }) } }) : x));
+    const SIMMON = Object.assign({}, SIMIR, { servers: SERVERS_MON });
     const SSO_JAR = '/var/tmp/sso_cerez.txt';
     const SIMSSO = Object.assign({}, SIMIR, { jars: { [SSO_JAR]: { SSO_OTURUM: 'eyJ' + 'A'.repeat(19997) } } });
     // Log Okuyucu (f5-49): gece biriken iRule logları (biçim notes/f5-irule-arastirma.md)
@@ -1663,6 +1666,75 @@
         links: { tool: '#/f5-ltm/httpaudit', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/115' }, cert: 'HTTP'
     },
 
+
+    {
+        id: 'f5-66', vendor: 'f5-ltm', level: 5, title: 'Monitor atölyesi: kırmızı ama site açılıyor', minutes: 25, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-04'],
+        up: UP, sim: SIMMON, startMode: 'tmsh',
+        start: NET.concat(['create ltm monitor http mon_app defaults-from http send "GET /health HTTP/1.1\\r\\n\\r\\n" recv "200 OK"', 'create ltm pool web_pool members add { 10.64.30.50:80 10.64.30.51:80 10.64.30.52:80 } monitor mon_app', VS_WEB]),
+        story: 'Yeni uygulama devreye alındı: pool\'un üç üyesi de kırmızı, site açılmıyor. Uygulama ekibi "sunucular ayakta, tarayıcıdan sağlık sayfası açılıyor" diyor. Monitor\'ü bir arkadaşınız yazmış.',
+        lesson: L('HTTP monitor\'ün <code>send</code> dizgesi ham HTTP isteğidir: satırlar <code>\\r\\n</code> ile ayrılır, istek boş bir satırla (<code>\\r\\n\\r\\n</code>) biter. HTTP/1.1 isteğinde <code>Host</code> başlığı zorunludur; yoksa sunucu <b>400 Bad Request</b> döner ve <code>recv "200 OK"</code> eşleşmez (K2167, K13397). Boş satır eksikse sunucu isteğin sonunu bekler ve monitor zaman aşımına düşer. <code>recv-disable</code> dizgesi yanıtta görülürse üye <b>disabled</b> olur: yeni bağlantı almaz ama mevcut oturumlar sürer (planlı bakım). Önerilen timeout, interval\'ın 3 katı + 1\'dir (varsayılan 5/16).',
+            'Hatalı monitor sağlam sunucuları "kapalı" gösterir ve kesintiye yol açar; tarayıcıdan açılan sayfa monitor\'ün gönderdiği isteğin doğru olduğunu kanıtlamaz.',
+            'modify ltm monitor http mon_app send "GET /health HTTP/1.1\\r\\nHost: app.lab.example\\r\\nConnection: close\\r\\n\\r\\n"\nmodify ltm monitor http mon_app recv-disable "BAKIM"', ['HTTP/1.1\'de Host başlığını unutmak.', 'Son boş satırı (\\r\\n\\r\\n) unutmak.', 'Tarayıcıdan açılıyor diye monitor\'ü doğru sanmak.']),
+        goals: ['Üye durumunu ve nedenini okumak', 'Sunucuyu doğrudan sınamak', 'send dizgesini düzeltmek', 'recv-disable ile bakım modu'],
+        tasks: [
+            { t: 'Üyelerin durumuna ve nedenine bakın: <code>show ltm pool web_pool members</code>.', why: 'Reason satırı monitor\'ün ne gördüğünü söyler.', hints: ['show ltm pool … members', '<code>show ltm pool web_pool members</code>'], steps: ['show ltm pool web_pool members'], loo: false, check: s => s.ev.list().some(e => e.show && /pool/.test(JSON.stringify(e.show)) || (e.raw && /show ltm pool web_pool/.test(e.raw))) },
+            { t: 'Sunucuyu BIG-IP\'den doğrudan deneyin: bash\'te <code>curl -s http://10.64.30.50/health</code>', why: 'Sunucu ayakta mı, sağlık sayfası ne döndürüyor?', hints: ['run util bash → curl … → exit', '<code>run util bash</code> → <code>curl -s http://10.64.30.50/health</code> → <code>exit</code>'],
+              steps: ['run util bash', 'curl -s http://10.64.30.50/health', 'exit'], check: s => curls(s).some(c => c.ip === '10.64.30.50' && c.code === 200) },
+            { t: 'Monitor\'ü okuyun: <code>list ltm monitor http mon_app</code>', why: 'curl kendi düzgün isteğini gönderir; monitor ise send dizgesindekini.', hints: ['list ltm monitor http …', '<code>list ltm monitor http mon_app</code>'], steps: ['list ltm monitor http mon_app'], check: s => s.ev.list().some(e => e.raw && /list ltm monitor http mon_app/.test(e.raw)) },
+            { t: 'Soru: Üyeler neden kırmızı?', ask: { choices: [['host', 'send HTTP/1.1 ama Host başlığı yok: sunucu 400 döner, recv "200 OK" eşleşmez'], ['fw', 'Sunucu güvenlik duvarı monitoru engelliyor'], ['recv', 'recv dizgesi yanlış yazılmış'], ['int', 'interval çok kısa']], correct: 'host' },
+              why: 'Reason satırında "Response Code: 400 (Bad Request)" görünür.', hints: ['Reason satırı', 'HTTP/1.1 ne ister?'], needs: [0] },
+            { t: 'Boşluk doldurma: doğru send dizgesini tamamlayın.', fill: ['send "GET /health HTTP/1.1\\r\\n', { a: ['Host: app.lab.example'] }, '\\r\\nConnection: close\\r\\n', { a: ['\\r\\n'] }, '"'],
+              why: 'Host başlığı zorunlu; istek boş satırla biter (son \\r\\n\\r\\n\'in ikinci yarısı).', hints: ['Başlık adı ve değeri; sonra isteği bitiren satır sonu', 'Host: app.lab.example · \\r\\n'] },
+            { t: 'Monitor\'ü düzeltin ve üyelerin yeşile döndüğünü doğrulayın.', why: 'Düzeltmenin kanıtı, üyelerin "available" olmasıdır.',
+              hints: ['modify ltm monitor http mon_app send "…" → show ltm pool web_pool members', '<code>modify ltm monitor http mon_app send "GET /health HTTP/1.1\\r\\nHost: app.lab.example\\r\\nConnection: close\\r\\n\\r\\n"</code> → <code>show ltm pool web_pool members</code>'],
+              steps: ['modify ltm monitor http mon_app send "GET /health HTTP/1.1\\r\\nHost: app.lab.example\\r\\nConnection: close\\r\\n\\r\\n"', 'show ltm pool web_pool members'],
+              check: s => ['10.64.30.50:80', '10.64.30.51:80', '10.64.30.52:80'].every(k => s.memberStatus('web_pool', k).avail === 'available') },
+            { t: 'srv-b (10.64.30.51) bakıma alınacak ve sağlık sayfası "BAKIM" yazıyor. Monitor\'e <code>recv-disable "BAKIM"</code> ekleyin: srv-b yeni bağlantı almasın ama açık oturumlar sürsün.', why: 'recv-disable, sunucu tarafından yönetilen planlı bakım içindir.',
+              hints: ['modify ltm monitor http mon_app recv-disable "…"', '<code>modify ltm monitor http mon_app recv-disable "BAKIM"</code> → <code>show ltm pool web_pool members</code>'],
+              steps: ['modify ltm monitor http mon_app recv-disable "BAKIM"', 'show ltm pool web_pool members'], needs: [5],
+              check: s => s.memberStatus('web_pool', '10.64.30.51:80').state === 'disabled' && s.memberStatus('web_pool', '10.64.30.50:80').state === 'enabled' && s.memberStatus('web_pool', '10.64.30.51:80').avail === 'available' },
+            { t: 'Mini test (3 sorunun 2\'si).', needs: [6], why: 'Monitor tasarımının temel kuralları.', hints: ['interval 5 ise?', 'disabled ile offline farkı'],
+              quiz: { pass: 0.67, qs: [
+                  { q: 'interval 5 sn için önerilen timeout?', choices: [['16', '16 (3 × interval + 1)'], ['5', '5'], ['60', '60']], correct: '16', why: 'Üç ardışık denemenin başarısız olmasına izin verir; varsayılan 5/16.' },
+                  { q: 'recv-disable eşleşen üye için doğru olan?', choices: [['dis', 'Yeni bağlantı almaz, mevcut oturumlar sürer'], ['off', 'Tüm bağlantıları hemen keser'], ['same', 'Hiçbir şey değişmez']], correct: 'dis', why: 'Planlı bakımda kullanıcıları kesmeden boşaltmayı sağlar.' },
+                  { q: 'Monitor istekleri sunucuya hangi adresten gelir?', choices: [['self', 'BIG-IP\'nin sunucu ağındaki non-floating self IP\'si'], ['vip', 'Virtual server adresi'], ['client', 'İstemcinin adresi']], correct: 'self', why: 'Sunucu güvenlik duvarı bu adrese izin vermeli.' },
+              ] } },
+        ],
+        verify: ['show ltm pool web_pool members', 'list ltm monitor http mon_app'], learn: ['send = ham HTTP isteği: Host + boş satır.', 'Reason satırı monitorün gördüğünü söyler.', 'recv-disable = kesintisiz bakım.', 'timeout = 3 × interval + 1.'],
+        links: { tool: '#/f5-ltm/monitor', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/119' }, cert: 'LTM'
+    },
+    {
+        id: 'f5-67', vendor: 'f5-ltm', level: 3, title: 'Cookie persistence: iç IP sızıntısı ve şifreleme', minutes: 25, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-07'],
+        up: UP, sim: SIMIR, startMode: 'bash',
+        start: IRSTART.concat(['create ltm persistence cookie p_cookie defaults-from cookie', 'modify ltm virtual vs_web persist replace-all-with { p_cookie }']),
+        story: 'Sızma testi raporunda bir bulgu var: "Yük dengeleyici çerezi iç sunucu adreslerini açığa çıkarıyor." <code>vs_web</code> cookie insert persistence kullanıyor. Bulguyu doğrulayın ve kullanıcıların oturumunu koparmadan kapatın.',
+        lesson: L('Cookie insert persistence\'ta BIG-IP ilk yanıtta <code>BIGipServer&lt;pool&gt;</code> çerezi verir. Şifrelenmemiş değer <code>&lt;IP&gt;.&lt;port&gt;.0000</code> biçimindedir: IP\'nin dört baytı ters sırayla tek sayı olarak, port iki baytı ters çevrilmiş olarak yazılır (10.64.30.50:80 → <code>840843274.20480.0000</code>). Bu, iç ağ adreslerini herkese açık eder. <code>cookie-encryption</code> (required | preferred | disabled) ve <code>cookie-encryption-passphrase</code> ile değer şifrelenir. <b>required</b> şifresiz çerezleri kabul etmez: geçişte eski çerezli kullanıcıların oturumu kopar. Önce <b>preferred</b> (ikisini de kabul eder), sonra required.',
+            'Bilgi sızıntısı saldırganın iç ağ haritasını çıkarmasını kolaylaştırır; bu yüzden güvenlik taramalarında sık çıkan bir bulgudur.',
+            'modify ltm persistence cookie p_cookie cookie-encryption preferred cookie-encryption-passphrase GizliAnahtar2026\n# kullanıcıların çerezleri yenilendikten sonra:\nmodify ltm persistence cookie p_cookie cookie-encryption required', ['Doğrudan required\'a geçip açık oturumları koparmak.', 'Parolayı HA eşinde farklı bırakmak (config sync ile eşitlenmeli).']),
+        goals: ['Çerez değerini çözmek', 'Şifrelemeyi kesintisiz açmak', 'Kalıcılığın sürdüğünü doğrulamak'],
+        tasks: [
+            { t: 'Çerezi görün: <code>curl -I -c /var/tmp/j -b /var/tmp/j http://203.0.113.100/</code>', why: 'Set-Cookie satırındaki değer bulgunun kanıtıdır.', hints: ['-I başlıkları, -c/-b çerez kavanozu', '<code>curl -I -c /var/tmp/j -b /var/tmp/j http://203.0.113.100/</code>'],
+              steps: ['curl -I -c /var/tmp/j -b /var/tmp/j http://203.0.113.100/'], check: s => curls(s).some(c => (c.rhdrs || []).some(h => /^Set-Cookie: BIGipServerweb_pool=\d+\.\d+\.0000/.test(h))) },
+            { t: 'Boşluk doldurma: <code>BIGipServerweb_pool=840843274.20480.0000</code> değerini çözün.', fill: ['840843274 → IP ', { a: ['10.64.30.50'] }, ' · 20480 → port ', { a: ['80'] }],
+              why: '840843274 = 10 + 64×256 + 30×65536 + 50×16777216 (baytlar ters sırada). 20480 = 0x5000 → baytları çevir → 0x0050 = 80.', hints: ['İlk bayt en düşük basamaktadır: sayıyı 256\'lık tabanda en düşükten yazın', '10.64.30.50 · 80'] },
+            { t: 'Geçişi kesintisiz başlatın: şifrelemeyi <b>preferred</b> ile açın (parola: <code>GizliAnahtar2026</code>) ve eski çerezle gelen kullanıcının aynı sunucuda kaldığını doğrulayın.', why: 'preferred hem eski (şifresiz) hem yeni (şifreli) çerezi kabul eder.',
+              hints: ['tmsh modify ltm persistence cookie p_cookie cookie-encryption preferred cookie-encryption-passphrase …', '<code>tmsh modify ltm persistence cookie p_cookie cookie-encryption preferred cookie-encryption-passphrase GizliAnahtar2026</code> → <code>curl -s -c /var/tmp/j -b /var/tmp/j http://203.0.113.100/</code>'],
+              steps: ['tmsh modify ltm persistence cookie p_cookie cookie-encryption preferred cookie-encryption-passphrase GizliAnahtar2026', 'curl -s -c /var/tmp/j -b /var/tmp/j http://203.0.113.100/'], needs: [0],
+              check: s => { const p = s.model.persists.p_cookie; return p && p.enc === 'preferred' && !!p.pass && curlsAfter(s, /cookie-encryption preferred/).some(c => c.persisted); } },
+            { t: 'Yeni ziyaretçi şifreli çerez almalı: yeni bir kavanozla <code>curl -I -c /var/tmp/k -b /var/tmp/k http://203.0.113.100/</code>', why: 'Şifreli değer "!" ile başlar ve adres içermez.', hints: ['Yeni kavanoz: /var/tmp/k', '<code>curl -I -c /var/tmp/k -b /var/tmp/k http://203.0.113.100/</code>'],
+              steps: ['tmsh modify ltm persistence cookie p_cookie cookie-encryption preferred cookie-encryption-passphrase GizliAnahtar2026', 'curl -I -c /var/tmp/k -b /var/tmp/k http://203.0.113.100/'],
+              check: s => curlsAfter(s, /cookie-encryption/).some(c => (c.rhdrs || []).some(h => /^Set-Cookie: BIGipServerweb_pool=!/.test(h))) },
+            { t: 'Soru: Doğrudan <code>required</code>\'a geçseydiniz, eski çerezli (şifresiz) kullanıcılara ne olurdu?', ask: { choices: [['lost', 'Çerezleri kabul edilmez, round robin ile başka sunucuya düşebilir: sepet/oturum kopar'], ['same', 'Hiçbir şey olmaz'], ['rst', 'Bağlantıları sıfırlanır']], correct: 'lost' },
+              why: 'required yalnız şifreli çerezi tanır; geçiş preferred ile yapılır, eski çerezler yenilendikten (süre/oturum sonu) sonra required\'a geçilir.', hints: ['required ne kabul eder?', 'Kalıcılık kaydı bulunamazsa ne olur?'] },
+            { t: 'Mini test (2 sorunun 2\'si).', needs: [3], why: 'Canlıya alırken unutulan iki nokta.', hints: ['HA çiftinde parola', 'Şifreleme neyi gizler?'],
+              quiz: { pass: 1, qs: [
+                  { q: 'HA çiftinde parola nasıl olmalı?', choices: [['same', 'İki cihazda aynı (config sync ile): failover sonrası çerezler çözülebilsin'], ['diff', 'Her cihazda farklı'], ['none', 'Önemsiz']], correct: 'same', why: 'Farklı parola failover\'da tüm kullanıcıların kalıcılığını bozar.' },
+                  { q: 'Şifreleme ne sağlar?', choices: [['hide', 'Çerez değeri iç IP/port bilgisini açığa çıkarmaz ve istemci tarafından değiştirilip başka üyeye yönlenemez'], ['ssl', 'Trafiği TLS ile şifreler'], ['speed', 'Hızlandırır']], correct: 'hide', why: 'Bulgu kapanır; kalıcılık aynı şekilde çalışır.' },
+              ] } },
+        ],
+        verify: ['tmsh list ltm persistence cookie p_cookie', 'curl -I -c /var/tmp/k -b /var/tmp/k http://203.0.113.100/'], learn: ['BIGipServer değeri = iç IP + port (ters bayt).', 'Şifreleme: önce preferred, sonra required.', 'Parola HA eşinde aynı olmalı.'],
+        links: { tool: '#/f5-ltm/persistence', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/120' }, cert: 'LTM'
+    },
     // ═══ 9 · Advanced WAF (ASM): politika, bağlama, blocking, support ID (T11) ═══
     {
         id: 'f5-64', vendor: 'f5-ltm', level: 9, title: 'İlk WAF politikası: provision → policy → VS → publish', minutes: 30, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-60'],
