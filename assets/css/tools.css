@@ -1,0 +1,101 @@
+/* ─── Config araçları ızgarası (#/araclar, #/v/<aile>/araclar) — Tema 1 içerik düzeni (mockup tema-1/icerik.html) ───
+   Yalnız tokenlar. Eski çip/kart kuralları config-generator.css'te kalır; burada :root + .cg-tools önekiyle ezilir
+   (özgüllük [data-theme="dark"] yamalarından yüksek, sıra da sonra). */
+
+:root #config-generator-root .cg-tools { max-width: 1120px; margin: 0 auto; padding: 4px 0 56px; color: var(--text); }
+
+/* Başlık */
+:root #config-generator-root .cg-tools-hd h1 { margin: 0 0 var(--space-2); font-size: 1.75rem; line-height: 1.2; letter-spacing: -.01em; font-weight: 700; color: var(--text); }
+:root #config-generator-root .cg-tools-lead { max-width: 72ch; margin: 0 0 var(--space-4); font-size: 1rem; line-height: 1.6; color: var(--muted); }
+:root #config-generator-root .cg-tools-lead strong { color: var(--text); font-weight: 600; }
+:root #config-generator-root .cg-tools .cg-famlock {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; max-width: none; margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+    padding: 0; border: 0; background: none; font-size: .9rem; color: var(--muted);
+}
+:root #config-generator-root .cg-tools .cg-famlock-x { min-height: 24px; color: var(--primary); font-weight: 600; }
+
+/* Süzgeç çubuğu: platform segmenti + arama (tek kutuda) */
+:root #config-generator-root .cg-tools-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
+    padding: 6px; margin: 0 0 var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+}
+:root #config-generator-root .cg-tools .cg-seg {
+    display: flex; flex-wrap: wrap; gap: 2px; max-width: none; margin: 0; padding: 0; justify-content: flex-start; flex: 0 1 auto; min-width: 0;
+}
+:root #config-generator-root .cg-tools .cg-seg .cg-chip {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px;
+    border: 0; border-radius: var(--radius-sm); background: transparent; box-shadow: none;
+    color: var(--muted); font-size: .86rem; font-weight: 500;
+}
+:root #config-generator-root .cg-tools .cg-seg .cg-chip:hover { background: var(--bg); color: var(--text); }
+:root #config-generator-root .cg-tools .cg-seg .cg-chip.active { background: var(--primary); color: var(--on-primary); }
+:root #config-generator-root .cg-tools .cg-chip-n { padding: 0; background: none; opacity: 1; font: 500 .74rem var(--font-mono); color: inherit; }
+:root #config-generator-root .cg-tools .cg-seg .cg-chip:not(.active) .cg-chip-n { color: var(--muted); }
+:root #config-generator-root .cg-tools .cg-chip.active .cg-chip-n, :root[data-theme] #config-generator-root .cg-tools .cg-chip.active .cg-chip-n { background: none; color: inherit; }
+:root #config-generator-root .cg-tools .cg-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+:root #config-generator-root .cg-tools .cg-home-search { position: relative; flex: 1 1 260px; max-width: none; margin: 0; min-width: 0; }
+:root #config-generator-root .cg-tools .cg-home-search input {
+    height: 40px; padding: 0 44px 0 38px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg); color: var(--text); font-size: .92rem; box-shadow: none;
+}
+:root #config-generator-root .cg-tools .cg-home-search input::placeholder { color: var(--subtle); }
+:root #config-generator-root .cg-tools .cg-home-search input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+:root #config-generator-root .cg-tools .cg-home-search > i { left: 13px; color: var(--muted); font-size: .88rem; }
+:root #config-generator-root .cg-tools .cg-home-search kbd { right: 10px; background: var(--surface); border-color: var(--border); color: var(--muted); font: 500 .72rem var(--font-mono); }
+
+/* Kategori süzgeci: sakin sekme hapları */
+:root #config-generator-root .cg-tools .cg-cat-chips { display: flex; flex-wrap: wrap; gap: 6px; max-width: none; margin: 0 0 var(--space-2); justify-content: flex-start; }
+:root #config-generator-root .cg-tools .cg-cat-chips .cg-chip {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px;
+    border: 1px solid var(--border); border-radius: 999px; background: var(--bg); box-shadow: none;
+    color: var(--muted); font-size: .82rem; font-weight: 500;
+}
+:root #config-generator-root .cg-tools .cg-cat-chips .cg-chip i { font-size: .8em; color: var(--subtle); }
+:root #config-generator-root .cg-tools .cg-cat-chips .cg-chip:hover { border-color: var(--border-strong); color: var(--text); }
+:root #config-generator-root .cg-tools .cg-cat-chips .cg-chip.active { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+:root #config-generator-root .cg-tools .cg-cat-chips .cg-chip.active i, :root #config-generator-root .cg-tools .cg-cat-chips .cg-chip.active .cg-chip-n { color: var(--primary); }
+:root #config-generator-root .cg-tools-count { margin: var(--space-2) 0 0; font-size: .84rem; color: var(--muted); }
+
+/* Bölümler ve araç satırları */
+:root #config-generator-root .cg-tsec { margin-top: var(--space-6); }
+:root #config-generator-root .cg-tsec h2 {
+    display: flex; align-items: center; gap: 10px; margin: 0 0 var(--space-3);
+    font-size: 1.15rem; line-height: 1.3; font-weight: 650; color: var(--text);
+}
+:root #config-generator-root .cg-tsec h2 > i { color: var(--primary); font-size: .9em; }
+:root #config-generator-root .cg-tsec-n { display: inline-flex; align-items: center; min-height: 22px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font: 500 .74rem var(--font-mono); }
+:root #config-generator-root .cg-tlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+:root #config-generator-root .cg-tlist > li { display: flex; min-width: 0; }
+:root #config-generator-root .cg-tools .cg-tool {
+    display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 8px 12px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text);
+    font: inherit; font-size: .9rem; font-weight: 500; text-align: left; box-shadow: none; transform: none;
+    transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+:root #config-generator-root .cg-tools .cg-tool:hover:not(:disabled) { border-color: var(--primary); background: var(--surface); box-shadow: none; transform: none; }
+:root #config-generator-root .cg-tools .cg-tool:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+:root #config-generator-root .cg-tools .cg-tool > i { width: 20px; height: 20px; flex: 0 0 20px; background: none; color: var(--subtle); font-size: .82rem; }
+:root #config-generator-root .cg-tools .cg-tool:hover:not(:disabled) > i { color: var(--primary); }
+:root #config-generator-root .cg-tools .cg-tool .cg-card-t { flex: 1; min-width: 0; line-height: 1.3; overflow-wrap: break-word; hyphens: auto; }
+:root #config-generator-root .cg-tool-tag { flex: 0 1 auto; max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .74rem; font-weight: 500; color: var(--muted); }
+/* Aile içi kısa platform etiketi (IOS, NX-OS…) mockup'taki gibi eş aralıklı */
+:root #config-generator-root .cg-tools .cg-tool-tag.is-plat { flex: none; font: 500 .72rem var(--font-mono); }
+:root #config-generator-root .cg-tools .cg-tool.is-stub { opacity: 1; border-style: dashed; background: var(--surface); color: var(--muted); cursor: not-allowed; }
+:root #config-generator-root .cg-tools .cg-card-soon { color: var(--muted); }
+:root #config-generator-root .cg-tools .cg-empty { padding: 48px 16px; }
+
+@media (max-width: 600px) {
+    :root #config-generator-root .cg-tools { padding-bottom: 40px; }
+    :root #config-generator-root .cg-tools-hd h1 { font-size: 1.45rem; }
+    :root #config-generator-root .cg-tools-bar { padding: 6px; }
+    :root #config-generator-root .cg-tools .cg-seg { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+    :root #config-generator-root .cg-tools .cg-seg .cg-chip { flex: none; min-height: 40px; }
+    :root #config-generator-root .cg-tools .cg-home-search { flex-basis: 100%; }
+    :root #config-generator-root .cg-tools .cg-home-search input { height: 44px; font-size: 16px; }
+    :root #config-generator-root .cg-tools .cg-cat-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
+    :root #config-generator-root .cg-tools .cg-cat-chips .cg-chip { flex: none; min-height: 40px; }
+    :root #config-generator-root .cg-tsec { margin-top: var(--space-4); }
+}
+@media (prefers-reduced-motion: reduce) {
+    :root #config-generator-root .cg-tools .cg-tool { transition: none; }
+}

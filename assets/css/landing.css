@@ -1,0 +1,150 @@
+/* ─── Tanıtım sayfası (landing) — UI A7, Tema 1 "Kılavuz" ────────────────────
+   Yalnız tokens.css adları; sabit renk yok. Kapsam: #config-generator-root .cg-land*
+   Vendor kartları hub.css'teki .cg-vgrid / .cg-vcard sınıflarını kullanır (CgHub._vcard). */
+#config-generator-root .cg-land {
+    /* Terminal renkleri: kod zemini iki temada da koyu; açık/koyu için ayrı token eşlemesi */
+    --cg-land-tp: var(--primary-soft); --cg-land-tc: var(--border-strong); --cg-land-tg: var(--ok-soft);
+    max-width: 1120px; margin: 0 auto; padding: 8px 0 32px;
+    color: var(--text); font-family: var(--font-sans);
+}
+:root[data-theme="dark"] #config-generator-root .cg-land { --cg-land-tp: var(--primary); --cg-land-tc: var(--subtle); --cg-land-tg: var(--ok); }
+#config-generator-root .cg-land * { box-sizing: border-box; }
+#config-generator-root .cg-land-i { width: 18px; height: 18px; flex: none; }
+
+/* Hero */
+#config-generator-root .cg-land-hero {
+    display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: var(--space-12);
+    align-items: center; padding: var(--space-12) 0 var(--space-8);
+}
+#config-generator-root .cg-land-pill {
+    display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; padding: 3px 10px;
+    border-radius: 999px; border: 1px solid var(--border); color: var(--muted); background: var(--surface);
+}
+#config-generator-root .cg-land-pill .cg-land-i { width: 14px; height: 14px; }
+#config-generator-root .cg-land-h1 {
+    margin: var(--space-4) 0 var(--space-3); font-size: 2.75rem; line-height: 1.15; letter-spacing: -.02em;
+    font-weight: 700; color: var(--text);
+}
+#config-generator-root .cg-land-lead { margin: 0 0 var(--space-6); font-size: 1.15rem; line-height: 1.55; color: var(--muted); max-width: 60ch; }
+#config-generator-root .cg-land-cta { display: flex; flex-wrap: wrap; gap: 10px; }
+#config-generator-root .cg-land-btn {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px;
+    border-radius: 8px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--text);
+    font-weight: 600; font-size: .95rem; text-decoration: none;
+    transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+#config-generator-root .cg-land-btn:hover { border-color: var(--primary); background: var(--surface); text-decoration: none; color: var(--text); }
+#config-generator-root .cg-land-btn-pri, #config-generator-root .cg-land-btn-pri:hover { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+#config-generator-root .cg-land-btn-pri:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+#config-generator-root .cg-land-term {
+    margin: 0; background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 18px 20px; font: .84rem/1.7 var(--font-mono);
+    overflow-x: auto; white-space: pre;
+}
+#config-generator-root .cg-land-term .p { color: var(--cg-land-tp); }
+#config-generator-root .cg-land-term .c { color: var(--cg-land-tc); }
+#config-generator-root .cg-land-term .g { color: var(--cg-land-tg); }
+
+/* Canlı sayılar */
+#config-generator-root .cg-land-stats {
+    margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--border); gap: 1px;
+}
+#config-generator-root .cg-land-stat { display: flex; flex-direction: column-reverse; padding: 18px 20px; background: var(--surface); }
+#config-generator-root .cg-land-stat dt { font-size: .88rem; color: var(--muted); }
+#config-generator-root .cg-land-stat dd { margin: 0; font: 600 1.7rem/1.2 var(--font-mono); color: var(--text); }
+
+/* Bölümler */
+#config-generator-root .cg-land-sec { padding-top: var(--space-12); scroll-margin-top: 72px; }
+#config-generator-root .cg-land-sec:focus { outline: none; }
+#config-generator-root .cg-land-sec:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; border-radius: var(--radius-sm); }
+#config-generator-root .cg-land-sech { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-2) var(--space-4); }
+#config-generator-root .cg-land-h2 { margin: 0 0 var(--space-4); font-size: 1.4rem; line-height: 1.3; font-weight: 650; color: var(--text); }
+#config-generator-root .cg-land-h3 { margin: 0 0 var(--space-2); font-size: 1.05rem; font-weight: 650; color: var(--text); }
+#config-generator-root .cg-land-p, #config-generator-root .cg-land-sp { margin: 0 0 var(--space-3); color: var(--muted); line-height: 1.6; }
+#config-generator-root .cg-land-more {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 4px;
+    color: var(--primary); font-weight: 600; font-size: .92rem; text-decoration: none;
+}
+#config-generator-root .cg-land-more:hover { text-decoration: underline; color: var(--primary-hover); }
+#config-generator-root .cg-land-vgrid { margin: 0; padding: 0; list-style: none; }
+#config-generator-root .cg-land-vfall { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+#config-generator-root .cg-land-vfall a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); }
+
+/* Kartlar (öne çıkanlar, iletişim) */
+#config-generator-root .cg-land-cards {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-3);
+    margin: 0; padding: 0; list-style: none;
+}
+#config-generator-root .cg-land-cards > li { display: flex; min-width: 0; }
+#config-generator-root .cg-land-card {
+    display: flex; gap: 14px; align-items: flex-start; width: 100%; min-height: 44px; padding: 16px 18px;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text);
+    box-shadow: var(--shadow); text-decoration: none; transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+#config-generator-root a.cg-land-card:hover { border-color: var(--primary); background: var(--surface); text-decoration: none; color: var(--text); }
+#config-generator-root a.cg-land-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-color: var(--primary); }
+#config-generator-root .cg-land-card.is-ph { border-style: dashed; background: var(--surface); box-shadow: none; }
+#config-generator-root .cg-land-ci { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 8px; background: var(--surface-2); color: var(--primary); }
+#config-generator-root .cg-land-ci .cg-land-i { width: 20px; height: 20px; }
+#config-generator-root .cg-land-cb { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#config-generator-root .cg-land-ct { font-weight: 650; font-size: 1rem; color: var(--text); }
+#config-generator-root .cg-land-cd { font-size: .88rem; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+
+/* Öğrenme yolları tablosu */
+#config-generator-root .cg-land-tw { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+#config-generator-root .cg-land-tw:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+#config-generator-root .cg-land-tbl { width: 100%; border-collapse: collapse; font-size: .92rem; }
+#config-generator-root .cg-land-tbl thead th {
+    text-align: left; font-weight: 600; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface); white-space: nowrap;
+}
+#config-generator-root .cg-land-tbl tbody th, #config-generator-root .cg-land-tbl td { padding: 0 14px; border-bottom: 1px solid var(--border); text-align: left; font-weight: 400; color: var(--text); }
+#config-generator-root .cg-land-tbl tbody tr:last-child > * { border-bottom: 0; }
+#config-generator-root .cg-land-tbl tbody tr:hover > * { background: var(--surface); }
+#config-generator-root .cg-land-tbl .num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+#config-generator-root .cg-land-tbl tbody th a {
+    display: flex; align-items: center; min-height: 44px; padding: 6px 0;
+    color: var(--primary); font-weight: 600; text-decoration: none;
+}
+#config-generator-root .cg-land-tbl tbody th a:hover { text-decoration: underline; color: var(--primary-hover); }
+
+/* Hakkında (yer tutucu) */
+#config-generator-root .cg-land-about {
+    display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: var(--space-6); align-items: start;
+    padding: var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface);
+}
+#config-generator-root .cg-land-ph {
+    display: grid; place-items: center; width: 120px; height: 120px; border-radius: var(--radius-lg);
+    border: 2px dashed var(--border-strong); color: var(--muted); font-size: .78rem; text-align: center; background: var(--bg);
+}
+#config-generator-root .cg-land-plh {
+    background: var(--primary-soft); color: var(--primary); padding: 0 4px; border-radius: 4px;
+    font-family: var(--font-mono); font-size: .9em;
+}
+:root[data-theme="dark"] #config-generator-root .cg-land-plh { color: var(--text); }
+
+#config-generator-root .cg-land-ftr {
+    display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-4);
+    margin-top: var(--space-12); padding-top: var(--space-6); border-top: 1px solid var(--border);
+    color: var(--muted); font-size: .88rem;
+}
+
+@media (max-width: 1024px) {
+    #config-generator-root .cg-land-hero { gap: var(--space-8); }
+    #config-generator-root .cg-land-h1 { font-size: 2.25rem; }
+}
+@media (max-width: 860px) {
+    #config-generator-root .cg-land-hero { grid-template-columns: minmax(0, 1fr); padding: var(--space-6) 0; }
+    #config-generator-root .cg-land-h1 { font-size: 1.9rem; }
+    #config-generator-root .cg-land-lead { font-size: 1.02rem; }
+    #config-generator-root .cg-land-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #config-generator-root .cg-land-stat { padding: 14px 16px; }
+    #config-generator-root .cg-land-stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+    #config-generator-root .cg-land-term { white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; font-size: .8rem; }
+    #config-generator-root .cg-land-stat dd { font-size: 1.4rem; }
+    #config-generator-root .cg-land-sec { padding-top: var(--space-8); }
+    #config-generator-root .cg-land-about { grid-template-columns: minmax(0, 1fr); padding: var(--space-4); }
+    #config-generator-root .cg-land-ph { width: 96px; height: 96px; }
+    #config-generator-root .cg-land-cta .cg-land-btn { flex: 1 1 auto; justify-content: center; }
+}

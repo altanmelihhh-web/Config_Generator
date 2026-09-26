@@ -1475,6 +1475,8 @@ const CG_REGISTRY = {
             { id: 'address',   cat: 'secpol', label: 'Address Object',  gen: () => typeof FortiGate !== 'undefined' && FortiGate.address },
             { id: 'policy',    cat: 'secpol', label: 'Security Policy', gen: () => typeof FortiGate !== 'undefined' && FortiGate.policy },
             { id: 'nat',       cat: 'secpol', label: 'NAT / VIP',       gen: () => typeof FortiGate !== 'undefined' && FortiGate.nat },
+            { id: 'centralsnat', cat: 'secpol', label: 'Central SNAT', gen: () => typeof FortiGate !== 'undefined' && FortiGate.centralsnat },
+            { id: 'schedule',    cat: 'secpol', label: 'Zamanlama (Schedule)', gen: () => typeof FortiGate !== 'undefined' && FortiGate.schedule },
             { id: 'ipsec',     cat: 'vpn', label: 'IPSec VPN',       gen: () => typeof FortiGate !== 'undefined' && FortiGate.ipsec },
             { id: 'sslvpn',     cat: 'vpn', label: 'SSL-VPN',             gen: () => typeof FortiGate !== 'undefined' && FortiGate.sslvpn },
             { id: 'ipsecdialup', cat: 'vpn', label: 'IPsec Dial-up (FortiClient)', gen: () => typeof FortiGate !== 'undefined' && FortiGate.ipsecdialup },
@@ -1841,7 +1843,11 @@ const ConfigGenerator = {
         const m = h.match(/^#\/([^/]+)\/([^/]+)$/);
         if (m && CG_REGISTRY[m[1]]) this._renderWork(m[1], m[2]);
         else if (h === '#/converter') this._renderConverter();
-        else if ((h === '' || h === '#' || h === '#/') && typeof CgHub !== 'undefined') this._renderVendorHub(null);   // ana sayfa: vendor kartları (tanıtım sayfası A7'de)
+        else if (h === '' || h === '#' || h === '#/') {   // ana sayfa: tanıtım (A7); yoksa vendor kartları, o da yoksa araç ızgarası
+            if (typeof CgLanding !== 'undefined') this._renderLanding();
+            else if (typeof CgHub !== 'undefined') this._renderVendorHub(null);
+            else this._renderHome({ fam: null });
+        }
         else this._renderHome({ fam: null });
     },
 
@@ -1947,40 +1953,39 @@ const ConfigGenerator = {
 
         const chips = ['all', ...ids].map(id => {
             const v = CG_REGISTRY[id];
-            const lbl = id === 'all' ? (fam ? 'Tüm ' + fam.name : 'Tümü') : v.label;
+            const lbl = id === 'all' ? 'Tümü' : v.label;
             const n   = id === 'all' ? this._totalTools(ids) : v.types.length;
-            const mark = id === 'all'
-                ? '<span class="cg-mark cg-mark-txt" style="--bc:#6B7280"><i class="fas fa-layer-group"></i></span>'
-                : cgBrandMark(id, 14);
+            const mark = id === 'all' || fam ? '' : cgBrandMark(id, 14);   // aile içinde logo tekrarı yok (Tema 1 segment)
             return `<button class="cg-chip${this._filter === id ? ' active' : ''}" data-f="${id}" aria-pressed="${this._filter === id}"
                         onclick="ConfigGenerator._setFilter('${id}')" title="${cgEsc(lbl)}">
-                        ${mark}<span class="cg-chip-l">${cgEsc(lbl)}</span><span class="cg-chip-n">${n}</span>
+                        ${mark}<span class="cg-chip-l">${cgEsc(fam && id !== 'all' ? this._short(id, fam) : lbl)}</span><span class="cg-chip-n">${n}</span>
                     </button>`;
         }).join('');
 
         this._setNav(fam ? 'vendors' : 'tools');   // aile sayfaları (#/v/<aile>/…) Vendorlar sekmesi altında
         document.title = (fam ? fam.name + ' araçları' : 'Tüm araçlar') + ' · Config Generator';
         const ph = fam ? fam.name + ' araçlarında ara: ' + (fam.slug === 'f5' ? 'pool, monitor, irule…' : 'vlan, nat, bgp…') : 'Araç ara: vlan, ipsec, bgp, nat, interface…';
+        const nCat = new Set([].concat(...this._regEntries().map(([, v]) => v.types.map(t => t.cat)))).size;
         this._root.innerHTML = `
-        <div class="cg-home">
-            <h1 class="cg-sr-only">${fam ? cgEsc(fam.name) + ' config araçları' : 'Tüm config araçları'}</h1>
-            ${fam ? `<div class="cg-famlock"><span>${cgBrandMark(fam.reg[0], 14)} <b>${cgEsc(fam.name)}</b> araçları gösteriliyor</span>
-                <a class="cg-famlock-x" href="#/araclar" onclick="ConfigGenerator.goHome();return false">Tüm vendorlar <i class="fas fa-times" aria-hidden="true"></i></a></div>` : ''}
-            <div class="cg-home-search">
-                <i class="fas fa-search" aria-hidden="true"></i>
-                <input type="text" id="cg-home-q" placeholder="${cgEsc(ph)}" aria-label="${fam ? cgEsc(fam.name) + ' araçlarında ara' : 'Araç ara'}"
-                       autocomplete="off" value="${cgEsc(this._query)}"
-                       oninput="ConfigGenerator._setQuery(this.value)">
-                <kbd aria-hidden="true">/</kbd>
+        <div class="cg-home cg-tools">
+            <header class="cg-tools-hd">
+                <h1>${fam ? cgEsc(fam.name) + ' config araçları' : 'Tüm config araçları'}</h1>
+                <p class="cg-tools-lead"><strong>${this._totalTools(ids)}</strong> araç · <strong>${nCat}</strong> kategori · <strong>${ids.length}</strong> platform. ${ids.length > 1 ? 'Platform seçin ya da süzün; araç' : 'Araç'} açılınca form ve canlı çıktı yan yana gelir. Tamamı tarayıcıda çalışır.</p>
+                ${fam ? `<p class="cg-famlock"><span>Yalnız <b>${cgEsc(fam.name)}</b> araçları</span>
+                    <a class="cg-famlock-x" href="#/araclar" onclick="ConfigGenerator.goHome();return false">Tüm vendorların araçları <i class="fas fa-arrow-right" aria-hidden="true"></i></a></p>` : ''}
+            </header>
+            <div class="cg-tools-bar">
+                <div class="cg-chips cg-seg" id="cg-chips" role="group" aria-label="Platform süzgeci"${ids.length < 2 ? ' hidden' : ''}>${chips}</div>
+                <div class="cg-home-search">
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <input type="text" id="cg-home-q" placeholder="${cgEsc(ph)}" aria-label="${fam ? cgEsc(fam.name) + ' araçlarında ara' : 'Araç ara'}"
+                           autocomplete="off" value="${cgEsc(this._query)}"
+                           oninput="ConfigGenerator._setQuery(this.value)">
+                    <kbd aria-hidden="true">/</kbd>
+                </div>
             </div>
-            <div class="cg-meta">
-                <strong>${this._totalTools(ids)}</strong> şablon ·
-                <strong>${ids.length}</strong> platform ·
-                tamamı tarayıcıda çalışır
-            </div>
-            <div class="cg-chips" id="cg-chips" role="group" aria-label="Platform süzgeci"${ids.length < 2 ? ' hidden' : ''}>${chips}</div>
             <div class="cg-chips cg-cat-chips" id="cg-cat-chips" role="group" aria-label="Kategori süzgeci">${this._catChips()}</div>
-            <p class="cg-sr-only" id="cg-home-live" aria-live="polite"></p>
+            <p class="cg-tools-count" id="cg-home-live" aria-live="polite"></p>
             <div id="cg-home-grid"></div>
         </div>`;
 
@@ -2078,51 +2083,63 @@ const ConfigGenerator = {
         if (!host) return;
         const term = (this._query || '').trim().toLowerCase();
         let html = '', hits = 0;
-
+        const fam = this._fam && typeof CG_FAMILY_BY_SLUG !== 'undefined' ? CG_FAMILY_BY_SLUG[this._fam] : null;
+        const cat = this._cat && this._cat !== 'all' ? this._cat : null;
+        // Eşleşen araçlar: [vid, v, t]
+        const rows = [];
         for (const [vid, v] of this._regEntries()) {
             if (this._filter !== 'all' && this._filter !== vid) continue;
-            const cat = this._cat && this._cat !== 'all' ? this._cat : null;
-            const types = v.types.filter(t => {
-                if (cat && t.cat !== cat) return false;
-                if (!term) return true;
-                const cl = (CG_CAT_BY_ID[t.cat] || {}).label || '';
-                return (t.label + ' ' + t.id + ' ' + v.label + ' ' + cl).toLowerCase().includes(term);
+            v.types.forEach(t => {
+                if (cat && t.cat !== cat) return;
+                if (term) { const cl = (CG_CAT_BY_ID[t.cat] || {}).label || ''; if (!(t.label + ' ' + t.id + ' ' + v.label + ' ' + cl).toLowerCase().includes(term)) return; }
+                rows.push([vid, v, t]);
             });
-            if (!types.length) continue;
-            hits += types.length;
-
-            html += `<section class="cg-vgroup">
-                <header class="cg-vgroup-hd">
-                    ${cgBrandMark(vid, 17)}
-                    <h3 lang="en">${cgEsc(v.label)}</h3>
-                    <span class="cg-vgroup-n">${types.length}</span>
-                </header>
-                <div class="cg-vgroup-body">` +
-                // Vendor icinde sabit kategori sirasi; her kategori kendi alt basligiyla
-                CG_CATEGORIES.filter(c => types.some(t => t.cat === c.id)).map(c =>
-                `<div class="cg-catgroup"><div class="cg-catgroup-hd"><i class="${c.icon}"></i>${cgEsc(c.label)}</div><div class="cg-cards">` +
-                types.filter(t => t.cat === c.id).map(t => {
-                    const g = t.gen();
-                    const stub = !g || typeof g.init !== 'function';
-                    const icon = CG_TYPE_ICONS[t.id] || 'fas fa-code';
-                    return `<button class="cg-card${stub ? ' is-stub' : ''}"
-                        ${stub ? 'disabled title="Yakında eklenecek"' : `onclick="ConfigGenerator.go('${vid}','${t.id}')"`}>
-                        <i class="${icon}"></i>
-                        <span class="cg-card-t">${cgEsc(t.label)}</span>
-                        ${stub ? '<span class="cg-card-soon">yakında</span>' : ''}
-                    </button>`;
-                }).join('') + `</div></div>`).join('') +
-                `</div></section>`;
+        }
+        hits = rows.length;
+        const row = ([vid, v, t], tag, plat) => {
+            const g = t.gen(), stub = !g || typeof g.init !== 'function';
+            const icon = CG_TYPE_ICONS[t.id] || 'fas fa-code';
+            return `<li><button class="cg-card cg-tool${stub ? ' is-stub' : ''}"
+                ${stub ? 'disabled title="Yakında eklenecek"' : `onclick="ConfigGenerator.go('${vid}','${t.id}')"`}>
+                <i class="${icon}" aria-hidden="true"></i>
+                <span class="cg-card-t">${cgEsc(t.label)}</span>
+                ${stub ? '<span class="cg-card-soon">yakında</span>' : tag ? `<span class="cg-tool-tag${plat ? ' is-plat' : ''}">${cgEsc(tag)}</span>` : ''}
+            </button></li>`;
+        };
+        const sec = (id, head, n, list) => `<section class="cg-tsec" aria-labelledby="cg-tsec-${id}">
+                <h2 id="cg-tsec-${id}">${head}<span class="cg-tsec-n">${n}</span></h2>
+                <ul class="cg-tlist">${list}</ul></section>`;
+        const plats = new Set(rows.map(r => r[0]));
+        if (fam || this._filter !== 'all') {
+            // Tek aile / tek platform: kategoriye göre (Tema 1 içerik düzeni); birden çok platform varsa satırda kısa platform etiketi
+            html = CG_CATEGORIES.filter(c => rows.some(r => r[2].cat === c.id)).map(c => {
+                const rs = rows.filter(r => r[2].cat === c.id);
+                return sec(c.id, `<i class="${c.icon}" aria-hidden="true"></i>${cgEsc(c.label)}`, rs.length, rs.map(r => row(r, plats.size > 1 ? this._short(r[0], fam) : '', true)).join(''));
+            }).join('');
+        } else {
+            // Tüm vendorlar: platforma göre; satırda kategori etiketi
+            html = [...plats].map(vid => {
+                const rs = rows.filter(r => r[0] === vid), v = CG_REGISTRY[vid];
+                return sec(vid, `${cgBrandMark(vid, 17)}<span lang="en">${cgEsc(v.label)}</span>`, rs.length, rs.map(r => row(r, cat ? '' : (CG_CAT_BY_ID[r[2].cat] || {}).label || '')).join(''));
+            }).join('');
         }
 
         const live = document.getElementById('cg-home-live');
-        if (live) live.textContent = hits + ' araç listeleniyor';
+        if (live) live.textContent = hits + ' araç listeleniyor';   // görünür sayaç + canlı bölge
         host.innerHTML = hits ? html : `
             <div class="cg-empty">
                 <i class="fas fa-search" aria-hidden="true"></i>
                 <p>${term ? '<strong>“' + cgEsc(this._query.trim()) + '”</strong> için bu süzgeçte sonuç yok.' : 'Bu süzgeçte araç yok.'}</p>
                 <button class="cg-btn-ghost" onclick="ConfigGenerator._clearFilters()">Süzgeçleri temizle</button>
             </div>`;
+    },
+
+    // Aile içinde kısa platform adı (Cisco NX-OS → NX-OS); aile adıyla aynıysa tam ad
+    _short(vid, fam) {
+        const l = (CG_REGISTRY[vid] || {}).label || vid;
+        const f = fam || (typeof cgFamilyOf === 'function' ? cgFamilyOf(vid) : null);
+        const x = f && l.toLowerCase().startsWith(f.name.toLowerCase() + ' ') ? l.slice(f.name.length + 1) : l;
+        return x || l;
     },
 
     _clearFilters() {
@@ -2212,6 +2229,14 @@ const ConfigGenerator = {
         this._setNav('vendors');
         this._vendor = this._type = null;
         if (slug) CgHub.renderHub(this._root, slug); else CgHub.renderVendors(this._root);   // document.title'ı CgHub yazar
+        window.scrollTo(0, 0);
+    },
+
+    // ── TANITIM (A7): kırıntı ve sol ağaç yok (CgShell bu rotada ikisini de gizler); lab verisi yüklenmez ──
+    _renderLanding() {
+        this._setNav(null);
+        this._vendor = this._type = null;
+        CgLanding.render(this._root);   // document.title'ı CgLanding yazar
         window.scrollTo(0, 0);
     },
 
