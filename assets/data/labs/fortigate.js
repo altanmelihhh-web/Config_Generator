@@ -2069,6 +2069,161 @@
             links: { tool: '#/fortigate/vdom', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/137' }, cert: 'NSE 4 · M13'
         };
     })(),
+    // ═══ Parti 11: SD-WAN kurulumu (fgt-28), SD-WAN arızası (fgt-29), policy route (fgt-48) — Seviye 4 ═══
+    // Motor: M19 (system sdwan, health-check + sla, service; sim.links), M20 (router policy). Çıktı biçimleri Admin Guide 7.4.4 "SD-WAN related diagnose commands".
+    (() => {
+        const ST = IF('port1', '203.0.113.2 255.255.255.252', ['set role wan']).concat(IF('port2', '10.64.10.1 255.255.255.0', ['set role lan']), IF('port3', '198.51.100.2 255.255.255.252', ['set role wan']),
+            ['config firewall address', 'edit LAN-NET', 'set subnet 10.64.10.0 255.255.255.0', 'next', 'edit SAAS', 'set subnet 192.0.2.0 255.255.255.0', 'end']);
+        const SAASF = { src: '10.64.10.50', dst: '192.0.2.10', dport: 443, in: 'port2' };
+        const mem = s => (s.sdwan() || { members: [] }).members;
+        return {
+            id: 'fgt-28', vendor: 'fortigate', level: 4, title: 'SD-WAN kurulumu: üyeler, Performance SLA ve SLA kuralı', minutes: 35, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-65'],
+            up: ['port1', 'port2', 'port3'], hosts: ['203.0.113.1', '198.51.100.1'],
+            start: ST,
+            sim: { links: { port1: { latency: 120, jitter: 8, loss: 2 }, port3: { latency: 20, jitter: 2, loss: 0 } } },
+            story: 'Şubenin iki internet hattı var: port1 (ağ geçidi 203.0.113.1) ve port3 (198.51.100.1). Statik rota yerine SD-WAN kurulacak: iki hat da kullanılsın, iş uygulaması SaaS (192.0.2.0/24) ise her zaman kalitesi iyi olan hattan gitsin (gecikme ≤ 100 ms, jitter ≤ 10 ms, kayıp ≤ %1). <small>[Simülatör] Hat kalitesi benzetilir: bu turda port1 gecikmeli ve kayıplı.</small>',
+            lesson: L('<code>config system sdwan</code> hatları <b>üye</b> (<code>config members</code>: arayüz ve ağ geçidi) olarak <b>virtual-wan-link</b> zone\'una toplar. Trafik zone\'a bir statik rotayla (<code>set sdwan-zone virtual-wan-link</code>) ve hedef arayüzü zone olan bir güvenlik kuralıyla yönlendirilir; kural dışı trafik canlı üyeler arasında paylaştırılır (varsayılan: kaynak IP\'ye göre). <b>Performance SLA</b> (<code>config health-check</code>) her üyeyi bir sunucuya karşı ölçer; <code>config sla</code> gecikme, jitter ve kayıp eşiklerini tanımlar. <b>SD-WAN kuralı</b> (<code>config service</code>) belirli trafiği seçer: <code>mode sla</code> sıradaki üyelerden SLA\'yı karşılayan ilkini kullanır. Durum <code>diagnose sys sdwan health-check</code>, <code>member</code> ve <code>service4</code> ile okunur.',
+                'İki hattı yalnız yedek için tutmak kapasiteyi boşa harcar; iş uygulamasını kalitesiz hattan göndermek ise kullanıcıya "uygulama yavaş" olarak döner. SLA ölçümü ve kuralı, hat kalitesine göre otomatik karar verir.',
+                'config system sdwan\n    set status enable\n    config members\n        edit 1\n            set interface port1\n            set gateway 203.0.113.1\n        next\n        edit 2\n            set interface port3\n            set gateway 198.51.100.1\n        next\n    end\n    config health-check\n        edit HC\n            set server 192.0.2.53\n            set members 1 2\n            config sla\n                edit 1\n                    set latency-threshold 100\n                    set jitter-threshold 10\n                    set packetloss-threshold 1\n                next\n            end\n        next\n    end\n    config service\n        edit 1\n            set name SAAS-SLA\n            set mode sla\n            set dst SAAS\n            set priority-members 1 2\n            config sla\n                edit HC\n                    set id 1\n                next\n            end\n        next\n    end\nend',
+                ['Zone\'a rota yazmayı ya da kuralda hedef arayüz olarak zone\'u seçmeyi unutmak.', 'SLA eşiklerini gerçek hat kalitesine bakmadan çok sıkı ya da çok gevşek yazmak.', 'Kuralda SLA\'yı (config sla) bağlamamak: mode sla olsa da ölçüm kullanılmaz.']),
+            goals: ['SD-WAN üyeleri ve zone', 'Zone rotası ve zone\'lu kural', 'Performance SLA ölçümü', 'SLA kuralı ile uygulama yönlendirme'],
+            tasks: [
+                { t: 'SD-WAN\'ı açın ve üyeleri ekleyin: 1 = port1 (203.0.113.1), 2 = port3 (198.51.100.1).',
+                  why: 'Üyeler varsayılan olarak virtual-wan-link zone\'una girer.',
+                  hints: ['config system sdwan → set status enable → config members', 'edit 1 → <code>set interface port1</code> → <code>set gateway 203.0.113.1</code> → next → edit 2 … → end → end'],
+                  steps: ['config system sdwan', 'set status enable', 'config members', 'edit 1', 'set interface port1', 'set gateway 203.0.113.1', 'next', 'edit 2', 'set interface port3', 'set gateway 198.51.100.1', 'next', 'end', 'end'],
+                  check: s => { const m = mem(s); return m.length === 2 && m.some(x => x.interface === 'port1') && m.some(x => x.interface === 'port3'); } },
+                { t: 'Zone\'a varsayılan rota ve LAN → zone kuralı (NAT): LAN-SDWAN, port2 → virtual-wan-link, LAN-NET → all, ALL.',
+                  why: 'Rota trafiği zone\'a, kural zone\'a çıkışa izin verir. Kural dışı trafik canlı üyeler arasında paylaşılır.',
+                  hints: ['config router static → edit 1 → <code>set sdwan-zone virtual-wan-link</code>', 'config firewall policy → edit 1 → <code>set dstintf virtual-wan-link</code> …'],
+                  steps: ['config router static', 'edit 1', 'set sdwan-zone virtual-wan-link', 'end', 'config firewall policy', 'edit 1', 'set name LAN-SDWAN', 'set srcintf port2', 'set dstintf virtual-wan-link', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service ALL', 'set nat enable', 'end'], needs: [0],
+                  check: s => { const d = s.decide({ src: '10.64.10.50', dst: '203.0.113.100', dport: 443, in: 'port2' }); return d.stage === 'allowed' && ['port1', 'port3'].includes(d.out); } },
+                { t: 'Performance SLA: <code>HC</code>, sunucu 192.0.2.53, üyeler 1 2; SLA 1: gecikme 100, jitter 10, kayıp 1.',
+                  why: 'Ölçüm her üye için gecikme, jitter ve kayıp üretir; SLA eşikleri karşılayan üyeyi işaretler (sla_map).',
+                  hints: ['config system sdwan → config health-check → edit HC', '<code>set server 192.0.2.53</code> → <code>set members 1 2</code> → config sla → edit 1 → eşikler → next → end → next → end → end'],
+                  steps: ['config system sdwan', 'config health-check', 'edit HC', 'set server 192.0.2.53', 'set members 1 2', 'config sla', 'edit 1', 'set latency-threshold 100', 'set jitter-threshold 10', 'set packetloss-threshold 1', 'next', 'end', 'next', 'end', 'end'], needs: [0],
+                  check: s => (s.sdwan().hc || []).some(h => h.name === 'HC' && (h.states || []).length === 2) },
+                { t: 'Ölçümü okuyun: hangi üye SLA\'yı karşılıyor?', ask: { choices: [['port3', 'port3 (sla_map=0x1): 20 ms, %0 kayıp'], ['port1', 'port1: 120 ms, %2 kayıp'], ['both', 'İkisi de']], correct: 'port3' },
+                  why: '<code>diagnose sys sdwan health-check</code> her üyenin durumunu, kaybını, gecikmesini, jitter\'ını ve sla_map\'ini gösterir. sla_map biti 1 olan üye SLA 1\'i karşılar.',
+                  hints: ['<code>diagnose sys sdwan health-check</code>', 'sla_map değeri.'],
+                  steps: ['diagnose sys sdwan health-check', { answer: 3, v: 'port3' }], needs: [0, 2] },
+                { t: 'SLA kuralı: <code>SAAS-SLA</code>, mode sla, hedef SAAS, üye sırası 1 2, ölçüm HC SLA 1. SaaS trafiği port3\'ten çıkmalı.',
+                  why: 'mode sla sıradaki üyelerden SLA\'yı karşılayan ilkini seçer: port1 ilk sırada ama SLA\'yı karşılamıyor, bu yüzden port3.',
+                  hints: ['config system sdwan → config service → edit 1', '<code>set mode sla</code> → <code>set dst SAAS</code> → <code>set priority-members 1 2</code> → config sla → edit HC → <code>set id 1</code> → next → end → next → end → end'],
+                  steps: ['config system sdwan', 'config service', 'edit 1', 'set name SAAS-SLA', 'set mode sla', 'set dst SAAS', 'set priority-members 1 2', 'config sla', 'edit HC', 'set id 1', 'next', 'end', 'next', 'end', 'end'], needs: [0, 1, 2],
+                  check: s => { const d = s.decide(SAASF); return d.stage === 'allowed' && d.out === 'port3' && String(d.sdwan) === '1'; } },
+                { t: 'SaaS dışındaki trafik (kural dışı) nasıl dağılır?', ask: { choices: [['ecmp', 'Canlı üyeler arasında paylaşılır (varsayılan: kaynak IP\'ye göre)'], ['port1', 'Hep port1\'den'], ['drop', 'Düşürülür']], correct: 'ecmp' },
+                  why: 'Zone rotası iki üyeyi de tabloya koyar; kural eşleşmeyen trafik bu yollar arasında dağıtılır.',
+                  hints: ['<code>get router info routing-table all</code>', 'İki yol.'] },
+            ],
+            verify: ['diagnose sys sdwan member', 'diagnose sys sdwan health-check', 'diagnose sys sdwan service4', 'get router info routing-table all'],
+            learn: ['Üyeler → virtual-wan-link zone; zone rotası + zone\'lu kural.', 'Performance SLA: gecikme, jitter, kayıp; sla_map.', 'mode sla: sıradaki SLA\'yı karşılayan ilk üye.', 'Kural dışı trafik canlı üyelere dağılır.'],
+            links: { tool: '#/fortigate/sdwan', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/139' }, cert: 'NSE 4 · M12'
+        };
+    })(),
+    (() => {
+        const IFs = IF('port1', '203.0.113.2 255.255.255.252', ['set role wan']).concat(IF('port2', '10.64.10.1 255.255.255.0', ['set role lan']), IF('port3', '198.51.100.2 255.255.255.252', ['set role wan']),
+            ['config firewall address', 'edit LAN-NET', 'set subnet 10.64.10.0 255.255.255.0', 'next', 'edit SAAS', 'set subnet 192.0.2.0 255.255.255.0', 'end']);
+        const SDW = (lat, extra) => ['config system sdwan', 'set status enable', 'config members', 'edit 1', 'set interface port1', 'set gateway 203.0.113.1', 'next', 'edit 2', 'set interface port3', 'set gateway 198.51.100.1', 'next', 'end',
+            'config health-check', 'edit HC', 'set server 192.0.2.53', 'set members 1 2', 'config sla', 'edit 1', 'set latency-threshold ' + lat, 'set jitter-threshold 10', 'set packetloss-threshold 1', 'next', 'end', 'next', 'end']
+            .concat(extra || [], ['config service', 'edit 2', 'set name SAAS-SLA', 'set mode sla', 'set dst SAAS', 'set priority-members 1 2', 'config sla', 'edit HC', 'set id 1', 'next', 'end', 'next', 'end', 'end',
+                'config router static', 'edit 1', 'set sdwan-zone virtual-wan-link', 'end',
+                'config firewall policy', 'edit 1', 'set name LAN-SDWAN', 'set srcintf port2', 'set dstintf virtual-wan-link', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service ALL', 'set nat enable', 'end']);
+        const SAASF = { src: '10.64.10.50', dst: '192.0.2.10', dport: 443, in: 'port2' };
+        const V = [
+            { key: 'sla', start: IFs.concat(SDW(5)), fix: ['config system sdwan', 'config health-check', 'edit HC', 'config sla', 'edit 1', 'set latency-threshold 100', 'next', 'end', 'next', 'end', 'end'] },
+            { key: 'member', start: IFs.concat(SDW(100), ['config system sdwan', 'config members', 'edit 2', 'set status disable', 'next', 'end', 'end']), fix: ['config system sdwan', 'config members', 'edit 2', 'set status enable', 'next', 'end', 'end'] },
+            { key: 'order', start: IFs.concat(['config firewall address', 'edit TUM-NET', 'set subnet 0.0.0.0 0.0.0.0', 'end'], SDW(100, ['config service', 'edit 1', 'set name GENEL', 'set mode manual', 'set dst TUM-NET', 'set priority-members 1', 'next', 'end'])), fix: ['config system sdwan', 'config service', 'delete 1', 'end', 'end'] },
+        ];
+        const lastCfg = s => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (L[i].canon && /^(set |append |unset |delete )/.test(L[i].canon)) return i; return -1; };
+        return {
+            id: 'fgt-29', vendor: 'fortigate', level: 4, title: 'SD-WAN arızası: SaaS kalitesiz hattan çıkıyor', minutes: 25, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-28'],
+            up: ['port1', 'port2', 'port3'], hosts: ['203.0.113.1', '198.51.100.1'],
+            start: [],
+            variants: V,
+            sim: { links: { port1: { latency: 120, jitter: 8, loss: 2 }, port3: { latency: 20, jitter: 2, loss: 0 } } },
+            story: '<b>Arıza kaydı:</b> "SaaS uygulaması (192.0.2.0/24) çok yavaş." SD-WAN fgt-28\'deki gibi kurulu: üyeler port1 ve port3, ölçüm HC (hedef eşikler: gecikme 100, jitter 10, kayıp %1), SAAS-SLA kuralı. Bugün port1 kalitesiz (120 ms, %2 kayıp), port3 iyi. SaaS trafiğinin neden port1\'den çıktığını bulun ve düzeltin. <small>[Simülatör] Her turda farklı bir neden — "Yeni tur".</small>',
+            lesson: L('SD-WAN teşhisinde üç çıktı yeter: <code>diagnose sys sdwan service4</code> hangi kuralın hangi üyeyi seçtiğini (<code>selected</code>) ve kural sırasını, <code>diagnose sys sdwan health-check</code> üyelerin ölçümünü ve <code>sla_map</code>\'ini, <code>diagnose sys sdwan member</code> üyelerin durumunu gösterir. Tipik nedenler: SLA eşikleri gerçekçi değil (hiçbir üye karşılamıyor, kural sıradaki ilk canlı üyeye düşüyor), iyi hat üye olarak devre dışı, ya da daha genel bir kural SLA kuralından önce eşleşiyor (kurallar yukarıdan aşağı, ilk eşleşen uygulanır).',
+                'SD-WAN kararları görünmezdir: kullanıcı yalnız yavaşlığı görür. Çıktıları okuyabilen, sorunun hat kalitesinde mi yoksa yapılandırmada mı olduğunu dakikalar içinde ayırır.',
+                'diagnose sys sdwan service4\ndiagnose sys sdwan health-check\ndiagnose sys sdwan member',
+                ['SLA eşiklerini ölçülen değerlere bakmadan yazmak.', 'Genel bir kuralı özel kuralların üstünde bırakmak.', 'Bakımda devre dışı bırakılan üyeyi geri açmayı unutmak.']),
+            goals: ['service4, health-check ve member çıktılarını okumak', 'SLA eşiği, üye durumu ve kural sırası arızalarını ayırmak', 'Düzeltmeyi service4 ile doğrulamak'],
+            tasks: [
+                { t: 'SD-WAN kurallarının seçimini görüntüleyin.',
+                  why: 'service4 her kuralın modunu, hedefini, üye sırasını ve seçilen üyeyi gösterir.',
+                  hints: ['diagnose sys sdwan …', '<code>diagnose sys sdwan service4</code>'],
+                  steps: ['diagnose sys sdwan service4'], loo: false, /* 5. görev de service4 çalıştırır */
+                  check: s => s.ev.ran(/^diagnose sys sdwan service4$/) },
+                { t: 'Ölçümü ve üyeleri görüntüleyin.',
+                  why: 'health-check sla_map\'i ve ölçülen değerleri, member ise üyelerin durumunu verir.',
+                  hints: ['health-check ve member', '<code>diagnose sys sdwan health-check</code> → <code>diagnose sys sdwan member</code>'],
+                  steps: ['diagnose sys sdwan health-check', 'diagnose sys sdwan member'],
+                  check: s => s.ev.ran(/^diagnose sys sdwan health-check$/) && s.ev.ran(/^diagnose sys sdwan member$/) },
+                { t: 'SaaS neden port1\'den çıkıyor?', ask: { choices: [['sla', 'SLA eşiği gerçekçi değil (gecikme 5 ms): hiçbir üye karşılamıyor, kural sıradaki ilk canlı üyeye (port1) düşüyor'], ['member', 'port3 üyesi devre dışı: kural tek canlı üye olan port1\'i kullanıyor'], ['order', 'Daha genel bir kural (GENEL, tüm hedefler, yalnız port1) SAAS-SLA\'dan önce eşleşiyor']], correct: v => v.key },
+                  why: 'sla_map ikisinde de 0x0 ise eşik; member\'da port3 yoksa ya da ölü ise üye durumu; service4\'te SaaS trafiği önce başka kurala düşüyorsa sıra.',
+                  hints: ['service4\'teki kural sırası ve selected.', 'health-check\'te sla_map.'] },
+                { t: 'Düzeltin: yalnız bozulan ayar. SaaS port3\'ten çıkmalı.',
+                  why: 'sla → gecikme eşiği 100 · member → üye 2 status enable · order → genel kuralı kaldırmak (kural sırası: ilk eşleşen kazanır).',
+                  hints: ['Nedene karşılık gelen tek ayar.', 'config system sdwan → config health-check / config members / config service'],
+                  steps: v => v.fix,
+                  check: s => { const d = s.decide(SAASF); return d.stage === 'allowed' && d.out === 'port3'; } },
+                { t: 'Doğrulayın: son değişiklikten sonra service4\'te SAAS-SLA kuralı port3\'ü seçmeli.',
+                  why: 'Kanıt: seçilen üye satırı.',
+                  hints: ['service4', '<code>diagnose sys sdwan service4</code>'],
+                  steps: ['diagnose sys sdwan service4'], needs: [3],
+                  check: s => { const d = s.decide(SAASF), i = lastCfg(s); return d.out === 'port3' && s.ev.list().slice(i + 1).some(e => e.canon === 'diagnose sys sdwan service4'); } },
+            ],
+            verify: ['diagnose sys sdwan service4', 'diagnose sys sdwan health-check', 'diagnose sys sdwan member'],
+            learn: ['service4: kural sırası ve selected.', 'health-check: sla_map ve ölçümler.', 'Nedenler: eşik, üye durumu, kural sırası.'],
+            links: { tool: '#/fortigate/sdwan', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/138' }, cert: 'NSE 4 · M12'
+        };
+    })(),
+    (() => {
+        const ST = IF('port1', '203.0.113.2 255.255.255.252', ['set role wan']).concat(IF('port2', '10.64.10.1 255.255.255.0', ['set role lan']), IF('port3', '198.51.100.2 255.255.255.252', ['set role wan']),
+            ['config router static', 'edit 1', 'set gateway 203.0.113.1', 'set device port1', 'end',
+                'config firewall policy', 'edit 1', 'set name LAN-WAN1', 'set srcintf port2', 'set dstintf port1', 'set srcaddr all', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service ALL', 'set nat enable', 'next',
+                'edit 2', 'set name LAN-WAN2', 'set srcintf port2', 'set dstintf port3', 'set srcaddr all', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service ALL', 'set nat enable', 'end']);
+        const F = o => Object.assign({ src: '10.64.10.200', dst: '203.0.113.100', dport: 443, in: 'port2' }, o);
+        return {
+            id: 'fgt-48', vendor: 'fortigate', level: 4, title: 'Policy route (PBR): belirli trafiği ikinci hattan göndermek', minutes: 25, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-65'],
+            up: ['port1', 'port2', 'port3'], hosts: ['203.0.113.1', '198.51.100.1'],
+            start: ST,
+            sim: { flows: [F()] },
+            story: 'Misafir cihazların bulunduğu alt ağ (10.64.10.128/25) HTTPS trafiğini ikinci hattan (port3, 198.51.100.1) çıkarmalı; geri kalan her şey varsayılan rotayla port1\'den gitmeye devam etmeli. Ancak kurumun SaaS ağı (192.0.2.0/24) misafirler için de her zaman rota tablosunu izlemeli. Kurallar hazır (LAN-WAN1, LAN-WAN2).',
+            lesson: L('<b>Policy route</b> (<code>config router policy</code>) rota tablosundan <b>önce</b> değerlendirilir: giriş arayüzü, kaynak/hedef, protokol ve port eşleşirse trafik belirtilen çıkış arayüzü ve ağ geçidinden gönderilir. Kayıtlar yukarıdan aşağı okunur; <code>action deny</code> eşleşen trafik için politika yönlendirmesini durdurur ve rota tablosuna bırakır (istisna yazmanın yolu). Çıkış arayüzü kapalı kayıt atlanır. Trafik yine de güvenlik kuralından geçmelidir: çıkış arayüzüne izin veren bir kural gerekir. Kayıtlar <code>diagnose firewall proute list</code> ile, eşleşme debug flow\'da "Match policy routing" satırıyla görülür.',
+                'Kaynak tabanlı ayrım rota tablosuyla yapılamaz: rota yalnız hedefe bakar. PBR, belirli bir kullanıcı grubunu ya da uygulamayı başka bir hatta almanın en doğrudan yoludur; istisnası unutulursa iç kaynaklar yanlış hattan çıkar.',
+                'config router policy\n    edit 1\n        set input-device port2\n        set src 10.64.10.128/25\n        set protocol 6\n        set start-port 443\n        set end-port 443\n        set output-device port3\n        set gateway 198.51.100.1\n    next\nend\ndiagnose firewall proute list',
+                ['Protokol ve portu yazmadan tüm trafiği taşımak.', 'İstisnayı (deny) genel kaydın altına yazmak: ilk eşleşen kazanır.', 'Çıkış arayüzüne izin veren kuralı unutmak.']),
+            goals: ['PBR ile rota tablosu farkı', 'Kaynak + protokol + port eşleşmesi', 'deny ile istisna ve kayıt sırası', 'proute list okumak'],
+            tasks: [
+                { t: 'Bugün misafir cihazı 10.64.10.200\'ün HTTPS trafiği hangi hattan çıkıyor?', ask: { choices: [['port1', 'port1: rota tablosu yalnız hedefe bakar, varsayılan rota port1\'de'], ['port3', 'port3'], ['both', 'İkisi arasında paylaşılır']], correct: 'port1' },
+                  why: 'Tabloda tek varsayılan rota var; kaynak adres rota seçimini etkilemez.',
+                  hints: ['<code>get router info routing-table all</code>', 'Rota tablosu kaynağa bakar mı?'],
+                  steps: ['get router info routing-table all', { answer: 0, v: 'port1' }] },
+                { t: 'PBR kaydı 1: giriş port2, kaynak 10.64.10.128/25, TCP (6) 443 → çıkış port3, ağ geçidi 198.51.100.1.',
+                  why: 'Kayıt yalnız eşleşen trafiği taşır; diğer trafik rota tablosunu izler.',
+                  hints: ['config router policy → edit 1', '<code>set input-device port2</code> → <code>set src 10.64.10.128/25</code> → <code>set protocol 6</code> → <code>set start-port 443</code> → <code>set end-port 443</code> → <code>set output-device port3</code> → <code>set gateway 198.51.100.1</code> → end'],
+                  steps: ['config router policy', 'edit 1', 'set input-device port2', 'set src 10.64.10.128/25', 'set protocol 6', 'set start-port 443', 'set end-port 443', 'set output-device port3', 'set gateway 198.51.100.1', 'end'],
+                  check: s => { const d = s.decide(F()); return d.out === 'port3' && d.pbr === '1' && s.decide(F({ src: '10.64.10.20' })).out === 'port1'; } },
+                { t: 'Aynı misafir cihazın HTTP (80) trafiği hangi hattan çıkar?', ask: { choices: [['port1', 'port1: port eşleşmediği için PBR uygulanmaz, rota tablosu kullanılır'], ['port3', 'port3'], ['drop', 'Düşürülür']], correct: 'port1' },
+                  why: 'PBR kaydı yalnız TCP 443 için; diğer trafik rota tablosuna düşer.',
+                  hints: ['Kayıttaki port aralığı.', '443–443'] },
+                { t: 'İstisna: misafirler için de SaaS (192.0.2.0/24) rota tablosunu izlemeli. <b>deny</b> kaydı 2 yazıp kayıt 1\'in <b>üstüne</b> taşıyın.',
+                  why: 'deny, eşleşen trafik için politika yönlendirmesini durdurur. İlk eşleşen kayıt uygulandığı için istisna genel kaydın üstünde olmalıdır.',
+                  hints: ['config router policy → edit 2 → set input-device port2 → set dst 192.0.2.0/24 → set action deny → next', '<code>move 2 before 1</code> → end'],
+                  steps: ['config router policy', 'edit 2', 'set input-device port2', 'set dst 192.0.2.0/24', 'set action deny', 'next', 'move 2 before 1', 'end'], needs: [1],
+                  check: s => { const d = s.decide(F({ dst: '192.0.2.10' })); return d.out === 'port1' && d.pbrDeny === '2' && s.decide(F()).out === 'port3'; } },
+                { t: 'PBR tablosunu görüntüleyin.',
+                  why: '<code>diagnose firewall proute list</code> kayıtları sırasıyla, giriş/çıkış arayüzü, port ve ağ geçidiyle gösterir.',
+                  hints: ['diagnose firewall proute …', '<code>diagnose firewall proute list</code>'],
+                  steps: ['diagnose firewall proute list'],
+                  check: s => s.ev.ran(/^diagnose firewall proute list$/) },
+            ],
+            verify: ['diagnose firewall proute list', 'show router policy', 'get router info routing-table all'],
+            learn: ['PBR rota tablosundan önce; kaynak/port/protokol eşleşir.', 'Eşleşmeyen trafik rota tablosunu izler.', 'deny = istisna; sırası önemli (move).', 'Çıkış arayüzüne kural gerekli.'],
+            links: { tool: '#/fortigate/pbr', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/140' }, cert: 'NSE 4 · M3'
+        };
+    })(),
     ];
     // Çoktan seçmeli (ask) görevler: cevap s.answers['<lab>:<görev>'] içinde
     LABS.forEach(l => l.tasks.forEach((t, i) => {

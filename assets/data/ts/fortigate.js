@@ -635,5 +635,52 @@
                 { q: 'vdom-link oluşturunca hangi arayüzler açılır?', choices: [['two', '<ad>0 ve <ad>1'], ['one', 'Tek arayüz'], ['none', 'Hiçbiri']], correct: 'two', why: 'İki uç ayrı VDOM\'lara atanır.' },
             ],
         },
+        // ── Parti 11: SD-WAN ve Performance SLA (fgt-29, fgt-28), policy route (fgt-48)
+        {
+            title: 'SD-WAN: Uygulama Kalitesiz Hattan Çıkıyor (SLA Eşiği, Üye Durumu, Kural Sırası)', severity: 'err', topic: 'routing', lab: 'fgt-29',
+            symptom: 'SD-WAN kurulu; iş uygulaması (SLA kuralı olan trafik) yavaş, çünkü gecikmeli ya da kayıplı hattan çıkıyor.',
+            steps: [
+                { code: 'diagnose sys sdwan service4', desc: 'Kurallar yukarıdan aşağı değerlendirilir; trafik ilk eşleşen kuralın seçtiği üyeden (selected) çıkar. SLA kuralının üstünde daha genel bir kural varsa (ör. tüm hedefler, tek üye) trafik oraya düşer.',
+                  fix: [{ cause: 'Genel kural SLA kuralının üstünde: kaldırın ya da hedefini daraltın (gerçek cihazda kural sırası move ile de değiştirilebilir)', cmd: 'config system sdwan\nconfig service\ndelete 1\nend\nend' }] },
+                { expect: 'bad', code: 'diagnose sys sdwan health-check', desc: 'Her üyenin kaybı, gecikmesi, jitter\'ı ve sla_map\'i. Hiçbir üyenin sla_map\'i SLA\'yı karşılamıyorsa SLA kuralı sıradaki ilk canlı üyeye düşer; eşikler ölçülen değerlerle karşılaştırılır.',
+                  sample: 'Health Check(HC):\nSeq(1 port1): state(alive), packet-loss(2.000%) latency(120.000), jitter(8.000) sla_map=0x0\nSeq(2 port3): state(alive), packet-loss(0.000%) latency(20.000), jitter(2.000) sla_map=0x0\n\n# port3 20 ms ama sla_map 0: gecikme eşiği gerçekçi değil (ör. 5 ms)',
+                  fix: [{ cause: 'SLA eşiği gerçekçi değil', cmd: 'config system sdwan\nconfig health-check\nedit HC\nconfig sla\nedit 1\nset latency-threshold 100\nnext\nend\nnext\nend\nend' }] },
+                { code: 'diagnose sys sdwan member', desc: 'İyi hat üye listesinde yoksa ya da devre dışıysa kural yalnız kalan üyeyi kullanabilir.',
+                  fix: [{ cause: 'İyi hat üyesi devre dışı', cmd: 'config system sdwan\nconfig members\nedit 2\nset status enable\nnext\nend\nend' }] },
+            ],
+            quiz: [
+                { q: 'mode sla kuralında hiçbir üye SLA\'yı karşılamazsa?', choices: [['first', 'Sıradaki ilk canlı üye kullanılır'], ['drop', 'Trafik düşürülür'], ['ecmp', 'Tüm üyelere dağıtılır']], correct: 'first', why: 'Kural trafiği bırakmaz; SLA\'yı karşılayan yoksa üye sırasındaki ilk canlı üyeye düşer.' },
+                { q: 'sla_map=0x1 ne demek?', choices: [['sla1', 'Üye SLA 1\'i karşılıyor'], ['dead', 'Üye ölü'], ['one', 'Tek üye var']], correct: 'sla1', why: 'Bit maskesi: her bit bir SLA kimliğine karşılık gelir.' },
+            ],
+        },
+        {
+            title: 'Performance SLA Okumak: Hangi Hat Gerçekten İyi? (health-check, member, service4)', severity: 'info', topic: 'routing', lab: 'fgt-28',
+            symptom: 'SD-WAN yeni kuruldu; hatların kalitesini ve SD-WAN\'ın hangi trafiği hangi hattan gönderdiğini görmek gerekiyor.',
+            steps: [
+                { code: 'diagnose sys sdwan member', desc: 'Üyeler: arayüz, ağ geçidi, öncelik. Burada olmayan hat SD-WAN kararlarına katılmaz.' },
+                { code: 'diagnose sys sdwan health-check', desc: 'Her üye için state (alive/dead), packet-loss, latency, jitter ve sla_map. Ölçüm sunucusuna ulaşılamayan üye dead görünür ve zone rotasından düşer.' },
+                { code: 'diagnose sys sdwan service4', desc: 'Her kural: mod (sla, priority, manual), hedef adresler, üye sırası ve seçilen üye. SLA kuralına bağlanmamış ölçüm (config sla yok) mode sla\'da kullanılmaz.' },
+                { code: 'get router info routing-table all', desc: 'sdwan-zone rotası canlı üyeleri aynı hedefe ECMP yolları olarak gösterir; kural dışı trafik bunlar arasında paylaşılır.' },
+            ],
+            quiz: [
+                { q: 'Performance SLA ne ölçer?', choices: [['q', 'Her üye için gecikme, jitter ve paket kaybı'], ['bw', 'Yalnız bant genişliği'], ['cpu', 'CPU']], correct: 'q', why: 'health-check her üyeyi bir sunucuya karşı ölçer; SLA eşikleri bu üç değer üzerindendir.' },
+                { q: 'Kural dışı trafik nasıl dağılır?', choices: [['ecmp', 'Canlı üyeler arasında (varsayılan kaynak IP\'ye göre)'], ['first', 'İlk üyeden'], ['drop', 'Düşürülür']], correct: 'ecmp', why: 'Zone rotası tüm canlı üyeleri tabloya koyar.' },
+            ],
+        },
+        {
+            title: 'Policy Route Çalışmıyor ya da Beklenmeyen Trafiği Taşıyor', severity: 'warn', topic: 'routing', lab: 'fgt-48',
+            symptom: 'Belirli kullanıcıların ya da uygulamanın ikinci hattan çıkması isteniyor ama trafik hâlâ ana hattan gidiyor; ya da iç kaynaklara giden trafik yanlışlıkla ikinci hatta taşınıyor.',
+            steps: [
+                { expect: 'bad', code: 'diagnose firewall proute list', desc: 'Kayıtlar sırasıyla: giriş arayüzü (iif), protokol, port, çıkış (oif) ve ağ geçidi. İlk eşleşen kayıt uygulanır; istisna (deny) kaydı genel kaydın altındaysa hiç çalışmaz.',
+                  sample: 'list route policy info(vf=root):\nid=1(0x01) dscp_tag=0xfc 0xfc flags=0x0 tos=0x00 tos_mask=0x00 protocol=6 sport=0-0 iif=… (port2) dport=443-443 path(1) oif=… (port3) gwy=198.51.100.1\n…\n\n# İstisna kaydı (deny) 2 numarada, genel kaydın altında',
+                  fix: [{ cause: 'İstisna kaydı genel kaydın altında', cmd: 'config router policy\nmove 2 before 1\nend' }] },
+                { code: 'show router policy', desc: 'Kaynak, hedef, protokol ve port doğru mu? Protokol 0 tüm trafiği, port yazılmazsa tüm portları kapsar. Çıkış arayüzü kapalıysa kayıt atlanır.' },
+                { code: 'diagnose debug flow trace start 5', desc: 'Önce "diagnose debug flow filter addr <kaynak>" ve "diagnose debug enable". PBR eşleşirse "Match policy routing id=N" satırı görünür; görünmüyorsa trafik rota tablosuna gidiyordur. Ardından kuralın çıkış arayüzüne izin verdiğini kontrol edin.' },
+            ],
+            quiz: [
+                { q: 'PBR ile rota tablosunun sırası?', choices: [['pbr', 'Önce PBR, eşleşme yoksa rota tablosu'], ['rib', 'Önce rota tablosu'], ['same', 'Aynı anda']], correct: 'pbr', why: 'Policy route rota tablosundan önce değerlendirilir.' },
+                { q: 'action deny kaydı ne yapar?', choices: [['stop', 'Eşleşen trafik için politika yönlendirmesini durdurur, rota tablosuna bırakır'], ['drop', 'Trafiği düşürür'], ['log', 'Yalnız loglar']], correct: 'stop', why: 'deny, istisna yazmanın yoludur; trafiği düşürmez.' },
+            ],
+        },
     ];
 })();
