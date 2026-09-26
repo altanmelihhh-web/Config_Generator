@@ -202,5 +202,19 @@
                 { code: 'fw ctl zdebug drop | grep 172.24.50.10', desc: 'up_execute kuralın izin verdiğini gösteriyor ama trafik yine düşüyorsa gerçek düşme nedenine bakın (anti-spoofing, rota, ilk paket SYN değil). Kısa süre ve filtreli çalıştırın.' },
             ]
         },
+        {
+            title: 'Trafik Düşüyor, Logda İz Yok: Kernel Debug ve Tablo Doluluğu', severity: 'err', topic: 'traffic', lab: 'cp-16',
+            symptom: 'Bir istemcinin (ör. 10.64.20.50) bağlantıları düşüyor ama SmartConsole günlüklerinde bu adres için kayıt yok. Neden, gateway kernel\'ine sorulmalı. Komutlar R81.20 Security Gateway Administration Guide (Kernel Debug) ve CLI Reference Guide\'a dayanır.',
+            steps: [
+                { code: 'fw ctl debug 0\nfw ctl set int simple_debug_filter_off 1', desc: 'Expert modda. Önce debug bayraklarını varsayılana döndürün ve eski filtreleri silin; başkasının açık bıraktığı ayar yeni debug\'a karışmasın. Debug CPU yükünü artırır: bakım penceresi planlayın, kümede tüm üyelerde aynı şekilde yapın.' },
+                { code: 'fw ctl set str simple_debug_filter_saddr_1 "10.64.20.50"\nfw ctl debug -buf 8200\nfw ctl debug | grep buffer', desc: 'Kaynak adres filtresi ve debug tamponu (üst sınır 8192 KB, belirtilmezse 50 KB). Son komut tamponun ayrıldığını doğrular.' },
+                { code: 'fw ctl debug -m fw + drop\nfw ctl kdebug -T -f > /var/log/kernel_debug.txt', desc: '"fw" modülünde drop bayrağı hemen her düşen paketin nedenini yazar. kdebug çıktıyı zaman damgalı olarak dosyaya toplar; sorunu tekrarlatıp Ctrl+C ile durdurun.' },
+                { code: 'fw ctl debug 0\nfw ctl set int simple_debug_filter_off 1', desc: 'Mutlaka kapatın: Ctrl+C yükü bitirmez, kernel /var/log/messages ve dmesg\'e yazmaya devam eder; yükü fw ctl debug 0 bitirir. -x kullanmayın: varsayılan bayrakları da kapatır.' },
+                { code: 'grep 10.64.20.50 /var/log/kernel_debug.txt', desc: 'Düşme nedenini okuyun.',
+                  fix: [{ cause: 'Rulebase drop: eşleşen izin kuralı yok', cmd: 'SmartConsole: kaynak ağı ilgili kurala (ör. LAN-Nets grubuna) ekleyin, politikayı kurun' },
+                        { cause: 'Address spoofing: kaynak ağ arayüz topolojisinde yok', cmd: 'SmartConsole: ağı arayüz topolojisine ekleyin, politikayı kurun (anti-spoofing\'i kapatmayın)' }] },
+                { code: 'fw tab -t connections -s\nfw ctl pstat', desc: 'Aralıklı düşmelerde tablo ve bellek doluluğunu dışlayın: bağlantı tablosu özeti (#VALS, #PEAK) ile "failed alloc" sayaçları ve "Memory used … watermark" satırı.' },
+            ]
+        },
     ];
 })();

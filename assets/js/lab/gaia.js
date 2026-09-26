@@ -65,7 +65,7 @@ const CgLabGaia = (() => {
         const IFS = lab.ifaces || ['eth0', 'eth1', 'eth2', 'eth3'];
         const S = {
             m: baseModel(), saved: null, mode: 'clish', stack: [], pending: null, loggedOut: false, ev: [], hist: [], answers: {},
-            rt: { clAdmin: false, clPerm: false, failovers: 0, lastEvt: null, vpnDebug: false, ikeDebug: false, vpnTried: false, backups: [], snaps: [] }, files: {}
+            rt: { clAdmin: false, clPerm: false, failovers: 0, lastEvt: null, vpnDebug: false, ikeDebug: false, vpnTried: false, backups: [], snaps: [], kd: null }, files: {}
         };
         function baseModel() {
             const ifs = {};
@@ -413,7 +413,7 @@ const CgLabGaia = (() => {
                 if (a0.tz !== b0.tz) lost.push('timezone');
                 S.m = clone(S.saved); S.mode = 'clish'; S.stack = [];
                 if (!S.rt.clPerm) S.rt.clAdmin = false;
-                S.rt.vpnDebug = S.rt.ikeDebug = false;
+                S.rt.vpnDebug = S.rt.ikeDebug = false; S.rt.kd = null;
                 log({ raw: 'y', canon: 'reboot', reboot: true, lost });
                 return ['# [Simülatör] Sistem yeniden başladı (açılış yapılandırması yüklendi).', lost.length ? '# [Simülatör] Kaydedilmediği için kaybolan değişiklikler: ' + lost.join(', ') : '# [Simülatör] Kaybolan değişiklik yok: her şey kaydedilmişti.'].join('\n');
             } };
@@ -572,7 +572,8 @@ const CgLabGaia = (() => {
                 const lines = zdebugLines();
                 return { out: hdr.concat(lines).join('\n'), log: { zdebug: { plus: /\+/.test(s), n: lines.length } }, tail: '^C\n# [Simülatör] Ctrl+C ile durduruldu. Canlı cihazda bu komut siz durdurana kadar akar; kısa süre çalıştırın.' };
             }
-            if (s === 'ctl debug 0') return { out: 'Defaulting all kernel debugging options', log: { dbg0: true } };
+            if (s === 'ctl debug 0') { if (S.rt.kd) S.rt.kd.flags = KD_DEF.slice(); return { out: 'Defaulting all kernel debugging options', log: { dbg0: true } }; }
+            const kr = kdebugCmd(a, s); if (kr) return kr;
             if (s === 'ctl iflist') return ifList().map((n, i) => pad(String(i + 1), 2) + ': ' + n).join('\n');
             if (s === 'tab -t connections -s') { const n = 120 + flows().length * 7; return pad('HOST', 22) + pad('NAME', 35) + pad('ID', 6) + pad('#VALS', 6) + pad('#PEAK', 6) + '#SLINKS\n' + pad('localhost', 22) + pad('connections', 35) + pad('8158', 6) + pad(String(n), 6) + pad(String(n * 3), 6) + (n * 2); }
             if (s === 'unloadlocal') return { out: '# [Simülatör] UYARI: "fw unloadlocal" gateway\'deki güvenlik politikasını tamamen kaldırır: tüm trafik denetimsiz kalır (ya da erişim kopar).\n# Sorun gidermede "önce politikayı kaldırıp bakayım" yanlış bir alışkanlıktır. Simülatörde engellendi.', log: { warn: 'unloadlocal' } };
@@ -581,6 +582,77 @@ const CgLabGaia = (() => {
             if (/^ctl (pstat|chain|multik|affinity|conntab)/.test(s) || /^(fetch|log|lslogs|logswitch|tab)\b/.test(s)) return U();
             if (!a[1]) return { err: 'incomplete', msg: '# [Simülatör] fw komutu alt komut ister (ör. fw stat, fw ctl zdebug drop, fw monitor -e "…").' };
             return { err: 'invalid', msg: '# [Simülatör] fw: "' + s + '" tanınmadı. Bu lab\'da: fw stat, fw ver, fw ctl zdebug [+] drop, fw ctl debug 0, fw ctl iflist, fw monitor, fw tab -t connections -s' };
+        }
+        // ── Kernel debug (fw ctl debug / kdebug / set simple_debug_filter_*), fw ctl pstat, fw tab -s
+        // Kaynak: R81.20 Quantum Security Gateway Admin Guide s. 304–312 (sözdizimi), s. 326–329 (prosedür ve örnek çıktılar),
+        // s. 370–373 (Module "fw" bayrakları); R81.20 CLI Reference Guide s. 1099–1101 (fw ctl pstat), s. 1220–1224 (fw tab).
+        // Debug satırlarının biçimi belgede yok: [Simülatör] işaretli, temsilî.
+        const KD_DEF = ['error', 'warning'];
+        const FW_FLAGS = 'acct advp aspii balance bridge caf cgnat chain chainfwd cifs citrix cmi conn connstats content context cookie corr cpsshi cptls crypt cvpnd dfilter dlp dmd dnstun domain dos driver drop drop_tmpl dynlog epq error event ex fast_accel filter ftp handlers highavail hold icmptun if install integrity ioctl ipopt ips ipv6 kbuf ld leaks link log machine mail malware mdps media memory mgcp misc misp monitor monitorall mrtsync msnms multik nac nat nat_sync nat64 netquota ntup packet packval portscan prof q qos rad route sam sctp scv shmem sip smtp sock span spii synatk sync tcpstr te tlsparser ua ucd unibypass user vm wap warning wire xlate xltrc'.split(' ');
+        const KD = () => S.rt.kd || (S.rt.kd = { buf: 50, flags: KD_DEF.slice(), filt: {}, files: {} });
+        const kdActive = () => { const k = S.rt.kd; return !!k && (k.flags.join(' ') !== KD_DEF.join(' ') || Object.keys(k.filt).length > 0); };
+        const kdShow = () => { const k = KD(); return 'Kernel debugging buffer size: ' + k.buf + 'KB\nModule: fw\nEnabled Kernel debugging options: ' + (k.flags.join(' ') || '(none)') + '\nMessaging threshold set to type=Info freq=Common'; };
+        function kdLines() {
+            const k = KD(); if (!k.flags.includes('drop') && !k.flags.includes('all')) return [];
+            const ips = Object.keys(k.filt).filter(x => /addr/.test(x)).map(x => k.filt[x]);
+            return zdebugLines().filter(l => !ips.length || ips.some(ip => l.includes(' ' + ip + ':')));
+        }
+        function kdebugCmd(a, s) {
+            if (s === 'ctl debug' || s === 'ctl debug -m fw') return { out: kdShow(), log: { kd: 'show' } };
+            if (s === 'ctl debug -m') return U('# [Simülatör] Modül listesi gateway\'de açık blade\'lere göre değişir. Bu lab\'da yalnız "fw" modülü desteklenir: fw ctl debug -m fw');
+            if (s === 'ctl debug -x') { KD().flags = []; return { out: 'Defaulting all kernel debugging options\n# [Simülatör] UYARI: -x varsayılan bayrakları da kapatır; /var/log/messages temel iletileri artık almaz. Belgedeki en iyi uygulama: -x yerine "fw ctl debug 0".', log: { warn: 'debugx' } }; }
+            let m = /^ctl debug -buf (\d+)$/.exec(s);
+            if (m) { KD().buf = Math.min(+m[1], 8192); return { out: 'Initialized kernel debugging buffer to size ' + KD().buf + 'K', log: { kd: 'buf' } }; }
+            m = /^ctl debug -m (\S+) (all|([+-]) (.+))$/.exec(s);
+            if (m) {
+                if (m[1] !== 'fw') return U('# [Simülatör] Bu lab\'da yalnız "fw" modülü desteklenir.');
+                const k = KD();
+                if (m[2] === 'all') k.flags = ['all'];
+                else {
+                    const fl = m[4].split(/\s+/), bad = fl.filter(f => !FW_FLAGS.includes(f));
+                    if (bad.length) return { err: 'invalid', msg: '# [Simülatör] "fw" modülünde böyle bir debug bayrağı yok: ' + bad.join(', ') + '. Liste: fw ctl debug -m' };
+                    if (m[3] === '+') fl.forEach(f => { if (!k.flags.includes(f)) k.flags.push(f); });
+                    else k.flags = k.flags.filter(f => !fl.includes(f));
+                }
+                return { out: 'Updated kernel\'s debug variable for module fw\nDebug flags updated.', log: { kd: 'flags', kdflags: k.flags.slice() } };
+            }
+            if (/^ctl debug /.test(s)) return { err: 'invalid', msg: '# [Simülatör] Kullanım: fw ctl debug 0 | -buf 8200 | -m fw {all | + <bayraklar> | - <bayraklar>}' };
+            m = /^ctl set (int|str) simple_debug_filter_(off|(saddr|daddr|sport|dport|proto)_([1-5])) (\S+)$/.exec(s);
+            if (m) {
+                const k = KD();
+                if (m[2] === 'off') { if (m[1] !== 'int' || m[5] !== '1') return { err: 'invalid', msg: '# [Simülatör] Kullanım: fw ctl set int simple_debug_filter_off 1' }; k.filt = {}; return { out: '', log: { kd: 'filtoff' } }; }
+                const isAddr = /addr/.test(m[3]);
+                if (isAddr !== (m[1] === 'str') || (isAddr && !isIp(m[5])) || (!isAddr && !/^\d+$/.test(m[5]))) return { err: 'invalid', msg: '# [Simülatör] Adres filtreleri "set str … \\"<IP>\\"", port/protokol filtreleri "set int … <sayı>" ile verilir.' };
+                k.filt[m[2]] = m[5]; return { out: '', log: { kd: 'filt' } };
+            }
+            if (a[2] === 'kdebug') {
+                const r = a.slice(3), gt = r.indexOf('>'), oi = r.indexOf('-o');
+                const file = gt >= 0 ? r[gt + 1] : (oi >= 0 ? r[oi + 1] : null);
+                const opts = (gt >= 0 ? r.slice(0, gt) : r).filter((x, i, arr) => !(oi >= 0 && (i === oi || i === oi + 1)) && !(x === '-m' || x === '-s' || (i > 0 && ['-m', '-s'].includes(arr[i - 1]))));
+                if ((gt >= 0 && (!file || r.length !== gt + 2)) || (oi >= 0 && !file)) return { err: 'incomplete', msg: '-bash: syntax error near unexpected token `newline\'' };
+                if (opts.join(' ') !== '-T -f' && opts.join(' ') !== '-t -f') return { err: 'invalid', msg: '# [Simülatör] Belgedeki kullanım: fw ctl kdebug -T -f > /var/log/kernel_debug.txt' };
+                const L = kdLines(), k = KD();
+                const txt = L.length ? L.join('\n') : '# [Simülatör] (yalnız varsayılan bayraklar açık: düşme satırı yok. Önce "fw ctl debug -m fw + drop".)';
+                const tail = '^C\n# [Simülatör] Ctrl+C ile durduruldu. Debug bayrakları hâlâ AÇIK: "fw ctl debug 0" ve "fw ctl set int simple_debug_filter_off 1" ile kapatın.';
+                if (file) { k.files[file] = '# [Simülatör] satır biçimi temsilîdir (belgede örnek yok)\n' + txt; return { out: '', log: { kdebug: { file, n: L.length } }, tail }; }
+                return { out: '# [Simülatör] satır biçimi temsilîdir (belgede örnek yok)\n' + txt, log: { kdebug: { file: null, n: L.length } }, tail };
+            }
+            if (s === 'ctl pstat') return { out: pstat(), log: { pstat: true } };
+            if (s === 'tab -s') return { out: tabSummary(), log: { tabs: true } };
+            return null;
+        }
+        function tabSummary() {
+            const n = 120 + flows().length * 7, row = (nm, id, v, p, l) => pad('localhost', 22) + pad(nm, 35) + pad(String(id), 6) + pad(String(v), 6) + pad(String(p), 6) + l;
+            return pad('HOST', 22) + pad('NAME', 35) + pad('ID', 6) + pad('#VALS', 6) + pad('#PEAK', 6) + '#SLINKS\n' + [row('vsx_firewalled', 0, 1, 1, 0), row('firewalled_list', 1, 2, 2, 0), row('external_firewalled_list', 2, 0, 0, 0), '... ...', row('connections', 8158, n, n * 3, n * 2), '... ...'].join('\n');
+        }
+        function pstat() {
+            const c = SIM.pstat || {}, n = 120 + flows().length * 7, fa = c.failed || 0;
+            return ['System Capacity Summary:', 'Memory used: ' + (c.mem || 3) + '% (' + (c.memMb || 265) + ' MB out of 7117 MB) - below watermark', 'Concurrent Connections: Not Available', 'Aggressive Aging is enabled, not active',
+                'Hash kernel memory (hmem) statistics:', 'Total memory allocated: 742391808 bytes in 181248 (4096 bytes) blocks using 1 pool', 'Allocations: 2193027 alloc, ' + fa + ' failed alloc, 2154121 free',
+                'System kernel memory (smem) statistics:', 'Allocations: 13217 alloc, ' + fa + ' failed alloc, 10027 free, 0 failed free',
+                'Kernel memory (kmem) statistics:', 'Allocations: 2204456 alloc, ' + fa + ' failed alloc', '2162587 free, 0 failed free',
+                'Connections:', n + ' total, ' + (n - 20) + ' TCP, 16 UDP, 4 ICMP,', '0 other, 0 anticipated, 0 recovered, ' + n + ' concurrent,', (n * 3) + ' peak concurrent',
+                'NAT:', '0/0 forw, 0/0 bckw, 0 tcpudp,', '0 icmp, 0-0 alloc', '# [Simülatör] Belgedeki (CLI R81.20 s. 1101) alan düzeni kısaltıldı; sayılar temsilîdir.'].join('\n');
         }
         function fwStat() {
             const p = policyNow();
@@ -715,6 +787,11 @@ const CgLabGaia = (() => {
         }
         function fileCmd(a) {
             const f = a[a.length - 1] || '';
+            const kf = S.rt.kd ? S.rt.kd.files[f] : undefined;
+            if (kf !== undefined) {
+                if (a[0] === 'grep') { if (a.length < 3) return { err: 'incomplete', msg: 'Usage: grep [OPTION]... PATTERNS [FILE]...' }; const g = grepFilter(a.slice(0, -1), kf); if (g.err) return { err: 'invalid', msg: g.err }; return { out: g.out, log: { kdread: f } }; }
+                if (a.length === 2) return { out: kf, log: { kdread: f } };
+            }
             const isIke = /(\$FWDIR|\/opt\/CPsuite-R81\.20\/fw1)\/log\/(ikev2\.xmll|ike\.elg)$/.test(f);
             if (a[0] === 'grep') {
                 if (a.length < 3) return { err: 'incomplete', msg: 'Usage: grep [OPTION]... PATTERNS [FILE]...' };
@@ -978,6 +1055,7 @@ const CgLabGaia = (() => {
             ev: EV, mode: () => S.mode, dirty, rib, lookup, ifUp,
             decide: f => decide(f), cluster: () => (SIM.cluster ? { local: clMembers()[0].st, peer: clMembers()[1].st, admin: S.rt.clAdmin } : null),
             vpnDebug: () => ({ vpn: S.rt.vpnDebug, ike: S.rt.ikeDebug }),
+            kdebug: () => ({ active: kdActive(), flags: S.rt.kd ? S.rt.kd.flags.slice() : KD_DEF.slice(), filt: S.rt.kd ? Object.assign({}, S.rt.kd.filt) : {}, buf: S.rt.kd ? S.rt.kd.buf : 50 }),
             showRun: () => showConf(), mgmt: () => MG, inactive, allowedOk, files: () => S.files, backups: () => S.rt.backups.slice(), snaps: () => S.rt.snaps.slice(),
         };
     }
