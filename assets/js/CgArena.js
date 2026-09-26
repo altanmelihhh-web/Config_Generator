@@ -101,7 +101,8 @@ const CgArena = {
         box.innerHTML = `<div class="cg-ar-ph2"><i class="fas fa-sliders-h"></i> <b>${E(t.vs.name)}</b> profil ayarları <small>(iRule\'dan önce uygulanır; kodsuz çözüm ucuzdur)</small></div>
             <div class="cg-ar-pgrid">
             ${t.panel.includes('methods') ? `<div class="cg-ar-pf"><span class="cg-ar-pl">HTTP profili · known-methods</span><div class="cg-ar-mets">${ALL.map(m => `<label class="cg-ar-met${P.known.includes(m) ? ' is-on' : ''}"><input type="checkbox" data-m="${m}"${P.known.includes(m) ? ' checked' : ''}> ${m}</label>`).join('')}</div>
-                <label class="cg-ar-pl">unknown-method <select data-p="unknown">${['allow', 'reject'].map(v => `<option${P.unknown === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label></div>` : ''}
+                <label class="cg-ar-pl">unknown-method <select data-p="unknown">${['allow', 'reject'].map(v => `<option${P.unknown === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label>
+                ${(() => { const off = this._profDef({}).known.filter(m => !P.known.includes(m)); return off.length && P.unknown === 'allow' ? `<div class="cg-ar-pwarn" role="status"><i class="fas fa-exclamation-triangle"></i> Listeden çıkardığın ${off.map(E).join(', ')} hâlâ <b>geçer</b>: listede olmayan metot unknown-method kuralına düşer ve kural şu an <b>allow</b>. Engellemek için <b>reject</b> seç.</div>` : P.unknown === 'reject' ? `<div class="cg-ar-pok"><i class="fas fa-check"></i> Listede olmayan her metot (${off.length ? off.map(E).join(', ') + ', ' : ''}FOO gibi uydurmalar dahil) bağlantı sıfırlamasıyla kesilir; kurala hiç ulaşmaz.</div>` : ''; })()}</div>` : ''}
             ${t.panel.includes('persist') ? `<div class="cg-ar-pf"><label class="cg-ar-pl">Persistence <select data-p="persist">${[['none', 'yok'], ['cookie', 'cookie (insert)'], ['source-addr', 'source-addr']].map(([v, l]) => `<option value="${v}"${P.persist === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>` : ''}
             </div>
             <pre class="cg-ar-tmsh">${cmds.length ? cmds.map(E).join('\n') : '# varsayılan ayarlar (değişiklik yok)'}</pre>`;
@@ -450,7 +451,7 @@ const CgArena = {
             await this._animate(cl, res, hits);
             res.logs.forEach(l => logs.push(l));
             row.classList.remove('is-run'); row.classList.add(good ? 'is-ok' : 'is-bad');
-            row.querySelector('.cg-ar-res').innerHTML = this._chips(this._parts(exp, res.out));
+            row.querySelector('.cg-ar-res').innerHTML = this._chips(this._parts(exp, res.out)) + (!good && t.panel && t.panel.includes('methods') && !this._prof.known.includes(q.method) && this._prof.unknown === 'allow' ? '<small class="cg-ar-why">' + cgEsc(q.method) + ' listede yok ama unknown-method <b>allow</b>: geçti</small>' : '');
             row.querySelector('.cg-ar-ok').innerHTML = good ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
             if (good) ok++;
             $('.cg-ar-score').textContent = ok + '/' + (i + 1) + ' doğru';
