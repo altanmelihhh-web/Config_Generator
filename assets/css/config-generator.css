@@ -1452,3 +1452,15 @@
 #config-generator-root .cg-ts-qwhy { font-size: .8rem; margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: rgba(16, 185, 129, .08); color: var(--text-primary, #1f2937); }
 #config-generator-root .cg-ts-qwhy.bad { background: rgba(239, 68, 68, .08); }
 #config-generator-root .cg-ts-qscore { font-size: .9rem; color: var(--text-primary, #111827); }
+#config-generator-root .cg-ar-panel { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+#config-generator-root .cg-ar-ph2 { font-size: .9rem; color: var(--text-primary, #111827); margin-bottom: 8px; }
+#config-generator-root .cg-ar-ph2 small { color: var(--text-secondary, #6b7280); }
+#config-generator-root .cg-ar-pgrid { display: flex; flex-wrap: wrap; gap: 16px; }
+#config-generator-root .cg-ar-pf { display: grid; gap: 8px; }
+#config-generator-root .cg-ar-pl { font-size: .8rem; color: var(--text-secondary, #4b5563); display: flex; align-items: center; gap: 8px; }
+#config-generator-root .cg-ar-pl select { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color, #d1d5db); background: var(--bg-primary, #fff); color: var(--text-primary, #111827); }
+#config-generator-root .cg-ar-mets { display: flex; flex-wrap: wrap; gap: 6px; }
+#config-generator-root .cg-ar-met { font: .76rem ui-monospace, Menlo, monospace; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color, #d1d5db); cursor: pointer; color: var(--text-secondary, #6b7280); user-select: none; }
+#config-generator-root .cg-ar-met input { margin: 0 4px 0 0; vertical-align: -1px; }
+#config-generator-root .cg-ar-met.is-on { border-color: #16a34a; color: var(--text-primary, #111827); background: rgba(22, 163, 74, .08); }
+#config-generator-root .cg-ar-tmsh { margin: 10px 0 0; background: #0d1117; color: #c9d1d9; padding: 8px 10px; border-radius: 8px; font-size: .74rem; white-space: pre-wrap; }

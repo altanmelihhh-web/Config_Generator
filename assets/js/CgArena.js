@@ -47,6 +47,7 @@ const CgArena = {
             <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Trafik Masası</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
             <div class="cg-ar-brief"><div><h2>${E(t.title)}</h2><p>${t.brief}</p></div>
                 <ol class="cg-ar-goals">${t.goals.map(g => `<li>${g}</li>`).join('')}</ol></div>
+            ${t.panel ? '<section class="cg-ar-panel" aria-label="Profil ayarları"></section>' : ''}
             <div class="cg-ar-desk">
                 <section class="cg-ar-ed"><div class="cg-ar-edh"><span><i class="fas fa-code"></i> ltm rule <b>${this.RULE}</b></span><span class="cg-ar-edtools"><button type="button" data-a="hint" class="cg-ar-lnk"><i class="fas fa-lightbulb"></i> İpucu</button><button type="button" data-a="reset" class="cg-ar-lnk" title="Başlangıç koduna dön"><i class="fas fa-undo"></i></button></span></div>
                     <div class="cg-ar-edbox"><div class="cg-ar-gut" aria-hidden="true"></div><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="iRule kodu"></textarea><ol class="cg-ar-view" hidden></ol></div>
@@ -68,6 +69,8 @@ const CgArena = {
             <div class="cg-ar-done" hidden></div></div>`;
         const $ = s => this._root.querySelector(s); this._$ = $;
         const ta = $('textarea'); ta.value = st.code != null ? st.code : t.start;
+        this._prof = Object.assign(this._profDef(t), st.prof || {});
+        if (t.panel) this._panel();
         this._speed = 1;
         this._gutter();
         ta.addEventListener('input', () => { st.code = ta.value; this._save(); this._gutter(); });
@@ -76,9 +79,28 @@ const CgArena = {
         this._root.querySelectorAll('.cg-ar-spd button').forEach(b => b.addEventListener('click', () => { this._root.querySelectorAll('.cg-ar-spd button').forEach(x => x.classList.toggle('is-on', x === b)); this._speed = +b.dataset.s; }));
         $('[data-a="run"]').addEventListener('click', () => this._go());
         $('[data-a="step"]').addEventListener('click', () => { if (this._stepRes) { const r = this._stepRes; this._stepRes = null; r(); } });
-        $('[data-a="reset"]').addEventListener('click', () => { if (this._run) return; ta.value = t.start; st.code = null; this._save(); this._edit(); this._gutter(); });
+        $('[data-a="reset"]').addEventListener('click', () => { if (this._run) return; ta.value = t.start; st.code = null; st.prof = null; this._prof = this._profDef(t); this._save(); this._edit(); this._gutter(); if (t.panel) this._panel(); });
         $('[data-a="hint"]').addEventListener('click', () => { const h = t.hints[Math.min(this._hint, t.hints.length - 1)]; this._hint = Math.min(this._hint + 1, t.hints.length); st.hints = Math.max(st.hints, this._hint); this._save(); const box = $('.cg-ar-hintbox'); box.hidden = false; box.innerHTML = t.hints.slice(0, this._hint).map((x, k) => `<p><b>İpucu ${k + 1}</b> ${x}</p>`).join('') + (this._hint >= t.hints.length ? `<details><summary>Örnek çözümü göster</summary><pre>${E(t.solution)}</pre></details>` : ''); });
         $('.cg-ar-view').addEventListener('click', () => { if (!this._run) this._edit(); });
+    },
+    // profil paneli: HTTP profili metot politikası ve persistence; altında tmsh karşılığı
+    _panel() {
+        const t = this._t, P = this._prof, box = this._$('.cg-ar-panel'), st = this._st(t.id), E = cgEsc;
+        const ALL = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'TRACE', 'CONNECT', 'PROPFIND', 'LOCK', 'UNLOCK'];
+        const cmds = [];
+        if (t.panel.includes('methods')) { const def = this._profDef({}).known; const same = P.known.length === def.length && def.every(m => P.known.includes(m));
+            if (!same || P.unknown !== 'allow') cmds.push('modify ltm profile http http_' + t.vs.name.replace(/^vs_/, '') + ' enforcement { known-methods replace-all-with { ' + P.known.join(' ') + ' } unknown-method ' + P.unknown + ' }'); }
+        if (t.panel.includes('persist')) cmds.push(P.persist === 'none' ? 'modify ltm virtual ' + t.vs.name + ' persist none' : 'modify ltm virtual ' + t.vs.name + ' persist replace-all-with { ' + P.persist + ' }');
+        box.innerHTML = `<div class="cg-ar-ph2"><i class="fas fa-sliders-h"></i> <b>${E(t.vs.name)}</b> profil ayarları <small>(iRule\'dan önce uygulanır; kodsuz çözüm ucuzdur)</small></div>
+            <div class="cg-ar-pgrid">
+            ${t.panel.includes('methods') ? `<div class="cg-ar-pf"><span class="cg-ar-pl">HTTP profili · known-methods</span><div class="cg-ar-mets">${ALL.map(m => `<label class="cg-ar-met${P.known.includes(m) ? ' is-on' : ''}"><input type="checkbox" data-m="${m}"${P.known.includes(m) ? ' checked' : ''}> ${m}</label>`).join('')}</div>
+                <label class="cg-ar-pl">unknown-method <select data-p="unknown">${['allow', 'reject'].map(v => `<option${P.unknown === v ? ' selected' : ''}>${v}</option>`).join('')}</select></label></div>` : ''}
+            ${t.panel.includes('persist') ? `<div class="cg-ar-pf"><label class="cg-ar-pl">Persistence <select data-p="persist">${[['none', 'yok'], ['cookie', 'cookie (insert)'], ['source-addr', 'source-addr']].map(([v, l]) => `<option value="${v}"${P.persist === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>` : ''}
+            </div>
+            <pre class="cg-ar-tmsh">${cmds.length ? cmds.map(E).join('\n') : '# varsayılan ayarlar (değişiklik yok)'}</pre>`;
+        const save = () => { st.prof = JSON.parse(JSON.stringify(this._prof)); this._save(); this._panel(); };
+        box.querySelectorAll('[data-m]').forEach(x => x.addEventListener('change', () => { if (this._run) return; const m = x.dataset.m; P.known = x.checked ? P.known.concat([m]) : P.known.filter(y => y !== m); save(); }));
+        box.querySelectorAll('[data-p]').forEach(x => x.addEventListener('change', () => { if (this._run) return; P[x.dataset.p] = x.value; save(); }));
     },
     _gutter(hits) {
         const ta = this._$('textarea'), n = ta.value.split('\n').length;
@@ -93,7 +115,9 @@ const CgArena = {
 
     // ── kaydet: BIG-IP gibi doğrula (01070151 / 01070394 biçimi tmsh ile aynı)
     _compile(code) {
-        const R = window.CgIRule, t = this._t, c = R.compile(code), name = this.RULE;
+        const R = window.CgIRule, t = this._t, name = this.RULE;
+        if (t.allowEmpty && !code.split('\n').some(l => l.trim() && !l.trim().startsWith('#'))) return { c: { events: [], refs: [] }, empty: true };
+        const c = R.compile(code);
         if (c.err) {
             const at = '/Common/' + name + ':' + (c.line || 1) + ': error: ';
             const msg = c.kind === 'proc' ? '[undefined procedure: ' + c.cmd + '][' + (c.text || c.cmd) + ']' : c.kind === 'ctx' ? '[command is not valid in current event context (' + c.event + ')][' + c.cmd + ']' : c.kind === 'event' ? '[unknown event (' + c.event + ')][when ' + c.event + ' {]' : c.kind === 'toplevel' ? '[command is not valid in the current scope][' + c.cmd + ']' : '[parse error: ' + c.err + ']';
@@ -103,7 +127,7 @@ const CgArena = {
             if (r.type === 'pool' && !t.pools[r.name]) return { err: '01070151:3: Rule [/Common/' + name + '] error: Unable to find pool (' + r.name + ') referenced at line ' + r.line + ': [' + r.text + ']', line: r.line };
             if (r.type === 'dg' && !(t.dg || {})[r.name]) return { err: '01070151:3: Rule [/Common/' + name + '] error: Unable to find value_list (' + r.name + ') referenced at line ' + r.line + ': [' + r.text + ']', line: r.line };
         }
-        if (!c.events.length) return { err: '[Simülatör] Kuralda hiç "when" bloğu yok.' };
+        if (!c.events.length) { if (t.allowEmpty) return { c, empty: true }; return { err: '[Simülatör] Kuralda hiç "when" bloğu yok.' }; }
         return { c };
     },
 
@@ -114,13 +138,13 @@ const CgArena = {
             hdrs: Object.entries(h).filter(([n]) => n !== 'User-Agent') };
     },
     // ── tek isteği çalıştır: olay/satır izi ve sonuç
-    _sim(c, q, rr) {
-        const R = window.CgIRule, t = this._t, trace = [], logs = [];
+    _sim(c, q, rr, env) {
+        const R = window.CgIRule, t = this._t, trace = [], logs = [], E = env || {}, prof = E.prof || this._profDef(t), jar = E.jar || {};
         let cur = null;
         const ctx = { vars: {}, statics: {}, steps: 0, table: {}, now: () => Date.now(),
             trace: l => { if (cur && cur.lines[cur.lines.length - 1] !== l) cur.lines.push(l); },   // aynı satırdaki iç içe [komut] bir kez sayılır
             log: (f, m) => logs.push('info tmm[11925]: Rule /Common/' + this.RULE + ' <' + ctx.event + '>: ' + m), note: () => {},
-            req: { method: q.method, uri: q.uri, headers: [['Host', q.host], ['User-Agent', q.ua], ['Accept', '*/*']].concat((q.hdrs || []).map(h => h.slice())) },
+            req: { method: q.method, uri: q.uri, headers: [['Host', q.host], ['User-Agent', q.ua], ['Accept', '*/*']].concat((q.hdrs || []).map(h => h.slice()), Object.keys(jar).length ? [['Cookie', Object.entries(jar).map(([k, v]) => k + '=' + v).join('; ')]] : []) },
             resp: { status: 200, headers: [['Content-Type', 'text/html']], body: '' },
             client: { ip: q.ip, port: 50000 + Math.floor(Math.random() * 9000) }, vs: Object.assign({}, t.vs), lb: null,
             act: { off: new Set() }, hasPool: n => !!t.pools[n], activeMembers: n => (t.pools[n] || []).filter(m => !(t.down || []).includes(m)).length,
@@ -131,6 +155,8 @@ const CgArena = {
         let r = fire('CLIENT_ACCEPTED');
         if (!r.ok) out = fail(r, 'CLIENT_ACCEPTED');
         else if (ctx.act.reject || ctx.act.drop) out = { kind: 'reset', why: 'reject' };
+        // HTTP profili: ayrıştırıcı iRule'dan önce metodu denetler (known-methods / unknown-method reject → bağlantı sıfırlanır)
+        if (!out && t.panel && !prof.known.includes(q.method) && prof.unknown === 'reject') { trace.push({ ev: 'HTTP_REQUEST', lines: [], rule: false, prof: true }); out = { kind: 'reset', why: 'metot (HTTP profili)', byProf: true }; }
         if (!out) { r = fire('HTTP_REQUEST'); if (!r.ok) out = fail(r, 'HTTP_REQUEST'); }
         if (!out && (ctx.act.reject || ctx.act.drop)) out = { kind: 'reset', why: 'reject' };
         const bigResp = extra => { const H = (ctx.act.respond.headers || []).map(h => h.slice()), loc = H.find(h => /^location$/i.test(h[0])); return Object.assign({ kind: 'resp', code: ctx.act.respond.code, loc: loc ? loc[1] : null, hdrs: H, body: ctx.act.respond.body || '' }, extra || {}); };
@@ -139,7 +165,13 @@ const CgArena = {
             const pool = ctx.act.pool || t.vs.pool, L = (t.pools[pool] || []).filter(m => !(t.down || []).includes(m));
             if (!L.length) { r = fire('LB_FAILED'); if (!r.ok) out = fail(r, 'LB_FAILED'); else if (ctx.act.respond) out = bigResp({ pool, failed: true }); else out = { kind: 'reset', why: 'pool\'da kullanılabilir üye yok', pool }; }
             else {
-                rr[pool] = ((rr[pool] === undefined ? -1 : rr[pool]) + 1) % L.length; const member = L[rr[pool]];
+                // persistence: cookie insert (BIGipServer<pool>) ya da kaynak adres; kayıt yoksa round robin
+                const ck = 'BIGipServer' + pool, src = E.src || {}; let member = null, persisted = false, setCookie = null;
+                if (prof.persist === 'cookie' && jar[ck] && L.includes(jar[ck])) { member = jar[ck]; persisted = true; }
+                if (prof.persist === 'source-addr' && src[pool + '|' + q.ip] && L.includes(src[pool + '|' + q.ip])) { member = src[pool + '|' + q.ip]; persisted = true; }
+                if (!member) { rr[pool] = ((rr[pool] === undefined ? -1 : rr[pool]) + 1) % L.length; member = L[rr[pool]]; }
+                if (prof.persist === 'cookie' && !persisted) setCookie = [ck, member];
+                if (prof.persist === 'source-addr') src[pool + '|' + q.ip] = member;
                 ctx.lb = { pool, ip: member.split(':')[0], port: +member.split(':')[1] };
                 r = fire('LB_SELECTED'); if (!r.ok) out = fail(r, 'LB_SELECTED');
                 else {
@@ -149,7 +181,7 @@ const CgArena = {
                     ctx.resp = { status: sv && sv.status || 200, headers: (sv && sv.headers || [['Content-Type', 'text/html']]).map(h => h.slice()), body: sv && sv.body || '' };
                     ctx.event = 'HTTP_RESPONSE'; r = fire('HTTP_RESPONSE');
                     out = !r.ok ? fail(r, 'HTTP_RESPONSE') : ctx.act.respond ? bigResp({ pool, member, fromResp: true })
-                        : { kind: 'pool', pool, member, code: ctx.resp.status, uri: sent.uri, sent: sent.headers, hdrs: ctx.resp.headers };
+                        : { kind: 'pool', pool, member, persisted, setCookie, code: ctx.resp.status, uri: sent.uri, sent: sent.headers, hdrs: ctx.resp.headers.concat(setCookie ? [['Set-Cookie', setCookie[0] + '=' + setCookie[1] + '; path=/; Httponly']] : []) };
                 }
             }
         }
@@ -167,8 +199,10 @@ const CgArena = {
     _parts(e, o) {
         const hv = (L, n) => this._hv(L, n), P = [];
         const base = x => x.kind === 'reset' ? 'Sıfırlandı (' + x.why + ')' : x.kind === 'pool' ? x.pool : x.code + (x.loc ? ' → ' + x.loc : '');
-        const eBase = e.pool ? e.pool : e.reset ? 'Sıfırlanır' : e.code + (e.loc ? ' → ' + e.loc : '');
-        if (!o) P.push([eBase, true]); else P.push([base(o), e.pool ? o.kind === 'pool' && o.pool === e.pool : e.reset ? o.kind === 'reset' : o.kind === 'resp' && o.code === e.code && (!e.loc || o.loc === e.loc)]);
+        const eBase = e.deny ? 'Engellenir (reset / 403 / 405)' : e.pool ? e.pool : e.reset ? 'Sıfırlanır' : e.code + (e.loc ? ' → ' + e.loc : '');
+        if (!o) P.push([eBase, true]); else P.push([base(o), e.deny ? this._match(e, o) : e.pool ? o.kind === 'pool' && o.pool === e.pool : e.reset ? o.kind === 'reset' : o.kind === 'resp' && o.code === e.code && (!e.loc || o.loc === e.loc)]);
+        if (e.apartFrom) P.push([(o ? '' : '≠ ') + e.apartFrom + ' üyesinden farklı' + (e.apartTo ? ' (' + e.apartTo + ')' : ''), !o || !e.apartBad]);
+        if (e.sticky) { if (!o) P.push([e.stickyTo ? 'aynı üye: ' + e.stickyTo : 'ilk istek: üye seçilir', true]); else if (o.kind === 'pool') P.push([(o.persisted ? 'kalıcı: ' : 'yeni seçim: ') + o.member, !e.stickyTo || o.member === e.stickyTo]); }
         if (o && o.kind === 'reset') return P;
         if (e.pool && e.code) P.push([String(o ? o.code : e.code), !o || o.code === e.code]);
         if (e.uri && (!o || o.kind === 'pool')) P.push(['sunucuya ' + (o ? o.uri : e.uri), !o || o.uri === e.uri]);
@@ -186,7 +220,23 @@ const CgArena = {
         return 'Sıfırlandı (' + o.why + ')';
     },
     _expLabel(e) { return (e.pool ? e.pool + (e.code ? ' · ' + e.code : '') : e.reset ? 'Sıfırlanır' : e.code + (e.loc ? ' → ' + e.loc : '')) + this._extras(e); },
+    _profDef(t) { return Object.assign({ known: ['CONNECT', 'DELETE', 'GET', 'HEAD', 'LOCK', 'OPTIONS', 'POST', 'PROPFIND', 'PUT', 'TRACE', 'UNLOCK'], unknown: 'allow', persist: 'none' }, (t && t.prof) || {}); },
+    _runAll(t, c, prof) {
+        const rr = {}, jars = {}, src = {}, first = {};
+        return t.traffic.map(x => {
+            const q = this._req(t, x), cid = q.cl.id, jar = jars[cid] || (jars[cid] = {});
+            const res = this._sim(c, q, rr, { prof, jar, src }), exp = t.expect(q), o = res.out;
+            if (o.setCookie) jar[o.setCookie[0]] = o.setCookie[1];
+            let good = this._match(exp, o);
+            if (good && exp.sticky) { good = !first[cid] || o.member === first[cid]; exp.stickyTo = first[cid] || null; }
+            if (good && exp.apartFrom && first[exp.apartFrom] && o.member === first[exp.apartFrom]) { good = false; exp.apartBad = true; }
+            if (exp.apartFrom) exp.apartTo = first[exp.apartFrom] || null;
+            if (exp.sticky && o.kind === 'pool' && !first[cid]) first[cid] = o.member;
+            return { q, res, exp, good };
+        });
+    },
     _match(e, o) {
+        if (e.deny) return o.kind === 'reset' || (o.kind === 'resp' && [403, 405].includes(o.code));
         const hdrOk = (want, L) => Object.entries(want || {}).every(([n, v]) => { const got = this._hv(L, n); return v === null ? !got.length : got.length === 1 && got[0] === v; });
         if (e.pool) return o.kind === 'pool' && o.pool === e.pool && (!e.code || o.code === e.code) && (!e.uri || o.uri === e.uri) && hdrOk(e.sent, o.sent) && hdrOk(e.hdr, o.hdrs);
         if (e.reset) return o.kind === 'reset';
@@ -206,11 +256,10 @@ const CgArena = {
         const tb = $('.cg-ar-flow tbody'); tb.innerHTML = ''; $('.cg-ar-log').textContent = ''; $('.cg-ar-logn').textContent = ''; $('.cg-ar-done').hidden = true;
         this._root.querySelectorAll('.cg-ar-mem:not(.is-down) .cg-ar-hits').forEach(h => { h.textContent = '0'; });
         $('[data-a="run"]').disabled = true; $('[data-a="step"]').hidden = this._speed !== 0;
-        const hits = {}, rr = {}, logs = []; let ok = 0;
-        for (let i = 0; i < t.traffic.length; i++) {
+        const hits = {}, logs = [], all = this._runAll(t, k.c, this._prof); let ok = 0;
+        for (let i = 0; i < all.length; i++) {
             if (run.stop || !this._root.isConnected) return;
-            const q = this._req(t, t.traffic[i]), cl = q.cl, method = q.method, host = q.host, uri = q.uri;
-            const res = this._sim(k.c, q, rr), exp = t.expect(q), good = this._match(exp, res.out);
+            const { q, res, exp, good } = all[i], cl = q.cl, method = q.method, host = q.host, uri = q.uri;
             tb.insertAdjacentHTML('beforeend', `<tr class="is-run"><td>${i + 1}</td><td><i class="fas ${cl.icon}"></i> ${cgEsc(cl.ip)}</td><td><code>${cgEsc(method)} ${cgEsc(host + uri)}</code></td><td class="cg-ar-exp">${this._chips(this._parts(exp))}</td><td class="cg-ar-res">…</td><td class="cg-ar-ok"></td></tr>`);
             const row = tb.lastElementChild; this._reveal($('.cg-ar-tbl'), row);
             if (this._speed === 0) { $('[data-a="step"]').disabled = false; await new Promise(r => { this._stepRes = r; }); $('[data-a="step"]').disabled = true; }
@@ -225,6 +274,7 @@ const CgArena = {
         }
         this._run = null; $('[data-a="run"]').disabled = false; $('[data-a="step"]').hidden = true;
         this._verdict('');
+        this._lastHits = Object.values(hits).reduce((a, b) => a + b, 0); this._lastProf = all.filter(x => x.res.out.byProf).length;
         this._finish(ok, t.traffic.length);
     },
     // yalnız kutunun içinde kaydır (sayfa zıplamasın)
@@ -284,7 +334,7 @@ const CgArena = {
             const T = window.CG_ARENA_MASA, nx = T[T.indexOf(t) + 1];
             d.hidden = false; d.className = 'cg-ar-done is-ok';
             d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-trophy"></i> Tüm trafik doğru yönlendi! <span class="cg-ar-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</span></div>
-                <p class="cg-ar-dm">${st.runs} deneme · ${st.hints} ipucu</p><ul>${t.learn.map(x => `<li>${x}</li>`).join('')}</ul>
+                <p class="cg-ar-dm">${st.runs} deneme · ${st.hints} ipucu${t.panel ? ' · iRule satır çalışması: ' + (this._lastHits || 0) + (this._lastProf ? ' · profilde kesilen istek: ' + this._lastProf + ' (kurala hiç ulaşmadı)' : '') : ''}</p><ul>${t.learn.map(x => `<li>${x}</li>`).join('')}</ul>
                 <div class="cg-ar-db">${nx ? `<a class="cg-ar-go" href="#/arena/masa/${nx.id}"><i class="fas fa-arrow-right"></i> Sonraki görev</a>` : ''}<a class="cg-ar-ghost" href="#/arena"><i class="fas fa-chess-knight"></i> Arena</a></div>`;
         } else {
             d.hidden = false; d.className = 'cg-ar-done is-bad';
