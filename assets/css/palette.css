@@ -1,0 +1,74 @@
+/* ─── Komut paleti (UI A6, Tema 1): üst çubuk arama tetikleyicisi + Ctrl K diyaloğu ───
+   Yalnız tokens.css adları; sabit hex yok (örtü rengi çekmeceyle aynı). */
+
+/* Tetikleyici: geniş ekranda kutu (metin + kısayol), dar ekranda ikon düğmesi */
+.app-search {
+    display: inline-flex; align-items: center; gap: 8px; height: 36px; min-width: 0; padding: 0 10px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted);
+    font: inherit; font-size: .86rem; cursor: pointer; white-space: nowrap;
+    transition: border-color var(--dur-fast, 150ms) ease;
+}
+.app-search:hover { border-color: var(--border-strong, var(--primary)); color: var(--text); }
+.app-search:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.app-search kbd, .cg-pal kbd {
+    font: 500 .72rem var(--font-mono); padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--muted);
+}
+.app-search-t { overflow: hidden; text-overflow: ellipsis; }
+/* Etiketli sekmeler 1280–1599'da yeri dolduruyor: kutu (metin + Ctrl K) yalnız ≥1600'de, altında ikon düğmesi (ad aria-label'da) */
+@media (max-width: 1599.98px) { .app-search-t, .app-search kbd { display: none; } .app-search { width: 36px; padding: 0; justify-content: center; } }
+@media (max-width: 960px) { .app-search { width: 40px; height: 40px; } }
+
+/* Diyalog */
+.cg-pal { position: fixed; inset: 0; z-index: 2600; }
+.cg-pal-scrim { position: absolute; inset: 0; background: rgba(2, 6, 23, .5); }
+.cg-pal-box {
+    position: relative; display: flex; flex-direction: column; width: min(680px, calc(100vw - 32px)); max-height: min(72vh, 640px);
+    margin: max(8vh, calc(16px + env(safe-area-inset-top, 0px))) auto 0; overflow: hidden;
+    border: 1px solid var(--border); border-radius: var(--radius-lg, 12px); background: var(--bg); color: var(--text);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, .28);
+}
+.cg-pal-bar { display: flex; align-items: center; gap: 10px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--border); }
+.cg-pal-bar > i { color: var(--muted); }
+.cg-pal-bar input {
+    flex: 1; min-width: 0; height: 56px; border: 0; outline: 0; background: transparent; color: var(--text);
+    font: inherit; font-size: 1.05rem;
+}
+.cg-pal-bar input::placeholder { color: var(--subtle); }
+.cg-pal-x { display: inline-grid; place-items: center; min-width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
+.cg-pal-x:hover { background: var(--surface); }
+.cg-pal-x:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.cg-pal-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 6px 8px 10px; list-style: none; overscroll-behavior: contain; }
+.cg-pal-list ul { margin: 0; padding: 0; list-style: none; }
+.cg-pal-gh { padding: 10px 8px 4px; font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--subtle); }
+.cg-pal-o {
+    display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
+}
+.cg-pal-o.is-act { background: var(--primary-soft); }
+.cg-pal-o.is-act .cg-pal-t { color: var(--primary); }
+.cg-pal-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); }
+.cg-pal-t.is-mono { font: 500 .88rem var(--font-mono); }
+.cg-pal-t mark { background: none; color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+.cg-pal-s { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; color: var(--muted); }
+.cg-pal-k { flex: none; margin-left: auto; font-size: .72rem; color: var(--muted); }
+.cg-pal-ver { flex: none; padding: 1px 6px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); background: var(--surface-2); font: 600 .7rem var(--font-mono); }
+.cg-pal-empty { padding: 16px 10px; color: var(--muted); font-size: .9rem; line-height: 1.55; }
+.cg-pal-empty p { margin: 0 0 8px; }
+.cg-pal-empty b { color: var(--text); }
+.cg-pal-sug { display: flex; flex-wrap: wrap; gap: 8px; }
+.cg-pal-sug a { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; color: var(--primary); text-decoration: none; }
+.cg-pal-sug a:hover { border-color: var(--primary); }
+.cg-pal-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 8px 14px; border-top: 1px solid var(--border); background: var(--surface); font-size: .76rem; color: var(--muted); }
+.cg-pal-foot:has(#cg-pal-stat:empty) { justify-content: flex-end; }
+body.cg-pal-open { overflow: hidden; }
+
+@media (max-width: 600px) {
+    .cg-pal-box { width: calc(100vw - 16px); max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px)); margin-top: calc(8px + env(safe-area-inset-top, 0px)); }
+    .cg-pal-bar input { font-size: 16px; }   /* iOS odakta yakınlaştırmasın */
+    .cg-pal-o { flex-wrap: wrap; row-gap: 0; }
+    .cg-pal-s { flex-basis: 100%; order: 3; }
+    .cg-pal-keys { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+    .cg-pal:not([hidden]) .cg-pal-box { animation: cg-pal-in var(--dur, 160ms) ease-out; }
+    @keyframes cg-pal-in { from { transform: translateY(-8px); opacity: .6; } to { transform: none; opacity: 1; } }
+}

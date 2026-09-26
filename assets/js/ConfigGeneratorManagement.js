@@ -1477,6 +1477,7 @@ const CG_REGISTRY = {
             { id: 'nat',       cat: 'secpol', label: 'NAT / VIP',       gen: () => typeof FortiGate !== 'undefined' && FortiGate.nat },
             { id: 'ipsec',     cat: 'vpn', label: 'IPSec VPN',       gen: () => typeof FortiGate !== 'undefined' && FortiGate.ipsec },
             { id: 'sslvpn',     cat: 'vpn', label: 'SSL-VPN',             gen: () => typeof FortiGate !== 'undefined' && FortiGate.sslvpn },
+            { id: 'ipsecdialup', cat: 'vpn', label: 'IPsec Dial-up (FortiClient)', gen: () => typeof FortiGate !== 'undefined' && FortiGate.ipsecdialup },
             { id: 'secprofile', cat: 'utm', label: 'Security Profiles',   gen: () => typeof FortiGate !== 'undefined' && FortiGate.secprofile },
             { id: 'sdwan',      cat: 'routing', label: 'SD-WAN',              gen: () => typeof FortiGate !== 'undefined' && FortiGate.sdwan },
             { id: 'ha',         cat: 'ha', label: 'HA Active-Passive',   gen: () => typeof FortiGate !== 'undefined' && FortiGate.ha },
@@ -1505,6 +1506,7 @@ const CG_REGISTRY = {
             { id: 'dns', cat: 'base', label: 'DNS', gen: () => typeof FortiGate !== 'undefined' && FortiGate.dns },
             { id: 'admin', cat: 'aaa', label: 'Admin & Access Profile', gen: () => typeof FortiGate !== 'undefined' && FortiGate.admin },
             { id: 'user', cat: 'aaa', label: 'Local User & Group', gen: () => typeof FortiGate !== 'undefined' && FortiGate.user },
+            { id: 'authserver', cat: 'aaa', label: 'RADIUS / LDAP Sunucusu', gen: () => typeof FortiGate !== 'undefined' && FortiGate.authserver },
             { id: 'dos', cat: 'secpol', label: 'DoS Policy', gen: () => typeof FortiGate !== 'undefined' && FortiGate.dos },
             { id: 'localin', cat: 'secpol', label: 'Local-in Policy', gen: () => typeof FortiGate !== 'undefined' && FortiGate.localin },
             { id: 'automation', cat: 'mgmt', label: 'Automation Stitch (E-posta Uyarısı)', gen: () => typeof FortiGate !== 'undefined' && FortiGate.automation },
@@ -2240,6 +2242,8 @@ const ConfigGenerator = {
         if (typeof CgLab === 'undefined' || typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Laboratuvar yüklenemedi.</p></div>'; return; }
         // #/lab?v=<vendor>: katalog süzgeci URL'den (geçersizse tümü); ?v yoksa bellekteki süzgeç, katalog adresi ona göre güncellenir
         if (!id && !pathId && vf !== null && vf !== undefined) CgLab._vf = CgLab.VENDORS[vf] ? vf : 'all';
+        // Genel katalog (#/lab, ?v yok) bir aile sayfasından sonra açılırsa ailenin süzgeci taşınmaz: "Tümü"
+        if (!id && !pathId) { if (!fam && (vf === null || vf === undefined) && this._labFam) CgLab._vf = 'all'; this._labFam = !!fam; }
         CgLab.render(this._root, id, pathId, fam || null);
         window.scrollTo(0, 0);
     },
