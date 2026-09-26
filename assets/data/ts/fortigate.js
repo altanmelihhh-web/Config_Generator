@@ -255,7 +255,7 @@
             symptom: 'Şubeden merkezdeki bir ağa ya da iç bir segmente gidilemiyor; traceroute trafiğin internete (varsayılan rotaya) gittiğini ya da hiç çıkmadığını gösteriyor.',
             steps: [
                 { expect: 'bad', code: 'get router info routing-table all', desc: 'Önce hedefi kapsayan en uzun önekli satırı bulun: C (bağlı), S (statik), S* (varsayılan). Hedefi kapsayan özel bir satır yoksa trafik varsayılan rotayla internete gider. Beklenen statik rota tabloda yoksa ya devre dışıdır ya da ağ geçidi çıkış arayüzünün bağlı alt ağında değildir.',
-                  sample: 'S*      0.0.0.0/0 [10/0] via 203.0.113.1, port1, [1/0]\nC       10.64.20.0/25 is directly connected, port2\nC       203.0.113.0/30 is directly connected, port1\n\n# 10.64.192.0/18 satırı yok: port3 adresi eksik ya da yanlış maskeli, statik rotanın ağ geçidi (10.64.20.130) bağlı bir ağda değil',
+                  sample: 'S*      0.0.0.0/0 [10/0] via 203.0.113.1, port1\nC       10.64.20.0/25 is directly connected, port2\nC       203.0.113.0/30 is directly connected, port1\n\n# 10.64.192.0/18 satırı yok: port3 adresi eksik ya da yanlış maskeli, statik rotanın ağ geçidi (10.64.20.130) bağlı bir ağda değil',
                   fix: [{ cause: 'Ağ geçidinin bulunduğu arayüzün adresi eksik ya da maskesi yanlış: statik rota tabloya giremiyor', cmd: 'config system interface\nedit port3\nset ip 10.64.20.129 255.255.255.192\nend' },
                         { cause: 'Hedef ağa rota hiç yok', cmd: 'config router static\nedit 2\nset dst 10.64.192.0 255.255.192.0\nset gateway 10.64.20.130\nset device port3\nend' }] },
                 { code: 'show router static', desc: 'Her rotada dst, gateway ve device doğru mu? Maske hataları sık: /18 = 255.255.192.0, /17 = 255.255.128.0. "set status disable" rotanın pasif bırakıldığını gösterir.',
@@ -283,6 +283,44 @@
             quiz: [
                 { q: 'NAT havuzunu değiştirdiniz. Açık kalan eski oturumlar ne yapar?', choices: [['old', 'Kuruldukları andaki NAT ile sürer; değişiklik yeni oturumlara uygulanır'], ['new', 'Hemen yeni havuza geçer'], ['drop', 'Hepsi otomatik düşer']], correct: 'old', why: 'Oturum tablosu kararı önbellekler. Uzun ömürlü oturumlar (VPN, veritabanı bağlantıları) bu yüzden değişiklikten saatler sonra bile eski davranışı gösterebilir.' },
                 { q: 'Filtre koymadan "diagnose sys session clear" çalıştırmanın sonucu?', choices: [['all', 'Tüm oturumlar silinir, herkesin bağlantısı kopar'], ['none', 'Hiçbir şey olmaz'], ['mine', 'Yalnız kendi yönetim oturumunuz silinir']], correct: 'all', why: 'Filtre yoksa kapsam tüm tablodur. Üretimde yalnız filtrelenmiş clear kullanılır.' },
+            ],
+        },
+        // ── Müfredat Seviye 5 ve 6: HA tasarımı (fgt-51), FortiManager / FortiAnalyzer hazırlığı (fgt-59)
+        {
+            title: 'HA: Heartbeat Koptu, Küme Dağıldı ya da İki Cihaz da Birincil (Split-Brain)', severity: 'err', topic: 'ha', lab: 'fgt-51',
+            symptom: 'Küme üyelerine yönetim erişimi aralıklı kesiliyor, trafik düşüyor; iki cihazın konsolunda da kendisi birincil görünüyor ya da HA panosunda "hbdev down" uyarısı var.',
+            steps: [
+                { expect: 'bad', code: 'get system ha status', desc: '"HA Health Status" altında "hbdev down" uyarısı heartbeat bağlantısının koptuğunu söyler. Heartbeat tamamen koparsa her üye diğerini ölü sanar ve kendini birincil yapar: aynı IP ve MAC adresleri iki cihazdan duyurulur (split-brain). Bunu kesin görmek için komutu iki cihazın konsolunda da çalıştırın.',
+                  sample: 'HA Health Status:\n    WARNING: FGVMSIM000000001 has hbdev down;\n    WARNING: FGVMSIM000000002 has hbdev down;\nModel: FortiGate-VM64\nMode: HA A-P\nGroup Name: HA-LAB\n\n# İki cihazın konsolunda da "Primary: <kendi seri numarası>" görünüyorsa split-brain',
+                  fix: [{ cause: 'Tek heartbeat arayüzü var ve koptu: kabloyu düzeltin ve ikinci bir heartbeat arayüzü ekleyin (listede ikisi birlikte yazılır)', cmd: 'config system ha\nset hbdev port4 50 port3 50\nend' }] },
+                { code: 'show system ha', desc: 'hbdev listesinde en az iki arayüz olmalı; group-name, mode ve parola iki üyede aynı olmalı. monitor listesindeki arayüzler failover tetikleyicisidir, heartbeat değildir. FortiOS 7.6\'da ayrıca "backup-hbdev" ile yedek heartbeat arayüzü tanımlanabilir (7.6 yeni özellikler belgesi).' },
+                { code: 'diagnose sys ha history read', desc: 'Rol değişimlerinin geçmişi: ne zaman, hangi üyenin, hangi nedenle birincil olduğu. Heartbeat kopuşuyla aynı ana denk gelen rol değişimleri split-brain\'i doğrular.' },
+                { code: 'diagnose sys ha checksum cluster', desc: 'Heartbeat geri geldikten sonra küme yeniden kurulur; yapılandırmanın iki üyede aynı olduğunu checksum ile doğrulayın. Farklıysa hangi tarafın doğru olduğundan emin olduktan sonra eşitleyin.',
+                  fix: [{ cause: 'Küme kuruldu ama yapılandırma senkron değil', cmd: 'execute ha synchronize start' }] },
+            ],
+            quiz: [
+                { q: 'Split-brain\'in doğrudan nedeni nedir?', choices: [['hb', 'Üyeler arasındaki heartbeat iletişiminin tamamen kesilmesi'], ['mon', 'İzlenen bir arayüzün düşmesi'], ['prio', 'İki üyenin önceliğinin aynı olması']], correct: 'hb', why: 'Heartbeat kesilince her üye diğerinin öldüğünü varsayar ve birincil olur. İzlenen arayüz düşmesi ise normal bir failover\'dır; küme tek birincille çalışmaya devam eder.' },
+                { q: 'Birincil seçiminde her zaman ilk bakılan ölçüt hangisi?', choices: [['mon', 'Bağlı izlenen arayüz sayısı'], ['prio', 'Öncelik (priority)'], ['up', 'HA uptime']], correct: 'mon', why: 'override kapalıyken sıra izlenen arayüz → uptime → öncelik → seri numarası; açıkken izlenen arayüz → öncelik → uptime → seri numarası. İki durumda da izlenen arayüz ilk sıradadır.' },
+            ],
+        },
+        {
+            title: 'FortiManager Cihazı Ekleyemiyor ya da FortiAnalyzer\'a Log Gitmiyor: FortiGate Tarafındaki İlk Kontroller', severity: 'warn', topic: 'ops', lab: 'fgt-59',
+            symptom: 'FortiManager "Add Device" sırasında cihaza bağlanamıyor ya da cihaz FortiManager\'da çevrim dışı görünüyor; FortiAnalyzer\'da bu cihazdan log gelmiyor.',
+            steps: [
+                { code: 'execute ping 10.64.99.10', desc: 'Önce temel erişim: FortiManager\'a (ve FortiAnalyzer\'a) rota ve ARP var mı? Yanıt yoksa yönetim protokolüne bakmadan önce yönlendirme çözülür.',
+                  fix: [{ cause: 'Yönetim arayüzü (port3) kapalı: bağlı ağın rotası da tablodan düşer', cmd: 'config system interface\nedit port3\nset status up\nend' }] },
+                { expect: 'bad', code: 'show system interface port3', desc: 'FortiManager\'ın cihaza bağlandığı arayüzde allowaccess listesinde "fgfm" olmalı; FGFM protokolünün çalışması için gereklidir.',
+                  sample: 'config system interface\n    edit "port3"\n        set ip 10.64.99.1 255.255.255.0\n        set allowaccess ping https ssh\n    next\nend\n\n# "fgfm" yok: FortiManager bu arayüz üzerinden cihaza bağlanamaz',
+                  fix: [{ cause: 'fgfm erişimi kapalı: listeye ekleyin (set yerine append; set mevcut erişimi siler)', cmd: 'config system interface\nedit port3\nappend allowaccess fgfm\nend' }] },
+                { code: 'execute telnet 10.64.99.10 541', desc: 'FGFM TCP 541 kullanır. "Connection refused" hedefin portu reddettiğini, zaman aşımı yolda bir engel (arada güvenlik duvarı) olduğunu gösterir. Arada güvenlik duvarı varsa TCP 541 açılmalıdır.' },
+                { code: 'execute telnet 10.64.99.20 514', desc: 'FortiGate logları FortiAnalyzer\'a OFTP ile TCP 514\'ten gönderir. Port yanıt vermiyorsa log gönderimi de çalışmaz; arada güvenlik duvarı varsa TCP 514 açılmalıdır.',
+                  fix: [{ cause: 'FortiAnalyzer ayarı yok ya da yanlış sunucu (bu komut simülatörde yok; gerçek cihazda)', cmd: 'config log fortianalyzer setting\nset status enable\nset server 10.64.99.20\nend' }] },
+                { code: 'execute revision list config', desc: 'Merkezi yönetime devirden önce yerel bir revizyon alınmış mı? İlk kurulum beklenmedik bir değişiklik yaparsa dönüş noktası budur (execute backup config flash <yorum>).',
+                  fix: [{ cause: 'Devir öncesi yerel revizyon yok', cmd: 'execute backup config flash FMG-ONCESI' }] },
+            ],
+            quiz: [
+                { q: 'FortiGate\'in FortiManager ile konuştuğu protokol ve port?', choices: [['fgfm', 'FGFM, TCP 541'], ['oftp', 'OFTP, TCP 514'], ['fabric', 'Security Fabric, TCP 8013']], correct: 'fgfm', why: 'FortiOS port tablolarında FortiManager yönetimi (FGFM) TCP 541. OFTP/514 FortiAnalyzer, 8013 Security Fabric içindir.' },
+                { q: 'Cihaz FortiManager\'a bağlıyken CLI\'dan değişiklik yaptınız. Varsayılan davranış?', choices: [['auto', 'auto-update ile değişiklik FortiManager\'ın cihaz veritabanına aktarılır'], ['lost', 'Değişiklik FortiManager tarafından hemen geri alınır'], ['none', 'FortiManager değişikliği görmez']], correct: 'auto', why: 'auto-update varsayılan olarak açıktır; başarısız olursa FortiManager değişikliği algılayıp yapılandırmayı kendisi çeker (auto-retrieve).' },
             ],
         },
     ];

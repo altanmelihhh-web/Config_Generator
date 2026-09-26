@@ -874,12 +874,20 @@
         id: 'fgt-41', vendor: 'fortigate', level: 1, title: 'Sniffer ile ICMP, TCP el sıkışması ve UDP', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-26'],
         up: ['port1', 'port2'], hosts: ['203.0.113.1'],
         start: BASE().concat(POL(['ALL'])),
-        sim: { flows: [
-            { src: '10.64.10.20', dst: '198.51.100.10', proto: 'icmp', dport: 0, in: 'port2' },
-            { src: '10.64.10.20', dst: '198.51.100.25', dport: 443, in: 'port2' },
-            { src: '10.64.10.20', dst: '198.51.100.25', dport: 8080, in: 'port2', reply: 'rst' },
-            { src: '10.64.10.20', dst: '198.51.100.53', proto: 'udp', dport: 53, in: 'port2' }] },
-        story: 'İç ağdaki 10.64.10.20 şu anda bir sunucuya ping atıyor, 198.51.100.25\'te bir web sitesine (443) ve bir yönetim paneline (8080) bağlanmaya çalışıyor ve DNS sorgusu yapıyor. Protokollerin kablodaki davranışını FortiGate\'in paket yakalayıcısıyla görün: ping nasıl gider gelir, TCP bağlantısı nasıl kurulur, kapalı port neye benzer, UDP neden farklıdır.',
+        // İki tur: v1'de ping yanıtlanır ve 8080 RST döner; v2'de ping yanıtsız, 8080'e hiç yanıt gelmez (arada paketi yutan bir cihaz)
+        variants: [
+            { key: 'v1', icmp: 'echo', p8080: 'closed', sim: { flows: [
+                { src: '10.64.10.20', dst: '198.51.100.10', proto: 'icmp', dport: 0, in: 'port2' },
+                { src: '10.64.10.20', dst: '198.51.100.25', dport: 443, in: 'port2' },
+                { src: '10.64.10.20', dst: '198.51.100.25', dport: 8080, in: 'port2', reply: 'rst' },
+                { src: '10.64.10.20', dst: '198.51.100.53', proto: 'udp', dport: 53, in: 'port2' }] } },
+            { key: 'v2', icmp: 'noreply', p8080: 'noreply', sim: { flows: [
+                { src: '10.64.10.20', dst: '198.51.100.10', proto: 'icmp', dport: 0, in: 'port2', reply: 'none' },
+                { src: '10.64.10.20', dst: '198.51.100.25', dport: 443, in: 'port2' },
+                { src: '10.64.10.20', dst: '198.51.100.25', dport: 8080, in: 'port2', reply: 'none' },
+                { src: '10.64.10.20', dst: '198.51.100.53', proto: 'udp', dport: 53, in: 'port2' }] } },
+        ],
+        story: 'İç ağdaki 10.64.10.20 şu anda bir sunucuya ping atıyor, 198.51.100.25\'te bir web sitesine (443) ve bir yönetim paneline (8080) bağlanmaya çalışıyor ve DNS sorgusu yapıyor. Protokollerin kablodaki davranışını FortiGate\'in paket yakalayıcısıyla görün: ping nasıl gider gelir, TCP bağlantısı nasıl kurulur, kapalı ya da süzülen port neye benzer, UDP neden farklıdır. <small>Her turda ağın davranışı değişebilir — "Yeni tur".</small>',
         lesson: L('<code>diagnose sniffer packet &lt;arayüz|any&gt; \'&lt;filtre&gt;\' &lt;seviye&gt; &lt;adet&gt;</code> FortiGate\'ten geçen paketleri yakalar. Filtre tcpdump sözdizimindedir: <code>icmp</code>, <code>udp</code>, <code>host 198.51.100.25</code>, <code>port 443</code> ve bunları bağlayan <code>and</code> / <code>or</code>. Seviye 4 her satıra arayüz adını ve yönü (in/out) ekler. <b>ICMP</b>: ping bir <i>echo request</i> gönderir, hedef <i>echo reply</i> ile döner. <b>TCP</b>: bağlantı üçlü el sıkışmayla kurulur: istemci <i>SYN</i>, sunucu <i>SYN-ACK</i>, istemci <i>ACK</i>. Port kapalıysa sunucu <i>RST</i> döner. <b>UDP</b> bağlantısızdır: el sıkışma yoktur, istek ve yanıt doğrudan gider.',
             'Protokolün normalde nasıl göründüğünü bilmeyen, arızalı hâlini tanıyamaz. SYN\'e SYN-ACK geliyorsa ağ yolu ve port sağlamdır; RST geliyorsa sorun sunucudaki servistir; hiç yanıt yoksa yol ya da bir güvenlik duvarı paketi yutuyordur. Sniffer ayrıca NAT\'ı da gösterir: aynı paket LAN\'da özel adresle girer, WAN\'dan genel adresle çıkar.',
             'diagnose sniffer packet port2 \'icmp\' 4 10\ndiagnose sniffer packet any \'host 198.51.100.25 and port 443\' 4 20\ndiagnose sniffer packet any \'udp and port 53\' 4 10',
@@ -892,8 +900,8 @@
               steps: ["diagnose sniffer packet port2 'icmp' 4 10"],
               check: s => s.ev.sniffed(x => x.intf === 'port2' && /(^|\s)icmp(\s|$)/.test(x.expr) && x.verb >= 4 && x.cnt > 0),
               fb: s => s.ev.sniffed(x => /icmp/.test(x.expr)) ? 'ICMP yakaladınız; arayüz port2, seviye 4 ve bir adet sınırı (ör. 10) birlikte olmalı.' : null },
-            { t: 'port2\'de görülen iki ICMP satırı neyi anlatıyor?', ask: { choices: [['echo', '"in" satırı istemcinin echo request\'i, "out" satırı hedeften dönen echo reply: ping başarılı'], ['two', 'İstemci iki ayrı ping gönderdi, ikisi de yanıtsız'], ['drop', 'FortiGate ping\'i düşürdü, satırlar hata kaydı']], correct: 'echo' },
-              why: 'port2 <b>in</b>: istemciden FortiGate\'e gelen echo request. port2 <b>out</b>: yanıtın istemciye geri verilmesi (echo reply). İkisi birlikte gidiş ve dönüşün tamamlandığını gösterir.',
+            { t: 'port2\'de görülen ICMP satırları neyi anlatıyor?', ask: { choices: [['echo', '"in" satırı istemcinin echo request\'i, "out" satırı hedeften dönen echo reply: ping başarılı'], ['noreply', 'Yalnız istemcinin echo request\'i var, echo reply yok: ping yanıtsız (nerede kaybolduğunu port1 gösterir)'], ['drop', 'Satırlar FortiGate\'in hata kaydıdır']], correct: v => v.icmp },
+              why: 'port2 <b>in</b>: istemciden FortiGate\'e gelen echo request. port2 <b>out</b> echo reply: yanıtın istemciye geri verilmesi. İkisi birlikte gidiş ve dönüşün tamamlandığını gösterir; yalnız "in" varsa yanıt dönmemiştir.',
               hints: ['Satırlardaki yön (in/out) ve ICMP türüne bakın.', 'request mi reply mı?'] },
             { t: '198.51.100.25:443 bağlantısını <b>tüm arayüzlerde</b> yakalayın: host ve port filtresini <code>and</code> ile birleştirin.',
               why: '<code>any</code> hem LAN (port2) hem WAN (port1) tarafını tek çıktıda gösterir; böylece paketin FortiGate\'ten nasıl geçtiği satır satır okunur.',
@@ -907,10 +915,10 @@
             { t: 'Sunucunun 443 yanıtı hangi bayrakla döndü ve bu ne anlama gelir?', ask: { choices: [['synack', 'syn ack: port açık, el sıkışmanın ikinci adımı'], ['rst', 'rst ack: port kapalı'], ['none', 'Yanıt yok: paket yolda kayboldu']], correct: 'synack' },
               why: 'SYN\'e SYN-ACK dönmesi sunucunun o portta dinlediğini gösterir. Ardından istemcinin ACK\'i gelir ve bağlantı kurulur (<small>[Simülatör] çıktı el sıkışmanın ilk iki adımını gösterir</small>).',
               hints: ['port1 in satırındaki bayrak.', '"syn ack" mı "rst ack" mi?'] },
-            { t: 'Aynı sunucunun 8080 portunu yakalayın ve bağlantının neden kurulmadığını seçin.', ask: { choices: [['closed', 'Sunucu RST ile reddediyor: bu portta dinleyen servis yok'], ['fw', 'FortiGate paketi düşürüyor'], ['noreply', 'Yanıt hiç gelmiyor: paket yolda kayboluyor']], correct: 'closed' },
-              why: 'SYN dışarı çıkıyor (port1 out) ve karşıdan <b>rst ack</b> dönüyor. Paket sunucuya ulaşmış, sunucu reddetmiş: sorun ağda ya da FortiGate\'te değil, sunucudaki servistedir.',
+            { t: 'Aynı sunucunun 8080 portunu yakalayın ve bağlantının neden kurulmadığını seçin.', ask: { choices: [['closed', 'Sunucu RST ile reddediyor: bu portta dinleyen servis yok'], ['fw', 'FortiGate paketi düşürüyor'], ['noreply', 'SYN dışarı çıkıyor ama yanıt hiç gelmiyor: paket FortiGate\'ten sonra kayboluyor ya da süzülüyor']], correct: v => v.p8080 },
+              why: 'SYN dışarı çıkıyor (port1 out). Karşıdan <b>rst ack</b> dönüyorsa paket sunucuya ulaşmış ve sunucu reddetmiştir: sorun sunucudaki servistedir. Hiç yanıt yoksa paket FortiGate\'ten sonra kayboluyordur (karşı güvenlik duvarı, ISS ya da sunucunun dönüş yolu). FortiGate düşürseydi "port1 out" satırı olmazdı.',
               hints: ['<code>diagnose sniffer packet any \'host 198.51.100.25 and port 8080\' 4 20</code>', 'Dönüş satırının bayrağı.'],
-              steps: ["diagnose sniffer packet any 'host 198.51.100.25 and port 8080' 4 20", { answer: 5, v: 'closed' }] },
+              steps: v => ["diagnose sniffer packet any 'host 198.51.100.25 and port 8080' 4 20", { answer: 5, v: v.p8080 }] },
             { t: 'DNS sorgusunu yakalayın: <b>UDP</b> ve port 53.',
               why: 'DNS sorguları çoğunlukla UDP 53 ile gider. <code>udp and port 53</code> filtresi hem protokolü hem portu daraltır.',
               hints: ['any \'udp and port 53\'', '<code>diagnose sniffer packet any \'udp and port 53\' 4 10</code>'],
@@ -921,7 +929,7 @@
               hints: ['TCP ile UDP arasındaki temel fark.', 'Bağlantı yönelimli / bağlantısız.'] },
         ],
         verify: ["diagnose sniffer packet port2 'icmp' 4 10", "diagnose sniffer packet any 'host 198.51.100.25' 4 20", 'show firewall policy 1'],
-        learn: ['Filtre: protokol (icmp, tcp, udp), host, port; and / or ile birleşir.', 'ICMP: echo request → echo reply.', 'TCP: SYN → SYN-ACK → ACK; kapalı port RST döner.', 'UDP bağlantısızdır: el sıkışma yok.', 'Kaynak NAT: LAN\'da özel adres, WAN\'da arayüz adresi.'],
+        learn: ['Filtre: protokol (icmp, tcp, udp), host, port; and / or ile birleşir.', 'ICMP: echo request → echo reply.', 'TCP: SYN → SYN-ACK → ACK; kapalı port RST döner, süzülen port hiç yanıt vermez.', 'UDP bağlantısızdır: el sıkışma yok.', 'Kaynak NAT: LAN\'da özel adres, WAN\'da arayüz adresi.'],
         links: { cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/113' }, cert: 'NSE 4 · M15'
     },
     {
@@ -1018,7 +1026,7 @@
         ],
         verify: ['get system ha status', 'show system ha', 'diagnose sys ha history read'],
         learn: ['En az iki hbdev: heartbeat tek hata noktası olmamalı.', 'Heartbeat tamamen koparsa split-brain: iki birincil.', 'İzlenen arayüz kuralı override ve öncelikten önce gelir.', 'override açıkken arıza sonrası öncelikli üye geri döner (ikinci failover).', 'Arıza testlerini bakım penceresinde yapın, arayüzü geri açın.'],
-        links: { tool: '#/fortigate/ha', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/108' }, cert: 'NSE 4 · M14'
+        links: { tool: '#/fortigate/ha', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/117' }, cert: 'NSE 4 · M14'
     },
     {
         id: 'fgt-59', vendor: 'fortigate', level: 6, title: 'FortiManager ve FortiAnalyzer\'a hazırlık: FortiGate tarafı', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-18'],
@@ -1026,9 +1034,9 @@
         start: BASE().concat(IF('port3', '10.64.99.1 255.255.255.0', ['set role lan', 'set allowaccess ping https ssh'])),
         story: 'Cihaz merkezi yönetime alınacak: FortiManager <b>10.64.99.10</b> ve FortiAnalyzer <b>10.64.99.20</b> yönetim ağında (port3). FortiManager ekibi cihazı kendi tarafından ekleyecek. FortiGate tarafını hazırlayın: erişim, yönetim protokolü izni ve devirden önce yerel bir geri dönüş noktası. <small>[Simülatör] <code>config system central-management</code> ve <code>config log fortianalyzer setting</code> bu simülatörde henüz yok; bu adımlar ders bölümünde anlatılır.</small>',
         lesson: L('FortiManager (FMG) cihazları <b>FGFM</b> protokolüyle (TCP 541) yönetir. Bağlantı iki yönden kurulabilir: FMG cihazı ekler (FortiGate\'in o arayüzünde <code>allowaccess fgfm</code> açık olmalı) ya da FortiGate <code>config system central-management</code> altında <code>set type fortimanager</code> ve <code>set fmg &lt;adres&gt;</code> ile kendini kaydettirir. FMG\'de cihazlar <b>ADOM</b>\'lara (yönetim alanı) ayrılır; kurallar <b>policy package</b> olarak yazılır ve "Install" ile cihaza CLI değişikliği olarak gönderilir. FortiAnalyzer (FAZ) logları FortiGate\'ten <code>config log fortianalyzer setting</code> ile <b>TCP 514</b> (OFTP) üzerinden alır.',
-            'Merkezi yönetim, onlarca cihazda aynı kuralı tek yerden yazmayı ve her kurulumu revizyon olarak geri alınabilir tutmayı sağlar. Ama FMG\'ye bağlı bir cihazda CLI\'dan yapılan değişiklik FMG\'nin veritabanıyla çelişir; bir sonraki kurulum onu ezebilir. Devirden önce yerel bir revizyon almak, ilk kurulum beklenmedik bir şey değiştirirse dönüş yolu bırakır.',
+            'Merkezi yönetim, onlarca cihazda aynı kuralı tek yerden yazmayı ve her kurulumu revizyon olarak geri alınabilir tutmayı sağlar. FortiGate\'te CLI\'dan yapılan değişiklik varsayılan olarak <b>auto-update</b> ile FMG\'nin cihaz veritabanına aktarılır; FMG\'de izlenmesi için revizyon farkına bakılır. Devirden önce yerel bir revizyon almak, ilk kurulum beklenmedik bir şey değiştirirse dönüş yolu bırakır.',
             'execute ping 10.64.99.10\nconfig system interface\n    edit port3\n        append allowaccess fgfm\n    next\nend\nexecute backup config flash FMG-ONCESI\n# Gerçek cihazda (bu simülatörde yok):\nconfig system central-management\n    set type fortimanager\n    set fmg "10.64.99.10"\nend\nconfig log fortianalyzer setting\n    set status enable\n    set server "10.64.99.20"\nend',
-            ['<code>set allowaccess fgfm</code> yazıp mevcut ping/https/ssh erişimini silmek (append yerine set).', 'Arada bir güvenlik duvarı varsa TCP 541 ve 514\'ü açmamak.', 'FMG\'ye bağlı cihazda CLI\'dan değişiklik yapıp FMG\'ye geri almamak.', 'Devirden önce yerel yedek ya da revizyon almamak.']),
+            ['<code>set allowaccess fgfm</code> yazıp mevcut ping/https/ssh erişimini silmek (append yerine set).', 'Arada bir güvenlik duvarı varsa TCP 541 ve 514\'ü açmamak.', 'Devralmadan önce FMG\'nin cihaz veritabanıyla cihazın gerçek yapılandırmasını karşılaştırmamak (revizyon farkı).', 'Devirden önce yerel yedek ya da revizyon almamak.']),
         goals: ['FMG ve FAZ\'a erişimi doğrulamak', 'allowaccess fgfm (append ile)', 'FGFM ve FAZ log portları', 'Devir öncesi yerel revizyon', 'ADOM, policy package ve cihaz veritabanı kavramları'],
         tasks: [
             { t: 'FortiManager (10.64.99.10) ve FortiAnalyzer\'a (10.64.99.20) erişimi ping ile doğrulayın.',
@@ -1056,13 +1064,13 @@
             { t: 'FortiManager\'da yazılan kurallar cihaza nasıl ulaşır?', ask: { choices: [['install', 'Policy package "Install" ile cihaz için CLI değişikliklerine çevrilir ve FGFM üzerinden gönderilir'], ['manual', 'Kural dosyası indirilip cihaza elle yüklenir'], ['ha', 'Cihaz, HA senkronu gibi FMG\'den kendiliğinden çeker']], correct: 'install' },
               why: 'FMG\'de kurallar ADOM içindeki policy package\'larda tutulur. Install, paketi ve ilgili nesneleri cihazın sürümüne uygun CLI\'ya çevirir; her kurulum bir revizyon olarak saklanır ve geri alınabilir.',
               hints: ['Policy package → cihaz.', 'FMG arayüzündeki "Install Wizard".'] },
-            { t: 'FMG\'ye bağlı bir cihazda CLI\'dan acil bir değişiklik yaptınız. Ne olur?', ask: { choices: [['mod', 'Cihaz ile FMG\'nin cihaz veritabanı arasında fark oluşur; değişiklik FMG\'ye geri alınmazsa bir sonraki kurulum onu ezebilir'], ['reject', 'FMG değişikliği hemen geri alır'], ['none', 'Hiçbir etkisi olmaz']], correct: 'mod' },
-              why: 'FMG her cihazın yapılandırmasını kendi veritabanında tutar. CLI değişikliği cihazı FMG\'nin kopyasından ayırır (cihaz "modified" görünür). Değişiklik FMG\'ye alınmalıdır (auto-update ya da retrieve), aksi hâlde sonraki Install onu siler.',
-              hints: ['Tek doğru kaynak kim?', 'FMG\'nin cihaz veritabanı.'] },
+            { t: 'FMG\'ye bağlı bir cihazda CLI\'dan acil bir değişiklik yaptınız. Varsayılan ayarlarla ne olur?', ask: { choices: [['auto', 'FortiGate değişikliği FMG\'ye gönderir (auto-update); FMG\'nin cihaz veritabanı güncellenir ve durum "Auto-Updated" görünür'], ['reject', 'FMG değişikliği hemen geri alır'], ['none', 'FMG değişikliği hiç görmez']], correct: 'auto' },
+              why: 'FMG her cihazın yapılandırmasını kendi cihaz veritabanında tutar. Kurulum dışında cihazda yapılan değişiklik varsayılan olarak açık olan auto-update ile FMG\'ye aktarılır; auto-update başarısız olursa FMG değişikliği fark edip yapılandırmayı kendisi çeker (auto-retrieve). Farkı revizyon geçmişinde görebilirsiniz.',
+              hints: ['FMG cihaz veritabanını nasıl güncel tutar?', 'auto-update'] },
         ],
         verify: ['show system interface port3', 'execute revision list config', 'execute ping 10.64.99.10'],
-        learn: ['FGFM = TCP 541; FAZ log = TCP 514 (OFTP).', 'Arayüzde fgfm erişimini append ile ekleyin.', 'Devirden önce yerel revizyon.', 'ADOM → policy package → Install → cihaz.', 'FMG\'ye bağlı cihazda CLI değişikliği FMG\'ye geri alınmalı.'],
-        links: { tool: '#/fortigate/logging', cli: '#/cli/fortigate' }, cert: 'NSE 4 · M13'
+        learn: ['FGFM = TCP 541; FAZ log = TCP 514 (OFTP).', 'Arayüzde fgfm erişimini append ile ekleyin.', 'Devirden önce yerel revizyon.', 'ADOM → policy package → Install → cihaz.', 'Cihazdaki CLI değişikliği auto-update ile FMG\'ye aktarılır (varsayılan).'],
+        links: { tool: '#/fortigate/logging', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/118' }, cert: 'NSE 4 · M13'
     },
     {
         id: 'fgt-60', vendor: 'fortigate', level: 5, title: 'VDOM, FortiLink ve FortiAP: kavramlar ve cihazdaki izleri', minutes: 15, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-13'],
@@ -1103,6 +1111,62 @@
         learn: ['VDOM = bağımsız sanal güvenlik duvarı; arayüz tek VDOM\'a aittir.', 'VDOM kipinde: config global (HA, yöneticiler) / config vdom (kurallar, rotalar).', 'fabric erişimi: CAPWAP + Security Fabric.', 'FortiAP: CAPWAP UDP 5246/5247.', 'FortiLink: VLAN ve port ataması FortiGate\'ten.'],
         links: { tool: '#/fortigate/vdom', cli: '#/cli/fortigate' }, cert: 'NSE 4 · M13'
     },
+    // ═══ Müfredat Seviye 8: sınav (fgt-55) — her turda iki arıza, farklı katmanlardan ═══
+    (() => {
+        const FLOW = { src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'port2' };
+        const BREAK = { route: ['config router static', 'edit 1', 'set status disable', 'end'], nat: ['config firewall policy', 'edit 1', 'set nat disable', 'end'],
+            svc: ['config firewall policy', 'edit 1', 'set service HTTP DNS', 'end'], down: ['config system interface', 'edit port2', 'set status down', 'end'],
+            order: ['config firewall policy', 'edit 2', 'set name TMP-BLOCK', 'set srcintf port2', 'set dstintf port1', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action deny', 'set schedule always', 'set service ALL', 'end', 'config firewall policy', 'move 2 before 1', 'end'] };
+        const FIX = { route: ['config router static', 'edit 1', 'set status enable', 'end'], nat: ['config firewall policy', 'edit 1', 'set nat enable', 'end'],
+            svc: ['config firewall policy', 'edit 1', 'append service HTTPS', 'end'], down: ['config system interface', 'edit port2', 'set status up', 'end'],
+            order: ['config firewall policy', 'move 1 before 2', 'end'] };
+        const OK = { route: s => !!def0(s.rib()) && def0(s.rib()).gw === '203.0.113.1', nat: s => s.obj('firewall policy', '1').nat === 'enable',
+            svc: s => (s.obj('firewall policy', '1').service || []).some(x => x === 'HTTPS' || x === 'ALL'), down: s => s.obj('system interface', 'port2').status === 'up',
+            order: s => { const o = s.order('firewall policy'), t = pol(s, 'TMP-BLOCK'), k = s.keys('firewall policy').find(x => s.obj('firewall policy', x).name === 'TMP-BLOCK'); return !t || t.status === 'disable' || o.indexOf('1') < o.indexOf(k); } };
+        const CH = [['down', 'LAN arayüzü (port2) kapalı: paket FortiGate\'e hiç girmiyor'], ['route', 'Varsayılan rota yok ya da pasif: hedefe rota bulunamıyor'], ['order', 'Üstteki bir deny kuralı önce eşleşiyor'], ['svc', 'Kuralın servis listesinde HTTPS yok: örtük deny (policy 0)'], ['nat', 'Kural eşleşiyor ama kaynak NAT kapalı: özel adres internete çıkıyor']];
+        const HOW = 'Tanılama sırası paketin yolunu izler: arayüz (paket giriyor mu) → rota → kural → NAT. debug flow\'da "find a route" satırı yoksa rota, "Denied by forward policy check (policy N)" kural, "Allowed by Policy-1" var ama SNAT yoksa NAT sorunudur; hiç satır yoksa paket FortiGate\'e girmiyordur.';
+        const V = (key, a, b) => ({ key, a, b, start: BREAK[a].concat(BREAK[b]) });
+        const lastCfg = s => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (L[i].canon && /^(set |append |move |unset )/.test(L[i].canon)) return i; return -1; };
+        return {
+            id: 'fgt-55', vendor: 'fortigate', level: 8, title: 'Sınav: karma arıza kaydı — LAN internete çıkamıyor', minutes: 30, timed: 1200, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-15', 'fgt-58'],
+            up: ['port1', 'port2'], hosts: ['203.0.113.1'],
+            start: BASE().concat(POL(['HTTP', 'HTTPS', 'DNS'])),
+            sim: { flows: [FLOW] },
+            variants: [V('route-nat', 'route', 'nat'), V('order-svc', 'order', 'svc'), V('down-svc', 'down', 'svc'), V('route-order', 'route', 'order')],
+            story: '<b>Arıza kaydı (öncelik: yüksek):</b> "Gece yapılan bakımdan sonra LAN\'daki kullanıcılar internete çıkamıyor. Örnek: 10.64.10.50, 198.51.100.80:443." Bakımda <b>iki ayrı</b> hata yapılmış; hangileri olduğunu bilmiyorsunuz. Beklenen durum: LAN-TO-WAN kuralı (port2 → port1) HTTP, HTTPS ve DNS\'e izin verir ve kaynak NAT yapar; varsayılan rota 203.0.113.1. Kanıtla bulun, yalnız bozulan ayarları düzeltin ve düzeltmeyi kanıtla doğrulayın. <small>Hedef süre 20 dk. Her turda farklı iki arıza — "Yeni tur".</small>',
+            lesson: L('Sınav labı yeni bir konu öğretmez; önceki seviyelerin araçlarını birlikte kullandırır: <code>show</code> ile yapılandırma, <code>get router info routing-table all</code> ile rota, <code>diagnose debug flow</code> ve <code>diagnose firewall iprope lookup</code> ile kural kararı, <code>diagnose sniffer packet</code> ile paketin yolu. ' + HOW,
+                'Gerçek arıza kayıtlarında çoğu zaman tek bir neden yoktur: ilk hatayı düzelttiğinizde ikincisi ortaya çıkar. Her düzeltmeden sonra aynı testi yeniden yapmak, "düzelttim" ile "çalışıyor" arasındaki farkı kapatır.',
+                'diagnose debug reset\ndiagnose debug flow filter addr 10.64.10.50\ndiagnose debug flow trace start 5\ndiagnose debug enable\n# çıktıyı okuyun, sonra:\ndiagnose debug disable\ndiagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2\nget router info routing-table all\nshow firewall policy',
+                ['İlk bulguyu düzeltip testi tekrarlamadan kaydı kapatmak.', 'Sorunu bulmak için kuralı "ALL" servisine ya da "any" arayüzüne açmak: arızayı gizler, yeni bir güvenlik açığı yaratır.', 'debug flow\'u filtresiz ve açık bırakmak.']),
+            goals: ['Kanıtla ilk arızayı bulmak', 'Yalnız bozulan ayarı düzeltmek', 'Testi tekrarlayıp ikinci arızayı bulmak', 'Düzeltmeyi kanıtla doğrulamak'],
+            tasks: [
+                { t: 'Sorunlu akışı bir tanılama aracıyla sınayın. <b>İlk</b> arıza hangisi?', ask: { choices: CH, correct: v => v.a },
+                  why: HOW, hints: ['debug flow ya da iprope lookup ile başlayın; sonuç yoksa arayüz ve rota tablosuna bakın.', '<code>diagnose debug flow trace start 5</code> → <code>diagnose debug enable</code>; <code>show system interface port2</code>; <code>get router info routing-table all</code>'],
+                  steps: v => ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable', { answer: 0, v: v.a }] },
+                { t: 'İlk arızayı düzeltin: yalnız bozulan ayar.',
+                  why: 'Arızaya karşılık gelen tek değişiklik: arayüzü açmak, rotayı etkinleştirmek, kuralı taşımak, servisi eklemek ya da NAT\'ı açmak. Kuralı genişletmek (ALL, any) arızayı gizler.',
+                  hints: ['Bulduğunuz nedene karşılık gelen tek ayar.', 'down → set status up · route → set status enable (router static 1) · order → move 1 before 2 · svc → append service HTTPS · nat → set nat enable'],
+                  steps: v => FIX[v.a], check: s => OK[s.variant().a](s) },
+                { t: 'Testi tekrarlayın. <b>İkinci</b> arıza hangisi?', ask: { choices: CH, correct: v => v.b },
+                  why: 'İlk engel kalkınca paket bir sonraki aşamaya ilerler ve orada takılır. Aynı test yeniden yapılmadan ikinci arıza görünmez.',
+                  hints: ['Aynı debug flow ya da lookup.', 'Bu kez paket hangi aşamaya kadar ilerliyor?'],
+                  steps: v => ['diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable', { answer: 2, v: v.b }], needs: [1] },
+                { t: 'İkinci arızayı düzeltin.',
+                  why: 'Yine yalnız bozulan ayar. İki düzeltmeden sonra akış LAN-TO-WAN\'dan geçmeli ve WAN adresine (203.0.113.2) çevrilmeli.',
+                  hints: ['İkinci nedene karşılık gelen tek ayar.', 'Aynı eşleme: down / route / order / svc / nat'],
+                  steps: v => FIX[v.b], check: s => OK[s.variant().b](s) },
+                { t: 'Düzeltmeyi kanıtlayın: son değişiklikten sonra akışı <code>iprope lookup</code> ile yeniden sınayın; LAN-TO-WAN (kural 1) eşleşmeli.',
+                  why: 'Kayıt kanıtla kapanır: son değişiklikten sonra alınmış bir test çıktısı. Kural 1 eşleşiyor ve kural NAT yapıyorsa kullanıcı trafiği geçer.',
+                  hints: ['diagnose firewall iprope lookup <kaynak> <kaynak port> <hedef> <hedef port> <protokol> <arayüz>', '<code>diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2</code>'],
+                  steps: ['diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2'], needs: [1, 3],
+                  check: s => { const d = s.decide(FLOW), i = lastCfg(s); return d.stage === 'allowed' && d.snat === '203.0.113.2' && s.ev.list().slice(i + 1).some(e => e.lookup === '1'); },
+                  fb: s => { const d = s.decide(FLOW); return d.stage !== 'allowed' ? 'Akış hâlâ geçmiyor: testi tekrarlayıp kalan arızayı bulun.' : d.snat !== '203.0.113.2' ? 'Akış geçiyor ama kaynak NAT yok.' : null; } },
+            ],
+            verify: ['diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2', 'get router info routing-table all', 'show firewall policy', 'show system interface port2'],
+            learn: ['Sıra: arayüz → rota → kural → NAT.', 'Her düzeltmeden sonra aynı testi tekrarlayın; ikinci arıza ancak böyle görünür.', 'Yalnız bozulan ayarı düzeltin; kuralı genişletmeyin.', 'Kaydı son değişiklikten sonra alınmış kanıtla kapatın.'],
+            links: { tool: '#/fortigate/policy', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/100' }, cert: 'NSE 4 · M2, M3, M15'
+        };
+    })(),
     ];
     // Çoktan seçmeli (ask) görevler: cevap s.answers['<lab>:<görev>'] içinde
     LABS.forEach(l => l.tasks.forEach((t, i) => {
