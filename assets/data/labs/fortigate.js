@@ -1109,7 +1109,7 @@
         ],
         verify: ['get system status', 'show full-configuration system interface port1', 'show system interface port2'],
         learn: ['VDOM = bağımsız sanal güvenlik duvarı; arayüz tek VDOM\'a aittir.', 'VDOM kipinde: config global (HA, yöneticiler) / config vdom (kurallar, rotalar).', 'fabric erişimi: CAPWAP + Security Fabric.', 'FortiAP: CAPWAP UDP 5246/5247.', 'FortiLink: VLAN ve port ataması FortiGate\'ten.'],
-        links: { tool: '#/fortigate/vdom', cli: '#/cli/fortigate' }, cert: 'NSE 4 · M13'
+        links: { tool: '#/fortigate/vdom', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/119' }, cert: 'NSE 4 · M13'
     },
     // ═══ Müfredat Seviye 8: sınav (fgt-55) — her turda iki arıza, farklı katmanlardan ═══
     (() => {
@@ -1125,15 +1125,15 @@
             order: s => { const o = s.order('firewall policy'), t = pol(s, 'TMP-BLOCK'), k = s.keys('firewall policy').find(x => s.obj('firewall policy', x).name === 'TMP-BLOCK'); return !t || t.status === 'disable' || o.indexOf('1') < o.indexOf(k); } };
         const CH = [['down', 'LAN arayüzü (port2) kapalı: paket FortiGate\'e hiç girmiyor'], ['route', 'Varsayılan rota yok ya da pasif: hedefe rota bulunamıyor'], ['order', 'Üstteki bir deny kuralı önce eşleşiyor'], ['svc', 'Kuralın servis listesinde HTTPS yok: örtük deny (policy 0)'], ['nat', 'Kural eşleşiyor ama kaynak NAT kapalı: özel adres internete çıkıyor']];
         const HOW = 'Tanılama sırası paketin yolunu izler: arayüz (paket giriyor mu) → rota → kural → NAT. debug flow\'da "find a route" satırı yoksa rota, "Denied by forward policy check (policy N)" kural, "Allowed by Policy-1" var ama SNAT yoksa NAT sorunudur; hiç satır yoksa paket FortiGate\'e girmiyordur.';
-        const V = (key, a, b) => ({ key, a, b, start: BREAK[a].concat(BREAK[b]) });
+        const V = (key, a, b, c) => ({ key, a, b, c, start: BREAK[a].concat(BREAK[b], c ? BREAK[c] : []) });   // c: zor turda üçüncü arıza
         const lastCfg = s => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (L[i].canon && /^(set |append |move |unset )/.test(L[i].canon)) return i; return -1; };
         return {
             id: 'fgt-55', vendor: 'fortigate', level: 8, title: 'Sınav: karma arıza kaydı — LAN internete çıkamıyor', minutes: 30, timed: 1200, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-15', 'fgt-58'],
             up: ['port1', 'port2'], hosts: ['203.0.113.1'],
             start: BASE().concat(POL(['HTTP', 'HTTPS', 'DNS'])),
             sim: { flows: [FLOW] },
-            variants: [V('route-nat', 'route', 'nat'), V('order-svc', 'order', 'svc'), V('down-svc', 'down', 'svc'), V('route-order', 'route', 'order')],
-            story: '<b>Arıza kaydı (öncelik: yüksek):</b> "Gece yapılan bakımdan sonra LAN\'daki kullanıcılar internete çıkamıyor. Örnek: 10.64.10.50, 198.51.100.80:443." Bakımda <b>iki ayrı</b> hata yapılmış; hangileri olduğunu bilmiyorsunuz. Beklenen durum: LAN-TO-WAN kuralı (port2 → port1) HTTP, HTTPS ve DNS\'e izin verir ve kaynak NAT yapar; varsayılan rota 203.0.113.1. Kanıtla bulun, yalnız bozulan ayarları düzeltin ve düzeltmeyi kanıtla doğrulayın. <small>Hedef süre 20 dk. Her turda farklı iki arıza — "Yeni tur".</small>',
+            variants: [V('route-nat', 'route', 'nat'), V('order-svc', 'order', 'svc'), V('down-svc', 'down', 'svc'), V('route-order', 'route', 'order'), V('zor-down-route-nat', 'down', 'route', 'nat')],
+            story: '<b>Arıza kaydı (öncelik: yüksek):</b> "Gece yapılan bakımdan sonra LAN\'daki kullanıcılar internete çıkamıyor. Örnek: 10.64.10.50, 198.51.100.80:443." Bakımda <b>en az iki ayrı</b> hata yapılmış (zor turda üç); hangileri olduğunu bilmiyorsunuz. Beklenen durum: LAN-TO-WAN kuralı (port2 → port1) HTTP, HTTPS ve DNS\'e izin verir ve kaynak NAT yapar; varsayılan rota 203.0.113.1. Kanıtla bulun, yalnız bozulan ayarları düzeltin ve düzeltmeyi kanıtla doğrulayın. <small>Hedef süre 20 dk. Her turda farklı arızalar — "Yeni tur".</small>',
             lesson: L('Sınav labı yeni bir konu öğretmez; önceki seviyelerin araçlarını birlikte kullandırır: <code>show</code> ile yapılandırma, <code>get router info routing-table all</code> ile rota, <code>diagnose debug flow</code> ve <code>diagnose firewall iprope lookup</code> ile kural kararı, <code>diagnose sniffer packet</code> ile paketin yolu. ' + HOW,
                 'Gerçek arıza kayıtlarında çoğu zaman tek bir neden yoktur: ilk hatayı düzelttiğinizde ikincisi ortaya çıkar. Her düzeltmeden sonra aynı testi yeniden yapmak, "düzelttim" ile "çalışıyor" arasındaki farkı kapatır.',
                 'diagnose debug reset\ndiagnose debug flow filter addr 10.64.10.50\ndiagnose debug flow trace start 5\ndiagnose debug enable\n# çıktıyı okuyun, sonra:\ndiagnose debug disable\ndiagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2\nget router info routing-table all\nshow firewall policy',
@@ -1152,18 +1152,22 @@
                   hints: ['Aynı debug flow ya da lookup.', 'Bu kez paket hangi aşamaya kadar ilerliyor?'],
                   steps: v => ['diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable', { answer: 2, v: v.b }], needs: [1] },
                 { t: 'İkinci arızayı düzeltin.',
-                  why: 'Yine yalnız bozulan ayar. İki düzeltmeden sonra akış LAN-TO-WAN\'dan geçmeli ve WAN adresine (203.0.113.2) çevrilmeli.',
+                  why: 'Yine yalnız bozulan ayar. Düzeltmelerin sonunda akış LAN-TO-WAN\'dan geçmeli ve WAN adresine (203.0.113.2) çevrilmeli.',
                   hints: ['İkinci nedene karşılık gelen tek ayar.', 'Aynı eşleme: down / route / order / svc / nat'],
                   steps: v => FIX[v.b], check: s => OK[s.variant().b](s) },
-                { t: 'Düzeltmeyi kanıtlayın: son değişiklikten sonra akışı <code>iprope lookup</code> ile yeniden sınayın; LAN-TO-WAN (kural 1) eşleşmeli.',
+                { t: 'Testi yeniden yapın. Başka arıza kaldı mı?', ask: { choices: CH.concat([['none', 'Kalmadı: akış kural 1\'den geçiyor ve NAT yapılıyor']]), correct: v => v.c || 'none' },
+                  why: 'İki düzeltmeden sonra da test tekrarlanır: gerçek kayıtlarda arıza sayısı önceden bilinmez. "Allowed by Policy-1" ve SNAT satırı görünüyorsa arıza kalmamıştır.',
+                  hints: ['Aynı debug flow ya da lookup.', 'Paket bu kez nereye kadar ilerliyor; SNAT satırı var mı?'],
+                  steps: v => ['diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable', { answer: 4, v: v.c || 'none' }], needs: [1, 3] },
+                { t: 'Kalan arıza varsa düzeltin; sonra düzeltmeyi kanıtlayın: son değişiklikten sonra akışı <code>iprope lookup</code> ile yeniden sınayın, LAN-TO-WAN (kural 1) eşleşmeli.',
                   why: 'Kayıt kanıtla kapanır: son değişiklikten sonra alınmış bir test çıktısı. Kural 1 eşleşiyor ve kural NAT yapıyorsa kullanıcı trafiği geçer.',
-                  hints: ['diagnose firewall iprope lookup <kaynak> <kaynak port> <hedef> <hedef port> <protokol> <arayüz>', '<code>diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2</code>'],
-                  steps: ['diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2'], needs: [1, 3],
+                  hints: ['Varsa kalan arızanın tek ayarı; ardından diagnose firewall iprope lookup <kaynak> <kaynak port> <hedef> <hedef port> <protokol> <arayüz>', '<code>diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2</code>'],
+                  steps: v => (v.c ? FIX[v.c] : []).concat(['diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2']), needs: [1, 3],
                   check: s => { const d = s.decide(FLOW), i = lastCfg(s); return d.stage === 'allowed' && d.snat === '203.0.113.2' && s.ev.list().slice(i + 1).some(e => e.lookup === '1'); },
                   fb: s => { const d = s.decide(FLOW); return d.stage !== 'allowed' ? 'Akış hâlâ geçmiyor: testi tekrarlayıp kalan arızayı bulun.' : d.snat !== '203.0.113.2' ? 'Akış geçiyor ama kaynak NAT yok.' : null; } },
             ],
             verify: ['diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2', 'get router info routing-table all', 'show firewall policy', 'show system interface port2'],
-            learn: ['Sıra: arayüz → rota → kural → NAT.', 'Her düzeltmeden sonra aynı testi tekrarlayın; ikinci arıza ancak böyle görünür.', 'Yalnız bozulan ayarı düzeltin; kuralı genişletmeyin.', 'Kaydı son değişiklikten sonra alınmış kanıtla kapatın.'],
+            learn: ['Sıra: arayüz → rota → kural → NAT.', 'Her düzeltmeden sonra aynı testi tekrarlayın; sonraki arıza ancak böyle görünür.', 'Yalnız bozulan ayarı düzeltin; kuralı genişletmeyin.', 'Kaydı son değişiklikten sonra alınmış kanıtla kapatın.'],
             links: { tool: '#/fortigate/policy', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/100' }, cert: 'NSE 4 · M2, M3, M15'
         };
     })(),

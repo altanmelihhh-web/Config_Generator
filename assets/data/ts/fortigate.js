@@ -188,7 +188,7 @@
             title: 'Statik Rota: Yedek Hat Devreye Girmiyor ya da Trafik Yanlış Hattan Çıkıyor', severity: 'warn', topic: 'routing', lab: 'fgt-06',
             symptom: 'İki internet hattı var; birincil sorunlu olduğunda trafik yedeğe geçmiyor ya da trafik beklenmedik biçimde iki hatta bölünüyor.',
             steps: [
-                { code: 'get router info routing-table all', desc: '"S* 0.0.0.0/0 [10/0] via 203.0.113.1, port1, [1/0]": ilk köşeli parantez mesafe/metrik, sondaki öncelik/ağırlık. Yedek rota (daha yüksek mesafe) tabloda görünmez; bu normaldir ve birincil düşünce devreye girer. İki varsayılan rota da görünüyorsa mesafe ve öncelik eşittir: trafik iki hatta bölünür (ECMP).',
+                { code: 'get router info routing-table all', desc: '"S* 0.0.0.0/0 [10/0] via 203.0.113.1, port1": köşeli parantez mesafe/metriktir. Öncelik ya da ağırlık varsayılandan farklıysa satırın sonunda ikinci bir parantez görünür (ör. ", [3/3]" = öncelik/ağırlık). Yedek rota (daha yüksek mesafe) tabloda görünmez; bu normaldir ve birincil düşünce devreye girer. İki varsayılan rota da görünüyorsa mesafeleri eşittir: öncelikleri de eşitse trafik iki hatta bölünür (ECMP), değilse öncelik değeri küçük olan tercih edilir.',
                   fix: [{ cause: 'Yedek rota birincille aynı mesafede (ECMP): yedeğin mesafesini yükseltin (floating route)', cmd: 'config router static\nedit 3\nset gateway 198.51.100.1\nset device port3\nset distance 20\nend' },
                         { cause: 'İki rota da tabloda kalsın ama biri tercih edilsin: aynı mesafede priority kullanın (küçük olan tercih edilir)', cmd: 'config router static\nedit 3\nset priority 10\nend' }] },
                 { code: 'show router static', desc: 'Her rotada device (çıkış arayüzü) olmalıdır; gateway o arayüzün ağında olmalıdır. "set status disable" satırı rotanın pasif bırakıldığını gösterir.',
@@ -321,6 +321,23 @@
             quiz: [
                 { q: 'FortiGate\'in FortiManager ile konuştuğu protokol ve port?', choices: [['fgfm', 'FGFM, TCP 541'], ['oftp', 'OFTP, TCP 514'], ['fabric', 'Security Fabric, TCP 8013']], correct: 'fgfm', why: 'FortiOS port tablolarında FortiManager yönetimi (FGFM) TCP 541. OFTP/514 FortiAnalyzer, 8013 Security Fabric içindir.' },
                 { q: 'Cihaz FortiManager\'a bağlıyken CLI\'dan değişiklik yaptınız. Varsayılan davranış?', choices: [['auto', 'auto-update ile değişiklik FortiManager\'ın cihaz veritabanına aktarılır'], ['lost', 'Değişiklik FortiManager tarafından hemen geri alınır'], ['none', 'FortiManager değişikliği görmez']], correct: 'auto', why: 'auto-update varsayılan olarak açıktır; başarısız olursa FortiManager değişikliği algılayıp yapılandırmayı kendisi çeker (auto-retrieve).' },
+            ],
+        },
+        // ── Müfredat Seviye 5: FortiAP / Security Fabric erişimi (fgt-60)
+        {
+            title: 'FortiAP FortiGate\'e Bağlanmıyor (Çevrim Dışı): Arayüz Erişimi, DHCP ve CAPWAP Trafiği', severity: 'warn', topic: 'iface', lab: 'fgt-60',
+            symptom: 'LAN\'a takılan FortiAP FortiGate\'te görünmüyor ya da çevrim dışı kalıyor; AP\'nin ışıkları yanıyor, kablo ve PoE sağlam görünüyor.',
+            steps: [
+                { expect: 'bad', code: 'show system interface port2', desc: 'AP\'nin bağlı olduğu arayüzde yönetim erişiminde "fabric" (Security Fabric Connection) olmalı: CAPWAP bu seçenekle açılır. FortiLink arayüzünde varsayılan olarak açıktır; diğer arayüz ve VLAN\'larda elle açılmalıdır.',
+                  sample: 'config system interface\n    edit "port2"\n        set ip 10.64.10.1 255.255.255.0\n        set allowaccess ping https\n    next\nend\n\n# "fabric" yok: FortiGate AP\'nin CAPWAP isteklerine yanıt vermez',
+                  fix: [{ cause: 'fabric erişimi kapalı: listeye ekleyin (set yerine append; set mevcut erişimi siler)', cmd: 'config system interface\nedit port2\nappend allowaccess fabric\nend' }] },
+                { code: 'execute dhcp lease-list', desc: 'AP adres almış mı? AP\'nin MAC\'i kira listesinde yoksa o arayüzde DHCP sunucusu kapalı ya da havuz dolu olabilir; adressiz AP denetleyiciyi bulamaz.',
+                  fix: [{ cause: 'Havuz dolu: aralığı genişletin (arayüzün DHCP sunucusu)', cmd: 'config system dhcp server\nedit 1\nconfig ip-range\nedit 1\nset end-ip 10.64.10.250\nnext\nend\nend' }] },
+                { code: 'diagnose sniffer packet port2 \'port 5246\' 4 20', desc: 'CAPWAP kontrol trafiği UDP 5246\'dır. İki yönlü trafik (AP → FortiGate ve FortiGate → AP) görünmelidir. Yalnız AP\'den gelen paketler varsa FortiGate yanıt vermiyordur: önce fabric erişimini kontrol edin. Hiç paket yoksa AP bu arayüze ulaşmıyordur (VLAN, kablo, AP\'nin adresi).' },
+            ],
+            quiz: [
+                { q: 'Bir arayüzde CAPWAP\'ı açan yönetim erişimi seçeneği hangisi?', choices: [['fabric', 'fabric (Security Fabric Connection)'], ['fgfm', 'fgfm'], ['https', 'https']], correct: 'fabric', why: 'FortiOS 6.2.3\'ten beri ayrı "capwap" ve "fortitelemetry" seçenekleri "fabric" altında birleşti. fgfm FortiManager içindir.' },
+                { q: 'CAPWAP hangi portları kullanır?', choices: [['udp', 'UDP 5246 (kontrol) ve UDP 5247 (veri)'], ['tcp', 'TCP 541'], ['8013', 'TCP 8013']], correct: 'udp', why: 'FortiOS port tablolarında FortiAP için CAPWAP UDP 5246–5247. TCP 541 FortiManager (FGFM), TCP 8013 Security Fabric içindir.' },
             ],
         },
     ];
