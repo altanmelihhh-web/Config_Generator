@@ -1589,3 +1589,7 @@
 #config-generator-root .cg-famlock-x { color: var(--primary); font-weight: 600; text-decoration: none; min-height: 32px; display: inline-flex; align-items: center; gap: 6px; }
 #config-generator-root .cg-famlock-x:hover { text-decoration: underline; }
 .cg-toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 2000; max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: .9rem; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+
+/* Lab kartı sürüm rozeti (FortiOS 7.6 klonları: lab.fos) — yalnız tasarım tokenları */
+:root #config-generator-root .cg-lab-badge.cg-lab-ver { margin-left: 0; background: var(--surface-2); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); letter-spacing: .02em; }
+:root #config-generator-root .cg-term-dev .cg-lab-badge.cg-lab-ver { margin-left: 8px; }

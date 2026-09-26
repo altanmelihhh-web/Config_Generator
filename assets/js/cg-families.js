@@ -4,7 +4,7 @@
 // "referans" kaydı ailesizdir (vendor bağımsız).
 const CG_FAMILIES = [
     { slug: 'cisco',      name: 'Cisco',       reg: ['cisco-ios', 'cisco-nxos', 'cisco-asa', 'cisco-ftd'], lab: ['cisco-ios'],  cli: ['cisco-ios', 'cisco-asa'] },
-    { slug: 'fortinet',   name: 'Fortinet',    reg: ['fortigate'],                                     lab: ['fortigate'],  cli: ['fortigate'] },
+    { slug: 'fortinet',   name: 'Fortinet',    reg: ['fortigate'],                                     lab: ['fortigate', 'fortigate-76'], cli: ['fortigate'] },
     { slug: 'paloalto',   name: 'Palo Alto',   reg: ['paloalto'],                                      lab: ['paloalto'],   cli: ['paloalto'] },
     { slug: 'checkpoint', name: 'Check Point', reg: ['checkpoint'],                                    lab: ['checkpoint'], cli: ['checkpoint'] },
     { slug: 'f5',         name: 'F5 BIG-IP',   reg: ['f5-ltm'],                                        lab: ['f5-ltm'],     cli: ['f5-ltm'], arena: true },

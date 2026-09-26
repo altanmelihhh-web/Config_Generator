@@ -48,7 +48,9 @@ const CgLabFgt = (() => {
             'strong-crypto': { t: 'enum', v: ED, def: 'enable', d: 'Yalnız güçlü şifreleme (HTTPS/SSH yönetimi)' },
             'admin-lockout-threshold': { t: 'int', min: 1, max: 10, def: 3, d: 'Kilitlenmeden önceki hatalı giriş sayısı' },
             'admin-lockout-duration': { t: 'int', min: 1, max: 2147483647, def: 60, d: 'Kilit süresi (sn)' },
-            'pre-login-banner': { t: 'enum', v: ED, def: 'disable', d: 'Giriş öncesi uyarı afişi' } } },
+            'pre-login-banner': { t: 'enum', v: ED, def: 'disable', d: 'Giriş öncesi uyarı afişi' },
+            // M12 — CLI Ref 7.4.8 config system global (339914554): vdom-mode [no-vdom | multi-vdom]
+            'vdom-mode': { t: 'enum', v: ['no-vdom', 'multi-vdom'], def: 'no-vdom', quietDef: true, d: 'VDOM kipi (multi-vdom: config global / config vdom bağlamları)' } } },
         'system ha': { single: true, attrs: {
             'group-name': { t: 'str', max: 32, d: 'Küme adı (iki üyede aynı)' },
             mode: { t: 'enum', v: ['standalone', 'a-p', 'a-a'], def: 'standalone', d: 'HA modu' },
@@ -288,6 +290,19 @@ const CgLabFgt = (() => {
             nat: { t: 'enum', v: ED, def: 'enable', d: 'Kaynak NAT' },
             'nat-ippool': { t: 'refs', ds: 'ippool', when: o => (o.nat || 'enable') === 'enable', d: 'IP havuzu (boşsa çıkış arayüzü IP\'si)' },
             comments: { t: 'str', max: 1023, d: 'Açıklama' } } },
+        // Parti 3 (M13/M14). Kaynak: CLI Ref 7.4.8 config system central-management (327901742), config log fortianalyzer setting (269170403)
+        'system central-management': { single: true, attrs: {
+            type: { t: 'enum', v: ['fortimanager', 'fortiguard', 'none'], def: 'none', d: 'Merkezi yönetim tipi' },
+            mode: { t: 'enum', v: ['normal', 'backup'], def: 'normal', d: 'Mod' },
+            fmg: { t: 'str', max: 127, when: o => o.type === 'fortimanager', d: 'FortiManager IP adresi ya da FQDN' },
+            'allow-monitor': { t: 'enum', v: ED, def: 'enable', d: 'Uzaktan izlemeye izin ver' },
+            'allow-push-configuration': { t: 'enum', v: ED, def: 'enable', d: 'Yapılandırma göndermeye izin ver' } } },
+        'log fortianalyzer setting': { single: true, attrs: {
+            status: { t: 'enum', v: ED, def: 'disable', d: 'FortiAnalyzer\'a log gönder' },
+            server: { t: 'str', max: 127, when: o => o.status === 'enable', d: 'FortiAnalyzer IP adresi ya da FQDN' },
+            'upload-option': { t: 'enum', v: ['store-and-upload', 'realtime', '1-minute', '5-minute'], def: '5-minute', when: o => o.status === 'enable', d: 'Gönderim sıklığı' },
+            reliable: { t: 'enum', v: ED, def: 'disable', when: o => o.status === 'enable', d: 'Güvenilir (TCP) log iletimi' },
+            'certificate-verification': { t: 'enum', v: ED, def: 'enable', when: o => o.status === 'enable', d: 'FortiAnalyzer sertifikasını doğrula' } } },
         'firewall schedule recurring': { key: 'name', attrs: {
             day: { t: 'menum', v: DAYS, def: ['none'], d: 'Günler' },
             start: { t: 'hhmm', def: '00:00', d: 'Başlangıç (ss:dd)' },
@@ -295,10 +310,13 @@ const CgLabFgt = (() => {
     };
     const ALLP = Object.keys(SCHEMA), PATHS = ALLP.filter(p => !SCHEMA[p].parent);
     // Parti 2'de eklenen tablolar: boşken tam "show" çıktısında ve HA sağlamasında yer almaz (mevcut lab çıktıları aynen kalır)
-    const NEWP = new Set(['webfilter urlfilter', 'webfilter profile', 'dnsfilter domain-filter', 'dnsfilter profile', 'ips sensor', 'application list', 'firewall ssl-ssh-profile', 'system settings', 'log setting', 'firewall central-snat-map', 'firewall schedule recurring']);
+    // M12: çoklu VDOM kipinde "config global" altında kalan tablolar; geri kalanlar VDOM başınadır
+    const GLOBALP = new Set(['system global', 'system ha', 'system admin', 'system dns', 'system ntp', 'system interface', 'system central-management', 'log fortianalyzer setting', 'log syslogd setting']);
+    const rootOf = p => { while (SCHEMA[p].parent) p = SCHEMA[p].parent; return p; };
+    const NEWP = new Set(['webfilter urlfilter', 'webfilter profile', 'dnsfilter domain-filter', 'dnsfilter profile', 'ips sensor', 'application list', 'firewall ssl-ssh-profile', 'system settings', 'log setting', 'firewall central-snat-map', 'firewall schedule recurring', 'system central-management', 'log fortianalyzer setting']);
     const childPath = (p, sub) => ALLP.find(q => SCHEMA[q].parent === p && SCHEMA[q].sub === sub);
     const SERVICES = ['ALL', 'ALL_TCP', 'ALL_UDP', 'ALL_ICMP', 'PING', 'HTTP', 'HTTPS', 'SSH', 'DNS', 'NTP', 'SMTP', 'RDP', 'TELNET', 'SNMP', 'FTP'];
-    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all', 'router info routing-table database', 'router info routing-table details', 'vpn ipsec tunnel summary', 'system arp', 'system ha status', 'vpn ssl monitor'];
+    const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all', 'router info routing-table database', 'router info routing-table details', 'vpn ipsec tunnel summary', 'system arp', 'system ha status', 'vpn ssl monitor', 'wireless-controller wtp-status'];
 
     function session(lab, opts) {
         const S = { lab, ctx: null, ev: [], hist: [], pending: null, loggedOut: false, answers: {} };
@@ -329,16 +347,16 @@ const CgLabFgt = (() => {
 
         // ── datasource
         const DS = {
-            intf: () => M().t['system interface'].o.concat(M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
+            intf: () => vdIfs().concat(M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
             // Politika arayüzü: zone'a üye arayüzler doğrudan seçilemez, zone seçilir
-            intfAny: () => ['any'].concat(M().t['system interface'].o.filter(n => !zoneOf(n)), M().t['system zone'].o, M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
-            zoneMember: () => M().t['system interface'].o.filter(n => !zoneOf(n) || (S.ctx && S.ctx.path === 'system zone' && zoneOf(n) === S.ctx.key)),
+            intfAny: () => ['any'].concat(vdIfs().filter(n => !zoneOf(n)), M().t['system zone'].o, M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
+            zoneMember: () => vdIfs().filter(n => !zoneOf(n) || (S.ctx && S.ctx.path === 'system zone' && zoneOf(n) === S.ctx.key)),
             sslProf: () => ['certificate-inspection', 'deep-inspection', 'no-inspection', 'custom-deep-inspection'].concat(M().t['firewall ssl-ssh-profile'].o),
             avProf: () => ['default', 'wifi-default'], wfProf: () => ['default', 'monitor-all', 'wifi-default'].concat(M().t['webfilter profile'].o),
             appList: () => ['default', 'block-high-risk', 'wifi-default'].concat(M().t['application list'].o), ipsSens: () => ['default', 'all_default', 'all_default_pass', 'high_security', 'protect_client', 'protect_http_server', 'wifi-default'].concat(M().t['ips sensor'].o),
             dnsProf: () => ['default'].concat(M().t['dnsfilter profile'].o),
             urlTbl: () => M().t['webfilter urlfilter'].o, dnsTbl: () => M().t['dnsfilter domain-filter'].o,
-            physIntf: () => M().t['system interface'].o,
+            physIntf: () => vdIfs(),
             p1: () => M().t['vpn ipsec phase1-interface'].o,
             users: () => M().t['user local'].o.concat(M().t['user radius'].o, M().t['user ldap'].o), ugroups: () => M().t['user group'].o, portal: () => M().t['vpn ssl web portal'].o,
             addr: () => M().t['firewall address'].o.concat(M().t['firewall addrgrp'].o),
@@ -358,6 +376,32 @@ const CgLabFgt = (() => {
             return M().t[c.path];
         }
         const zoneOf = n => M().t['system zone'].o.find(z => (M().t['system zone'].v[z].interface || []).includes(n));
+        // ── M12: VDOM. S.vd = null (no-vdom) | { where: 'top'|'global'|'vdomlist'|'vdom', name }
+        // VDOM tabloları M().vdt[<ad>]'da tutulur; etkin VDOM'unkiler M().t'ye takılır (işaretçi takası).
+        S.vd = M().vdt ? { where: 'top' } : null;
+        const vdIfs = () => { const all = M().t['system interface'].o; if (!M().vdt || (S.vd && S.vd.where === 'global')) return all; const cur = M().curVd || 'root'; return all.filter(n => (M().t['system interface'].v[n].vdom || 'root') === cur); };
+        function freshVdom() {
+            const t = {};
+            for (const p of ALLP) { if (GLOBALP.has(rootOf(p))) continue; t[p] = SCHEMA[p].single ? {} : { o: [], v: {} }; }
+            const add = (p, k, o) => { t[p].o.push(k); t[p].v[k] = o; };
+            ['full-access', 'tunnel-access', 'web-access'].forEach(n => add('vpn ssl web portal', n, n === 'web-access' ? { 'web-mode': 'enable' } : n === 'tunnel-access' ? { 'tunnel-mode': 'enable' } : { 'tunnel-mode': 'enable', 'web-mode': 'enable' }));
+            add('firewall address', 'all', { _builtin: true }); add('firewall address', 'none', { subnet: '0.0.0.0 255.255.255.255', _builtin: true });
+            return t;
+        }
+        function swapVd(name) {
+            const m = M(); if (!m.vdt) return;
+            const cur = m.curVd || 'root';
+            if (!m.vdt[name]) m.vdt[name] = freshVdom();
+            for (const p of Object.keys(m.vdt[name])) { m.vdt[cur][p] = m.t[p]; }
+            for (const p of Object.keys(m.vdt[name])) m.t[p] = m.vdt[name][p];
+            m.curVd = name;
+        }
+        function vdomEnable() {
+            const m = M(); if (m.vdt) return;
+            m.vdt = { root: {} }; m.curVd = 'root';
+            for (const p of ALLP) if (!GLOBALP.has(rootOf(p))) m.vdt.root[p] = m.t[p];
+            S.vd = { where: 'top' };
+        }
         const centralNat = () => (M().t['system settings']['central-nat'] || 'disable') === 'enable';
         // M10 — doğrulanan hata metni (Fortinet KB "Enable subnet overlap…"; Return code -54 aynı kaynakta)
         function overlapWith(me, ipmask) {
@@ -437,6 +481,7 @@ const CgLabFgt = (() => {
             for (const [k, a] of Object.entries(sc.attrs)) {
                 if (a.when && !a.when(o)) continue;
                 if (!attrOk(a)) continue;
+                if (a.quietDef && o[k] === undefined) continue;   // yalnız açıkça ayarlanınca gösterilir (mevcut lab çıktıları aynen)
                 let v = o[k];
                 if (v === undefined || v === null) { if (!full || a.def === undefined) { if (full && (a.t === 'str') && !a.when) L.push(ind + 'set ' + k + ' ' + qt('')); continue; } v = a.def; }
                 if (!full && a.def !== undefined && String(v) === String(a.def) && k !== 'vdom' && (k !== 'type' || p === 'firewall ssl-ssh-profile ssl-exempt')) continue;
@@ -515,9 +560,12 @@ const CgLabFgt = (() => {
             const route = rib(true).filter(x => x.len === 0 || sameNet(x.net, p1['remote-gw'] || '0.0.0.0', x.len)).sort((a, b) => b.len - a.len)[0];
             if (!phys || !ifUp(phys) || !route || route.dev !== phys) return Object.assign(T, { reason: 'nopath' });
             if (!PEER.gw || PEER.gw !== p1['remote-gw']) return Object.assign(T, { reason: 'nopeer' });
-            if (p1['ike-version'] && p1['ike-version'] !== PEER.ike) return Object.assign(T, { reason: 'ikever' });
+            // F76-L10: 7.6 oturumunda boş alanlar FortiOS varsayılanıyla karşılaştırılır (CLI Ref 7.6.6 phase1-interface:
+            // ike-version 1; dhgrp 7.6.5 RN "Changes in default behavior": 20 21). 7.4'te eski (hoşgörülü) davranış korunur.
+            const ikeV = p1['ike-version'] || (IS76 ? '1' : null), dhV = p1.dhgrp || (IS76 ? ['20', '21'] : null);
+            if (ikeV && ikeV !== PEER.ike) return Object.assign(T, { reason: 'ikever' });
             if (p1.proposal && !p1.proposal.includes(PEER.proposal)) return Object.assign(T, { reason: 'proposal' });
-            if (p1.dhgrp && !p1.dhgrp.includes(PEER.dh)) return Object.assign(T, { reason: 'proposal' });
+            if (dhV && !dhV.includes(PEER.dh)) return Object.assign(T, { reason: 'proposal' });
             if (p1.psksecret !== PEER.psk) return Object.assign(T, { reason: 'psk' });
             T.p1up = true;
             const p2n = M().t['vpn ipsec phase2-interface'].o.find(k => M().t['vpn ipsec phase2-interface'].v[k].phase1name === name);
@@ -609,8 +657,8 @@ const CgLabFgt = (() => {
         function sysStatus() {
             const g = M().t['system global'];
             return ['Version: FortiGate-VM64 v' + FOS + ' (eğitim simülatörü — gerçek cihaz değildir)', 'Serial-Number: FGVMSIM000000001', 'Hostname: ' + host(),
-                'Operation Mode: NAT', 'Current virtual domain: root', 'Max number of virtual domains: 1', 'Virtual domains status: 1 in NAT mode, 0 in TP mode',
-                'Virtual domain configuration: disable', 'Current HA mode: ' + (haElect().formed ? 'a-p, ' + (haElect().meP ? 'primary' : 'secondary') : 'standalone'), 'System time: ' + new Date().toString().slice(0, 24) + (g.timezone ? ' (' + g.timezone + ')' : '')].join('\n');
+                'Operation Mode: NAT', 'Current virtual domain: ' + (M().vdt && S.vd && S.vd.where === 'vdom' ? S.vd.name : 'root'), 'Max number of virtual domains: ' + (M().vdt ? 10 : 1), 'Virtual domains status: ' + (M().vdt ? Object.keys(M().vdt).length : 1) + ' in NAT mode, 0 in TP mode',
+                'Virtual domain configuration: ' + (M().vdt ? 'multiple' : 'disable'), 'Current HA mode: ' + (haElect().formed ? 'a-p, ' + (haElect().meP ? 'primary' : 'secondary') : 'standalone'), 'System time: ' + new Date().toString().slice(0, 24) + (g.timezone ? ' (' + g.timezone + ')' : '')].join('\n');
         }
         // ── HA kümesi (karşı üye lab.ha / varyant.ha ile sabit)
         const HAP = Object.assign({ sn: 'FGVMSIM000000002', host: 'FGT-A-2', group: 'HA-LAB', password: 'Lab-Ha-2026', prio: 128, override: 'disable', mode: 'a-p', uptime: 300, sync: true }, lab.ha || {}, (S.variant && S.variant.ha) || {});
@@ -653,6 +701,14 @@ const CgLabFgt = (() => {
             if ((h.mode || 'standalone') === 'standalone') return 'HA Health Status: OK\nModel: FortiGate-VM64\nMode: standalone';
             const L = ['HA Health Status: ' + (E.formed && haInSync() ? 'OK' : 'WARNING'), 'Model: FortiGate-VM64', 'Mode: HA A-P', 'Group Name: ' + (h['group-name'] || ''), 'Group ID: 0', 'Debug: 0',
                 'Cluster Uptime: 12 days 3:5:22', 'Cluster state change time: 2026-09-24 03:12:46'];
+            if (!E.formed && E.why === 'hb' && HAP.splitBrain) {
+                L[0] = 'HA Health Status: WARNING';
+                L.push('# [Simülatör] Heartbeat yok: iki üye birbirini göremiyor ve İKİSİ DE kendini primary sayıyor (split-brain).',
+                    'Primary     : ' + host() + ', ' + MY_SN + ', HA cluster index = 0',
+                    '# [Simülatör] Karşı üye ' + HAP.host + ' (' + HAP.sn + ') konsolundan bakıldığında o da "Primary" görünür; aynı IP/MAC iki cihazda etkin.');
+                log({ splitbrain: true });
+                return L.join('\n');
+            }
             if (!E.formed) { L.push('# [Simülatör] Küme kurulamadı: ' + ({ mode: 'mod (a-p) iki üyede aynı olmalı', group: 'group-name uyuşmuyor', password: 'küme parolası uyuşmuyor', hb: 'heartbeat arayüzü kapalı/bağlı değil' })[E.why], 'Primary     : ' + host() + ', ' + MY_SN + ', HA cluster index = 0'); return L.join('\n'); }
             const pSn = E.meP ? MY_SN : HAP.sn, sSn = E.meP ? HAP.sn : MY_SN;
             const why = { uptime: 'it has the largest value of uptime', priority: 'it has the largest value of override priority', monitor: 'it has the least value of failed monitor', serial: 'it has the largest value of serialno', forced: 'the other member was set to failover by user (execute ha failover set)' }[E.reason];
@@ -1252,6 +1308,8 @@ const CgLabFgt = (() => {
         DIAG.sys.ntp = { status: 'ntpst' };
         DIAG.log = { test: 'logtest' };
         DIAG.firewall = { iprope: { lookup: 'iplookup' } };
+        DIAG.fdsm = { 'central-mgmt-status': 'cmstat' };
+        DIAG.debug.application.fgfmd = 'appfgfm';
         S.dbg.apps = {}; S.ikeFilter = null;
         // ── IPsec çıktıları
         const p1s = () => M().t['vpn ipsec phase1-interface'].o;
@@ -1263,7 +1321,7 @@ const CgLabFgt = (() => {
             const list = name ? [name] : p1s();
             return list.map(n => {
                 const T = tun(n), p1 = T.p1; if (!p1) return '';
-                const L = ['vd: root/0', 'name: ' + n, 'version: ' + (p1['ike-version'] || PEER.ike || '1'), 'interface: ' + p1.interface + ' 3', 'addr: ' + ifIp(p1.interface) + ':500 -> ' + p1['remote-gw'] + ':500',
+                const L = ['vd: root/0', 'name: ' + n, 'version: ' + (p1['ike-version'] || (IS76 ? '1' : PEER.ike) || '1'), 'interface: ' + p1.interface + ' 3', 'addr: ' + ifIp(p1.interface) + ':500 -> ' + p1['remote-gw'] + ':500',
                     'tun_id: ' + p1['remote-gw'] + '/::' + p1['remote-gw'], 'created: 312s ago', 'peer-id: ' + p1['remote-gw'], 'peer-id-auth: no', 'PPK: no',
                     'IKE SA: created 1/' + (T.p1up ? 1 : 5) + '  established ' + (T.p1up ? '1/1  time 20/20/20 ms' : '0/0  time 0/0/0 ms'),
                     'IPsec SA: created ' + (T.p2up ? '1/1  established 1/1  time 10/10/10 ms' : (T.p1up ? '1/3  established 0/0  time 0/0/0 ms' : '0/0  established 0/0  time 0/0/0 ms'))];
@@ -1279,7 +1337,7 @@ const CgLabFgt = (() => {
                 const T = tun(n), p1 = T.p1; if (!p1) return;
                 const p2 = T.p2 && M().t['vpn ipsec phase2-interface'].v[T.p2];
                 const rng = v => { const [a, m] = norm(v).split(' '), l = maskLen(m), base = netOf(a, l); return n2ip(base) + '-' + n2ip(base + 2 ** (32 - l) - 1); };
-                L.push('------------------------------------------------------', 'name=' + n + ' ver=' + (p1['ike-version'] || PEER.ike || '1') + ' serial=' + (i + 1) + ' ' + ifIp(p1.interface) + ':0->' + p1['remote-gw'] + ':0 tun_id=' + p1['remote-gw'] + ' dst_mtu=1500 dpd-link=on weight=1',
+                L.push('------------------------------------------------------', 'name=' + n + ' ver=' + (p1['ike-version'] || (IS76 ? '1' : PEER.ike) || '1') + ' serial=' + (i + 1) + ' ' + ifIp(p1.interface) + ':0->' + p1['remote-gw'] + ':0 tun_id=' + p1['remote-gw'] + ' dst_mtu=1500 dpd-link=on weight=1',
                     'bound_if=3 lgwy=static/1 tun=intf mode=auto/1 encap=none/552 options[0228]=npu frag-rfc  run_state=0 role=primary accept_traffic=1 overlay_id=0', '',
                     'proxyid_num=' + (p2 ? 1 : 0) + ' child_num=0 refcnt=4 ilast=2 olast=2 ad=/0', 'stat: rxp=' + (T.p2up ? 120 : 0) + ' txp=' + (T.p2up ? 118 : 0) + ' rxb=' + (T.p2up ? 15360 : 0) + ' txb=' + (T.p2up ? 9912 : 0),
                     'dpd: mode=' + (p1.dpd || 'on-demand') + ' on=' + (T.p1up ? 1 : 0) + ' idle=20000ms retry=3 count=0 seqno=0', 'natt: mode=none draft=0 interval=0 remote_port=0');
@@ -1294,11 +1352,11 @@ const CgLabFgt = (() => {
         // IKE debug: her faz 1 için bir müzakere denemesinin özeti (neden satırları gerçek anahtar ifadelerle)
         function ikeDebug() {
             return p1s().filter(n => !S.ikeFilter || M().t['vpn ipsec phase1-interface'].v[n]['remote-gw'] === S.ikeFilter).map(n => {
-                const T = tun(n), p1 = T.p1, me = ifIp(p1.interface), gw = p1['remote-gw'], v2 = (p1['ike-version'] || PEER.ike) === '2';
+                const T = tun(n), p1 = T.p1, me = ifIp(p1.interface), gw = p1['remote-gw'], v2 = (p1['ike-version'] || (IS76 ? '1' : PEER.ike)) === '2';
                 const pre = 'ike 0:' + n + ':12: ', L = ['ike 0:' + n + ': ' + (v2 ? 'IKEv2' : 'IKEv1') + ' negotiation started (' + me + '->' + gw + ':500)'];
                 const r = T.reason;
                 if (r === 'nopath' || r === 'nopeer' || r === 'ikever') { L.push(pre + 'out ' + (v2 ? 'SA_INIT' : 'main mode') + ' request', pre + 'no response from peer, retransmit (1/3)', pre + 'no response from peer, retransmit (2/3)', 'ike 0:' + n + ': negotiation timeout, deleting'); return L.join('\n'); }
-                L.push(pre + 'out ' + (v2 ? 'SA_INIT' : 'main mode') + ' request, proposals: ' + (p1.proposal || ['(varsayılan)']).join(' ') + ' dh ' + (p1.dhgrp || ['(varsayılan)']).join(' '));
+                L.push(pre + 'out ' + (v2 ? 'SA_INIT' : 'main mode') + ' request, proposals: ' + (p1.proposal || ['(varsayılan)']).join(' ') + ' dh ' + (p1.dhgrp || (IS76 ? ['20', '21'] : ['(varsayılan)'])).join(' '));
                 if (r === 'proposal') { L.push(pre + 'peer proposal: ' + PEER.proposal + ' dh ' + PEER.dh, pre + 'no SA proposal chosen', 'ike 0:' + n + ': negotiation failure'); return L.join('\n'); }
                 L.push(pre + 'SA proposal chosen, matched proposal ' + PEER.proposal + ' dh ' + PEER.dh);
                 if (r === 'psk') { L.push(pre + 'auth verify failed', pre + 'probable pre-shared secret mismatch', 'ike 0:' + n + ': negotiation failure'); return L.join('\n'); }
@@ -1339,7 +1397,8 @@ const CgLabFgt = (() => {
         function logTest() {
             const sl = M().t['log syslogd setting'], dests = ['disk/bellek'].concat(sl.status === 'enable' && sl.server ? ['syslog ' + sl.server + ':' + (sl.port || 514) + '/' + (sl.mode || 'udp')] : []);
             log({ logtest: sl.status === 'enable' && sl.server ? sl.server : null });
-            return '# [Simülatör] Örnek olay, trafik ve güvenlik logları üretildi → ' + dests.join(', ') + (sl.status === 'enable' && sl.server && !reach(isIp(sl.server) ? sl.server : '0.0.0.0').ok ? '\n# [Simülatör] Uyarı: syslog sunucusuna yol yok; iletiler cihazdan çıkamaz.' : '');
+            const fz = M().t['log fortianalyzer setting'];
+            return '# [Simülatör] Örnek olay, trafik ve güvenlik logları üretildi → ' + dests.concat(fz.status === 'enable' && fz.server ? ['FortiAnalyzer ' + fz.server] : []).join(', ') + (sl.status === 'enable' && sl.server && !reach(isIp(sl.server) ? sl.server : '0.0.0.0').ok ? '\n# [Simülatör] Uyarı: syslog sunucusuna yol yok; iletiler cihazdan çıkamaz.' : '');
         }
         // ── DHCP kiraları (lab.sim.dhcp: [{ mac, intf, host }])
         function dhcpLeases() {
@@ -1458,7 +1517,7 @@ const CgLabFgt = (() => {
             log({ raw: line, canon: 'execute restore config ' + w[1] });
             S.pending = { prompt: 'This operation will overwrite the current setting and could possibly reboot the system!\nDo you want to continue? (y/n)', fn: x => {
                 if (!/^y/i.test(x)) return '';
-                S.m = JSON.parse(JSON.stringify(src)); S.ctx = null; log({ restored: w[1] });
+                S.m = JSON.parse(JSON.stringify(src)); S.ctx = null; S.vd = S.m.vdt ? { where: 'top' } : null; log({ restored: w[1] });
                 return 'Please wait...\n\nGet config file OK.\nFile check OK.\n# [Simülatör] Cihaz yeniden başladı; geri yüklenen yapılandırma etkin.';
             } };
             return '';
@@ -1466,6 +1525,65 @@ const CgLabFgt = (() => {
         function revList() {
             log({ revlist: S.revs.length });
             return ['ID  TIME                ADMIN   FIRMWARE VERSION                      COMMENT'].concat(S.revs.map(r => pad(r.id, 4) + pad(r.time, 20) + pad('admin', 8) + pad('v' + FOS + ' (eğitim simülatörü)', 38) + r.comment)).join('\n');
+        }
+        // ── M13: FortiManager bağlantısı (lab.sim.fmg: { ip, sn, authorized }) — çıktı biçimi doğrulanmadı → [Simülatör]
+        function fmgState() {
+            const cm = M().t['system central-management'], F = SIM.fmg || {};
+            if ((cm.type || 'none') !== 'fortimanager' || !cm.fmg) return { up: false, why: 'notype' };
+            if (!F.ip || cm.fmg !== F.ip) return { up: false, why: 'wrongip' };
+            const R = reach(F.ip);
+            if (!R.ok) return { up: false, why: 'noroute' };
+            if (F.authorized === false) return { up: false, why: 'unauth', src: R.src };
+            return { up: true, src: R.src };
+        }
+        function cmStatus() {
+            const cm = M().t['system central-management'], st = fmgState(), F = SIM.fmg || {};
+            log({ fmgst: st.up ? 'up' : st.why });
+            return ['Central Management: ' + ((cm.type || 'none') === 'fortimanager' ? 'FortiManager' : (cm.type || 'none')),
+                'FortiManager: ' + (cm.fmg || '(tanımsız)') + (F.sn ? ' (' + F.sn + ')' : ''),
+                'Connection status: ' + (st.up ? 'up' : 'down'),
+                '# [Simülatör] Çıktı sadeleştirildi. ' + ({ up: 'FGFM (TCP 541) oturumu kurulu.', notype: 'config system central-management → set type fortimanager ve set fmg <ip> gerekli.', wrongip: 'Tanımlı fmg adresinde FortiManager yok.', noroute: 'FortiManager adresine rota/erişim yok.', unauth: 'FortiManager cihazı henüz yetkilendirmedi (Device Manager → Authorize).' })[st.up ? 'up' : st.why]].join('\n');
+        }
+        function fgfmdDebug() {
+            const st = fmgState(), cm = M().t['system central-management'], F = SIM.fmg || {};
+            log({ fgfmd: st.up ? 'up' : st.why });
+            const L = ['# [Simülatör] fgfmd debug çıktısı eğitim için sadeleştirilmiştir.'];
+            if (st.why === 'notype') { L.push('fgfm: central management disabled or FortiManager address not set'); return L.join('\n'); }
+            L.push('__FGFMsock_connect: connecting to ' + cm.fmg + ':541 ...');
+            if (st.why === 'wrongip' || st.why === 'noroute') { L.push('__FGFMsock_connect: connect to ' + cm.fmg + ':541 failed: Connection timed out'); return L.join('\n'); }
+            L.push('__FGFMsock_connect: connected, local ' + st.src + ' -> ' + cm.fmg + ':541', 'fgfm_tunnel: TLS handshake done');
+            L.push(st.why === 'unauth' ? 'fgfm: device is not authorized on FortiManager ' + (F.sn || '') + ', waiting' : 'fgfm: tunnel up, keepalive every 120 seconds');
+            return L.join('\n');
+        }
+        // ── M14: FortiAnalyzer (lab.sim.faz: { ip, host, registered }) — çıktı biçimi doğrulanmadı → [Simülatör]
+        function fazTest() {
+            const fs0 = M().t['log fortianalyzer setting'], F = SIM.faz || {};
+            let why = null;
+            if ((fs0.status || 'disable') !== 'enable' || !fs0.server) why = 'disabled';
+            else if (!F.ip || fs0.server !== F.ip) why = 'wrongip';
+            else if (!reach(F.ip).ok) why = 'noroute';
+            else if (F.registered === false) why = 'unreg';
+            log({ faztest: why || 'ok' });
+            if (why === 'disabled') return '# [Simülatör] FortiAnalyzer loglaması kapalı ya da sunucu tanımsız (config log fortianalyzer setting → set status enable, set server <ip>).';
+            if (why === 'wrongip' || why === 'noroute') return 'FortiAnalyzer Host Name: \nFortiGate Device ID: FGVMSIM000000001\nRegistration: unknown\nConnection: Down\n# [Simülatör] ' + fs0.server + ':514 (OFTP) adresine bağlanılamadı.';
+            return ['FortiAnalyzer Host Name: ' + (F.host || 'FAZ-VM'), 'FortiAnalyzer Adom Name: root', 'FortiGate Device ID: FGVMSIM000000001', 'Registration: ' + (why === 'unreg' ? 'unregistered' : 'registered'),
+                'Connection: ' + (why === 'unreg' ? 'deny' : 'allow'), '# [Simülatör] Çıktı sadeleştirildi' + (why === 'unreg' ? '; cihaz FortiAnalyzer\'da yetkilendirilmemiş (Device Manager → Authorize).' : '.')].join('\n');
+        }
+        // ── M15: FortiAP / FortiSwitch durum çıktıları (lab.sim.fap / lab.sim.fsw: [{ name, sn, ip, intf, off }]) — [Simülatör]
+        // CAPWAP/FortiLink denetim trafiği arayüzde allowaccess "fabric" ister (7.4/7.6 listesinde ayrı "capwap" değeri yok).
+        const fabricOn = n => ifUp(n) && ((M().t['system interface'].v[n] || {}).allowaccess || []).includes('fabric');
+        function wtpStatus() {
+            const L = ['WTP: ' + (SIM.fap || []).length + ' kayıt', '# [Simülatör] Sütunlar sadeleştirildi.'];
+            (SIM.fap || []).forEach((a, i) => { const on = !a.off && fabricOn(a.intf); L.push('  WTP ' + (i + 1) + ' : name=' + a.name + ' sn=' + a.sn + ' ip=' + (a.ip || '0.0.0.0') + ' intf=' + a.intf + ' state=' + (on ? 'CONNECTED (RUN)' : 'DISCOVERY') + (on ? '' : a.off ? ' (cihaz kapalı/kablo yok)' : ' (arayüzde allowaccess fabric yok)')); });
+            log({ wtp: (SIM.fap || []).map(a => !a.off && fabricOn(a.intf)) });
+            return L.join('\n');
+        }
+        function fswStatus(sn) {
+            const list = (SIM.fsw || []).filter(w => !sn || w.sn === sn || w.name === sn);
+            if (sn && !list.length) return '# [Simülatör] "' + sn + '" seri numaralı FortiSwitch bu FortiGate\'e kayıtlı değil.';
+            log({ fsw: list.map(w => !w.off && fabricOn(w.intf)) });
+            return ['Managed-devices in current vdom root:', '', 'FortiLink interface : ' + (list[0] ? list[0].intf : '-'), 'SWITCH-ID           VERSION           STATUS         FLAG   ADDRESS     JOIN-TIME']
+                .concat(list.map(w => pad(w.sn, 20) + pad('v7.4', 18) + pad(!w.off && fabricOn(w.intf) ? 'Authorized/Up' : 'Authorized/Down', 15) + pad('0', 7) + pad(w.ip || '169.254.1.2', 12) + (!w.off && fabricOn(w.intf) ? 'Fri Sep 26 10:12:44 2026' : 'N/A')), ['# [Simülatör] Çıktı sadeleştirildi.']).join('\n');
         }
         function diagCmd(t, line) {
             let node = DIAG, i = 1, words = ['diagnose'];
@@ -1507,12 +1625,19 @@ const CgLabFgt = (() => {
                     if (d.stage === 'noroute' || d.stage === 'noarrive') return '# [Simülatör] Hedefe rota yok ya da giriş arayüzü kapalı: kural araması yapılmadı.';
                     return '<src [' + v[0] + '-' + v[1] + '] dst [' + v[2] + '-' + v[3] + '] proto ' + v[4].toLowerCase() + ' dev ' + v[5] + '> matches policy id: ' + (d.policy === 'intrazone' ? '0 (intrazone)' : d.policy);
                 }
+                case 'cmstat': return ok(cmStatus());
+                case 'appfgfm': {
+                    const lv = a[0] ? a[0].t : null;
+                    if (lv === null || !/^-?\d+$/.test(lv)) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + (lv || '') + '\''; }
+                    S.dbg.apps.fgfmd = +lv !== 0; log({ raw: line, canon });
+                    return S.dbg.on && +lv !== 0 ? fgfmdDebug() : '';
+                }
                 case 'mem': return ok(memInfo());
                 case 'conserve': return ok(conserve());
                 case 'crash': return ok(crashlog());
                 case 'cfgerr': return ok(cfgErrLog());
                 case 'dreset': S.dbg = { on: false, filter: {}, fn: false, trace: 0, tid: S.dbg.tid, apps: {} }; return ok('');
-                case 'denable': { S.dbg.on = true; log({ raw: line, canon }); const o = [runTrace(), S.dbg.apps.ike ? ikeOut() : '', S.dbg.apps.sslvpn && typeof sslDebug === 'function' ? sslDebug() : ''].filter(Boolean); return o.join('\n'); }
+                case 'denable': { S.dbg.on = true; log({ raw: line, canon }); const o = [runTrace(), S.dbg.apps.ike ? ikeOut() : '', S.dbg.apps.sslvpn && typeof sslDebug === 'function' ? sslDebug() : '', S.dbg.apps.fgfmd ? fgfmdDebug() : ''].filter(Boolean); return o.join('\n'); }
                 case 'ddisable': S.dbg.on = false; return ok('');
                 case 'dts': return ok('');
                 case 'dinfo': return ok('debug output:           ' + (S.dbg.on ? 'enable' : 'disable') + '\nconsole timestamp:      disable\nconsole no user log message:    disable\n' + (S.dbg.trace > 0 ? 'debug flow trace: ' + S.dbg.trace + ' packet(s) remaining' : ''));
@@ -1567,6 +1692,7 @@ const CgLabFgt = (() => {
             if (S.pending) return S.pending.prompt;
             if (S.loggedOut) return '';
             if (S.ha && S.ha.onPeer) return HAP.host + ' # ';
+            if (!S.ctx && S.vd && S.vd.where !== 'top') return host() + ' (' + (S.vd.where === 'global' ? 'global' : S.vd.where === 'vdomlist' ? 'vdom' : S.vd.name) + ') # ';
             return host() + (S.ctx ? ' (' + ctxName() + ')' : '') + ' # ';
         }
         // Kısaltma: benzersiz önek
@@ -1616,9 +1742,58 @@ const CgLabFgt = (() => {
             S.hist.push(line);
             const t = tok(line);
             const c = S.ctx;
+            if (!c && S.vd) return vdomCmd(t, line);
             if (!c) return rootCmd(t, line);
             if (c.key !== undefined || c.single) return editCmd(t, line);
             return tableCmd(t, line);
+        }
+        // M12: çoklu VDOM kipinde bağlam denetimi. Yanlış bağlamdaki "config <yol>" → command parse error.
+        function vdomCmd(t, line) {
+            const V = S.vd, w0 = t[0].t;
+            if (V.where === 'vdomlist') {
+                const v = pick(w0, ['edit', 'delete', 'end', 'show', 'get']);
+                if (!v.ok) { log({ raw: line, err: 'invalid' }); return perr(t[0]); }
+                if (v.ok === 'end') { V.where = 'top'; log({ raw: line, canon: 'end', path: 'vdom' }); return ''; }
+                if (v.ok === 'show' || v.ok === 'get') { log({ raw: line, canon: v.ok + ' vdom' }); return Object.keys(M().vdt).map(n => '== [ ' + n + ' ]\nname: ' + n).join('\n'); }
+                const n = t[1] && t[1].t;
+                if (!n || t.length > 2 || n.length > 31 || !/^[A-Za-z0-9_-]+$/.test(n)) { log({ raw: line, err: 'invalid' }); return 'value parse error before \'' + (n || '') + '\''; }
+                if (v.ok === 'delete') {
+                    if (!M().vdt[n] || n === 'root') { log({ raw: line, err: 'invalid' }); return n === 'root' ? '# [Simülatör] root VDOM silinemez.' : 'entry not found in datasource'; }
+                    const used = M().t['system interface'].o.filter(i => (M().t['system interface'].v[i].vdom || 'root') === n);
+                    if (used.length) { log({ raw: line, err: 'inuse' }); return '# [Simülatör] "' + n + '" silinemez: arayüzler bu VDOM\'da → ' + used.join(', '); }
+                    if (M().curVd === n) swapVd('root');
+                    delete M().vdt[n]; log({ raw: line, canon: 'delete vdom ' + n }); return '';
+                }
+                const isNew = !M().vdt[n];
+                swapVd(n); V.where = 'vdom'; V.name = n;
+                log({ raw: line, canon: 'edit vdom ' + n, vdom: n });
+                return isNew ? 'new entry \'' + n + '\' added' : '';
+            }
+            if (V.where === 'top') {
+                if (pick(w0, ['config']).ok === 'config' && t[1]) {
+                    const k = pick(t[1].t, ['global', 'vdom']);
+                    if (k.ok && t.length === 2) {
+                        if (k.ok === 'global') { swapVd('root'); V.where = 'global'; } else V.where = 'vdomlist';
+                        log({ raw: line, canon: 'config ' + k.ok, vdctx: k.ok }); return '';
+                    }
+                    log({ raw: line, err: 'invalid', vdctx: 'wrong' }); return perr(t[1]);
+                }
+                return rootCmd(t, line);
+            }
+            // global ya da tek VDOM içi
+            const v = pick(w0, ['config', 'show', 'get', 'execute', 'diagnose', 'end', 'next', 'exit']);
+            if (v.ok === 'end' || (v.ok === 'next' && V.where === 'vdom')) {
+                const was = V.where; if (was === 'vdom' && v.ok === 'next') V.where = 'vdomlist'; else V.where = 'top';
+                swapVd('root'); log({ raw: line, canon: v.ok, path: was === 'global' ? 'global' : 'vdom' }); return '';
+            }
+            if (v.ok === 'config' && t[1]) {
+                const r = resolvePath(t, 1);
+                if (r.path) {
+                    const glob = GLOBALP.has(r.path);
+                    if ((V.where === 'global') !== glob) { log({ raw: line, err: 'invalid', vdctx: 'wrong' }); return perr(t[1]); }
+                }
+            }
+            return rootCmd(t, line);
         }
         function rootCmd(t, line) {
             const v = pick(t[0].t, ['config', 'show', 'get', 'execute', 'diagnose', 'exit']);
@@ -1664,6 +1839,7 @@ const CgLabFgt = (() => {
                         if (g === 'vpn ssl monitor') return sslMonitor();
                         if (g === 'system ha status') return haStatus();
                         if (g === 'router info routing-table database') return showRibDb();
+                        if (g === 'wireless-controller wtp-status') return wtpStatus();
                         if (g === 'router info routing-table details') return rib().map(r => showRibDetails(r.net)).join('\n');
                         return g === 'system status' ? sysStatus() : g === 'system performance status' ? perfStatus() : g === 'system session status' ? 'The total number of sessions for the current VDOM: ' + sessTotal() : g === 'system session list' ? sessTable() : showRib();
                     }
@@ -1680,11 +1856,17 @@ const CgLabFgt = (() => {
                 return perr(t[1] || null);
             }
             if (v.ok === 'execute') {
-                const ex = t[1] ? pick(t[1].t, ['ping', 'ping-options', 'traceroute', 'telnet', 'ha', 'backup', 'restore', 'revision', 'dhcp', 'log']) : { err: 'none' };
+                const ex = t[1] ? pick(t[1].t, ['ping', 'ping-options', 'traceroute', 'telnet', 'ha', 'backup', 'restore', 'revision', 'dhcp', 'log', 'switch-controller']) : { err: 'none' };
                 if (!ex.ok) { log({ raw: line, err: t[1] ? 'unsupported' : 'incomplete' }); return t[1] ? '# [Simülatör] Bu sürümde execute ping, ping-options, traceroute, telnet, ha, backup, restore, revision, dhcp ve log destekleniyor.' : perr(null); }
+                if (ex.ok === 'switch-controller') {
+                    if (!t[2] || !'get-conn-status'.startsWith(t[2].t) || t[2].t.length < 5 || t[4]) { log({ raw: line, err: 'invalid' }); return perr(t[2] || null); }
+                    log({ raw: line, canon: 'execute switch-controller get-conn-status' + (t[3] ? ' ' + t[3].t : '') });
+                    return fswStatus(t[3] && t[3].t);
+                }
                 if (ex.ok === 'log') {
-                    const l2 = t[2] ? pick(t[2].t, ['filter', 'display']) : { err: 1 };
-                    if (!l2.ok) { log({ raw: line, err: t[2] ? 'unsupported' : 'incomplete' }); return t[2] ? '# [Simülatör] execute log altında yalnız filter ve display destekleniyor.' : perr(null); }
+                    const l2 = t[2] ? pick(t[2].t, ['filter', 'display', 'fortianalyzer']) : { err: 1 };
+                    if (!l2.ok) { log({ raw: line, err: t[2] ? 'unsupported' : 'incomplete' }); return t[2] ? '# [Simülatör] execute log altında yalnız filter, display ve fortianalyzer test-connectivity destekleniyor.' : perr(null); }
+                    if (l2.ok === 'fortianalyzer') { if (!t[3] || !'test-connectivity'.startsWith(t[3].t) || t[3].t.length < 2 || t[4]) { log({ raw: line, err: 'invalid' }); return perr(t[3] || null); } log({ raw: line, canon: 'execute log fortianalyzer test-connectivity' }); return fazTest(); }
                     if (l2.ok === 'display') { if (t[3]) { log({ raw: line, err: 'invalid' }); return perr(t[3]); } return logDisplay(); }
                     return logFilterCmd(t, line);
                 }
@@ -1825,7 +2007,18 @@ const CgLabFgt = (() => {
         }
         function commit() {
             const c = S.ctx, sc = SCHEMA[c.path];
-            if (c.single) { if (sc.parent) { c.parent.draft['_sub_' + sc.sub] = c.draft; return null; } M().t[c.path] = c.draft; return null; }
+            if (c.single) {
+                if (sc.parent) { c.parent.draft['_sub_' + sc.sub] = c.draft; return null; }
+                if (c.path === 'system global') {
+                    const want = c.draft['vdom-mode'] || 'no-vdom';
+                    if (want === 'no-vdom' && M().vdt && Object.keys(M().vdt).some(v => v !== 'root')) return '# [Simülatör] no-vdom kipine dönmeden önce root dışındaki VDOM\'ları silin (config vdom → delete <ad>).';
+                    M().t[c.path] = c.draft;
+                    if (want === 'multi-vdom' && !M().vdt) { vdomEnable(); S.note = '# [Simülatör] Çoklu VDOM kipi etkin. Gerçek cihaz onay (y/n) sorar ve oturumu kapatır; yeniden girişte ayarlar "config global" ya da "config vdom" → "edit <ad>" altında yapılır.'; }
+                    if (want === 'no-vdom' && M().vdt) { swapVd('root'); delete M().vdt; delete M().curVd; S.vd = null; S.note = '# [Simülatör] VDOM kipi kapatıldı (no-vdom).'; }
+                    return null;
+                }
+                M().t[c.path] = c.draft; return null;
+            }
             const miss = (sc.req || []).filter(k => { const v = c.draft[k]; return v === undefined || (Array.isArray(v) && !v.length); });
             if (c.path === 'router static' && c.draft.blackhole !== 'enable' && !c.draft.device) miss.push('device');
             if (c.path === 'system interface' && c.draft.type === 'vlan') ['vdom', 'interface', 'vlanid'].forEach(k => { if (c.draft[k] === undefined && !miss.includes(k)) miss.push(k); });
@@ -1851,11 +2044,12 @@ const CgLabFgt = (() => {
                 return '';
             }
             if (v.ok === 'next' || v.ok === 'end') {
+                S.note = '';
                 const e = commit();
                 if (e) { log({ raw: line, err: 'required', path: c.path }); return e; }
                 log({ raw: line, canon: v.ok, path: c.path, key: c.key });
                 S.ctx = v.ok === 'next' && !c.single ? { path: c.path, parent: c.parent } : (c.parent || null);
-                return '';
+                return S.note || '';
             }
             if (v.ok === 'show') {
                 const full = t[1] && 'full-configuration'.startsWith(t[1].t.toLowerCase());
@@ -1873,6 +2067,7 @@ const CgLabFgt = (() => {
             if (v.ok === 'unset') { delete c.draft[an]; log({ raw: line, canon: 'unset ' + an, path: c.path, key: c.key }); return ''; }
             if ((v.ok === 'append' || v.ok === 'unselect') && !['refs', 'menum', 'ports', 'ints', 'ports1'].includes(a.t)) { log({ raw: line, err: 'invalid' }); return perr(t[1]); }
             const r = parseVal(a, t.slice(2), c.draft);
+            if (!r.err && c.path === 'system interface' && an === 'vdom' && M().vdt && !M().vdt[r.v]) { log({ raw: line, err: 'ds' }); return 'entry not found in datasource\n\nvalue parse error before \'' + r.v + '\''; }
             // M10: arayüz alt ağları çakışamaz (system settings allow-subnet-overlap disable, varsayılan)
             if (!r.err && c.path === 'system interface' && an === 'ip' && v.ok === 'set') { const ov = overlapWith(c.key, r.v); if (ov) { log({ raw: line, err: 'overlap' }); return ov; } }
             if (r.err === 'novalue') { log({ raw: line, err: 'incomplete' }); return 'value parse error before \'\''; }
@@ -2001,13 +2196,13 @@ const CgLabFgt = (() => {
         return {
             vendor: 'fortigate',
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,
-            _toRoot: () => { S.ctx = null; S.pending = null; S.loggedOut = false; },
+            _toRoot: () => { S.ctx = null; S.pending = null; S.loggedOut = false; if (S.vd) { swapVd('root'); S.vd.where = 'top'; } },
             get answers() { return S.answers; }, set answers(v) { S.answers = v || {}; },
             ssl: user => { const cl = sslClients().find(x => x.user === user); return cl ? sslConnect(cl) : null; },
             ha: () => { const E = haElect(); return { formed: E.formed, primary: E.formed ? E.meP : true, reason: E.reason || E.why, synced: haInSync(), onPeer: S.ha.onPeer }; },
             tun: n => { const T = tun(n); return { p1up: T.p1up, p2up: T.p2up, reason: T.reason }; },
             variant: () => S.variant, decide: f => decide(Object.assign({ sport: 50000, proto: 'tcp', reply: 'ok', arrives: true }, f)), fos: FOS,
-            logs: () => genLogs(), subObj: (p, k, sub) => { const o = M().t[p].v[k]; return o ? o['_sub_' + sub] || null : null; },
+            logs: () => genLogs(), vdom: () => ({ mode: M().vdt ? 'multi-vdom' : 'no-vdom', where: S.vd ? S.vd.where : null, cur: M().curVd || 'root', list: M().vdt ? Object.keys(M().vdt) : ['root'] }), subObj: (p, k, sub) => { const o = M().t[p].v[k]; return o ? o['_sub_' + sub] || null : null; },
             get model() { return S.m; }, ev: E, mode: () => (S.ctx ? (S.ctx.key !== undefined ? 'edit' : 'config') : 'root'),
             obj, keys: p => M().t[p].o.filter(k => !M().t[p].v[k]._builtin), order: p => M().t[p].o.slice(),
             rib, ifUp, saved: () => !S.ctx, dhcpLeases: () => dhcpLeases(), zoneOf: n => zoneOf(n), revs: () => S.revs.map(r => r.comment), tftp: () => Object.keys(S.tftp),

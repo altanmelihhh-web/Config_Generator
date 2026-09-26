@@ -12,6 +12,9 @@ const CgLab = {
             // 7 seviyeli müfredat: eski lab'ların level: sayıları dondurulmuş (içerik aynen); seviyeleri bu harita verir. Yeni lab'lar level: alanına doğrudan yeni numarayı yazar.
             levelOf: { 'fgt-00': 0, 'fgt-20': 1, 'fgt-26': 1, 'fgt-01': 2, 'fgt-17': 2, 'fgt-09': 2, 'fgt-02': 2, 'fgt-13': 2, 'fgt-03': 2, 'fgt-04': 2, 'fgt-05': 2, 'fgt-06': 2, 'fgt-07': 2, 'fgt-08': 2, 'fgt-18': 2,
                 'fgt-10': 3, 'fgt-14': 3, 'fgt-11': 4, 'fgt-12': 4, 'fgt-25': 5, 'fgt-15': 7, 'fgt-16': 7, 'fgt-21': 7, 'fgt-22': 7, 'fgt-23': 7, 'fgt-24': 7, 'fgt-27': 7 }, engine: () => (typeof CgLabFgt !== 'undefined' ? CgLabFgt : null), files: ['assets/js/lab/core.js', 'assets/js/lab/fortios.js', 'assets/data/labs/fortigate.js', 'assets/data/labs/fortigate-yol.js'] },
+        // FortiOS 7.6: aynı motor (lab.fos = '7.6'); lab'lar fortigate-76.js'te 7.4 lab'larından klonlanır, seviye doğrudan lab.level'dadır (levelOf yok)
+        'fortigate-76': { name: 'FortiGate 7.6', look: 'FortiOS 7.6', brand: 'fortigate', levels: ['Giriş: FortiOS CLI', 'Ağ temelleri', 'FortiGate temelleri', 'Güvenlik ve UTM', 'VPN ve ileri ağ', 'Yüksek erişilebilirlik ve kurumsal', 'FortiManager ve FortiAnalyzer', 'Sorun gidermede ustalık', 'Sınav tarzı'],
+            engine: () => (typeof CgLabFgt !== 'undefined' ? CgLabFgt : null), files: ['assets/js/lab/core.js', 'assets/js/lab/fortios.js', 'assets/data/labs/fortigate.js', 'assets/data/labs/fortigate-yol.js', 'assets/data/labs/fortigate-76.js'] },
         huawei: { name: 'Huawei VRP', look: 'VRP V200R (S5700 / AR)', levels: ['CLI temelleri (görünümler)', 'Kurulum ve yönetim erişimi', 'L2 temelleri ve yönetim sıkılaştırma', 'Servisler, L2 güvenlik ve yönlendirme', 'ACL ve yedeklilik', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabVrp !== 'undefined' ? CgLabVrp : null), files: ['assets/js/lab/core.js', 'assets/js/lab/vrp.js', 'assets/data/labs/huawei.js'] },
         dell: { name: 'Dell OS10', look: 'SmartFabric OS10 10.5', levels: ['CLI temelleri', 'Kurulum ve yönetim', 'L2 temelleri ve yönetim yüzeyi', 'Servisler, L2 güvenlik ve yönlendirme', 'ACL ve yedeklilik', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabOs10 !== 'undefined' ? CgLabOs10 : null), files: ['assets/js/lab/core.js', 'assets/js/lab/os10.js', 'assets/data/labs/dell.js'] },
         juniper: { name: 'Juniper Junos', look: 'Junos 23.4 (EX / MX)', levels: ['CLI temelleri', 'Temel sistem ve uzaktan yönetim', 'Arayüz, anahtarlama ve servisler', 'Güvenlik ve yönlendirme', 'Filtre ve yedeklilik', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabSetCli !== 'undefined' ? CgLabSetCli.junos : null), files: ['assets/js/lab/core.js', 'assets/js/lab/setcli.js', 'assets/data/labs/juniper.js'] },
@@ -100,7 +103,7 @@ const CgLab = {
             st.stars = Math.max(st.stars || 0, st.best || 0);
             const badge = done || st.best ? `<span class="cg-lab-badge ok" aria-label="3 üzerinden ${st.stars} yıldız">${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}</span>` : started ? '<span class="cg-lab-badge run">Devam ediyor</span>' : '<span class="cg-lab-badge">Yeni</span>';
             return `<a class="cg-lab-card${done ? ' is-done' : ''}" href="#/lab/${l.id}">
-                <span class="cg-lab-card-top">${one ? '' : this._mark(l.vendor)}<span class="cg-lab-id">${l.id.toUpperCase()}</span>${badge}</span>
+                <span class="cg-lab-card-top">${one ? '' : this._mark(l.vendor)}<span class="cg-lab-id">${l.id.toUpperCase()}</span>${this._ver(l)}${badge}</span>
                 <span class="cg-lab-card-t">${cgEsc(l.title)}</span>
                 <span class="cg-lab-card-m"><i class="far fa-clock" aria-hidden="true"></i> ${l.minutes} dk · <i class="fas fa-list-check" aria-hidden="true"></i> ${l.tasks.length} görev${l.cert ? ' · ' + cgEsc(l.cert) : ''}</span>
                 ${pre.length ? `<span class="cg-lab-card-pre"><i class="fas fa-route" aria-hidden="true"></i> Önce önerilir: ${pre.map(p => p.toUpperCase()).join(', ')}</span>` : ''}
@@ -135,7 +138,7 @@ const CgLab = {
                 <div class="cg-lab-cards">${atLv(lv).map(card).join('')}</div>
             </section>`).join('')}
             ${sandboxes.length ? `<section class="cg-lab-level"><h2><span class="cg-lab-lvn"><i class="fas fa-terminal" aria-hidden="true"></i></span> Serbest terminal</h2>
-                <div class="cg-lab-cards">${sandboxes.map(l => `<a class="cg-lab-card" href="#/lab/${l.id}"><span class="cg-lab-card-top">${this._mark(l.vendor)}<span class="cg-lab-id">SANDBOX</span></span>
+                <div class="cg-lab-cards">${sandboxes.map(l => `<a class="cg-lab-card" href="#/lab/${l.id}"><span class="cg-lab-card-top">${this._mark(l.vendor)}<span class="cg-lab-id">SANDBOX</span>${this._ver(l)}</span>
                 <span class="cg-lab-card-t">${cgEsc(l.title)}</span><span class="cg-lab-card-m">Görev yok, serbest deneme</span></a>`).join('')}</div></section>` : ''}
         </div>`;
         this._root.querySelectorAll('[data-vf]').forEach(b => b.addEventListener('click', () => { this._vf = b.dataset.vf; this._paintCatalog(); }));
@@ -179,7 +182,9 @@ const CgLab = {
                 </li>`; }).join('')}</ol>
         </div>`;
     },
-    _mark(v) { return typeof cgBrandMark === 'function' ? cgBrandMark(v, 14) : ''; },
+    _mark(v) { return typeof cgBrandMark === 'function' ? cgBrandMark((this.VENDORS[v] && this.VENDORS[v].brand) || v, 14) : ''; },
+    // Sürüm rozeti: lab.fos varsa (ör. FortiOS 7.6 klonları)
+    _ver(l) { return l && l.fos ? `<span class="cg-lab-badge cg-lab-ver" title="FortiOS ${cgEsc(l.fos)}">${cgEsc(l.fos)}</span>` : ''; },
     _export() {
         const blob = new Blob([JSON.stringify(this._store(), null, 1)], { type: 'application/json' });
         const a = document.createElement('a');
@@ -225,7 +230,7 @@ const CgLab = {
                 <aside class="cg-lab-side" id="cg-lab-side"></aside>
                 <section class="cg-lab-termwrap">
                     <div class="cg-term-bar">
-                        <span class="cg-term-dev">${this._mark(lab.vendor)} ${cgEsc(V.name)} · ${this.KIND[lab.kind] || ''}</span>
+                        <span class="cg-term-dev">${this._mark(lab.vendor)} ${cgEsc(V.name)} · ${this.KIND[lab.kind] || ''}${this._ver(lab)}</span>
                         <span class="cg-term-acts">
                             ${lab.tasks.length ? '<button class="cg-ts-btn" data-act="check"><i class="fas fa-clipboard-check"></i> Kontrol et</button>' : ''}
                             ${lab.variants ? '<button class="cg-ts-btn" data-act="newround" title="Aynı lab, farklı arıza"><i class="fas fa-random"></i> Yeni tur</button>' : ''}

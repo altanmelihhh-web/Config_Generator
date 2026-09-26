@@ -15,7 +15,9 @@
     };
     const idOf = id => 'f76-' + String(id).replace(/^fgt-/, '');
     function viewLevel(l) {
-        const v = root.CgLab && root.CgLab.VENDORS && root.CgLab.VENDORS.fortigate, m = v && v.levelOf;
+        // CgLab tarayıcıda üst düzey const'tur (window özelliği değildir); ikisine de bak
+        const CL = typeof CgLab !== 'undefined' ? CgLab : root.CgLab;
+        const v = CL && CL.VENDORS && CL.VENDORS.fortigate, m = v && v.levelOf;
         return m && l.id in m ? m[l.id] : l.level;
     }
     function build() {
