@@ -2133,9 +2133,9 @@
         const V = [
             { key: 'sla', start: IFs.concat(SDW(5)), fix: ['config system sdwan', 'config health-check', 'edit HC', 'config sla', 'edit 1', 'set latency-threshold 100', 'next', 'end', 'next', 'end', 'end'] },
             { key: 'member', start: IFs.concat(SDW(100), ['config system sdwan', 'config members', 'edit 2', 'set status disable', 'next', 'end', 'end']), fix: ['config system sdwan', 'config members', 'edit 2', 'set status enable', 'next', 'end', 'end'] },
-            { key: 'order', start: IFs.concat(['config firewall address', 'edit TUM-NET', 'set subnet 0.0.0.0 0.0.0.0', 'end'], SDW(100, ['config service', 'edit 1', 'set name GENEL', 'set mode manual', 'set dst TUM-NET', 'set priority-members 1', 'next', 'end'])), fix: ['config system sdwan', 'config service', 'delete 1', 'end', 'end'] },
+            { key: 'order', start: IFs.concat(SDW(100, ['config service', 'edit 1', 'set name GENEL', 'set mode manual', 'set dst all', 'set priority-members 1', 'next', 'end'])), fix: ['config system sdwan', 'config service', 'move 2 before 1', 'end', 'end'] },
         ];
-        const lastCfg = s => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (L[i].canon && /^(set |append |unset |delete )/.test(L[i].canon)) return i; return -1; };
+        const lastCfg = s => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (L[i].canon && /^(set |append |unset |delete |move )/.test(L[i].canon)) return i; return -1; };
         return {
             id: 'fgt-29', vendor: 'fortigate', level: 4, title: 'SD-WAN arızası: SaaS kalitesiz hattan çıkıyor', minutes: 25, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-28'],
             up: ['port1', 'port2', 'port3'], hosts: ['203.0.113.1', '198.51.100.1'],
@@ -2163,7 +2163,7 @@
                   why: 'sla_map ikisinde de 0x0 ise eşik; member\'da port3 yoksa ya da ölü ise üye durumu; service4\'te SaaS trafiği önce başka kurala düşüyorsa sıra.',
                   hints: ['service4\'teki kural sırası ve selected.', 'health-check\'te sla_map.'] },
                 { t: 'Düzeltin: yalnız bozulan ayar. SaaS port3\'ten çıkmalı.',
-                  why: 'sla → gecikme eşiği 100 · member → üye 2 status enable · order → genel kuralı kaldırmak (kural sırası: ilk eşleşen kazanır).',
+                  why: 'sla → gecikme eşiği 100 · member → üye 2 status enable · order → SLA kuralını genel kuralın üstüne taşımak (<code>move 2 before 1</code>; ilk eşleşen kural kazanır).',
                   hints: ['Nedene karşılık gelen tek ayar.', 'config system sdwan → config health-check / config members / config service'],
                   steps: v => v.fix,
                   check: s => { const d = s.decide(SAASF); return d.stage === 'allowed' && d.out === 'port3'; } },
@@ -2222,6 +2222,167 @@
             verify: ['diagnose firewall proute list', 'show router policy', 'get router info routing-table all'],
             learn: ['PBR rota tablosundan önce; kaynak/port/protokol eşleşir.', 'Eşleşmeyen trafik rota tablosunu izler.', 'deny = istisna; sırası önemli (move).', 'Çıkış arayüzüne kural gerekli.'],
             links: { tool: '#/fortigate/pbr', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/140' }, cert: 'NSE 4 · M3'
+        };
+    })(),
+    // ═══ Parti 12: OSPF (fgt-49), BGP (fgt-50) — Seviye 4 ileri yönlendirme · antivirüs profili (fgt-67) — Seviye 3 ═══
+    // Motor: M21 (router ospf / bgp; sim.ospfPeers / sim.bgpPeers; durum anlık hesaplanır, [Simülatör]) ve M18 (antivirus profile; akışta virus).
+    (() => {
+        const ST = BASE().concat(IF('port3', '10.64.12.1 255.255.255.0', ['set role lan']));
+        const OSPF = (area, extra) => ['config router ospf', 'set router-id 10.64.0.1', 'config area', 'edit ' + area, 'next', 'end', 'config network', 'edit 1', 'set prefix 10.64.12.0 255.255.255.0', 'set area ' + area, 'next', 'end'].concat(extra || [], ['end']);
+        const PEER = o => ({ ospfPeers: [Object.assign({ rid: '10.64.0.2', ip: '10.64.12.2', intf: 'port3', area: '0.0.0.0', routes: [{ net: '10.64.50.0/24', cost: 10 }] }, o || {})] });
+        const V = [
+            { key: 'area', start: OSPF('0.0.0.1'), sim: PEER(), fix: ['config router ospf', 'config area', 'edit 0.0.0.0', 'next', 'end', 'config network', 'edit 1', 'set area 0.0.0.0', 'next', 'end', 'end'] },
+            { key: 'hello', start: OSPF('0.0.0.0', ['config ospf-interface', 'edit P3', 'set interface port3', 'set hello-interval 5', 'set dead-interval 20', 'next', 'end']), sim: PEER(),
+              fix: ['config router ospf', 'config ospf-interface', 'edit P3', 'set hello-interval 10', 'set dead-interval 40', 'next', 'end', 'end'] },
+            { key: 'mtu', start: OSPF('0.0.0.0'), sim: PEER({ mtuMismatch: true }), fix: ['config router ospf', 'config ospf-interface', 'edit P3', 'set interface port3', 'set mtu-ignore enable', 'next', 'end', 'end'] },
+            { key: 'passive', start: OSPF('0.0.0.0', ['set passive-interface port3']), sim: PEER(), fix: ['config router ospf', 'unset passive-interface', 'end'] },
+        ];
+        const full = s => (s.ospf() || []).some(x => /^Full/.test(x.state));
+        const lastCfg = s => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (L[i].canon && /^(set |append |unset |delete )/.test(L[i].canon)) return i; return -1; };
+        return {
+            id: 'fgt-49', vendor: 'fortigate', level: 4, title: 'OSPF komşuluğu kurulmuyor: alan, hello/dead, MTU ve pasif arayüz', minutes: 25, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-65'],
+            up: ['port1', 'port2', 'port3'], hosts: ['203.0.113.1'],
+            start: ST,
+            variants: V,
+            story: '<b>Arıza kaydı:</b> "Çekirdek yönlendiriciyle (10.64.12.2, port3) OSPF komşuluğu kurulmuyor; 10.64.50.0/24 sunucu ağı öğrenilmiyor." Tasarım: tek alan (omurga 0.0.0.0), varsayılan hello 10 / dead 40, port3 OSPF\'ye katılmalı. <small>[Simülatör] Komşu yönlendirici benzetilir; OSPF durum geçişleri zaman çizelgesi olmadan anlık hesaplanır. Her turda farklı bir neden — "Yeni tur".</small>',
+            lesson: L('İki OSPF yönlendiricisi komşu olabilmek için aynı alt ağda aynı <b>alan kimliğinde</b> olmalı, <b>hello</b> ve <b>dead</b> aralıkları eşleşmeli ve arayüz hello göndermeli (<b>passive-interface</b> değil). Komşuluk kurulur ama <b>MTU</b> farklıysa veritabanı değişimi <b>ExStart</b>/Exchange\'da takılır; kalıcı çözüm MTU\'ları eşitlemek, geçici çözüm <code>set mtu-ignore enable</code>. FortiGate\'te OSPF <code>config router ospf</code> altında <code>router-id</code>, <code>config area</code>, <code>config network</code> (ağ + alan) ve arayüz ayarları için <code>config ospf-interface</code> ile yazılır. Durum <code>get router info ospf neighbor</code>, öğrenilen rotalar <code>get router info routing-table ospf</code> ile okunur.',
+                'Komşuluk kurulmadığında hiçbir rota öğrenilmez ve sorun "o ağa erişim yok" olarak görünür. Dört tipik neden birkaç satırda ayrılır; yanlış yere yapılan değişiklik ise komşuluğu diğer yönlendiricilerle de bozabilir.',
+                'get router info ospf neighbor\nshow router ospf\nconfig router ospf\n    config network\n        edit 1\n            set prefix 10.64.12.0 255.255.255.0\n            set area 0.0.0.0\n        next\n    end\nend\nget router info routing-table ospf',
+                ['Alan kimliğini tek tarafta değiştirmek.', 'hello\'yu değiştirip dead\'i bırakmak (ikisi birlikte eşleşmeli).', 'MTU sorununu kalıcı olarak mtu-ignore ile örtmek.', 'Komşu olması gereken arayüzü pasif bırakmak.']),
+            goals: ['ospf neighbor çıktısını okumak', 'Alan / hello / MTU / pasif arayüz nedenlerini ayırmak', 'Tek ayarla düzeltip öğrenilen rotayı doğrulamak'],
+            tasks: [
+                { t: 'OSPF komşu tablosunu görüntüleyin.',
+                  why: 'Komşu listede yoksa hello aşamasında eşleşme yok (alan, hello/dead, pasif); listede ama ExStart ise MTU.',
+                  hints: ['get router info ospf …', '<code>get router info ospf neighbor</code>'],
+                  steps: ['get router info ospf neighbor'], loo: false, /* doğrulama görevi de komşu tablosunu gösterebilir */
+                  check: s => s.ev.ran(/^get router info ospf neighbor$/) },
+                { t: 'OSPF yapılandırmasını görüntüleyin.',
+                  why: 'Alan kimliği, network ifadesi, passive-interface ve ospf-interface ayarları burada.',
+                  hints: ['show router …', '<code>show router ospf</code>'],
+                  steps: ['show router ospf'],
+                  check: s => s.ev.ran(/^show router ospf$/) },
+                { t: 'Komşuluk neden kurulmuyor?', ask: { choices: [['area', 'Alan kimliği uyuşmuyor (bizde 0.0.0.1, karşıda 0.0.0.0)'], ['hello', 'hello/dead aralıkları uyuşmuyor (bizde 5/20)'], ['mtu', 'MTU uyuşmuyor: komşu ExStart\'ta kalıyor'], ['passive', 'port3 pasif arayüz: hello gönderilmiyor']], correct: v => v.key },
+                  why: 'Komşu listede yoksa ve [Simülatör] notu nedeni söylemiyorsa show çıktısına bakılır: network alanı, ospf-interface aralıkları, passive-interface. ExStart her zaman MTU\'ya işaret eder.',
+                  hints: ['Komşu listede mi, durumu ne?', 'show router ospf: area, hello-interval, passive-interface.'] },
+                { t: 'Düzeltin: yalnız bozulan ayar. Komşu Full olmalı.',
+                  why: 'area → network alanını 0.0.0.0 yapmak · hello → 10/40 · mtu → mtu-ignore (kalıcı çözüm MTU eşitlemek) · passive → unset passive-interface.',
+                  hints: ['Nedene karşılık gelen tek ayar.', 'config router ospf → config network / config ospf-interface / unset passive-interface'],
+                  steps: v => v.fix,
+                  check: s => full(s) },
+                { t: 'Doğrulayın: son değişiklikten sonra OSPF rotalarını görüntüleyin; 10.64.50.0/24 öğrenilmiş olmalı.',
+                  why: 'Kanıt: O kodlu rota ve 10.64.50.0/24\'e giden trafiğin port3\'ten çıkması.',
+                  hints: ['routing-table ospf', '<code>get router info routing-table ospf</code>'],
+                  steps: ['get router info routing-table ospf'], needs: [3],
+                  check: s => { const i = lastCfg(s); return full(s) && s.decide({ src: '10.64.10.50', dst: '10.64.50.10', dport: 443, in: 'port2' }).out === 'port3' && s.ev.list().slice(i + 1).some(e => e.canon === 'get router info routing-table ospf'); } },
+            ],
+            verify: ['get router info ospf neighbor', 'show router ospf', 'get router info routing-table ospf'],
+            learn: ['Komşuluk: aynı alan, eşleşen hello/dead, pasif olmayan arayüz.', 'ExStart = MTU; kalıcı çözüm MTU eşitlemek.', 'Kanıt: neighbor Full + routing-table ospf.'],
+            links: { tool: '#/fortigate/ospf', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/141' }, cert: 'NSE 4 · M3'
+        };
+    })(),
+    (() => {
+        const ST = BASE().concat(IF('port3', '198.51.100.2 255.255.255.0', ['set role wan']));
+        const BGP = (ip, extra) => ['config router bgp', 'set as 65010', 'set router-id 10.64.0.1', 'config neighbor', 'edit ' + ip, 'set remote-as 65020'].concat(extra || [], ['next', 'end', 'end']);
+        const BP = o => ({ bgpPeers: [Object.assign({ ip: '198.51.100.1', as: '65020', rid: '198.51.100.1', routes: [{ net: '10.64.60.0/24' }] }, o || {})] });
+        const V = [
+            { key: 'remoteas', start: ['config router bgp', 'set as 65010', 'set router-id 10.64.0.1', 'config neighbor', 'edit 198.51.100.1', 'set remote-as 65030', 'next', 'end', 'end'], sim: BP(), ip: '198.51.100.1',
+              fix: ['config router bgp', 'config neighbor', 'edit 198.51.100.1', 'set remote-as 65020', 'next', 'end', 'end'] },
+            { key: 'password', start: BGP('198.51.100.1'), sim: BP({ password: 'Bgp-Lab-2026' }), ip: '198.51.100.1',
+              fix: ['config router bgp', 'config neighbor', 'edit 198.51.100.1', 'set password Bgp-Lab-2026', 'next', 'end', 'end'] },
+            { key: 'multihop', start: BGP('192.0.2.99'), sim: BP({ ip: '192.0.2.99', rid: '192.0.2.99' }), ip: '192.0.2.99',
+              fix: ['config router bgp', 'config neighbor', 'edit 192.0.2.99', 'set ebgp-enforce-multihop enable', 'next', 'end', 'end'] },
+            { key: 'shutdown', start: BGP('198.51.100.1', ['set shutdown enable']), sim: BP(), ip: '198.51.100.1',
+              fix: ['config router bgp', 'config neighbor', 'edit 198.51.100.1', 'set shutdown disable', 'next', 'end', 'end'] },
+        ];
+        const est = s => (s.bgp() || []).some(x => x.state === 'Established');
+        const lastCfg = s => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (L[i].canon && /^(set |append |unset |delete )/.test(L[i].canon)) return i; return -1; };
+        return {
+            id: 'fgt-50', vendor: 'fortigate', level: 4, title: 'eBGP komşuluğu kurulmuyor: AS, MD5 parolası, multihop ve shutdown', minutes: 25, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-49'],
+            up: ['port1', 'port2', 'port3'], hosts: ['203.0.113.1', '198.51.100.1'],
+            start: ST,
+            variants: V,
+            story: '<b>Arıza kaydı:</b> "Servis sağlayıcıyla (AS 65020) eBGP oturumu kurulmuyor; 10.64.60.0/24 öğrenilmiyor." Bizim AS 65010. Sağlayıcının bildirdiği bilgiler: komşu adresi 198.51.100.1 (bazı bağlantılarda sağlayıcının geri döngü adresi 192.0.2.99), MD5 parolası kullanılıyorsa <code>Bgp-Lab-2026</code>. <small>[Simülatör] Karşı uç benzetilir; BGP durumu anlık hesaplanır. Her turda farklı bir neden — "Yeni tur".</small>',
+            lesson: L('eBGP komşuluğu için <code>config router bgp</code> altında yerel <code>as</code>, <code>router-id</code> ve <code>config neighbor</code> → <code>edit &lt;komşu IP&gt;</code> → <code>set remote-as</code> gerekir. <code>get router info bgp summary</code> komşuları ve durumlarını gösterir: <b>Established</b> sayı olarak alınan önek sayısını verir; <b>Idle</b> komşunun yapılandırmayı reddettiğini (ör. yanlış AS) ya da yönetsel kapatmayı (<code>Idle (Admin)</code>, <code>set shutdown enable</code>), <b>Active</b> oturumun kurulamadığını (karşı uç yok ya da MD5 parolası uyuşmuyor) anlatır. Doğrudan bağlı olmayan bir eBGP komşusu (ör. geri döngü adresi) için <code>set ebgp-enforce-multihop enable</code> gerekir. Öğrenilen rotalar <code>get router info routing-table bgp</code> ile görülür (eBGP mesafesi 20).',
+                'İnternet ve MPLS bağlantılarında BGP oturumu düşerse o bağlantının rotaları kaybolur. summary çıktısının durum sütunu nedeni büyük ölçüde daraltır; sağlayıcıyla konuşmadan önce kendi tarafını doğrulamak zaman kazandırır.',
+                'get router info bgp summary\nshow router bgp\nconfig router bgp\n    config neighbor\n        edit 198.51.100.1\n            set remote-as 65020\n            set password &lt;parola&gt;\n        next\n    end\nend\nget router info routing-table bgp',
+                ['remote-as\'a kendi AS numarasını yazmak.', 'MD5 parolasını tek tarafta tanımlamak.', 'Geri döngü adresli eBGP komşusunda multihop\'u açmamak.', 'Bakımda kapatılan komşuyu (shutdown) açmayı unutmak.']),
+            goals: ['bgp summary okumak (Idle / Active / Established)', 'AS, parola, multihop ve shutdown nedenlerini ayırmak', 'Tek ayarla düzeltip öğrenilen rotayı doğrulamak'],
+            tasks: [
+                { t: 'BGP özetini görüntüleyin.',
+                  why: 'Komşunun durumu (State/PfxRcd) ve Up/Down süresi ilk ipucudur.',
+                  hints: ['get router info bgp …', '<code>get router info bgp summary</code>'],
+                  steps: ['get router info bgp summary'], loo: false, /* doğrulama görevi de özet gösterebilir */
+                  check: s => s.ev.ran(/^get router info bgp summary$/) },
+                { t: 'BGP yapılandırmasını görüntüleyin.',
+                  why: 'remote-as, password, ebgp-enforce-multihop ve shutdown komşu altında.',
+                  hints: ['show router …', '<code>show router bgp</code>'],
+                  steps: ['show router bgp'],
+                  check: s => s.ev.ran(/^show router bgp$/) },
+                { t: 'Oturum neden kurulmuyor?', ask: { choices: [['remoteas', 'remote-as yanlış (65030; sağlayıcı 65020)'], ['password', 'Sağlayıcı MD5 parolası bekliyor, bizde parola yok'], ['multihop', 'Komşu doğrudan bağlı değil (192.0.2.99): eBGP multihop kapalı'], ['shutdown', 'Komşu yönetsel olarak kapatılmış (shutdown)']], correct: v => v.key },
+                  why: 'Idle + yanlış AS · Idle (Admin) = shutdown · Active = oturum kurulamıyor (parola ya da ulaşılamayan / multihop gereken komşu); show çıktısı ikisini ayırır.',
+                  hints: ['summary\'deki State.', 'show router bgp: remote-as, password, multihop, shutdown.'] },
+                { t: 'Düzeltin: yalnız bozulan ayar. Komşu Established olmalı.',
+                  why: 'remoteas → set remote-as 65020 · password → set password Bgp-Lab-2026 · multihop → set ebgp-enforce-multihop enable · shutdown → set shutdown disable.',
+                  hints: ['Nedene karşılık gelen tek ayar.', 'config router bgp → config neighbor → edit <komşu>'],
+                  steps: v => v.fix,
+                  check: s => est(s) },
+                { t: 'Doğrulayın: son değişiklikten sonra BGP rotalarını görüntüleyin; 10.64.60.0/24 öğrenilmiş olmalı.',
+                  why: 'Kanıt: B kodlu rota ve o ağa trafiğin komşu üzerinden gitmesi.',
+                  hints: ['routing-table bgp', '<code>get router info routing-table bgp</code>'],
+                  steps: ['get router info routing-table bgp'], needs: [3],
+                  check: s => { const i = lastCfg(s); return est(s) && s.rib().some(r => r.c === 'B' && r.net === '10.64.60.0') && s.ev.list().slice(i + 1).some(e => e.canon === 'get router info routing-table bgp'); } },
+            ],
+            verify: ['get router info bgp summary', 'show router bgp', 'get router info routing-table bgp'],
+            learn: ['Idle: yapılandırma reddi (AS) · Idle (Admin): shutdown · Active: oturum yok (parola, erişim, multihop).', 'Geri döngü adresli eBGP: ebgp-enforce-multihop.', 'Kanıt: Established + routing-table bgp.'],
+            links: { tool: '#/fortigate/bgp', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/142' }, cert: 'NSE 4 · M3'
+        };
+    })(),
+    (() => {
+        const V = { name: 'EICAR_TEST_FILE' };
+        const HTTP = { src: '10.64.10.50', dst: '198.51.100.80', dport: 80, in: 'port2', virus: V, file: 'eicar.com' };
+        const HTTPS = { src: '10.64.10.51', dst: '198.51.100.81', dport: 443, in: 'port2', virus: V, file: 'eicar.zip' };
+        return {
+            id: 'fgt-67', vendor: 'fortigate', level: 3, title: 'Antivirüs profili: HTTP, HTTPS ve FTP indirmelerinde virüs engeli', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-45'],
+            up: ['port1', 'port2'], hosts: ['203.0.113.1'],
+            start: BASE().concat(POL(['ALL'])),
+            sim: { flows: [HTTP, HTTPS, { src: '10.64.10.52', dst: '198.51.100.82', dport: 21, in: 'port2', virus: V }] },
+            story: 'Güvenlik ekibi uç nokta taramasının yanında ağda da virüs taraması istiyor: web (HTTP ve HTTPS) ve FTP indirmelerinde zararlı dosya engellensin ve loglansın. Test için kullanıcılar zararsız <b>EICAR</b> test dosyasını indirmeyi deniyor. Hazır profil yerine kendi profilinizi yazın.',
+            lesson: L('<code>config antivirus profile</code> protokol blokları (<code>config http</code>, <code>config ftp</code>, <code>config smtp</code>, <code>config imap</code>, <code>config pop3</code>) altında <code>set av-scan block|monitor|disable</code> ile çalışır; <code>monitor</code> yalnız loglar. Profil kurala <code>set utm-status enable</code> ve <code>set av-profile</code> ile bağlanır. HTTPS içeriği yalnız <b>derin inceleme</b> ile taranabilir: certificate-inspection dosyayı görmez. Virüs olayları log kategori 2\'dedir (utm-virus). <b>EICAR</b> test dosyası zararsızdır ve antivirüs ürünlerinin tespitini sınamak için kullanılır.',
+                'Ağ tabanlı tarama, uç noktada koruması olmayan ya da güncel olmayan cihazları da korur. Ancak HTTPS trafiğinin büyük çoğunluğu şifreli olduğu için derin inceleme olmadan korumanın önemli bir kısmı boşa çıkar.',
+                'config antivirus profile\n    edit AV-KURUM\n        config http\n            set av-scan block\n        end\n        config ftp\n            set av-scan block\n        end\n    next\nend\nconfig firewall policy\n    edit 1\n        set utm-status enable\n        set av-profile AV-KURUM\n        set ssl-ssh-profile deep-inspection\n    next\nend',
+                ['Profili yazıp kurala bağlamamak.', 'HTTPS indirmelerinin certificate-inspection ile tarandığını sanmak.', 'monitor ile block\'u karıştırmak (monitor engellemez).']),
+            goals: ['Protokol bazlı AV profili', 'Kurala bağlamak', 'HTTPS için derin inceleme şartı', 'utm-virus logunu okumak'],
+            tasks: [
+                { t: 'AV profili <code>AV-KURUM</code>: HTTP ve FTP için <b>block</b>.',
+                  why: 'Her protokol bloğu ayrı ayarlanır; varsayılan disable\'dır.',
+                  hints: ['config antivirus profile → edit AV-KURUM → config http → set av-scan block → end', 'config ftp → set av-scan block → end → next → end'],
+                  steps: ['config antivirus profile', 'edit AV-KURUM', 'config http', 'set av-scan block', 'end', 'config ftp', 'set av-scan block', 'end', 'next', 'end'],
+                  check: s => { const h = s.subObj('antivirus profile', 'AV-KURUM', 'http'), f = s.subObj('antivirus profile', 'AV-KURUM', 'ftp'); return !!h && h['av-scan'] === 'block' && !!f && f['av-scan'] === 'block'; } },
+                { t: 'Profili LAN-TO-WAN kuralına bağlayın (güvenlik profilleri açık). HTTP ile inen EICAR engellenmeli.',
+                  why: 'Profil kurala bağlanınca kuraldan geçen HTTP ve FTP indirmeleri taranır.',
+                  hints: ['config firewall policy → edit 1', '<code>set utm-status enable</code> → <code>set av-profile AV-KURUM</code> → <code>end</code>'],
+                  steps: ['config firewall policy', 'edit 1', 'set utm-status enable', 'set av-profile AV-KURUM', 'end'], needs: [0],
+                  check: s => !!(s.decide(HTTP).utm || {}).blocked },
+                { t: 'Aynı dosya HTTPS ile indirilince engellenir mi?', ask: { choices: [['no', 'Hayır: şifreli içerik derin inceleme olmadan taranamaz'], ['yes', 'Evet'], ['ftp', 'Yalnız FTP\'de engellenir']], correct: 'no' },
+                  why: 'Kuralda SSL incelemesi yoksa ya da yalnız certificate-inspection varsa FortiGate dosya içeriğini göremez.',
+                  hints: ['HTTPS içeriği şifreli.', 'fgt-45'] },
+                { t: 'Kuralda derin incelemeyi açın (hazır <code>deep-inspection</code> profili). HTTPS ile inen EICAR da engellenmeli.',
+                  why: 'Derin incelemeyle içerik açılır ve taranır. Kurumsal ortamda CA dağıtımı ve muafiyetler fgt-45\'teki gibi planlanır.',
+                  hints: ['config firewall policy → edit 1', '<code>set ssl-ssh-profile deep-inspection</code> → <code>end</code>'],
+                  steps: ['config firewall policy', 'edit 1', 'set ssl-ssh-profile deep-inspection', 'end'], needs: [0, 1],
+                  check: s => !!(s.decide(HTTPS).utm || {}).blocked },
+                { t: 'Virüs loglarını görüntüleyin (kategori 2).',
+                  why: 'utm-virus satırında virus, filename ve action="blocked" engelin kanıtıdır.',
+                  hints: ['execute log filter category 2 → execute log display', '<code>execute log filter category 2</code> → <code>execute log display</code>'],
+                  steps: ['execute log filter category 2', 'execute log display'], needs: [0, 1],
+                  check: s => s.ev.list().some(e => e.logshown && e.logshown.cat === 'utm-virus' && e.logshown.n > 0) },
+                { t: 'EICAR test dosyası nedir?', ask: { choices: [['test', 'Zararsız bir test dosyası: antivirüs ürünleri onu virüs gibi algılar, tespitin çalıştığını sınamak için kullanılır'], ['real', 'Gerçek bir zararlı'], ['fgt', 'FortiGate\'e özgü bir dosya']], correct: 'test' },
+                  why: 'Canlı zararlı kullanmadan uçtan uca testi mümkün kılar.',
+                  hints: ['Zararsız.', 'Test amaçlı.'] },
+            ],
+            verify: ['show antivirus profile AV-KURUM', 'show firewall policy 1', 'execute log display'],
+            learn: ['antivirus profile: protokol başına av-scan block|monitor.', 'Kurala bağla: utm-status + av-profile.', 'HTTPS için derin inceleme şart.', 'Log kategori 2: utm-virus.'],
+            links: { tool: '#/fortigate/antivirus', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/143' }, cert: 'NSE 4 · M7'
         };
     })(),
     ];

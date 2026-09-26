@@ -641,7 +641,7 @@
             symptom: 'SD-WAN kurulu; iş uygulaması (SLA kuralı olan trafik) yavaş, çünkü gecikmeli ya da kayıplı hattan çıkıyor.',
             steps: [
                 { code: 'diagnose sys sdwan service4', desc: 'Kurallar yukarıdan aşağı değerlendirilir; trafik ilk eşleşen kuralın seçtiği üyeden (selected) çıkar. SLA kuralının üstünde daha genel bir kural varsa (ör. tüm hedefler, tek üye) trafik oraya düşer.',
-                  fix: [{ cause: 'Genel kural SLA kuralının üstünde: kaldırın ya da hedefini daraltın (gerçek cihazda kural sırası move ile de değiştirilebilir)', cmd: 'config system sdwan\nconfig service\ndelete 1\nend\nend' }] },
+                  fix: [{ cause: 'Genel kural SLA kuralının üstünde: SLA kuralını üste taşıyın', cmd: 'config system sdwan\nconfig service\nmove 2 before 1\nend\nend' }] },
                 { expect: 'bad', code: 'diagnose sys sdwan health-check', desc: 'Her üyenin kaybı, gecikmesi, jitter\'ı ve sla_map\'i. Hiçbir üyenin sla_map\'i SLA\'yı karşılamıyorsa SLA kuralı sıradaki ilk canlı üyeye düşer; eşikler ölçülen değerlerle karşılaştırılır.',
                   sample: 'Health Check(HC):\nSeq(1 port1): state(alive), packet-loss(2.000%) latency(120.000), jitter(8.000) sla_map=0x0\nSeq(2 port3): state(alive), packet-loss(0.000%) latency(20.000), jitter(2.000) sla_map=0x0\n\n# port3 20 ms ama sla_map 0: gecikme eşiği gerçekçi değil (ör. 5 ms)',
                   fix: [{ cause: 'SLA eşiği gerçekçi değil', cmd: 'config system sdwan\nconfig health-check\nedit HC\nconfig sla\nedit 1\nset latency-threshold 100\nnext\nend\nnext\nend\nend' }] },
@@ -680,6 +680,60 @@
             quiz: [
                 { q: 'PBR ile rota tablosunun sırası?', choices: [['pbr', 'Önce PBR, eşleşme yoksa rota tablosu'], ['rib', 'Önce rota tablosu'], ['same', 'Aynı anda']], correct: 'pbr', why: 'Policy route rota tablosundan önce değerlendirilir.' },
                 { q: 'action deny kaydı ne yapar?', choices: [['stop', 'Eşleşen trafik için politika yönlendirmesini durdurur, rota tablosuna bırakır'], ['drop', 'Trafiği düşürür'], ['log', 'Yalnız loglar']], correct: 'stop', why: 'deny, istisna yazmanın yoludur; trafiği düşürmez.' },
+            ],
+        },
+        // ── Parti 12: OSPF (fgt-49), BGP (fgt-50), antivirüs (fgt-67)
+        {
+            title: 'OSPF Komşuluğu Kurulmuyor ya da ExStart\'ta Kalıyor', severity: 'err', topic: 'routing', lab: 'fgt-49',
+            symptom: 'Bir yönlendiriciyle OSPF komşuluğu yok ya da Full olmuyor; o yönlendiricinin arkasındaki ağlar öğrenilmiyor.',
+            steps: [
+                { expect: 'bad', code: 'get router info ospf neighbor', desc: 'Komşu listede yoksa hello aşamasında eşleşme yoktur: alan kimliği, hello/dead aralıkları ya da arayüz pasif. Komşu ExStart/Exchange\'de takılıyorsa MTU uyuşmazlığıdır.',
+                  sample: 'OSPF process 0:\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n10.64.0.2       1     ExStart/DROther 00:00:31    10.64.12.2      port3\n\n# ExStart: MTU uyuşmazlığı',
+                  fix: [{ cause: 'MTU uyuşmuyor: kalıcı çözüm iki uçta MTU\'yu eşitlemek; geçici olarak mtu-ignore', cmd: 'config router ospf\nconfig ospf-interface\nedit P3\nset interface port3\nset mtu-ignore enable\nnext\nend\nend' }] },
+                { code: 'show router ospf', desc: 'network ifadesindeki alan, ospf-interface altındaki hello/dead ve passive-interface listesi karşı uçla karşılaştırılır. router-id tanımlı olmalı.',
+                  fix: [{ cause: 'Alan kimliği uyuşmuyor', cmd: 'config router ospf\nconfig area\nedit 0.0.0.0\nnext\nend\nconfig network\nedit 1\nset area 0.0.0.0\nnext\nend\nend' },
+                        { cause: 'hello/dead uyuşmuyor', cmd: 'config router ospf\nconfig ospf-interface\nedit P3\nset hello-interval 10\nset dead-interval 40\nnext\nend\nend' },
+                        { cause: 'Arayüz pasif', cmd: 'config router ospf\nunset passive-interface\nend' }] },
+                { code: 'get router info routing-table ospf', desc: 'Komşuluk Full olduktan sonra O kodlu rotalar görünmeli. Görünmüyorsa karşı uç o ağı OSPF\'ye dahil etmiyordur.' },
+            ],
+            quiz: [
+                { q: 'OSPF komşusu ExStart\'ta kalıyor. En olası neden?', choices: [['mtu', 'MTU uyuşmazlığı'], ['area', 'Alan uyuşmazlığı'], ['hello', 'hello uyuşmazlığı']], correct: 'mtu', why: 'Alan ve hello uyuşmazlığında komşuluk hiç başlamaz; ExStart, veritabanı değişiminde (DBD) takılmayı ve çoğunlukla MTU farkını gösterir.' },
+                { q: 'passive-interface ne yapar?', choices: [['nohello', 'Arayüzde hello göndermez: ağ duyurulur ama komşuluk kurulmaz'], ['off', 'Arayüzü kapatır'], ['filter', 'Rotaları filtreler']], correct: 'nohello', why: 'Kullanıcı ağlarında güvenlik için kullanılır; komşu olması gereken arayüzde kullanılırsa komşuluk kurulmaz.' },
+            ],
+        },
+        {
+            title: 'BGP Oturumu Kurulmuyor: Idle, Active ve Idle (Admin) Ne Anlatır?', severity: 'err', topic: 'routing', lab: 'fgt-50',
+            symptom: 'Servis sağlayıcı ya da başka bir yönlendiriciyle BGP oturumu kurulmuyor; o komşudan gelen rotalar tabloda yok.',
+            steps: [
+                { expect: 'bad', code: 'get router info bgp summary', desc: 'State/PfxRcd sütunu: sayı = Established ve alınan önek sayısı. Idle = komşu reddediyor (çoğunlukla AS uyuşmazlığı); Idle (Admin) = yönetsel kapalı; Active = TCP oturumu kurulamıyor (parola, erişim ya da multihop).',
+                  sample: 'Neighbor        V         AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd\n198.51.100.1    4     65020       0       3        0    0    0 never    Active\n\n# Active + never: oturum hiç kurulmamış',
+                  fix: [{ cause: 'remote-as yanlış', cmd: 'config router bgp\nconfig neighbor\nedit 198.51.100.1\nset remote-as 65020\nnext\nend\nend' },
+                        { cause: 'Karşı uç MD5 parolası bekliyor', cmd: 'config router bgp\nconfig neighbor\nedit 198.51.100.1\nset password <parola>\nnext\nend\nend' }] },
+                { code: 'show router bgp', desc: 'Yerel as, router-id; komşu altında remote-as, password, ebgp-enforce-multihop ve shutdown.',
+                  fix: [{ cause: 'Doğrudan bağlı olmayan eBGP komşusu (geri döngü adresi)', cmd: 'config router bgp\nconfig neighbor\nedit 192.0.2.99\nset ebgp-enforce-multihop enable\nnext\nend\nend' },
+                        { cause: 'Komşu yönetsel kapalı', cmd: 'config router bgp\nconfig neighbor\nedit 198.51.100.1\nset shutdown disable\nnext\nend\nend' }] },
+                { code: 'get router info routing-table bgp', desc: 'Established sonrası B kodlu rotalar; eBGP mesafesi 20, iBGP 200.' },
+            ],
+            quiz: [
+                { q: 'Summary\'de State "Idle (Admin)". Anlamı?', choices: [['admin', 'Komşu yapılandırmada kapatılmış (shutdown)'], ['as', 'AS yanlış'], ['pw', 'Parola yanlış']], correct: 'admin', why: 'Yönetsel kapatma; set shutdown disable ile açılır.' },
+                { q: 'Geri döngü adresiyle kurulan eBGP komşuluğu için ne gerekir?', choices: [['mh', 'ebgp-enforce-multihop enable (ve o adrese rota)'], ['pw', 'MD5 parolası'], ['ibgp', 'iBGP\'ye geçmek']], correct: 'mh', why: 'eBGP varsayılan olarak doğrudan bağlı komşu bekler.' },
+            ],
+        },
+        {
+            title: 'Antivirüs Profili Var Ama Virüslü Dosya İniyor', severity: 'warn', topic: 'traffic', lab: 'fgt-67',
+            symptom: 'EICAR test dosyası (ya da gerçek bir zararlı) web üzerinden inebiliyor; antivirüs profili yapılandırmada görünüyor.',
+            steps: [
+                { expect: 'bad', code: 'show firewall policy 1', desc: 'Kuralda "set utm-status enable" ve "set av-profile <profil>" olmalı. HTTPS indirmeleri için ssl-ssh-profile derin inceleme yapan bir profil olmalı; certificate-inspection dosya içeriğini göremez.',
+                  sample: '        set utm-status enable\n        set ssl-ssh-profile "certificate-inspection"\n        set av-profile "AV-KURUM"\n\n# HTTPS indirmeleri taranmıyor',
+                  fix: [{ cause: 'HTTPS derin incelenmiyor', cmd: 'config firewall policy\nedit 1\nset ssl-ssh-profile deep-inspection\nend' },
+                        { cause: 'Profil kurala bağlı değil', cmd: 'config firewall policy\nedit 1\nset utm-status enable\nset av-profile AV-KURUM\nend' }] },
+                { code: 'show antivirus profile AV-KURUM', desc: 'İlgili protokol bloğunda (http, ftp, smtp, imap, pop3) av-scan block olmalı; monitor yalnız loglar, disable taramaz.',
+                  fix: [{ cause: 'Protokol bloğunda tarama kapalı ya da yalnız izleme', cmd: 'config antivirus profile\nedit AV-KURUM\nconfig http\nset av-scan block\nend\nnext\nend' }] },
+                { code: 'execute log filter category 2', desc: 'Ardından "execute log display": utm-virus satırında virus, filename ve action (blocked/monitored). Satır yoksa trafik taranmıyordur.' },
+            ],
+            quiz: [
+                { q: 'HTTPS ile inen virüslü dosyayı yakalamak için ne gerekir?', choices: [['deep', 'Kuralda derin inceleme (deep-inspection)'], ['cert', 'certificate-inspection yeterli'], ['none', 'Hiçbir şey']], correct: 'deep', why: 'Şifreli içerik ancak FortiGate bağlantıyı açarsa taranabilir.' },
+                { q: 'av-scan monitor ne yapar?', choices: [['log', 'Tespit eder ve loglar, engellemez'], ['block', 'Engeller'], ['off', 'Taramaz']], correct: 'log', why: 'monitor geçiş dönemi ve ölçüm için kullanılır.' },
             ],
         },
     ];

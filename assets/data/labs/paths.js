@@ -62,7 +62,7 @@
         [11, 'Seviye 2 · NAT: IP havuzu, VIP ve central NAT', 'Sabit çıkış adresi, sunucu yayınlama ve merkezi SNAT tablosu.'],
         [12, 'Seviye 2 · Yedekleme ve geri yükleme', 'TFTP yedeği, revizyon ve restore.'],
         [13, 'Seviye 3 · Güvenlik duvarı politikaları: denetim ve log', 'Kural eşleşmesini sınamak (iprope lookup), örtük deny, engellenen trafiği loglamak.'],
-        [14, 'Seviye 3 · Güvenlik profilleri ve SSL denetimi', 'Antivirüs, web ve DNS filtre, uygulama kontrolü, IPS; certificate ve deep inspection.'],
+        [14, 'Seviye 3 · Güvenlik profilleri ve SSL denetimi', 'Web ve DNS filtre, uygulama kontrolü, IPS, antivirüs; certificate ve deep inspection.'],
         [15, 'Seviye 3 · Loglama ve izleme', 'Trafik logu, syslog/SIEM, log okuma ve SNMP.'],
         [16, 'Seviye 4 · Site-to-site IPsec', 'Route-based tünel kurulumu, faz 1 ve faz 2.'],
         [17, 'Seviye 4 · SSL-VPN ve uzaktan erişim', 'Uzaktan erişim kurulumu, portal, havuz ve kural.'],
@@ -99,7 +99,7 @@
     // FortiGate yolunun lab kimlikleri (7.4). 7.6 yolu aynı modülleri f76- klonlarıyla kullanır (fortigate-76.js);
     // SSL-VPN tünel lab'ları (fgt-12, fgt-24) 7.6'da yok, yerlerine 7.6'ya özgü planlı lab'lar (f76-30 dial-up, f76-47 ZTNA, f76-54 dial-up tanılama).
     const FGT_IDS = { 1: ['fgt-00'], 2: ['fgt-62', 'fgt-40'], 3: ['fgt-41', 'fgt-63'], 4: ['fgt-20', 'fgt-26'], 5: ['fgt-64', 'fgt-01', 'fgt-17', 'fgt-09', 'fgt-61'], 6: ['fgt-02'], 7: ['fgt-13'], 8: ['fgt-03'], 9: ['fgt-04', 'fgt-05'],
-              10: ['fgt-06'], 11: ['fgt-07', 'fgt-08', 'fgt-42'], 12: ['fgt-18'], 13: ['fgt-58'], 14: ['fgt-10', 'fgt-43', 'fgt-44', 'fgt-45'], 15: ['fgt-14', 'fgt-46'],
+              10: ['fgt-06'], 11: ['fgt-07', 'fgt-08', 'fgt-42'], 12: ['fgt-18'], 13: ['fgt-58'], 14: ['fgt-10', 'fgt-43', 'fgt-44', 'fgt-45', 'fgt-67'], 15: ['fgt-14', 'fgt-46'],
               16: ['fgt-11', 'fgt-31'], 17: ['fgt-12', 'fgt-47'], 18: ['fgt-65', 'fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-60', 'fgt-52', 'fgt-53', 'fgt-66'], 21: ['fgt-59', 'fgt-56', 'fgt-57'],
               22: ['fgt-15', 'fgt-16', 'fgt-32'], 23: ['fgt-21', 'fgt-22'], 24: ['fgt-23', 'fgt-24'], 25: ['fgt-27'], 26: ['fgt-55'] };
     const FGT_76 = {};
