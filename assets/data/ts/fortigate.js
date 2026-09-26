@@ -314,7 +314,7 @@
                   fix: [{ cause: 'fgfm erişimi kapalı: listeye ekleyin (set yerine append; set mevcut erişimi siler)', cmd: 'config system interface\nedit port3\nappend allowaccess fgfm\nend' }] },
                 { code: 'execute telnet 10.64.99.10 541', desc: 'FGFM TCP 541 kullanır. "Connection refused" hedefin portu reddettiğini, zaman aşımı yolda bir engel (arada güvenlik duvarı) olduğunu gösterir. Arada güvenlik duvarı varsa TCP 541 açılmalıdır.' },
                 { code: 'execute telnet 10.64.99.20 514', desc: 'FortiGate logları FortiAnalyzer\'a OFTP ile TCP 514\'ten gönderir. Port yanıt vermiyorsa log gönderimi de çalışmaz; arada güvenlik duvarı varsa TCP 514 açılmalıdır.',
-                  fix: [{ cause: 'FortiAnalyzer ayarı yok ya da yanlış sunucu (bu komut simülatörde yok; gerçek cihazda)', cmd: 'config log fortianalyzer setting\nset status enable\nset server 10.64.99.20\nend' }] },
+                  fix: [{ cause: 'FortiAnalyzer ayarı yok ya da yanlış sunucu (ayrıntılı teşhis: execute log fortianalyzer test-connectivity)', cmd: 'config log fortianalyzer setting\nset status enable\nset server 10.64.99.20\nend' }] },
                 { code: 'execute revision list config', desc: 'Merkezi yönetime devirden önce yerel bir revizyon alınmış mı? İlk kurulum beklenmedik bir değişiklik yaparsa dönüş noktası budur (execute backup config flash <yorum>).',
                   fix: [{ cause: 'Devir öncesi yerel revizyon yok', cmd: 'execute backup config flash FMG-ONCESI' }] },
             ],
@@ -421,6 +421,86 @@
             quiz: [
                 { q: 'fwpolicy-implicit-log varsayılan değeri?', choices: [['disable', 'disable: örtük deny loglanmaz'], ['enable', 'enable'], ['utm', 'utm']], correct: 'disable', why: 'CLI başvurusunda varsayılan disable; açılmadıkça policy 0 düşüşleri trafik loguna yazılmaz.' },
                 { q: 'Web filtre engellerini görmek için hangi kategori?', choices: [['3', '3 (utm-webfilter)'], ['0', '0 (traffic)'], ['1', '1 (event)']], correct: '3', why: 'UTM olayları ayrı kategorilerdedir: 3 web filtre, 4 IPS, 10 uygulama kontrolü, 15 DNS.' },
+            ],
+        },
+        // ── Müfredat Seviye 4–6: VDOM (fgt-53), FortiSwitch/FortiAP (fgt-52), FortiManager (fgt-56), FortiAnalyzer (fgt-57), 7.6 uzaktan erişim / ZTNA (fgt-47)
+        {
+            title: 'VDOM Kipinde Komut "command parse error" Veriyor ya da Kural Arayüzü Göremiyor', severity: 'warn', topic: 'ops', lab: 'fgt-53',
+            symptom: 'Çoklu VDOM kipine geçildikten sonra alışılmış komutlar hata veriyor; ya da bir VDOM\'daki kuralda arayüz seçilemiyor ("entry not found in datasource").',
+            steps: [
+                { code: 'get system status', desc: '"Virtual domain configuration: multiple" satırı çoklu VDOM kipini gösterir. Bu kipte üst düzeyde yalnız "config global" ve "config vdom" vardır.' },
+                { expect: 'bad', code: 'config firewall policy', desc: 'Üst düzeyde yazılan VDOM komutu hata verir. Kurallar ve nesneler için önce "config vdom" → "edit <VDOM>", arayüz, HA ve yönetici ayarları için "config global".',
+                  sample: "command parse error before 'firewall'\n\n# Üst düzeydesiniz: önce config vdom → edit root (ya da ilgili VDOM)",
+                  fix: [{ cause: 'Bağlam yanlış: kural VDOM içinde yazılır', cmd: 'config vdom\nedit root\nconfig firewall policy' }] },
+                { code: 'show system interface port3', desc: '"config global" içinde bakın: "set vdom" arayüzün hangi VDOM\'a ait olduğunu gösterir. Kural yalnız kendi VDOM\'unun arayüzlerini görür; başka VDOM\'daki arayüz "entry not found in datasource" verir.',
+                  fix: [{ cause: 'Arayüz yanlış VDOM\'da (üzerinde kural/rota yoksa taşınabilir)', cmd: 'config global\nconfig system interface\nedit port3\nset vdom MUSTERI\nend\nend' }] },
+            ],
+            quiz: [
+                { q: 'Çoklu VDOM kipinde HA ayarı nerede yapılır?', choices: [['global', 'config global altında'], ['vdom', 'Her VDOM\'da ayrı'], ['root', 'Yalnız root VDOM\'da']], correct: 'global', why: 'HA cihazın tamamını kapsar; cihaz geneli ayarlar global bağlamdadır.' },
+                { q: 'config vdom altında olmayan bir adla "edit" yazılırsa?', choices: [['new', 'O adla yeni VDOM oluşturulur'], ['err', 'Hata verir'], ['root', 'root\'a girilir']], correct: 'new', why: 'Tablolardaki edit gibi: kayıt yoksa oluşturulur. Yanlış yazılmış bir VDOM adı bu yüzden istenmeden yeni VDOM açar.' },
+            ],
+        },
+        {
+            title: 'FortiSwitch (FortiLink) Authorized/Down ya da FortiAP DISCOVERY\'de Kalıyor', severity: 'warn', topic: 'iface', lab: 'fgt-52',
+            symptom: 'FortiGate\'e bağlanan FortiSwitch "Authorized/Down", FortiAP "DISCOVERY" durumunda kalıyor; cihazların gücü ve kablosu sağlam.',
+            steps: [
+                { expect: 'bad', code: 'execute switch-controller get-conn-status', desc: 'Switch durumu: Authorized/Up beklenir. Down ise switch\'in bağlı olduğu arayüzde denetim trafiği için "fabric" erişimini kontrol edin (FortiLink arayüzünde varsayılan olarak açıktır).',
+                  sample: 'SWITCH-ID           VERSION           STATUS          FLAG   ADDRESS      JOIN-TIME\nS124EPTF00000001    v7.4              Authorized/Down 0      169.254.1.2  N/A\n\n# [Simülatör] sadeleştirilmiş örnek',
+                  fix: [{ cause: 'Arayüzde fabric erişimi yok', cmd: 'config system interface\nedit port4\nappend allowaccess fabric\nend' }] },
+                { code: 'get wireless-controller wtp-status', desc: 'AP durumu: CONNECTED (RUN) beklenir; DISCOVERY\'de kalıyorsa AP denetleyiciyi bulamıyor ya da yanıt alamıyor. AP\'nin arayüzünde fabric erişimini ve AP\'nin adres alıp almadığını (execute dhcp lease-list) kontrol edin.',
+                  fix: [{ cause: 'AP arayüzünde fabric erişimi yok', cmd: 'config system interface\nedit port3\nappend allowaccess fabric\nend' }] },
+                { code: 'show system interface port3', desc: 'allowaccess listesinde "fabric" var mı? FortiOS 7.4/7.6\'da ayrı bir "capwap" değeri yoktur; "set allowaccess ping capwap" value parse error verir.' },
+            ],
+            quiz: [
+                { q: '7.x\'te CAPWAP erişimini açan allowaccess değeri?', choices: [['fabric', 'fabric'], ['capwap', 'capwap'], ['fgfm', 'fgfm']], correct: 'fabric', why: 'Security Fabric Connection (fabric), 6.2.3\'ten beri CAPWAP ve FortiTelemetry\'yi birlikte kapsar.' },
+                { q: 'Erişimi eklerken set yerine append kullanmanın nedeni?', choices: [['keep', 'set listeyi değiştirir, mevcut ping/https/ssh erişimi gider'], ['fast', 'append daha hızlıdır'], ['same', 'Fark yoktur']], correct: 'keep', why: 'set tüm listeyi yeniden yazar; yönetim erişimini kesebilir.' },
+            ],
+        },
+        {
+            title: 'Cihaz FortiManager\'da Çevrim Dışı: fdsm ve fgfmd ile Teşhis', severity: 'err', topic: 'ops', lab: 'fgt-56',
+            symptom: 'FortiManager\'da cihaz çevrim dışı (ya da hiç görünmüyor); kural kurulumu yapılamıyor.',
+            steps: [
+                { expect: 'bad', code: 'diagnose fdsm central-mgmt-status', desc: 'Tanımlı FortiManager adresi ve bağlantı durumu. Adres beklenenden farklıysa ya da "Central Management" tanımlı değilse sorun FortiGate ayarındadır.',
+                  sample: 'Central Management: FortiManager\nFortiManager: 192.0.2.51\nConnection status: down\n# [Simülatör] sadeleştirilmiş örnek; beklenen FortiManager 192.0.2.50',
+                  fix: [{ cause: 'Merkezi yönetim tanımsız ya da adres yanlış', cmd: 'config system central-management\nset type fortimanager\nset fmg 192.0.2.50\nend' }] },
+                { code: 'diagnose debug application fgfmd -1', desc: 'Ardından "diagnose debug enable": bağlantı denemesi satırları. Zaman aşımı adres ya da yol (arada TCP 541 engeli) sorununu, "not authorized" FortiManager tarafındaki yetkilendirmeyi gösterir. İş bitince "diagnose debug disable".',
+                  fix: [{ cause: 'Bağlantı kuruluyor ama cihaz yetkisiz: FortiManager\'da Device Manager\'dan yetkilendirin (FortiGate\'te değişiklik gerekmez)' }] },
+                { code: 'show system interface port1', desc: 'FortiManager cihazı kendi tarafından ekleyecekse, bağlantının geldiği arayüzde "fgfm" erişimi açık olmalı.',
+                  fix: [{ cause: 'fgfm erişimi kapalı', cmd: 'config system interface\nedit port1\nappend allowaccess fgfm\nend' }] },
+            ],
+            quiz: [
+                { q: 'FGFM hangi portu kullanır?', choices: [['541', 'TCP 541'], ['514', 'TCP 514'], ['443', 'TCP 443']], correct: '541', why: 'FortiOS port tablosunda FortiManager yönetimi (FGFM) TCP 541.' },
+                { q: 'Bağlantı kuruluyor, cihaz yetkisiz görünüyor. Nerede çözülür?', choices: [['fmg', 'FortiManager\'da (Device Manager, yetkilendirme)'], ['fgt', 'FortiGate\'te'], ['isp', 'ISS\'de']], correct: 'fmg', why: 'Yetkilendirme FortiManager\'ın kararıdır.' },
+            ],
+        },
+        {
+            title: 'FortiAnalyzer\'a Log Gitmiyor: test-connectivity ile Ayar mı, Ağ mı, Yetki mi?', severity: 'err', topic: 'ops', lab: 'fgt-57',
+            symptom: 'FortiAnalyzer\'da cihazın logu yok ya da loglar gecikmeli geliyor.',
+            steps: [
+                { expect: 'bad', code: 'execute log fortianalyzer test-connectivity', desc: 'Üç durumu ayırır: loglama kapalı/sunucu tanımsız, bağlantı Down (adres ya da yol; arada TCP 514 engeli), kayıt yetkisiz (Connection: deny → FortiAnalyzer tarafında yetkilendirme).',
+                  sample: 'FortiAnalyzer Host Name: \nRegistration: unknown\nConnection: Down\n# [Simülatör] sadeleştirilmiş örnek',
+                  fix: [{ cause: 'Loglama kapalı ya da sunucu yanlış', cmd: 'config log fortianalyzer setting\nset status enable\nset server 192.0.2.60\nend' }] },
+                { code: 'show log fortianalyzer setting', desc: 'status, server ve upload-option. Varsayılan upload-option 5-minute: loglar toplu gönderilir; anlık izleme gerekiyorsa realtime.',
+                  fix: [{ cause: 'Loglar gecikmeli geliyor', cmd: 'config log fortianalyzer setting\nset upload-option realtime\nend' }] },
+                { code: 'diagnose log test', desc: 'Örnek loglar üretip tanımlı hedeflere gönderir; FortiAnalyzer hedeflerde görünmeli. FortiAnalyzer tarafında test loglarının geldiğini doğrulayın.' },
+            ],
+            quiz: [
+                { q: 'FortiAnalyzer\'a log iletimi hangi port?', choices: [['514', 'TCP 514 (OFTP)'], ['541', 'TCP 541'], ['udp', 'Yalnız UDP 514']], correct: '514', why: 'FortiOS port tablosunda FortiAnalyzer için OFTP TCP 514.' },
+                { q: '"Connection: deny" ne demek?', choices: [['auth', 'Bağlantı kuruldu ama FortiAnalyzer cihazı yetkilendirmemiş'], ['net', 'Ağ erişimi yok'], ['off', 'Loglama kapalı']], correct: 'auth', why: 'Reddeden FortiAnalyzer\'dır; çözüm onun Device Manager\'ında.' },
+            ],
+        },
+        {
+            title: 'FortiOS 7.6.3 Yükseltmesi Sonrası SSL-VPN Tünel Bağlantısı Yok: Uzaktan Erişim Seçenekleri', severity: 'info', topic: 'vpn', lab: 'fgt-47',
+            symptom: 'FortiOS 7.6.3 ya da sonrasına yükseltilen cihazda FortiClient SSL-VPN tünel bağlantısı çalışmıyor; tünel modu ayarları yapılandırmada yok.',
+            steps: [
+                { code: 'get system status', desc: 'Sürümü doğrulayın. 7.6.3 ve sonrasında SSL-VPN tünel modu kaldırıldı ve yerine IPsec VPN konuldu; tünel modu ayarları yükseltmede taşınmaz, silinir (7.6.3 sürüm notu).' },
+                { expect: 'bad', code: 'show vpn ssl web portal', desc: 'Portallarda tünel modu alanları yoktur; yalnız web erişimi kalır. 7.6 oturumunda "set tunnel-mode enable" command parse error verir.',
+                  sample: "config vpn ssl web portal\n    edit \"full-access\"\n        set web-mode enable\n    next\nend\n\n# tunnel-mode, ip-pools, split-tunneling alanları yok",
+                  fix: [{ cause: 'Uzaktan erişimi IPsec VPN\'e taşıyın (Fortinet\'in "SSL VPN tunnel mode to IPsec VPN migration" kılavuzu; IPsec VPN TCP 443 üzerinden de çalışabilir)' }, { cause: 'Uygulama düzeyinde erişim gerekiyorsa ZTNA (access proxy + FortiClient EMS etiketleri)' }] },
+            ],
+            quiz: [
+                { q: '7.6.3\'e yükseltmeden önce ne yapılmalı?', choices: [['migrate', 'SSL-VPN tünel modu yapılandırması IPsec VPN\'e taşınmalı'], ['nothing', 'Hiçbir şey: otomatik dönüşür'], ['backup', 'Yalnız yedek almak yeterli']], correct: 'migrate', why: 'Sürüm notuna göre tünel modu ayarları yükseltilmez ve kaldırılır.' },
+                { q: 'ZTNA\'da cihaz durumu etiketi nereden gelir?', choices: [['ems', 'FortiClient EMS etiketleme kurallarından'], ['fgt', 'FortiGate antivirüsünden'], ['dhcp', 'DHCP\'den']], correct: 'ems', why: 'Security posture tag\'ler EMS\'te üretilir ve FortiGate\'e EMS bağlayıcısıyla gelir.' },
             ],
         },
     ];

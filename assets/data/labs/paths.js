@@ -100,7 +100,7 @@
     // SSL-VPN tünel lab'ları (fgt-12, fgt-24) 7.6'da yok, yerlerine 7.6'ya özgü planlı lab'lar (f76-30 dial-up, f76-47 ZTNA, f76-54 dial-up tanılama).
     const FGT_IDS = { 1: ['fgt-00'], 2: ['fgt-40'], 3: ['fgt-41'], 4: ['fgt-20', 'fgt-26'], 5: ['fgt-01', 'fgt-17', 'fgt-09'], 6: ['fgt-02'], 7: ['fgt-13'], 8: ['fgt-03'], 9: ['fgt-04', 'fgt-05'],
               10: ['fgt-06'], 11: ['fgt-07', 'fgt-08', 'fgt-42'], 12: ['fgt-18'], 13: ['fgt-58'], 14: ['fgt-10', 'fgt-43', 'fgt-44', 'fgt-45'], 15: ['fgt-14', 'fgt-46'],
-              16: ['fgt-11', 'fgt-31'], 17: ['fgt-12'], 18: ['fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-60', 'fgt-52', 'fgt-53'], 21: ['fgt-59', 'fgt-56', 'fgt-57'],
+              16: ['fgt-11', 'fgt-31'], 17: ['fgt-12', 'fgt-47'], 18: ['fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-60', 'fgt-52', 'fgt-53'], 21: ['fgt-59', 'fgt-56', 'fgt-57'],
               22: ['fgt-15', 'fgt-16', 'fgt-32'], 23: ['fgt-21', 'fgt-22'], 24: ['fgt-23', 'fgt-24'], 25: ['fgt-27'], 26: ['fgt-55'] };
     const FGT_76 = {};
     Object.keys(FGT_IDS).forEach(n => { FGT_76[n] = FGT_IDS[n].filter(id => id !== 'fgt-12' && id !== 'fgt-24').map(id => id.replace(/^fgt-/, 'f76-')); });
