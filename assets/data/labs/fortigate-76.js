@@ -24,7 +24,9 @@
         const base = (root.CG_LABS || []).filter(l => l.vendor === 'fortigate' && !EXCLUDE[l.id]);
         if (!base.length) return [];
         const ids = new Set(base.map(l => l.id));
-        const clones = base.map(src => {
+        // Elle yazılmış 7.6 lab'ları (vendor fortigate-76, from alanı yok) korunur; aynı kimlikte klon üretilmez
+        const hand = new Set((root.CG_LABS || []).filter(l => l.vendor === 'fortigate-76' && !l.from).map(l => l.id));
+        const clones = base.filter(src => !hand.has(idOf(src.id))).map(src => {
             const id = idOf(src.id);
             const c = Object.assign({}, src, {
                 id, vendor: 'fortigate-76', fos: '7.6', from: src.id,
@@ -39,7 +41,7 @@
             });
             return c;
         });
-        root.CG_LABS = (root.CG_LABS || []).filter(l => l.vendor !== 'fortigate-76').concat(clones);
+        root.CG_LABS = (root.CG_LABS || []).filter(l => !(l.vendor === 'fortigate-76' && l.from)).concat(clones);
         return clones;
     }
     root.CgLabF76 = { build, EXCLUDE, idOf };

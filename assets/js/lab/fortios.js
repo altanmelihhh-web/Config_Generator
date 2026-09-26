@@ -133,7 +133,21 @@ const CgLabFgt = (() => {
         'vpn ipsec phase1-interface': { key: 'name', req: ['interface', 'remote-gw', 'psksecret'], attrs: {
             interface: { t: 'ref', ds: 'physIntf', d: 'Tünelin çıktığı (WAN) arayüz' },
             'ike-version': { t: 'enum', v: ['1', '2'], d: 'IKE sürümü' },
-            'remote-gw': { t: 'ip', d: 'Karşı uç genel IP' },
+            'remote-gw': { t: 'ip', when: o => (o.type || 'static') !== 'dynamic', d: 'Karşı uç genel IP' },
+            // F76-L11 — CLI Ref 7.4.8/7.6.6 phase1-interface (305883427); örnek: 7.6.5 Admin Guide "Dialup IPsec VPN using custom TCP port"
+            type: { t: 'enum', v: ['static', 'dynamic', 'ddns'], def: 'static', quietDef: true, d: 'Uzak ağ geçidi tipi (dynamic = dial-up sunucusu)' },
+            peertype: { t: 'enum', v: ['any', 'one', 'dialup', 'peer', 'peergrp'], def: 'peer', quietDef: true, d: 'Kabul edilen karşı uç kimliği' },
+            'net-device': { t: 'enum', v: ED, def: 'disable', quietDef: true, d: 'Her istemci için çekirdek arayüzü oluştur' },
+            'mode-cfg': { t: 'enum', v: ['disable', 'enable'], def: 'disable', quietDef: true, d: 'İstemciye IP/DNS ver (mode-config)' },
+            'ipv4-start-ip': { t: 'ip', def: '0.0.0.0', quietDef: true, when: o => o['mode-cfg'] === 'enable', d: 'İstemci havuzu başı' },
+            'ipv4-end-ip': { t: 'ip', def: '0.0.0.0', quietDef: true, when: o => o['mode-cfg'] === 'enable', d: 'İstemci havuzu sonu' },
+            'ipv4-netmask': { t: 'ip', def: '255.255.255.255', quietDef: true, when: o => o['mode-cfg'] === 'enable', d: 'İstemci maskesi' },
+            'ipv4-dns-server1': { t: 'ip', def: '0.0.0.0', quietDef: true, when: o => o['mode-cfg'] === 'enable', d: 'İstemciye verilen DNS' },
+            'ipv4-split-include': { t: 'ref', ds: 'addr', when: o => o['mode-cfg'] === 'enable', d: 'Split tunnel: tünelden gidecek ağlar (adres/grup)' },
+            eap: { t: 'enum', v: ED, def: 'disable', quietDef: true, d: 'IKEv2 EAP ile kullanıcı doğrulama' },
+            'eap-identity': { t: 'enum', v: ['use-id-payload', 'send-request'], def: 'use-id-payload', quietDef: true, when: o => o.eap === 'enable', d: 'EAP kimlik isteği' },
+            authusrgrp: { t: 'ref', ds: 'ugroups', d: 'Kullanıcı doğrulama grubu' },
+            transport: { t: 'enum', vFos: { '7.4': ['udp', 'udp-fallback-tcp', 'tcp'], '7.6': ['udp', 'auto', 'tcp'] }, defFos: { '7.4': 'udp', '7.6': 'auto' }, quietDef: true, d: 'IKE taşıma protokolü (TCP yalnız IKEv2)' },
             proposal: { t: 'menum', v: P1PROP, d: 'Faz 1 şifreleme-özet önerileri' },
             dhgrp: { t: 'menum', v: DHG, d: 'Diffie-Hellman grupları' },
             psksecret: { t: 'secret', d: 'Ön paylaşımlı anahtar' },
@@ -166,7 +180,8 @@ const CgLabFgt = (() => {
             'tunnel-ip-pools': { t: 'refs', ds: 'addr', only74: true, d: 'Varsayılan istemci IP havuzu' },
             'source-interface': { t: 'refs', ds: 'physIntf', d: 'SSL-VPN\'in dinlediği arayüz(ler)' },
             'source-address': { t: 'refs', ds: 'addr', d: 'Bağlanabilecek kaynak adresler' },
-            port: { t: 'int', min: 1, max: 65535, def: 443, d: 'SSL-VPN portu' } } },
+            port: { t: 'int', min: 1, max: 65535, def: 443, d: 'SSL-VPN portu' },
+            'default-portal': { t: 'ref', ds: 'portal', d: 'Kuralı olmayan kullanıcılar için varsayılan portal (CLI Ref vpn ssl settings)' } } },
         'vpn ssl settings authentication-rule': { key: 'id', num: true, parent: 'vpn ssl settings', sub: 'authentication-rule', req: ['portal'], attrs: {
             groups: { t: 'refs', ds: 'ugroups', d: 'Kullanıcı grupları' },
             portal: { t: 'ref', ds: 'portal', d: 'Portal' } } },
@@ -192,7 +207,10 @@ const CgLabFgt = (() => {
             server: { t: 'str', max: 63, d: 'NTP sunucu adresi' } } },
         'user radius': { key: 'name', req: ['server', 'secret'], attrs: {
             server: { t: 'str', max: 63, d: 'RADIUS sunucu adresi' }, secret: { t: 'secret', d: 'Paylaşılan anahtar' },
-            'auth-type': { t: 'enum', v: ['auto', 'ms_chap_v2', 'ms_chap', 'chap', 'pap'], def: 'auto', d: 'Kimlik doğrulama yöntemi' } } },
+            'auth-type': { t: 'enum', v: ['auto', 'ms_chap_v2', 'ms_chap', 'chap', 'pap'], def: 'auto', d: 'Kimlik doğrulama yöntemi' },
+            // CLI Ref 7.4.8/7.6.6 user radius: varsayılan enable (Blast-RADIUS önlemi). lab.sim.radius.noMsgAuth: sunucu özniteliği göndermez
+            'require-message-authenticator': { t: 'enum', v: ED, def: 'enable', quietDef: true, d: 'Yanıtta Message-Authenticator zorunlu' },
+            'nas-ip': { t: 'ip', def: '0.0.0.0', quietDef: true, d: 'Sunucuya bildirilen NAS IP' } } },
         'user ldap': { key: 'name', req: ['server', 'dn'], attrs: {
             server: { t: 'str', max: 63, d: 'LDAP sunucu adresi' }, cnid: { t: 'str', max: 20, def: 'cn', d: 'Kullanıcı adı özniteliği' },
             dn: { t: 'str', max: 511, d: 'Arama kökü (distinguished name)' },
@@ -280,7 +298,9 @@ const CgLabFgt = (() => {
             'wildcard-fqdn': { t: 'str', max: 79, when: o => o.type === 'wildcard-fqdn', d: 'Joker alan adı (ör. *.example.com)' } } },
         'system settings': { single: true, attrs: {
             'central-nat': { t: 'enum', v: ED, def: 'disable', d: 'Merkezi NAT (SNAT kurallardan değil central-snat-map\'ten)' },
-            'allow-subnet-overlap': { t: 'enum', v: ED, def: 'disable', d: 'Arayüz alt ağlarının çakışmasına izin ver' } } },
+            'allow-subnet-overlap': { t: 'enum', v: ED, def: 'disable', d: 'Arayüz alt ağlarının çakışmasına izin ver' },
+            // L11 — CLI Ref system settings: ike-tcp-port varsayılanı 7.4.8'de 4500, 7.6.6'da 443
+            'ike-tcp-port': { t: 'int', min: 1, max: 65535, defFos: { '7.4': '4500', '7.6': '443' }, quietDef: true, d: 'IKE/IPsec için TCP portu' } } },
         'log setting': { single: true, attrs: {
             'fwpolicy-implicit-log': { t: 'enum', v: ED, def: 'disable', d: 'Örtük (policy 0) deny trafiğini logla' } } },
         'firewall central-snat-map': { key: 'policyid', num: true, move: true, req: ['srcintf', 'dstintf', 'orig-addr', 'dst-addr'], attrs: {
@@ -439,7 +459,7 @@ const CgLabFgt = (() => {
                     if (p.length > 2 || !p.every(isIp) || (p.length === 2 && ip2n(p[0]) > ip2n(p[1]))) return bad(0);
                     return { v: vals[0] };
                 }
-                case 'enum': if (vals.length > 1) return bad(1); if (!a.v.includes(vals[0])) return bad(0); return { v: vals[0] };
+                case 'enum': { const ev = a.vFos ? a.vFos[IS76 ? '7.6' : '7.4'] : a.v; if (vals.length > 1) return bad(1); if (!ev.includes(vals[0])) return bad(0); return { v: vals[0] }; }
                 case 'menum': { const allow = a.v76 && IS76 ? a.v.concat(a.v76) : a.v; for (let i = 0; i < vals.length; i++) if (!allow.includes(vals[i])) return bad(i); return { v: [...new Set(vals)] }; }
                 case 'ints': { for (let i = 0; i < vals.length; i++) if (!/^\d+$/.test(vals[i]) || +vals[i] > a.max) return bad(i); return { v: [...new Set(vals.map(x => String(+x)))] }; }
                 case 'ports1': { for (let i = 0; i < vals.length; i++) if (!/^\d+$/.test(vals[i]) || +vals[i] < 1 || +vals[i] > 65535) return bad(i); return { v: [...new Set(vals.map(x => String(+x)))] }; }
@@ -538,7 +558,7 @@ const CgLabFgt = (() => {
             for (const [k, a] of Object.entries(sc.attrs)) {
                 if (a.when && !a.when(o)) continue;
                 if (!attrOk(a)) continue;
-                let v = o[k] !== undefined ? o[k] : a.def;
+                let v = o[k] !== undefined ? o[k] : (a.defFos ? a.defFos[IS76 ? '7.6' : '7.4'] : a.def);
                 if (v === undefined) v = '';
                 if (a.t === 'secret') v = v ? 'ENC ****' : '';
                 L.push(pad(k, 20) + ': ' + (Array.isArray(v) ? v.map(x => a.t === 'refs' ? qt(x) : x).join(' ') : v));
@@ -552,10 +572,59 @@ const CgLabFgt = (() => {
         // ── IPsec tünel durumu: yapılandırma + lab'daki sabit karşı uç (lab.peer / varyant.peer)
         const PEER = Object.assign({}, lab.peer || {}, (S.variant && S.variant.peer) || {});
         const norm = v => { if (!v) return '0.0.0.0 0.0.0.0'; const m = String(v).match(/^([\d.]+)\/(\d+)$/); return m ? n2ip(netOf(m[1], +m[2])) + ' ' + lenMask(+m[2]) : v; };
+        // ── F76-L11: IPsec dial-up istemci benzetimi (lab.sim.dialup: [{ user, pass, src, ike, proposal, dh, psk, transport: 'auto'|'udp'|'tcp', tcpPort, udpBlocked }])
+        // Kurallar: TCP taşıma yalnız IKEv2 (Admin Guide 7.6.5); sunucu transport udp ise TCP'ye düşülmez; TCP portu system settings ike-tcp-port
+        // (7.4: 4500, 7.6: 443); TCP portu yönetim HTTPS portuyla aynıysa ve arayüzde https açıksa IKE önceliklidir, GUI erişimi kaybolur (7.6.3+ uyarısı).
+        const settingOf = (p, k) => { const a = SCHEMA[p].attrs[k], v = M().t[p][k]; return v !== undefined ? v : (a.defFos ? a.defFos[IS76 ? '7.6' : '7.4'] : a.def); };
+        function dialConnect(cl, used) {
+            const R = { user: cl.user, src: cl.src, ok: false };
+            const t1 = M().t['vpn ipsec phase1-interface'];
+            const name = t1.o.find(k => t1.v[k].type === 'dynamic'); if (!name) return Object.assign(R, { reason: 'noserver' });
+            const p1 = t1.v[name]; R.p1 = name;
+            if (!p1.interface || !ifUp(p1.interface) || !reach(cl.src, ifIp(p1.interface)).ok && !rib().some(x => x.len === 0 && x.dev === p1.interface)) return Object.assign(R, { reason: 'nopath' });
+            const ike = p1['ike-version'] || (IS76 ? '1' : '1'), cike = cl.ike || '2';
+            const tr = p1.transport || (IS76 ? 'auto' : 'udp'), ctr = cl.transport || 'auto';
+            const tcpPort = +settingOf('system settings', 'ike-tcp-port');
+            // taşıma seçimi
+            let use = null;
+            const udpOk = !cl.udpBlocked && tr !== 'tcp' && ctr !== 'tcp';
+            const tcpOk = (tr === 'tcp' || tr === 'auto' || tr === 'udp-fallback-tcp') && ctr !== 'udp';
+            if (udpOk) use = 'udp'; else if (tcpOk) use = 'tcp';
+            R.transport = use;
+            if (!use) return Object.assign(R, { reason: 'transport' });
+            if (use === 'tcp' && (cl.tcpPort || 443) !== tcpPort) return Object.assign(R, { reason: 'tcpport', port: tcpPort });
+            if (ike !== cike) return Object.assign(R, { reason: 'ikever' });
+            if (use === 'tcp' && ike !== '2') return Object.assign(R, { reason: 'ikever' });
+            const dhV = p1.dhgrp || (IS76 ? ['20', '21'] : ['14', '5']);
+            if ((p1.proposal && !p1.proposal.includes(cl.proposal || 'aes256-sha256')) || !dhV.includes(String(cl.dh || (IS76 ? '20' : '14')))) return Object.assign(R, { reason: 'proposal' });
+            if ((p1.psksecret || '') !== (cl.psk || '')) return Object.assign(R, { reason: 'psk' });
+            if (p1.eap === 'enable' || (ike === '1' && p1.authusrgrp)) {
+                const g = p1.authusrgrp && M().t['user group'].v[p1.authusrgrp], u = M().t['user local'].v[cl.user];
+                if (!g || !(g.member || []).includes(cl.user) || !u || u.passwd !== cl.pass || (u.status || 'enable') !== 'enable') return Object.assign(R, { reason: 'auth' });
+            }
+            if (p1['mode-cfg'] !== 'enable') return Object.assign(R, { reason: 'nomodecfg' });
+            const a0 = ip2n(p1['ipv4-start-ip'] || '0.0.0.0'), a1 = ip2n(p1['ipv4-end-ip'] || '0.0.0.0');
+            if (!a0 || a1 < a0) return Object.assign(R, { reason: 'pool' });
+            const idx = (SIM.dialUsed || 0) + used;
+            if (a0 + idx > a1) return Object.assign(R, { reason: 'pool' });
+            R.ip = n2ip(a0 + idx); R.ok = true;
+            R.tcpPort = use === 'tcp' ? tcpPort : null;
+            const ga = M().t['system global'], ifa = (M().t['system interface'].v[p1.interface] || {}).allowaccess || [];
+            R.adminLost = use === 'tcp' && tcpPort === +(ga['admin-sport'] || 443) && ifa.includes('https');
+            const pol = M().t['firewall policy'].o.map(k => M().t['firewall policy'].v[k]).find(pp => (pp.status || 'enable') === 'enable' && (pp.action || 'deny') === 'accept' && (pp.srcintf || []).includes(name) && (pp.srcaddr || []).some(x => addrMatch(x, R.ip)));
+            R.traffic = pol ? 'ok' : 'nopolicy';
+            return R;
+        }
+        function dialAll() {
+            if (S.inDial) return [];   // rota → tünel arayüzü → dialAll özyinelemesine karşı
+            S.inDial = true;
+            try { let used = 0; return (SIM.dialup || []).map(cl => { const r = dialConnect(cl, used); if (r.ok) used++; return r; }); } finally { S.inDial = false; }
+        }
         function tun(name) {
             const p1 = M().t['vpn ipsec phase1-interface'].v[name];
             const T = { name, p1, p1up: false, p2up: false, reason: null, p2: null };
             if (!p1) return Object.assign(T, { reason: 'nop1' });
+            if (p1.type === 'dynamic') { const R = dialAll().filter(r => r.p1 === name && r.ok); T.p1up = T.p2up = R.length > 0; T.dial = true; T.clients = R; T.p2 = M().t['vpn ipsec phase2-interface'].o.find(k => M().t['vpn ipsec phase2-interface'].v[k].phase1name === name) || null; if (!R.length) T.reason = 'noclient'; return T; }
             const phys = p1.interface;
             const route = rib(true).filter(x => x.len === 0 || sameNet(x.net, p1['remote-gw'] || '0.0.0.0', x.len)).sort((a, b) => b.len - a.len)[0];
             if (!phys || !ifUp(phys) || !route || route.dev !== phys) return Object.assign(T, { reason: 'nopath' });
@@ -574,6 +643,9 @@ const CgLabFgt = (() => {
             if (p2.proposal && !p2.proposal.includes(PEER.p2proposal)) return Object.assign(T, { reason: 'p2proposal' });
             if (norm(p2['src-subnet']) !== norm(PEER.remote) || norm(p2['dst-subnet']) !== norm(PEER.local)) return Object.assign(T, { reason: 'selector' });
             if (((p2.pfs || 'enable') === 'enable') !== (PEER.pfs !== false)) return Object.assign(T, { reason: 'p2proposal' });
+            // Faz 2 PFS DH grubu: açık yazılmışsa (7.4) ya da 7.6 varsayılanıyla (20 21) karşı ucun grubu içermeli
+            const p2dh = p2.dhgrp || (IS76 ? ['20', '21'] : null);
+            if ((p2.pfs || 'enable') === 'enable' && PEER.pfs !== false && p2dh && !p2dh.includes(PEER.p2dh || PEER.dh)) return Object.assign(T, { reason: 'p2proposal' });
             T.p2up = true;
             return T;
         }
@@ -1313,14 +1385,18 @@ const CgLabFgt = (() => {
         S.dbg.apps = {}; S.ikeFilter = null;
         // ── IPsec çıktıları
         const p1s = () => M().t['vpn ipsec phase1-interface'].o;
-        function ikeOut() { const o = ikeDebug(); log({ ikedebug: p1s().map(n => tun(n).reason || 'up') }); if (!S.ikeFilter) log({ warn: 'ike-nofilter' }); return o; }
+        function ikeOut() { const o = ikeDebug(); log({ ikedebug: p1s().map(n => tun(n).reason || 'up'), dialdebug: (SIM.dialup || []).length ? dialAll().map(r => r.reason || 'ok') : undefined }); if (!S.ikeFilter) log({ warn: 'ike-nofilter' }); return o; }
         function tunSummary() {
-            return p1s().map(n => { const T = tun(n), p1 = T.p1; return "'" + n + "' " + (p1['remote-gw'] || '0.0.0.0') + ':0  selectors(total,up): ' + (hasP2(n) ? 1 : 0) + '/' + (T.p2up ? 1 : 0) + '  rx(pkt,err): ' + (T.p2up ? '120/0' : '0/0') + '  tx(pkt,err): ' + (T.p2up ? '118/0' : '0/' + (T.p1up ? 0 : 3)); }).join('\n');
+            return p1s().map(n => {
+                if (M().t['vpn ipsec phase1-interface'].v[n].type === 'dynamic') return dialAll().filter(r => r.ok && r.p1 === n).map((r, i) => "'" + n + '_' + i + "' " + r.src + ':' + (r.transport === 'tcp' ? r.tcpPort : 4500) + '  selectors(total,up): 1/1  rx(pkt,err): 64/0  tx(pkt,err): 60/0').join('\n'); const T = tun(n), p1 = T.p1; return "'" + n + "' " + (p1['remote-gw'] || '0.0.0.0') + ':0  selectors(total,up): ' + (hasP2(n) ? 1 : 0) + '/' + (T.p2up ? 1 : 0) + '  rx(pkt,err): ' + (T.p2up ? '120/0' : '0/0') + '  tx(pkt,err): ' + (T.p2up ? '118/0' : '0/' + (T.p1up ? 0 : 3)); }).join('\n');
         }
         function ikeGw(name) {
             const list = name ? [name] : p1s();
             return list.map(n => {
                 const T = tun(n), p1 = T.p1; if (!p1) return '';
+                if (p1.type === 'dynamic') return dialAll().filter(r => r.ok && r.p1 === n).map((r, i) => ['vd: root/0', 'name: ' + n + '_' + i, 'version: 2', 'interface: ' + p1.interface + ' 3', 'addr: ' + ifIp(p1.interface) + ':' + (r.transport === 'tcp' ? r.tcpPort : 4500) + ' -> ' + r.src + ':' + (r.transport === 'tcp' ? 50000 : 4500),
+                    'created: 45s ago', 'peer-id: ' + r.user, 'assigned IPv4 address: ' + r.ip + '/255.255.255.255', 'IKE SA: created 1/1  established 1/1  time 30/30/30 ms', 'IPsec SA: created 1/1  established 1/1  time 0/0/0 ms',
+                    '# [Simülatör] Taşıma: ' + (r.transport === 'tcp' ? 'TCP ' + r.tcpPort : 'UDP 500/4500') + (r.adminLost ? ' — UYARI: bu port yönetim HTTPS portuyla aynı; bu arayüzde GUI erişimi kaybolur (IKE öncelikli).' : '')].join('\n')).join('\n\n');
                 const L = ['vd: root/0', 'name: ' + n, 'version: ' + (p1['ike-version'] || (IS76 ? '1' : PEER.ike) || '1'), 'interface: ' + p1.interface + ' 3', 'addr: ' + ifIp(p1.interface) + ':500 -> ' + p1['remote-gw'] + ':500',
                     'tun_id: ' + p1['remote-gw'] + '/::' + p1['remote-gw'], 'created: 312s ago', 'peer-id: ' + p1['remote-gw'], 'peer-id-auth: no', 'PPK: no',
                     'IKE SA: created 1/' + (T.p1up ? 1 : 5) + '  established ' + (T.p1up ? '1/1  time 20/20/20 ms' : '0/0  time 0/0/0 ms'),
@@ -1335,6 +1411,7 @@ const CgLabFgt = (() => {
             const L = ['list all ipsec tunnel in vd 0'];
             (name ? [name] : p1s()).forEach((n, i) => {
                 const T = tun(n), p1 = T.p1; if (!p1) return;
+                if (p1.type === 'dynamic') { dialAll().filter(r => r.ok && r.p1 === n).forEach((r, k) => L.push('------------------------------------------------------', 'name=' + n + '_' + k + ' ver=2 serial=' + (i + k + 1) + ' ' + ifIp(p1.interface) + ':0->' + r.src + ':0 tun_id=' + r.ip + ' dst_mtu=1500 dpd-link=on weight=1', 'bound_if=3 lgwy=static/1 tun=intf mode=dial_inst/3 encap=none/' + (r.transport === 'tcp' ? '4744' : '552') + ' options[0228]=npu frag-rfc  run_state=0 role=primary accept_traffic=1 overlay_id=0', 'parent=' + n + ' index=' + k, 'proxyid_num=1 child_num=0 refcnt=4 ilast=2 olast=2 ad=/0', '  src: 0:0.0.0.0-255.255.255.255:0', '  dst: 0:' + r.ip + '-' + r.ip + ':0')); return; }
                 const p2 = T.p2 && M().t['vpn ipsec phase2-interface'].v[T.p2];
                 const rng = v => { const [a, m] = norm(v).split(' '), l = maskLen(m), base = netOf(a, l); return n2ip(base) + '-' + n2ip(base + 2 ** (32 - l) - 1); };
                 L.push('------------------------------------------------------', 'name=' + n + ' ver=' + (p1['ike-version'] || (IS76 ? '1' : PEER.ike) || '1') + ' serial=' + (i + 1) + ' ' + ifIp(p1.interface) + ':0->' + p1['remote-gw'] + ':0 tun_id=' + p1['remote-gw'] + ' dst_mtu=1500 dpd-link=on weight=1',
@@ -1351,7 +1428,22 @@ const CgLabFgt = (() => {
         }
         // IKE debug: her faz 1 için bir müzakere denemesinin özeti (neden satırları gerçek anahtar ifadelerle)
         function ikeDebug() {
-            return p1s().filter(n => !S.ikeFilter || M().t['vpn ipsec phase1-interface'].v[n]['remote-gw'] === S.ikeFilter).map(n => {
+            const dyn = p1s().filter(n => M().t['vpn ipsec phase1-interface'].v[n].type === 'dynamic');
+            const dLines = dyn.length ? dialAll().filter(r => !S.ikeFilter || r.src === S.ikeFilter).map(r => {
+                const n = r.p1 || dyn[0], pre = 'ike 0:' + n + ': ', L = ['# [Simülatör] dial-up müzakeresi sadeleştirildi: ' + r.user + ' (' + r.src + ')'];
+                if (r.reason === 'nopath') return L.concat([pre + 'no route/interface for incoming connection']).join('\n');
+                if (r.reason === 'transport') return L.concat([pre + 'no IKE packet received from ' + r.src + ' (UDP 500/4500 engelli, sunucu transport udp: TCP\'ye geçilmedi)']).join('\n');
+                if (r.reason === 'tcpport') return L.concat([pre + 'no TCP connection from ' + r.src + ' on port ' + r.port + ' (istemci başka TCP portu deniyor)']).join('\n');
+                L.push(pre + 'comes ' + r.src + ':' + (r.transport === 'tcp' ? 50000 : 500) + '->' + ifIp(M().t['vpn ipsec phase1-interface'].v[n].interface) + ':' + (r.transport === 'tcp' ? (r.tcpPort || +settingOf('system settings', 'ike-tcp-port')) : 500) + ' (' + (r.transport === 'tcp' ? 'TCP' : 'UDP') + ')');
+                if (r.reason === 'ikever') return L.concat([pre + 'IKE version mismatch / unsupported for this transport, ignoring request']).join('\n');
+                if (r.reason === 'proposal') return L.concat([pre + 'no SA proposal chosen']).join('\n');
+                if (r.reason === 'psk') return L.concat([pre + 'auth verify failed', pre + 'probable pre-shared secret mismatch']).join('\n');
+                if (r.reason === 'auth') return L.concat([pre + 'EAP authentication failed for user ' + r.user]).join('\n');
+                if (r.reason === 'nomodecfg') return L.concat([pre + 'mode-cfg disabled, no address for client']).join('\n');
+                if (r.reason === 'pool') return L.concat([pre + 'mode-cfg: no available IPv4 address in pool']).join('\n');
+                return L.concat([pre + 'EAP user "' + r.user + '" authenticated', pre + 'mode-cfg assigned ' + r.ip, pre + 'added dialup tunnel ' + n + '_0, IPsec SA established']).join('\n');
+            }) : [];
+            return dLines.concat(p1s().filter(n => M().t['vpn ipsec phase1-interface'].v[n].type !== 'dynamic').filter(n => !S.ikeFilter || M().t['vpn ipsec phase1-interface'].v[n]['remote-gw'] === S.ikeFilter).map(n => {
                 const T = tun(n), p1 = T.p1, me = ifIp(p1.interface), gw = p1['remote-gw'], v2 = (p1['ike-version'] || (IS76 ? '1' : PEER.ike)) === '2';
                 const pre = 'ike 0:' + n + ':12: ', L = ['ike 0:' + n + ': ' + (v2 ? 'IKEv2' : 'IKEv1') + ' negotiation started (' + me + '->' + gw + ':500)'];
                 const r = T.reason;
@@ -1367,7 +1459,7 @@ const CgLabFgt = (() => {
                 if (r === 'selector') { L.push('ike 0:' + n + ':' + p2n + ': peer selectors: src ' + norm(PEER.local) + ' dst ' + norm(PEER.remote), 'ike 0:' + n + ':' + p2n + ': ' + (v2 ? 'TS_UNACCEPTABLE' : 'no matching phase2 found')); return L.join('\n'); }
                 L.push('ike 0:' + n + ':' + p2n + ': added IPsec SA: SPIs=8a1b2c3d/4d5e6f70', 'ike 0:' + n + ':' + p2n + ': sending SNMP tunnel UP trap');
                 return L.join('\n');
-            }).join('\n');
+            })).join('\n');
         }
         // ── Kimlik doğrulama testi (lab.sim.radius / lab.sim.ldap: sanal sunucu)
         function authTest(kind, a, line) {
@@ -1380,7 +1472,7 @@ const CgLabFgt = (() => {
             const reachOk = o.server === sv.ip && reach(sv.ip).ok;
             if (!reachOk) { log({ authtest: kind, result: 'timeout' }); return '# [Simülatör] ' + o.server + ' adresindeki sunucudan yanıt yok (adres ya da yol yanlış); gerçek cihazda test zaman aşımıyla biter.'; }
             let good = !!sv.users && sv.users[user] === pw;
-            if (kind === 'radius') good = good && o.secret === sv.secret;
+            if (kind === 'radius') good = good && o.secret === sv.secret && !(sv.noMsgAuth && (o['require-message-authenticator'] || 'enable') === 'enable');
             else good = good && o.dn === sv.dn && ((o.type || 'simple') !== 'regular' || (o.username === (sv.bind || {}).user && o.password === (sv.bind || {}).pw));
             log({ authtest: kind, result: good ? 'ok' : 'fail', user });
             if (kind === 'radius') return good ? 'authenticate \'' + user + '\' against \'' + method + '\' succeeded, server=primary assigned_rad_session_id=1790336450 session_timeout=0 secs idle_timeout=0 secs!' + (sv.groups && sv.groups[user] ? '\nGroup membership(s) - ' + sv.groups[user] : '')
@@ -1811,7 +1903,16 @@ const CgLabFgt = (() => {
             if (v.ok === 'show') {
                 let i = 1, full = false;
                 if (t[1] && 'full-configuration'.startsWith(t[1].t.toLowerCase()) && t[1].t.length > 1) { full = true; i = 2; }
-                if (i >= t.length) { log({ raw: line, canon: 'show' + (full ? ' full-configuration' : '') }); return PATHS.filter(p => !NEWP.has(p) || (SCHEMA[p].single ? Object.keys(M().t[p]).length : M().t[p].o.length)).map(p => showPath(p, undefined, full)).join('\n'); }
+                if (i >= t.length) {
+                    log({ raw: line, canon: 'show' + (full ? ' full-configuration' : '') });
+                    const vis = p => !NEWP.has(p) || (SCHEMA[p].single ? Object.keys(M().t[p]).length : M().t[p].o.length);
+                    if (!M().vdt || !S.vd || S.vd.where !== 'top') return PATHS.filter(vis).map(p => showPath(p, undefined, full)).join('\n');
+                    // M12: çoklu VDOM'da üst düzey show → config global … end, config vdom / edit <ad> … next … end
+                    const L = ['config global'].concat(PATHS.filter(p => GLOBALP.has(p) && vis(p)).map(p => showPath(p, undefined, full)), ['end', 'config vdom']);
+                    for (const vd of Object.keys(M().vdt)) { swapVd(vd); L.push('edit ' + vd, ...PATHS.filter(p => !GLOBALP.has(p) && vis(p)).map(p => showPath(p, undefined, full)), 'next'); }
+                    swapVd('root'); L.push('end');
+                    return L.join('\n');
+                }
                 const r = resolvePath(t, i);
                 if (r.err !== undefined || r.incomplete) { log({ raw: line, err: 'invalid' }); return perr(r.err); }
                 let key;
@@ -2021,6 +2122,7 @@ const CgLabFgt = (() => {
             }
             const miss = (sc.req || []).filter(k => { const v = c.draft[k]; return v === undefined || (Array.isArray(v) && !v.length); });
             if (c.path === 'router static' && c.draft.blackhole !== 'enable' && !c.draft.device) miss.push('device');
+            if (c.path === 'vpn ipsec phase1-interface' && c.draft.type === 'dynamic') { const i = miss.indexOf('remote-gw'); if (i >= 0) miss.splice(i, 1); }
             if (c.path === 'system interface' && c.draft.type === 'vlan') ['vdom', 'interface', 'vlanid'].forEach(k => { if (c.draft[k] === undefined && !miss.includes(k)) miss.push(k); });
             if (miss.length) return miss.map(k => 'node_check_object fail! for ' + k + '\nAttribute \'' + k + '\' MUST be set.').join('\n');
             if (c.path === 'firewall vip' && c.draft.portforward === 'enable' && !c.draft.extport) return 'node_check_object fail! for extport\nAttribute \'extport\' MUST be set.';
@@ -2139,7 +2241,7 @@ const CgLabFgt = (() => {
                 if (done.length === 1) return Object.entries(sc.attrs).filter(([k, a]) => a.t !== 'ro' && attrOk(a) && (!a.when || a.when(c.draft)) && (v.ok === 'set' || v.ok === 'unset' || ['refs', 'menum', 'ports'].includes(a.t))).map(([k, a]) => [k, a.d || '']);
                 const a = sc.attrs[done[1].t.toLowerCase()];
                 if (!a || v.ok === 'unset') return [];
-                if (a.t === 'enum' || a.t === 'menum') return (a.v76 && IS76 ? a.v.concat(a.v76) : a.v).map(x => [x, '']);
+                if (a.t === 'enum' || a.t === 'menum') return (a.vFos ? a.vFos[IS76 ? '7.6' : '7.4'] : a.v76 && IS76 ? a.v.concat(a.v76) : a.v).map(x => [x, '']);
                 if (a.t === 'refn') return DS[a.ds]().map(x => [x, '']);
                 if (a.t === 'ref' || a.t === 'refs') return DS[a.ds]().filter(x => x !== 'none' || a.ds !== 'addrgrpMember').map(x => [x, '']);
                 return [[{ str: '<string>', int: '<' + a.min + '-' + a.max + '>', ip: '<A.B.C.D>', ipmask: '<A.B.C.D A.B.C.D> ya da <A.B.C.D/uz>', iprange: '<A.B.C.D[-A.B.C.D]>', iprangeq: '<A.B.C.D[-A.B.C.D]>', ports: '<port[-port]>', port1: '<port[-port]>', secret: '<parola>', ints: '<numara> …', ports1: '<port> …', hhmm: '<ss:dd>' }[a.t] || '<değer>', a.d || '']];
@@ -2202,7 +2304,7 @@ const CgLabFgt = (() => {
             ha: () => { const E = haElect(); return { formed: E.formed, primary: E.formed ? E.meP : true, reason: E.reason || E.why, synced: haInSync(), onPeer: S.ha.onPeer }; },
             tun: n => { const T = tun(n); return { p1up: T.p1up, p2up: T.p2up, reason: T.reason }; },
             variant: () => S.variant, decide: f => decide(Object.assign({ sport: 50000, proto: 'tcp', reply: 'ok', arrives: true }, f)), fos: FOS,
-            logs: () => genLogs(), vdom: () => ({ mode: M().vdt ? 'multi-vdom' : 'no-vdom', where: S.vd ? S.vd.where : null, cur: M().curVd || 'root', list: M().vdt ? Object.keys(M().vdt) : ['root'] }), subObj: (p, k, sub) => { const o = M().t[p].v[k]; return o ? o['_sub_' + sub] || null : null; },
+            logs: () => genLogs(), dialup: user => { const r = dialAll().find(x => x.user === user); return r || null; }, dialups: () => dialAll(), vdom: () => ({ mode: M().vdt ? 'multi-vdom' : 'no-vdom', where: S.vd ? S.vd.where : null, cur: M().curVd || 'root', list: M().vdt ? Object.keys(M().vdt) : ['root'] }), subObj: (p, k, sub) => { const o = M().t[p].v[k]; return o ? o['_sub_' + sub] || null : null; },
             get model() { return S.m; }, ev: E, mode: () => (S.ctx ? (S.ctx.key !== undefined ? 'edit' : 'config') : 'root'),
             obj, keys: p => M().t[p].o.filter(k => !M().t[p].v[k]._builtin), order: p => M().t[p].o.slice(),
             rib, ifUp, saved: () => !S.ctx, dhcpLeases: () => dhcpLeases(), zoneOf: n => zoneOf(n), revs: () => S.revs.map(r => r.comment), tftp: () => Object.keys(S.tftp),

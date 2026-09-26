@@ -47,6 +47,12 @@ function _fgWAccess(label, list, isWan, w) {
 }
 // Virgül / boşluk ayrımlı liste (arayüz adları)
 const _fgWList = s => String(s || '').split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+// FortiOS sürüm seçimi (F76-G0): çıktısı sürüme göre değişen türlerde; varsayılan 7.4 (7.4 çıktısı aynen kalır)
+const _fgVerField = (why) => ({ name: 'fos_ver', why: why || 'Çıktı hedef FortiOS sürümüne göre değişir. Varsayılan 7.4; 7.6 seçilirse 7.6\'da kaldırılan/değişen ayarlar buna göre yazılır.', label: 'FortiOS Sürümü', type: 'select', options: [
+    { value: '7.4', label: 'FortiOS 7.4', selected: true },
+    { value: '7.6', label: 'FortiOS 7.6' }
+] });
+const _fgIs76 = d => String((d && d.fos_ver) || '7.4') === '7.6';
 
 // ── FortiGate: Interface ───────────────────────────────────────────────────────
 FortiGate.interface = {
@@ -449,8 +455,10 @@ FortiGate.ipsec = {
                         { name: 'dhgrp', why: 'Anahtar değişimi için kullanılan grup. Grup 1, 2 ve 5 artık güvensiz kabul edilir; 14 (2048-bit) alt sınırdır. İki tarafta aynı grup seçilmeli.',      label: 'DH Group',         type: 'select', options: [
                             { value: '14', label: 'Group 14', selected: true },
                             { value: '19', label: 'Group 19 (EC)' },
-                            { value: '5',  label: 'Group 5 (eski)' }
-                        ]}
+                            { value: '20', label: 'Group 20 (EC, 7.6.5+ varsayılanı)' },
+                            { value: '21', label: 'Group 21 (EC)' }
+                        ]},
+                        _fgVerField('7.6.5 ve sonrasında faz 1/2 DH varsayılanı 14 5 yerine 20 21 oldu; seçilen grup karşı uçla aynı olmalı. 7.6 seçilince çıktıya bu not ve karşı uç kontrolü eklenir.')
                     ]
                 },
                 {
@@ -533,6 +541,8 @@ function cgFgIpsecGen(data) {
     const lan      = cgEsc(String(data.lan_iface || '').trim());
     const w = [];
     let c = '# ========================================\n# FortiGate — IPSec VPN Configuration\n# ========================================\n\n';
+    // CLI Ref 7.6.6 phase1-interface: dhgrp varsayılanı 20 (7.6.5 RN: 20 21); yükseltmede varsayılanı kullanan tüneller 14 20 21'e çevrilir
+    if (_fgIs76(data)) c += '# FortiOS 7.6: 7.6.5+ DH varsayılanı 20 21. Aşağıdaki dhgrp açıkça yazıldı; karşı uçta da aynı grup olmalı.\n\n';
     c += 'config vpn ipsec phase1-interface\n    edit "' + p1 + '"\n';
     c += '        set interface "' + iface + '"\n';
     c += '        set peertype any\n';
@@ -638,6 +648,7 @@ FortiGate.sslvpn = {
                         { name: 'src_iface', why: "SSL-VPN'in dinleyeceği dış arayüz. Yönetim arayüzüyle <b>aynı portu</b> paylaşırsa çakışma olur.",   label: 'WAN Interface',        type: 'text', validate: 'iface', required: true, placeholder: 'port1',                          hint: 'SSL-VPN dinleyeceği WAN arayüzü' },
                         { name: 'ssl_port', why: "Varsayılan 443, ama yönetim arayüzü de 443 kullanır. İkisini aynı portta bırakmak yönetim erişimini kırar — SSL-VPN'i 10443 gibi bir porta almak yaygın pratiktir.",    label: 'SSL-VPN Port',         type: 'text', validate: 'port', required: true, placeholder: '10443',                          hint: 'HTTPS 443\'ten farklı bir port önerilir' },
                         { name: 'tunnel_pool', why: 'VPN istemcilerine dağıtılacak IP havuzu. İç ağdaki hiçbir subnet ile <b>çakışmamalı</b>, aksi halde yönlendirme kırılır.', label: 'Tunnel IP Pool Adı',   type: 'text', required: true, placeholder: 'SSLVPN_TUNNEL_ADDR1',            hint: 'IP pool nesnesinin adı' },
+                        _fgVerField('FortiOS 7.6.3 ve sonrasında SSL-VPN tünel modu yoktur; 7.6 seçilirse yalnız web modu (Agentless VPN) yazılır, tünel alanları atlanır ve IPsec dial-up önerilir.'),
                         { name: 'pool_range', why: 'Havuz aralığı eşzamanlı kullanıcı sayısından büyük olmalı. Dolduğunda yeni kullanıcılar sessizce bağlanamaz.',  label: 'IP Pool Aralığı',      type: 'text', validate: 'ip_range', required: true, placeholder: '10.212.134.200-10.212.134.210',  hint: 'Başlangıç-Bitiş formatında IP aralığı' }
                     ]
                 },
@@ -675,6 +686,7 @@ function cgFgSslvpnGen(data) {
     const lan = cgEsc(String(data.lan_iface || '').trim()), lanAddr = cgEsc(String(data.lan_addr || '').trim());
     const split = data.split_tunnel === 'disable' ? 'disable' : 'enable';
     const w = [];
+    if (_fgIs76(data)) return cgFgSslvpn76(data, { iface, port, portal, grp, srcAddr, cert, lan, lanAddr });
     let c = '# ========================================\n# FortiGate — SSL-VPN Configuration\n# ========================================\n\n';
     // FortiOS 7.6.3 RN: SSL VPN tünel modu kaldırıldı; 7.6.6 CLI Ref'te portal altında tunnel-mode/ip-pools/
     // split-tunneling, settings altında tunnel-ip-pools yok. Çıktı 7.4 içindir (içerik değişmedi).
@@ -719,6 +731,29 @@ function cgFgSslvpnGen(data) {
     if (/^Fortinet_Factory$/i.test(String(data.server_cert || '').trim())) w.push('⚠ Fortinet_Factory kendinden imzalı fabrika sertifikasıdır: istemciler sertifika uyarısı alır; güvenilir bir CA sertifikası yükleyin.');
     if (split === 'disable') w.push('ℹ Split tunnel kapalı: kullanıcıların internet trafiği de tünelden gelir; ayrıca ssl.root → WAN yönünde NAT açık bir kural gerekir (bu çıktıda yok).');
     w.push('ℹ Kullanıcılar ' + (grp || 'VPN grubu') + ' grubunda olmalı (Local User & Group aracı); grup authentication-rule ve ssl.root kuralında aynı olmalı, yoksa giriş "permission denied" ile reddedilir (fgt-24).');
+    return { config: c, warnings: w };
+}
+
+// SSL-VPN, FortiOS 7.6: tünel modu yok (7.6.3 RN "SSL VPN tunnel mode replaced with IPsec VPN"); web modu "Agentless VPN"
+// (7.6.6 CLI Ref vpn ssl web portal / settings: tunnel-mode, ip-pools, split-tunneling, tunnel-ip-pools yok).
+function cgFgSslvpn76(data, v) {
+    const w = [];
+    let c = '# ========================================\n# FortiGate — Agentless VPN (SSL-VPN web modu), FortiOS 7.6\n# ========================================\n\n';
+    c += '# 7.6.3+ SSL-VPN tünel modu yoktur; FortiClient ile tam ağ erişimi için IPsec dial-up VPN türünü kullanın.\n\n';
+    c += '# 1. Portal (yalnız web modu)\nconfig vpn ssl web portal\n    edit "' + v.portal + '"\n        set web-mode enable\n    next\nend\n\n';
+    c += '# 2. Agentless VPN ayarları\nconfig vpn ssl settings\n';
+    c += '    set servercert "' + v.cert + '"\n    set source-interface "' + v.iface + '"\n    set source-address "' + v.srcAddr + '"\n';
+    c += '    set default-portal "' + v.portal + '"\n    set port ' + v.port + '\n';
+    c += '    config authentication-rule\n        edit 1\n            set groups "' + v.grp + '"\n            set portal "' + v.portal + '"\n        next\n    end\nend\n\n';
+    c += '# 3. Web modu kullanıcılarının iç kaynaklara erişim kuralı (ssl.root)\nconfig firewall policy\n    edit 0\n';
+    c += '        set name "AGENTLESS-TO-LAN"\n        set srcintf "ssl.root"\n        set dstintf "' + v.lan + '"\n';
+    c += '        set srcaddr "all"\n        set dstaddr "' + v.lanAddr + '"\n        set groups "' + v.grp + '"\n';
+    c += '        set action accept\n        set schedule "always"\n        set service "ALL"\n        set logtraffic all\n    next\nend\n\n';
+    c += '# Doğrulama:\n# get vpn ssl monitor\n# diagnose vpn ssl list\n';
+    w.push('⚠ FortiOS 7.6: tünel modu, IP havuzu ve split tunnel alanları yazılmadı (7.6.3+ yok). FortiClient tünel erişimi için "IPsec Dial-up (FortiClient)" türünü kullanın.');
+    w.push('ℹ Agentless VPN 7.6\'da bazı küçük modellerde (ör. 40F/60F/90G serisi, 2 GB RAM) desteklenmez; model sürüm notlarını kontrol edin.');
+    if (String(data.ssl_port || '').trim() === '443') w.push('⚠ Port 443: yönetim HTTPS arayüzüyle çakışır; 10443 gibi ayrı bir port seçin.');
+    if (/^Fortinet_Factory$/i.test(String(data.server_cert || '').trim())) w.push('⚠ Fortinet_Factory kendinden imzalı fabrika sertifikasıdır; güvenilir bir CA sertifikası yükleyin.');
     return { config: c, warnings: w };
 }
 
@@ -2869,4 +2904,202 @@ function cgFgAutomationGen(data) {
     c += '    next\nend\n\n';
     c += '# Doğrulama:\n# show system automation-stitch "' + st + '"\n# diagnose automation test ' + st + '\n';
     return c;
+}
+
+// ── FortiGate: IPsec Dial-up (FortiClient, IKEv2 + EAP, TCP taşıma) — F76-G6 ──
+// Kaynak: FortiOS 7.6.5 Admin Guide "Dialup IPsec VPN using custom TCP port" (CLI örneği), CLI Ref 7.4.8/7.6.6
+// config vpn ipsec phase1-interface (type, mode-cfg, ipv4-start-ip/end-ip, eap, eap-identity, authusrgrp, transport)
+// ve config system settings (ike-tcp-port: 7.4.8'de varsayılan 4500, 7.6.6'da 443). transport değerleri:
+// 7.4 udp | udp-fallback-tcp | tcp (varsayılan udp); 7.6 udp | auto | tcp (varsayılan auto). TCP taşıma yalnız IKEv2.
+FortiGate.ipsecdialup = {
+    label: 'IPsec Dial-up (FortiClient)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-laptop-house',
+                title: 'IPsec Dial-up VPN — FortiClient (FortiGate)',
+                desc: 'Uzaktan erişim için IKEv2 + EAP dial-up sunucusu; istemciye havuzdan IP, split tunnel ve TCP üzerinden IPsec. FortiOS 7.6.3+ SSL-VPN tünel modunun yerini alır.<br><code>config vpn ipsec phase1-interface\n  edit "FCT-VPN"\n    set type dynamic\n    set ike-version 2\n    set mode-cfg enable\n    set eap enable\n    set transport auto\n  next\nend</code>'
+            },
+            sections: [
+                {
+                    title: 'Sunucu (faz 1)',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'du_name', why: 'Tünel adı sanal arayüz adıdır (en çok 15 karakter); kural ve yönlendirmede bu adı kullanırsınız.', label: 'Tünel Adı', type: 'text', validate: 'objname', required: true, placeholder: 'FCT-VPN', hint: 'phase1-interface adı' },
+                        { name: 'du_wan', why: 'İstemcilerin bağlanacağı dış arayüz. Yönetim HTTPS de bu arayüzde açıksa TCP 443 çakışmasına dikkat.', label: 'WAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'port1', hint: 'interface' },
+                        { name: 'du_psk', why: 'IKEv2 PSK kimliğiyle birlikte kullanıcı EAP ile doğrulanır; PSK FortiClient profilinde aynı olmalı.', label: 'Ön Paylaşımlı Anahtar', type: 'text', required: true, placeholder: 'Uzun-Rastgele-Anahtar-2026', hint: 'psksecret' },
+                        { name: 'du_group', why: 'EAP ile doğrulanacak kullanıcı grubu (yerel, RADIUS ya da LDAP). Grup yoksa kimse bağlanamaz.', label: 'Kullanıcı Grubu', type: 'text', validate: 'objname', required: true, placeholder: 'VPN-USERS', hint: 'authusrgrp' },
+                        { name: 'du_dh', why: '7.6.5+ varsayılanı 20 21 (eliptik eğri). FortiClient 7.4+ bunları destekler; eski istemci için 14 eklenebilir.', label: 'DH Grupları', type: 'select', options: [
+                            { value: '20 21', label: '20 21 (7.6.5+ varsayılanı)', selected: true },
+                            { value: '14 20 21', label: '14 20 21 (eski istemci uyumu)' },
+                            { value: '19 20', label: '19 20' }
+                        ]},
+                        _fgVerField('transport değerleri ve ike-tcp-port varsayılanı sürüme göre değişir: 7.4 udp / udp-fallback-tcp / tcp ve TCP 4500; 7.6 udp / auto / tcp ve TCP 443.')
+                    ]
+                },
+                {
+                    title: 'İstemci adresleri ve taşıma',
+                    icon: 'fas fa-network-wired',
+                    fields: [
+                        { name: 'du_pool', why: 'İstemcilere mode-config ile verilecek adresler. İç ağla çakışmamalı; eşzamanlı kullanıcı sayısından büyük olmalı.', label: 'IP Havuzu', type: 'text', validate: 'ip_range', required: true, placeholder: '10.64.200.10-10.64.200.100', hint: 'ipv4-start-ip / ipv4-end-ip' },
+                        { name: 'du_dns', why: 'İstemcinin tünel açıkken kullanacağı DNS. Boşsa FortiGate\'in DNS ayarı kullanılmaz; iç adlar çözülmez.', label: 'İstemci DNS', type: 'text', validate: 'ip', placeholder: '10.64.10.53', hint: 'ipv4-dns-server1 (isteğe bağlı)' },
+                        { name: 'du_split', why: 'Doluysa yalnız bu adres nesnesindeki ağlar tünelden gider (split tunnel); boşsa istemcinin tüm trafiği tünelden gelir.', label: 'Split Tunnel Ağı', type: 'text', validate: 'objname', placeholder: 'LAN-NET', hint: 'ipv4-split-include (adres/grup, isteğe bağlı)' },
+                        { name: 'du_transport', why: 'auto: önce UDP 500/4500, engelliyse TCP. tcp: yalnız TCP (UDP\'yi kesen otel/misafir ağları). TCP taşıma yalnız IKEv2 ile çalışır.', label: 'Taşıma', type: 'select', options: [
+                            { value: 'auto', label: 'auto (UDP, gerekirse TCP)', selected: true },
+                            { value: 'tcp', label: 'tcp (yalnız TCP)' },
+                            { value: 'udp', label: 'udp (yalnız UDP)' }
+                        ]},
+                        { name: 'du_tcpport', why: 'IKE/IPsec TCP portu (system settings ike-tcp-port). 443 yönetim HTTPS ile aynı arayüzde çakışır; IKE öncelikli olur ve GUI erişimi kaybolur.', label: 'TCP Portu', type: 'text', validate: 'port', placeholder: '443', hint: 'Boşsa sürüm varsayılanı (7.4: 4500, 7.6: 443)' }
+                    ]
+                },
+                {
+                    title: 'İç ağ erişimi',
+                    icon: 'fas fa-route',
+                    fields: [
+                        { name: 'du_lan', why: 'Tünelden gelen istemcilerin erişeceği iç arayüz; kural tünel → bu arayüz yönünde yazılır.', label: 'LAN Arayüzü', type: 'text', validate: 'iface', required: true, placeholder: 'port2', hint: 'dstintf' },
+                        { name: 'du_lanaddr', why: 'Erişilecek iç ağ nesnesi. config firewall address altında tanımlı olmalı.', label: 'İç Ağ Nesnesi', type: 'text', validate: 'objname', required: true, placeholder: 'LAN-NET', hint: 'dstaddr' }
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFgIpsecDialupGen(data));
+    }
+};
+function cgFgIpsecDialupGen(data) {
+    const v76 = _fgIs76(data), w = [];
+    const name = cgEsc(String(data.du_name || '').trim()), wan = cgEsc(String(data.du_wan || '').trim());
+    const psk = cgEsc(String(data.du_psk || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
+    const grp = cgEsc(String(data.du_group || '').trim()), dh = cgEsc(data.du_dh || '20 21');
+    const pr = String(data.du_pool || '').split('-').map(x => x.trim());
+    const dns = String(data.du_dns || '').trim(), split = cgEsc(String(data.du_split || '').trim());
+    const tIn = data.du_transport || 'auto';
+    const transport = tIn === 'auto' ? (v76 ? 'auto' : 'udp-fallback-tcp') : tIn;
+    const defPort = v76 ? '443' : '4500', port = String(data.du_tcpport || '').trim();
+    const lan = cgEsc(String(data.du_lan || '').trim()), lanAddr = cgEsc(String(data.du_lanaddr || '').trim());
+    let c = '# ========================================\n# FortiGate — IPsec Dial-up (FortiClient, IKEv2 + EAP)' + (v76 ? ' — FortiOS 7.6' : ' — FortiOS 7.4') + '\n# ========================================\n\n';
+    if (tIn !== 'udp' && port && port !== defPort) c += '# 1. IKE/IPsec TCP portu (varsayılan ' + defPort + ')\nconfig system settings\n    set ike-tcp-port ' + cgEsc(port) + '\nend\n\n';
+    c += '# ' + (tIn !== 'udp' && port && port !== defPort ? '2' : '1') + '. Dial-up sunucusu (faz 1)\nconfig vpn ipsec phase1-interface\n    edit "' + name + '"\n';
+    c += '        set type dynamic\n        set interface "' + wan + '"\n        set ike-version 2\n        set peertype any\n        set net-device disable\n';
+    c += '        set mode-cfg enable\n';
+    if (pr.length === 2) c += '        set ipv4-start-ip ' + cgEsc(pr[0]) + '\n        set ipv4-end-ip ' + cgEsc(pr[1]) + '\n';
+    if (dns) c += '        set ipv4-dns-server1 ' + cgEsc(dns) + '\n';
+    if (split) c += '        set ipv4-split-include "' + split + '"\n';
+    c += '        set proposal aes256-sha256 aes256gcm-prfsha384\n        set dhgrp ' + dh + '\n';
+    c += '        set eap enable\n        set eap-identity send-request\n        set authusrgrp "' + grp + '"\n';
+    c += '        set transport ' + transport + '\n';
+    c += '        set psksecret "' + psk + '"\n    next\nend\n\n';
+    c += '# Faz 2 (seçiciler istemciye mode-config ile verilir)\nconfig vpn ipsec phase2-interface\n    edit "' + name + '"\n        set phase1name "' + name + '"\n        set proposal aes256-sha256 aes256gcm\n        set dhgrp ' + dh + '\n    next\nend\n\n';
+    c += '# İstemci havuzu nesnesi ve tünel → iç ağ kuralı\nconfig firewall address\n    edit "' + name + '_range"\n        set type iprange\n';
+    if (pr.length === 2) c += '        set start-ip ' + cgEsc(pr[0]) + '\n        set end-ip ' + cgEsc(pr[1]) + '\n';
+    c += '    next\nend\n\nconfig firewall policy\n    edit 0\n        set name "' + (name + '-TO-LAN').slice(0, 35) + '"\n';
+    c += '        set srcintf "' + name + '"\n        set dstintf "' + lan + '"\n        set srcaddr "' + name + '_range"\n        set dstaddr "' + lanAddr + '"\n';
+    c += '        set action accept\n        set schedule "always"\n        set service "ALL"\n        set logtraffic all\n    next\nend\n\n';
+    c += '# Doğrulama:\n# diagnose vpn ike gateway list\n# get vpn ipsec tunnel summary\n# diagnose vpn ike log filter rem-addr4 <istemci-genel-ip>\n# diagnose debug application ike -1\n# diagnose debug enable\n';
+    // Uyarılar
+    if (String(data.du_name || '').length > 15) w.push('⛔ Tünel adı en çok 15 karakter olabilir (phase1-interface bir arayüz adıdır).');
+    if (pr.length !== 2 || !_fgWIsIp(pr[0]) || !_fgWIsIp(pr[1])) w.push('⛔ IP havuzu "başlangıç-bitiş" biçiminde olmalı; ipv4-start-ip/end-ip yazılamadı.');
+    else if (_fgWN(pr[0]) > _fgWN(pr[1])) w.push('⛔ Havuz başlangıcı bitişten büyük.');
+    if (String(data.du_psk || '').length && String(data.du_psk).length < 16) w.push('⚠ PSK kısa: en az 16 karakterlik rastgele anahtar önerilir (FortiClient profilinde aynı değer).');
+    if (tIn !== 'udp' && (port || defPort) === '443') w.push('⚠ TCP 443: ' + wan + ' arayüzünde yönetim HTTPS (admin-sport 443) açıksa IKE önceliklidir ve GUI erişimi kaybolur (7.6.3+ GUI uyarısı). Yönetimi başka porta/arayüze alın ya da ike-tcp-port değiştirin.');
+    if (tIn === 'tcp') w.push('ℹ Yalnız TCP: FortiClient 7.4.1+ gerekir ve istemci profili aynı TCP portunu kullanmalı; NPU hızlandırması TCP taşımada kullanılmaz.');
+    if (!v76 && tIn === 'auto') w.push('ℹ FortiOS 7.4\'te "auto" yerine udp-fallback-tcp yazıldı (7.4 değer listesi).');
+    if (!split) w.push('ℹ Split tunnel yok: istemcinin tüm trafiği tünelden gelir; internete çıkış için tünel → WAN yönünde NAT\'lı ayrı bir kural gerekir.');
+    w.push('ℹ Kullanıcılar ' + (grp || 'grup') + ' grubunda olmalı (Local User & Group ya da RADIUS/LDAP Sunucusu aracı). FortiClient\'ta IKEv2, EAP ve aynı PSK seçilmeli.');
+    return { config: c, warnings: w };
+}
+
+// ── FortiGate: RADIUS / LDAP sunucusu — CLI Ref 7.4.8/7.6.6 config user radius (164332072), config user ldap (590785459) ──
+// require-message-authenticator (varsayılan enable, iki sürümde de var): yanıtta Message-Authenticator zorunlu (Blast-RADIUS, CVE-2024-3596 önlemi).
+FortiGate.authserver = {
+    label: 'RADIUS / LDAP Sunucusu',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-id-card',
+                title: 'Kimlik Doğrulama Sunucusu — RADIUS / LDAP (FortiGate)',
+                desc: 'Yönetici, VPN ve kimlik tabanlı kurallar için uzak doğrulama sunucusu tanımı ve test komutu.<br><code>config user radius\n  edit "RADIUS-SRV"\n    set server 10.64.10.20\n    set secret ...\n    set require-message-authenticator enable\n  next\nend</code>'
+            },
+            configTypes: [
+                { id: 'radius', label: 'RADIUS', icon: 'fas fa-server', desc: 'NPS / FreeRADIUS / FortiAuthenticator', badge: { text: 'En Yaygın', cls: 'recommended' } },
+                { id: 'ldap', label: 'LDAP', icon: 'fas fa-sitemap', desc: 'Active Directory / OpenLDAP' }
+            ],
+            sections: [
+                {
+                    title: 'Sunucu',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'as_name', why: 'Sunucunun FortiGate\'teki adı; kullanıcı gruplarında ve yönetici hesabında bu ada başvurulur.', label: 'Sunucu Adı', type: 'text', validate: 'objname', required: true, placeholder: 'AUTH-SRV', hint: 'edit <ad>' },
+                        { name: 'as_server', why: 'Sunucunun IP adresi. FortiGate\'ten bu adrese yol ve güvenlik duvarı izni olmalı (RADIUS UDP 1812, LDAP TCP 389/636).', label: 'Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.10.20', hint: 'server' }
+                    ]
+                },
+                {
+                    title: 'RADIUS',
+                    icon: 'fas fa-key',
+                    showFor: ['radius'],
+                    fields: [
+                        { name: 'as_secret', why: 'Paylaşılan anahtar iki tarafta birebir aynı olmalı; yanlışsa sunucu yanıt vermez ya da "invalid authenticator" düşer.', label: 'Paylaşılan Anahtar', type: 'text', requiredIf: { field: '_cgtype', in: ['radius'] }, placeholder: 'Radius-Secret-2026', hint: 'secret' },
+                        { name: 'as_authtype', why: 'auto: sunucunun kabul ettiği yöntemi dener. NPS için ms_chap_v2 yaygındır; pap parolayı yalnız paylaşılan anahtarla gizler.', label: 'Doğrulama Yöntemi', type: 'select', options: [
+                            { value: 'auto', label: 'auto', selected: true }, { value: 'ms_chap_v2', label: 'ms_chap_v2' }, { value: 'pap', label: 'pap' }, { value: 'chap', label: 'chap' }
+                        ]},
+                        { name: 'as_rma', why: 'enable (varsayılan): Access-Accept yanıtında Message-Authenticator zorunlu; Blast-RADIUS saldırısına karşı korur. Eski sunucu bu özniteliği göndermiyorsa doğrulama başarısız olur — sunucuyu güncellemek, kapatmaktan iyidir.', label: 'Message-Authenticator Zorunlu', type: 'select', options: [
+                            { value: 'enable', label: 'enable (varsayılan, önerilen)', selected: true }, { value: 'disable', label: 'disable (eski sunucu uyumu)' }
+                        ]},
+                        { name: 'as_nasip', why: 'Sunucuda istemci (NAS) olarak kayıtlı IP farklıysa buraya yazılır; aksi hâlde çıkış arayüzünün IP\'si kullanılır.', label: 'NAS IP', type: 'text', validate: 'ip', placeholder: '10.64.10.1', hint: 'nas-ip (isteğe bağlı)' }
+                    ]
+                },
+                {
+                    title: 'LDAP',
+                    icon: 'fas fa-sitemap',
+                    showFor: ['ldap'],
+                    fields: [
+                        { name: 'as_dn', why: 'Kullanıcıların aranacağı kök (ör. dc=example,dc=com). Yanlışsa kullanıcı bulunamaz.', label: 'Arama Kökü (DN)', type: 'text', requiredIf: { field: '_cgtype', in: ['ldap'] }, placeholder: 'dc=example,dc=com', hint: 'dn' },
+                        { name: 'as_cnid', why: 'Kullanıcı adının tutulduğu öznitelik. Active Directory\'de genellikle sAMAccountName.', label: 'Kullanıcı Özniteliği', type: 'text', placeholder: 'sAMAccountName', hint: 'cnid (boşsa cn)' },
+                        { name: 'as_ldaptype', why: 'regular: arama için bir hizmet hesabıyla bağlanır (AD\'de gerekli). simple: kullanıcı DN\'iyle doğrudan bağlanır.', label: 'Bağlanma Tipi', type: 'select', options: [
+                            { value: 'regular', label: 'regular (hizmet hesabı)', selected: true }, { value: 'simple', label: 'simple' }, { value: 'anonymous', label: 'anonymous' }
+                        ]},
+                        { name: 'as_binduser', why: 'Arama yapacak hizmet hesabının tam DN\'i.', label: 'Bind Kullanıcısı', type: 'text', requiredIf: { field: 'as_ldaptype', in: ['regular'] }, placeholder: 'cn=svc-fgt,ou=Service,dc=example,dc=com', hint: 'username' },
+                        { name: 'as_bindpass', why: 'Hizmet hesabının parolası; süresi dolan parola tüm LDAP girişlerini keser.', label: 'Bind Parolası', type: 'text', requiredIf: { field: 'as_ldaptype', in: ['regular'] }, placeholder: 'Svc-Pass-2026', hint: 'password' },
+                        { name: 'as_secure', why: 'disable: parola ağda açık gider (389). ldaps (636) ya da starttls önerilir; sunucu sertifikası güvenilir olmalı.', label: 'Şifreli Bağlantı', type: 'select', options: [
+                            { value: 'ldaps', label: 'ldaps (636)', selected: true }, { value: 'starttls', label: 'starttls (389)' }, { value: 'disable', label: 'disable (389, açık metin)' }
+                        ]}
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFgAuthServerGen(data));
+    }
+};
+function cgFgAuthServerGen(data) {
+    const ty = data._cgtype === 'ldap' ? 'ldap' : 'radius', w = [];
+    const name = cgEsc(String(data.as_name || '').trim()), srv = cgEsc(String(data.as_server || '').trim());
+    let c = '# ========================================\n# FortiGate — ' + (ty === 'radius' ? 'RADIUS' : 'LDAP') + ' Sunucusu\n# ========================================\n\n';
+    if (ty === 'radius') {
+        const rma = data.as_rma === 'disable' ? 'disable' : 'enable';
+        c += 'config user radius\n    edit "' + name + '"\n        set server "' + srv + '"\n';
+        c += '        set secret "' + cgEsc(String(data.as_secret || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')) + '"\n';
+        if ((data.as_authtype || 'auto') !== 'auto') c += '        set auth-type ' + cgEsc(data.as_authtype) + '\n';
+        c += '        set require-message-authenticator ' + rma + '\n';
+        if (String(data.as_nasip || '').trim()) c += '        set nas-ip ' + cgEsc(String(data.as_nasip).trim()) + '\n';
+        c += '    next\nend\n\n';
+        c += '# Doğrulama (kullanıcı ve parola ile):\n# diagnose test authserver radius ' + name + ' ' + (data.as_authtype && data.as_authtype !== 'auto' ? cgEsc(data.as_authtype).replace('ms_chap_v2', 'mschap2').replace('ms_chap', 'mschap') : 'pap') + ' <kullanici> <parola>\n';
+        if (rma === 'disable') w.push('⚠ require-message-authenticator disable: Blast-RADIUS (CVE-2024-3596) saldırısına açık kalır. Yalnız sunucu Message-Authenticator gönderemiyorsa ve geçici olarak kullanın; sunucuyu güncelleyin.');
+        else w.push('ℹ require-message-authenticator enable (varsayılan): eski NPS/FreeRADIUS sürümleri bu özniteliği göndermiyorsa doğrulama "failed" döner; sunucuda Message-Authenticator\'ı etkinleştirin.');
+        if (String(data.as_secret || '').length && String(data.as_secret).length < 16) w.push('⚠ Paylaşılan anahtar kısa: en az 16 karakter önerilir.');
+        if ((data.as_authtype || 'auto') === 'pap') w.push('ℹ pap: parola yalnız paylaşılan anahtarla gizlenir; ağ güvenilir değilse ms_chap_v2 tercih edin.');
+    } else {
+        const lt = data.as_ldaptype || 'regular', sec = data.as_secure || 'ldaps';
+        c += 'config user ldap\n    edit "' + name + '"\n        set server "' + srv + '"\n';
+        if (String(data.as_cnid || '').trim()) c += '        set cnid "' + cgEsc(String(data.as_cnid).trim()) + '"\n';
+        c += '        set dn "' + cgEsc(String(data.as_dn || '').trim()) + '"\n        set type ' + cgEsc(lt) + '\n';
+        if (lt === 'regular') c += '        set username "' + cgEsc(String(data.as_binduser || '').trim()) + '"\n        set password "' + cgEsc(String(data.as_bindpass || '').replace(/"/g, '\\"')) + '"\n';
+        if (sec !== 'disable') c += '        set secure ' + cgEsc(sec) + '\n';
+        if (sec === 'ldaps') c += '        set port 636\n';
+        c += '    next\nend\n\n';
+        c += '# Doğrulama:\n# diagnose test authserver ldap ' + name + ' <kullanici> <parola>\n';
+        if (sec === 'disable') w.push('⚠ Şifresiz LDAP (389): kullanıcı ve bind parolaları ağda açık gider; ldaps ya da starttls kullanın.');
+        if (!String(data.as_cnid || '').trim()) w.push('ℹ cnid boş: varsayılan "cn" kullanılır. Active Directory\'de oturum adı için genellikle sAMAccountName gerekir.');
+        if (lt === 'anonymous') w.push('⚠ anonymous bağlanma çoğu Active Directory kurulumunda kapalıdır; arama başarısız olur.');
+    }
+    w.push('ℹ Sunucuyu bir kullanıcı grubuna ekleyin (config user group → config match / set member) ve gerekiyorsa yönetici hesabına bağlayın.');
+    return { config: c, warnings: w };
 }
