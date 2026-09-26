@@ -121,3 +121,90 @@
 @media (prefers-reduced-motion: reduce) {
     #config-generator-root .cg-vcard, #config-generator-root .cg-hub-card, #config-generator-root .cg-hub-plat, #config-generator-root .cg-hub-btn { transition: none; }
 }
+
+/* ─── UI A5: modül sayfaları (Lab kataloğu, Komutlar, Sorun giderme) Tema 1 dili ───
+   :root öneki config-generator.css'teki [data-theme="dark"] yamalarını (aynı özgüllük) sıradan dolayı ezer; yalnız tokenlar. */
+:root #config-generator-root .cg-cli-hd h1 { font-size: 1.75rem; line-height: 1.2; letter-spacing: -.01em; font-weight: 700; margin: 0 0 var(--space-2); color: var(--text); overflow-wrap: anywhere; }
+:root #config-generator-root .cg-cli-hd p { max-width: 72ch; margin: 0 0 var(--space-4); font-size: 1rem; line-height: 1.6; color: var(--muted); }
+:root #config-generator-root .cg-lab-title { color: var(--text); }
+:root #config-generator-root .cc-h1 { margin: 0; padding: 16px 20px 6px; font-size: 1.25rem; line-height: 1.3; font-weight: 700; color: var(--text); }
+
+/* Lab kataloğu */
+:root #config-generator-root .cg-lab-stats { gap: var(--space-4); margin: 0 0 var(--space-4); font-size: .9rem; color: var(--muted); }
+:root #config-generator-root .cg-lab-stats b { color: var(--text); }
+:root #config-generator-root .cg-lab-paths h2 { font-size: 1.05rem; font-weight: 650; margin: var(--space-4) 0 var(--space-3); color: var(--text); }
+:root #config-generator-root .cg-lab-paths h2 small { color: var(--muted); font-weight: 400; }
+:root #config-generator-root .cg-lab-pcard { border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: var(--radius); background: var(--surface); color: var(--text); box-shadow: none; }
+:root #config-generator-root .cg-lab-pcard:hover { border-color: var(--primary); background: var(--bg); }
+:root #config-generator-root .cg-lab-simnote { margin: var(--space-4) 0 0; padding: var(--space-3) var(--space-4); border-left: 3px solid var(--accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--surface); color: var(--muted); font-size: .84rem; line-height: 1.55; }
+:root #config-generator-root .cg-lab-vf { justify-content: flex-start; margin: var(--space-4) 0 0; }
+
+/* Seviye rayı: tek vendor seçiliyken seviye numarası + o vendorun seviye adı + ilerleme */
+#config-generator-root .cg-lab-rail { margin: var(--space-4) 0 0; }
+#config-generator-root .cg-lab-rail ol { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; counter-reset: none; }
+#config-generator-root .cg-lab-rail li { display: flex; min-width: 0; }
+#config-generator-root .cg-lab-rl {
+    display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; max-width: 100%; padding: 6px 12px 6px 6px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text);
+    font: inherit; font-size: .86rem; text-align: left; cursor: pointer; transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+#config-generator-root .cg-lab-rl:hover { border-color: var(--primary); background: var(--surface); }
+#config-generator-root .cg-lab-rl:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+#config-generator-root .cg-lab-rn { display: grid; place-items: center; flex: none; min-width: 28px; height: 28px; border-radius: 6px; background: var(--primary-soft); color: var(--primary); font: 600 .8rem var(--font-mono); }
+#config-generator-root .cg-lab-rt { min-width: 0; font-weight: 550; overflow-wrap: anywhere; }
+#config-generator-root .cg-lab-rc { flex: none; font: 500 .76rem var(--font-mono); color: var(--muted); }
+#config-generator-root .cg-lab-rl.is-done .cg-lab-rn { background: var(--ok-soft); color: var(--ok); }
+
+/* Seviye bölümleri ve kartlar */
+:root #config-generator-root .cg-lab-level { scroll-margin-top: 84px; }
+:root #config-generator-root .cg-lab-level:focus { outline: none; }
+:root #config-generator-root .cg-lab-level h2, :root #config-generator-root .cg-ts-fsec h2 {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3);
+    margin: var(--space-8) 0 var(--space-3); font-size: 1.2rem; line-height: 1.3; font-weight: 650; color: var(--text);
+}
+:root #config-generator-root .cg-ts-fsec h2 i { color: var(--primary); font-size: .95em; }
+:root #config-generator-root .cg-lab-lvn { padding: 3px 8px; border-radius: 6px; background: var(--primary-soft); color: var(--primary); font: 600 .74rem var(--font-mono); letter-spacing: .02em; text-transform: none; }
+#config-generator-root .cg-lab-lc { display: inline-flex; align-items: center; min-height: 22px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font: 500 .74rem var(--font-mono); }
+#config-generator-root .cg-lab-lvhint { margin: var(--space-3) 0 0; font-size: .86rem; color: var(--muted); }
+#config-generator-root .cg-ts-fam .cg-lab-lvhint { margin-top: var(--space-8); }
+:root #config-generator-root .cg-lab-cards { grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: var(--space-3); }
+:root #config-generator-root .cg-lab-card {
+    gap: 6px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text);
+    box-shadow: var(--shadow); transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+:root #config-generator-root .cg-lab-card:hover { border-color: var(--primary); background: var(--surface); transform: none; }
+:root #config-generator-root .cg-lab-card.is-done { border-color: var(--ok); }
+:root #config-generator-root .cg-lab-id { font: 600 .74rem var(--font-mono); color: var(--muted); letter-spacing: .02em; }
+:root #config-generator-root .cg-lab-card-t { font-size: .98rem; font-weight: 650; line-height: 1.35; color: var(--text); }
+:root #config-generator-root .cg-lab-card-m { font-size: .8rem; color: var(--muted); }
+:root #config-generator-root .cg-lab-card-pre { font-size: .8rem; color: var(--warn); }
+:root #config-generator-root .cg-lab-badge { background: var(--surface-2); color: var(--muted); }
+:root #config-generator-root .cg-lab-badge.ok { background: var(--warn-soft); color: var(--warn); }
+:root #config-generator-root .cg-lab-badge.run { background: var(--primary-soft); color: var(--primary); }
+
+/* Sorun giderme: vendor kilitli liste */
+:root #config-generator-root .cg-ts-fchips { justify-content: flex-start; margin: 0 0 var(--space-2); }
+:root #config-generator-root .cg-ts-fsec:first-of-type h2 { margin-top: var(--space-6); }
+:root #config-generator-root a.cg-ts-scen { text-decoration: none; color: var(--text); background: var(--bg); border-color: var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+:root #config-generator-root a.cg-ts-scen:hover { border-color: var(--primary); background: var(--surface); }
+:root #config-generator-root a.cg-ts-scen:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+:root #config-generator-root .cg-ts-fam .cg-ts-scen-s { color: var(--muted); }
+:root #config-generator-root .cg-ts-fam .cg-ts-scen-n { color: var(--primary); }
+
+/* Komutlar: sola hizalı Tema 1 düzeni (çipler ve arama içerik sütununa yaslı) */
+:root #config-generator-root .cg-cli .cg-chips, :root #config-generator-root .cg-lab-cat .cg-chips, :root #config-generator-root .cg-ts-fam .cg-chips { justify-content: flex-start; max-width: none; margin-left: 0; margin-right: 0; }
+:root #config-generator-root .cg-cli #cg-cli-vendors { margin-bottom: var(--space-4); }
+:root #config-generator-root .cg-cli .cg-cat-chips { margin-bottom: var(--space-6); }
+:root #config-generator-root .cg-cli .cg-home-search { max-width: 720px; margin: 0 0 var(--space-3); }
+
+@media (max-width: 600px) {
+    :root #config-generator-root .cg-cli-hd h1 { font-size: 1.45rem; }
+    #config-generator-root .cg-lab-rail ol { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+    #config-generator-root .cg-lab-rail li { flex: none; }
+    #config-generator-root .cg-lab-rl { max-width: 78vw; }
+    :root #config-generator-root .cg-lab-level h2, :root #config-generator-root .cg-ts-fsec h2 { margin-top: var(--space-6); font-size: 1.1rem; }
+    #config-generator-root .cg-home .cg-ts-fchips, #config-generator-root .cg-home .cg-lab-vf { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #config-generator-root .cg-lab-rl, :root #config-generator-root .cg-lab-card { transition: none; }
+}

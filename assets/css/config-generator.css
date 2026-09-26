@@ -1027,8 +1027,8 @@
 [data-theme="dark"] #config-generator-root .cg-catgroup-hd i { color: #a5b4fc; }
 
 /* ── Komutlar (#/cli) ─────────────────────────────────────────────────── */
-#config-generator-root .cg-cli-hd h2 { font-size: 1.25rem; font-weight: 800; margin: 0 0 4px; display: flex; gap: 10px; align-items: center; }
-#config-generator-root .cg-cli-hd h2 i { color: var(--primary-color, #4F46E5); }
+#config-generator-root .cg-cli-hd h1, #config-generator-root .cg-cli-hd h2 { font-size: 1.25rem; font-weight: 800; margin: 0 0 4px; display: flex; gap: 10px; align-items: center; }
+#config-generator-root .cg-cli-hd h1 i, #config-generator-root .cg-cli-hd h2 i { color: var(--primary-color, #4F46E5); }
 #config-generator-root .cg-cli-hd p { color: var(--text-secondary, #6b7280); margin: 0 0 14px; font-size: .88rem; }
 #config-generator-root .cg-cli-sev { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 #config-generator-root .cg-sev { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; }
@@ -1077,7 +1077,7 @@
 #config-generator-root .cg-ts-scen-s { font-size: .8rem; color: var(--text-secondary, #6b7280); line-height: 1.4; }
 #config-generator-root .cg-ts-scen-n { font-size: .75rem; color: var(--primary-color, #4F46E5); font-weight: 600; margin-top: auto; }
 #config-generator-root .cg-ts-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-top: 8px; }
-#config-generator-root .cg-ts-head h2 { font-size: 1.2rem; font-weight: 800; margin: 0; display: flex; gap: 10px; align-items: center; }
+#config-generator-root .cg-ts-head h1, #config-generator-root .cg-ts-head h2 { font-size: 1.2rem; font-weight: 800; margin: 0; display: flex; gap: 10px; align-items: center; }
 #config-generator-root .cg-ts-plat { display: flex; gap: 6px; align-items: center; font-size: .8rem; font-weight: 600; color: var(--text-secondary, #6b7280); }
 #config-generator-root .cg-ts-prog { height: 6px; border-radius: 3px; background: var(--bg-tertiary, #f3f4f6); margin: 14px 0; overflow: hidden; }
 #config-generator-root .cg-ts-prog span { display: block; height: 100%; background: var(--primary-color, #4F46E5); transition: width .25s; }
@@ -1256,8 +1256,8 @@
 [data-theme="dark"] #config-generator-root .cg-lab-choice.bad { background: #2d1215; border-color: #7f1d1d; }
 @media (max-width: 900px) { #config-generator-root .cg-lab-choice { min-height: 44px; } }
 /* Lab: öğrenme yolları ve ders */
-#config-generator-root .cg-lab-paths h3 { font-size: .95rem; font-weight: 800; margin: 14px 0 10px; display: flex; gap: 8px; align-items: center; }
-#config-generator-root .cg-lab-paths h3 small { font-weight: 500; color: var(--text-secondary, #6b7280); }
+#config-generator-root .cg-lab-paths h2, #config-generator-root .cg-lab-paths h3 { font-size: .95rem; font-weight: 800; margin: 14px 0 10px; display: flex; gap: 8px; align-items: center; }
+#config-generator-root .cg-lab-paths h2 small, #config-generator-root .cg-lab-paths h3 small { font-weight: 500; color: var(--text-secondary, #6b7280); }
 #config-generator-root .cg-lab-pcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-bottom: 14px; }
 #config-generator-root .cg-lab-pcard { display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: var(--cg-r, 10px); border: 1px solid var(--primary-color, #4F46E5); background: color-mix(in srgb, var(--primary-color, #4F46E5) 6%, var(--bg-primary, #fff)); color: var(--text-primary, #1f2937); text-decoration: none; }
 #config-generator-root .cg-lab-pcard:hover { background: color-mix(in srgb, var(--primary-color, #4F46E5) 12%, var(--bg-primary, #fff)); }
@@ -1305,7 +1305,7 @@
 #config-generator-root .cg-ar-ts { margin-left: auto; color: #f59e0b; white-space: nowrap; }
 
 #config-generator-root .cg-ar-brief { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; padding: 14px 16px; margin: 8px 0 14px; }
-#config-generator-root .cg-ar-brief h2 { font-size: 1.15rem; margin: 0 0 6px; color: var(--text-primary, #111827); }
+#config-generator-root .cg-ar-brief h1, #config-generator-root .cg-ar-brief h2 { font-size: 1.15rem; margin: 0 0 6px; color: var(--text-primary, #111827); }
 #config-generator-root .cg-ar-brief p { margin: 0; color: var(--text-secondary, #4b5563); font-size: .9rem; }
 #config-generator-root .cg-ar-goals { margin: 0; padding-left: 20px; font-size: .88rem; color: var(--text-primary, #111827); }
 #config-generator-root .cg-ar-goals li { margin: 3px 0; }

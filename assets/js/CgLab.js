@@ -53,8 +53,10 @@ const CgLab = {
     },
     _paths() { return (window.CG_LAB_PATHS || []).map(p => this._path(p.id)).filter(p => p && p.modules.length && this.VENDORS[p.vendor]); },
 
-    async render(root, id, pathId) {
+    // fam: vendor ailesi kilidi (#/v/<aile>/lab); yalnız katalogda anlamlı
+    async render(root, id, pathId, fam) {
         this._root = root;
+        this._lock = !id && !pathId && fam && fam.lab && fam.lab.length ? fam : null;
         root.innerHTML = '<div class="cg-empty"><i class="fas fa-spinner fa-spin"></i><p>Laboratuvar yükleniyor…</p></div>';
         try { await this._loadAll(); }
         catch (e) { root.innerHTML = '<div class="cg-empty"><i class="fas fa-exclamation-triangle"></i><p>Laboratuvar yüklenemedi.</p></div>'; return; }
@@ -76,59 +78,80 @@ const CgLab = {
     },
     // ═══ Katalog ═══════════════════════════════════════════════════════════
     _paintCatalog() {
-        const all = window.CG_LABS || [];
-        const labs = all.filter(l => this._vf === 'all' || l.vendor === this._vf), real = labs.filter(l => !l.sandbox);
-        const vchips = ['all'].concat(Object.keys(this.VENDORS)).map(v => {
+        const all = window.CG_LABS || [], L = this._lock;
+        const keys = Object.keys(this.VENDORS).filter(v => !L || L.lab.includes(v));
+        if (L && !keys.includes(this._vf)) this._vf = keys[0];
+        const labs = all.filter(l => (this._vf === 'all' ? keys.includes(l.vendor) : l.vendor === this._vf)), real = labs.filter(l => !l.sandbox);
+        const one = this._vf !== 'all';   // tek vendor: seviye adları o vendorun, seviye rayı görünür
+        // Vendor seçimi: genel katalogda tüm vendorlar; kilitli ailede yalnız ailedekiler (tek vendorsa hiç)
+        const vlist = L ? keys : ['all'].concat(keys);
+        const vchips = vlist.length < 2 ? '' : `<div class="cg-chips cg-lab-vf" role="group" aria-label="Vendor">${vlist.map(v => {
             const n = all.filter(l => !l.sandbox && (v === 'all' || l.vendor === v)).length;
             return `<button class="cg-chip${this._vf === v ? ' active' : ''}" data-vf="${v}" aria-pressed="${this._vf === v}">${v === 'all' ? '' : this._mark(v)}<span class="cg-chip-l">${v === 'all' ? 'Tümü' : cgEsc(this.VENDORS[v].name)}</span><span class="cg-chip-n">${n}</span></button>`;
-        }).join('');
+        }).join('')}</div>`;
         const doneN = real.filter(l => this._st(l.id).tDone).length;
         const stars = real.reduce((a, l) => a + (this._st(l.id).stars || 0), 0);
         const levels = [...new Set(real.map(l => this.lv(l)))].sort((a, b) => a - b);
+        const atLv = lv => real.filter(l => this.lv(l) === lv);
+        const lvTitle = lv => { const ls = atLv(lv); return one && ls.length ? this.lvName(ls[0].vendor, lv, ls[0]) : ''; };
         const card = l => {
             const st = this._st(l.id), done = !!st.tDone, started = st.log.length > 0;
             const pre = (l.pre || []).filter(p => !this._st(p).tDone);
             st.stars = Math.max(st.stars || 0, st.best || 0);
             const badge = done || st.best ? `<span class="cg-lab-badge ok" aria-label="3 üzerinden ${st.stars} yıldız">${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}</span>` : started ? '<span class="cg-lab-badge run">Devam ediyor</span>' : '<span class="cg-lab-badge">Yeni</span>';
             return `<a class="cg-lab-card${done ? ' is-done' : ''}" href="#/lab/${l.id}">
-                <span class="cg-lab-card-top">${this._mark(l.vendor)}<span class="cg-lab-id">${l.id.toUpperCase()}</span>${badge}</span>
+                <span class="cg-lab-card-top">${one ? '' : this._mark(l.vendor)}<span class="cg-lab-id">${l.id.toUpperCase()}</span>${badge}</span>
                 <span class="cg-lab-card-t">${cgEsc(l.title)}</span>
-                <span class="cg-lab-card-m"><i class="far fa-clock"></i> ${l.minutes} dk · <i class="fas fa-list-check"></i> ${l.tasks.length} görev${l.cert ? ' · ' + cgEsc(l.cert) : ''}</span>
-                ${pre.length ? `<span class="cg-lab-card-pre"><i class="fas fa-route"></i> Önce önerilir: ${pre.map(p => p.toUpperCase()).join(', ')}</span>` : ''}
+                <span class="cg-lab-card-m"><i class="far fa-clock" aria-hidden="true"></i> ${l.minutes} dk · <i class="fas fa-list-check" aria-hidden="true"></i> ${l.tasks.length} görev${l.cert ? ' · ' + cgEsc(l.cert) : ''}</span>
+                ${pre.length ? `<span class="cg-lab-card-pre"><i class="fas fa-route" aria-hidden="true"></i> Önce önerilir: ${pre.map(p => p.toUpperCase()).join(', ')}</span>` : ''}
             </a>`;
         };
+        // Seviye rayı (tek vendor): seviye numarası, o vendorun seviye adı, tamamlanan/toplam; tıklayınca bölüme kayar
+        const rail = one && levels.length > 1 ? `<nav class="cg-lab-rail" aria-label="Seviyeler"><ol>${levels.map(lv => {
+            const ls = atLv(lv), d = ls.filter(l => this._st(l.id).tDone).length;
+            return `<li><button type="button" class="cg-lab-rl${d === ls.length ? ' is-done' : ''}" data-lvgo="${lv}"><span class="cg-lab-rn">${lv}</span><span class="cg-lab-rt">${cgEsc(lvTitle(lv) || 'Seviye ' + lv)}</span><span class="cg-lab-rc">${d}/${ls.length}</span></button></li>`;
+        }).join('')}</ol></nav>` : '';
         const sandboxes = labs.filter(l => l.sandbox);
+        const vs = one ? [this.VENDORS[this._vf]] : keys.map(k => this.VENDORS[k]);
+        const h1 = L ? cgEsc(L.name) + ' lablar' : 'CLI Laboratuvarı';
         this._root.innerHTML = `
-        <div class="cg-home cg-lab">
+        <div class="cg-home cg-lab cg-lab-cat">
             <div class="cg-cli-hd">
-                <h2><i class="fas fa-flask"></i> CLI Laboratuvarı</h2>
+                <h1>${h1}</h1>
                 <p>Tarayıcıda gerçekçi bir terminalde görevleri çözün. Kısaltma, <kbd>?</kbd>, Tab ve <code>no</code> gerçek cihazdaki gibi çalışır; görevler yazdığınız metne değil <b>cihazın vardığı duruma</b> göre kontrol edilir.</p>
             </div>
             <div class="cg-lab-stats">
                 <span><b>${doneN}</b> / ${real.length} lab tamamlandı</span><span><b>${stars}</b> ★</span>
-                <span class="cg-lab-stats-act"><button class="cg-ts-btn" data-exp><i class="fas fa-download"></i> İlerlemeyi indir</button>
-                <label class="cg-ts-btn"><i class="fas fa-upload"></i> Yükle<input type="file" accept="application/json" data-imp hidden></label></span>
+                <span class="cg-lab-stats-act"><button class="cg-ts-btn" data-exp><i class="fas fa-download" aria-hidden="true"></i> İlerlemeyi indir</button>
+                <label class="cg-ts-btn"><i class="fas fa-upload" aria-hidden="true"></i> Yükle<input type="file" accept="application/json" data-imp hidden></label></span>
             </div>
             ${this._pathCards()}
-            <div class="cg-chips cg-lab-vf">${vchips}</div>
-            <div class="cg-lab-simnote"><i class="fas fa-info-circle"></i> Bu bir <b>eğitim simülatörüdür</b>; ${Object.values(this.VENDORS).map(v => v.name + ' (' + v.look + ')').join(', ')} davranışının bir alt kümesini taklit eder. Desteklenmeyen bir komut yazarsanız bunu açıkça söyler.</div>
-            ${levels.map(lv => `<section class="cg-lab-level">
-                <h3><span class="cg-lab-lvn">Seviye ${lv}</span> ${cgEsc([...new Set(real.filter(l => this.lv(l) === lv).map(l => this.lvName(l.vendor, lv, l)))].join(' · '))}</h3>
-                <div class="cg-lab-cards">${real.filter(l => this.lv(l) === lv).map(card).join('')}</div>
+            ${vchips}
+            ${rail}
+            ${!one && levels.length ? '<p class="cg-lab-lvhint">Seviye adları vendora göre değişir; adları görmek için bir vendor seçin.</p>' : ''}
+            <div class="cg-lab-simnote"><i class="fas fa-info-circle" aria-hidden="true"></i> Bu bir <b>eğitim simülatörüdür</b>; ${vs.map(v => v.name + ' (' + v.look + ')').join(', ')} davranışının bir alt kümesini taklit eder. Desteklenmeyen bir komut yazarsanız bunu açıkça söyler.</div>
+            ${levels.map(lv => `<section class="cg-lab-level" id="cg-lab-lv-${lv}" tabindex="-1">
+                <h2><span class="cg-lab-lvn">Seviye ${lv}</span>${lvTitle(lv) ? ' ' + cgEsc(lvTitle(lv)) : ''}<span class="cg-lab-lc">${atLv(lv).length}</span></h2>
+                <div class="cg-lab-cards">${atLv(lv).map(card).join('')}</div>
             </section>`).join('')}
-            ${sandboxes.length ? `<section class="cg-lab-level"><h3><span class="cg-lab-lvn"><i class="fas fa-terminal"></i></span> Serbest terminal</h3>
+            ${sandboxes.length ? `<section class="cg-lab-level"><h2><span class="cg-lab-lvn"><i class="fas fa-terminal" aria-hidden="true"></i></span> Serbest terminal</h2>
                 <div class="cg-lab-cards">${sandboxes.map(l => `<a class="cg-lab-card" href="#/lab/${l.id}"><span class="cg-lab-card-top">${this._mark(l.vendor)}<span class="cg-lab-id">SANDBOX</span></span>
                 <span class="cg-lab-card-t">${cgEsc(l.title)}</span><span class="cg-lab-card-m">Görev yok, serbest deneme</span></a>`).join('')}</div></section>` : ''}
         </div>`;
         this._root.querySelectorAll('[data-vf]').forEach(b => b.addEventListener('click', () => { this._vf = b.dataset.vf; this._paintCatalog(); }));
-        this._syncVf();
+        this._root.querySelectorAll('[data-lvgo]').forEach(b => b.addEventListener('click', () => {
+            const sec = document.getElementById('cg-lab-lv-' + b.dataset.lvgo); if (!sec) return;
+            const calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+            sec.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' }); sec.focus({ preventScroll: true });
+        }));
+        if (!L) this._syncVf();
         this._root.querySelector('[data-exp]').addEventListener('click', () => this._export());
         this._root.querySelector('[data-imp]').addEventListener('change', e => this._import(e.target.files[0]));
     },
     _pathCards() {
         const ps = this._paths().filter(p => this._vf === 'all' || p.vendor === this._vf);
         if (!ps.length) return '';
-        return `<section class="cg-lab-paths"><h3><i class="fas fa-route"></i> Öğrenme yolları <small>— adım adım, sıralı</small></h3><div class="cg-lab-pcards">${ps.map(p => {
+        return `<section class="cg-lab-paths"><h2><i class="fas fa-route" aria-hidden="true"></i> Öğrenme yolları <small>— adım adım, sıralı</small></h2><div class="cg-lab-pcards">${ps.map(p => {
             const done = p.all.filter(x => this._st(x).tDone).length, pct = Math.round(100 * done / p.all.length);
             return `<a class="cg-lab-pcard" href="#/lab/path/${p.id}">
                 <span class="cg-lab-card-top">${this._mark(p.vendor)}<span class="cg-lab-id">${p.modules.length} modül · ${p.all.length} lab</span></span>
@@ -143,7 +166,7 @@ const CgLab = {
         this._root.innerHTML = `
         <div class="cg-home cg-lab">
             <nav class="cg-ts-crumbs"><a href="#/lab"><i class="fas fa-flask"></i> Laboratuvar</a><i class="fas fa-chevron-right"></i><span>Öğrenme yolu</span></nav>
-            <div class="cg-cli-hd"><h2>${this._mark(p.vendor)} ${cgEsc(p.title)}</h2><p>${cgEsc(p.desc)}</p></div>
+            <div class="cg-cli-hd"><h1>${this._mark(p.vendor)} ${cgEsc(p.title)}</h1><p>${cgEsc(p.desc)}</p></div>
             <div class="cg-lab-prog"><div class="cg-ts-prog" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Yol ilerlemesi"><span style="width:${pct}%"></span></div><span>${done}/${p.all.length} lab · %${pct}</span></div>
             ${next ? `<a class="cg-ts-btn ok cg-lab-pnext" href="#/lab/${next}"><i class="fas fa-play"></i> ${done ? 'Devam et' : 'Başla'}: ${cgEsc(labsById[next].title)}</a>` : '<p class="cg-lab-pdone"><i class="fas fa-trophy"></i> Bu yolu tamamladınız!</p>'}
             <ol class="cg-lab-path">${p.modules.map((m, mi) => {
@@ -410,7 +433,7 @@ const CgLab = {
         }).join('');
         const done = !!st.tDone;
         side.innerHTML = `
-            <h2 class="cg-lab-title">${cgEsc(lab.title)}</h2>
+            <h1 class="cg-lab-title">${cgEsc(lab.title)}</h1>
             <div class="cg-lab-story">${lab.story}</div>
             ${lab.lesson ? `<details class="cg-lab-lesson"${st.log.length ? '' : ' open'}><summary><i class="fas fa-book-open"></i> Ders</summary><div>${lab.lesson}</div></details>` : ''}
             ${lab.goals ? `<details class="cg-lab-goals"><summary><i class="fas fa-bullseye"></i> Kazanımlar</summary><ul>${lab.goals.map(g => `<li>${cgEsc(g)}</li>`).join('')}</ul></details>` : ''}

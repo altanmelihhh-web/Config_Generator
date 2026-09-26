@@ -10,6 +10,7 @@ const ConfigConverter = {
 
         container.innerHTML = `
 <div class="cc-wrap">
+  <h1 class="cc-h1">Config dönüştürücü</h1>
   <div class="cc-intro"><i class="fas fa-circle-info"></i> Kaynak platformu seçip config'i yapıştırın veya dosya yükleyin, hedef platformu seçin ve "Dönüştür"e basın.</div>
   <div class="cc-layout">
     <div class="cc-panel cc-panel-src">

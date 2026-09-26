@@ -2,7 +2,7 @@
    Tema değişkenleri config-generator.css ile ortak; yalnız .cg-nb-* seçicileri. */
 #config-generator-root .cg-nb { --nb-crit: #dc2626; --nb-warn: #d97706; --nb-ok: #059669; }
 #config-generator-root .cg-nb-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 14px; }
-#config-generator-root .cg-nb-bar h2 { margin: 0; font-size: 1.25rem; color: var(--text-primary, #111827); display: flex; align-items: center; gap: 8px; }
+#config-generator-root .cg-nb-bar h1, #config-generator-root .cg-nb-bar h2 { margin: 0; font-size: 1.25rem; color: var(--text-primary, #111827); display: flex; align-items: center; gap: 8px; }
 #config-generator-root .cg-nb-meter { display: flex; flex-wrap: wrap; gap: 8px; }
 #config-generator-root .cg-nb-meter > span { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb); border-radius: 999px; padding: 4px 12px; font-size: .85rem; color: var(--text-primary, #111827); font-variant-numeric: tabular-nums; }
 #config-generator-root .cg-nb-meter small { color: var(--text-secondary, #4b5563); }

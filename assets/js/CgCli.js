@@ -21,11 +21,13 @@ const CgCli = {
         });
     },
 
-    async render(root, vendor) {
+    // fam: vendor ailesi kilidi (#/v/<aile>/komutlar[/<cli>]); çip satırı yalnız ailede birden çok kütüphane varsa, yalnız onlarla
+    async render(root, vendor, fam) {
+        this._fam = fam && fam.cli && fam.cli.length ? fam : null;
         root.innerHTML = '<div class="cg-empty"><i class="fas fa-spinner fa-spin"></i><p>Komutlar yükleniyor…</p></div>';
         try { await this._load('assets/data/cli/index.js'); }
         catch (e) { root.innerHTML = '<div class="cg-empty"><i class="fas fa-exclamation-triangle"></i><p>Komut dizini yüklenemedi.</p></div>'; return; }
-        const idx = window.CG_CLI_INDEX || [];
+        const idx = (window.CG_CLI_INDEX || []).filter(v => !this._fam || this._fam.cli.includes(v.key));
         if (!vendor || !idx.some(v => v.key === vendor)) vendor = idx[0] && idx[0].key;
         if (vendor !== this._vendor) { this._cat = 'all'; this._sev = 'all'; }
         this._vendor = vendor;
@@ -38,9 +40,10 @@ const CgCli = {
     _data() { return (window.CG_CLI_DATA || {})[this._vendor] || { commands: [], scenarios: [], sources: {}, links: [] }; },
 
     _paint() {
-        const idx = window.CG_CLI_INDEX || [], d = this._data();
+        const F = this._fam, idx = (window.CG_CLI_INDEX || []).filter(v => !F || F.cli.includes(v.key)), d = this._data();
         const total = idx.reduce((a, v) => a + v.count, 0);
-        const vchips = idx.map(v => `<button class="cg-chip${v.key === this._vendor ? ' active' : ''}" onclick="location.hash='#/cli/${v.key}'" title="${cgEsc(v.name)}">
+        const base = F ? '#/v/' + F.slug + '/komutlar/' : '#/cli/';
+        const vchips = idx.length < 2 ? '' : idx.map(v => `<button class="cg-chip${v.key === this._vendor ? ' active' : ''}" onclick="location.hash='${base}${v.key}'" title="${cgEsc(v.name)}" aria-pressed="${v.key === this._vendor}">
                 ${typeof cgBrandMark === 'function' ? cgBrandMark(v.key, 14) : ''}<span class="cg-chip-l">${cgEsc(v.name)}</span><span class="cg-chip-n">${v.count}</span></button>`).join('');
         const cats = [...new Set(d.commands.map(c => c.cat))];
         const cnt = {}; d.commands.forEach(c => { cnt[c.cat] = (cnt[c.cat] || 0) + 1; });
@@ -49,10 +52,10 @@ const CgCli = {
         this._root.innerHTML = `
         <div class="cg-home cg-cli">
             <div class="cg-cli-hd">
-                <h2><i class="fas fa-terminal"></i> Komut Kütüphanesi</h2>
-                <p><strong>${total}</strong> komut · <strong>${idx.length}</strong> platform · doğrulama, sorun giderme ve günlük işletim komutları. Komuta tıklayınca kopyalanır.</p>
+                <h1>${F ? cgEsc(F.name) + ' komutları' : 'Komut Kütüphanesi'}</h1>
+                <p><strong>${total}</strong> komut · <strong>${idx.length}</strong> platform${F && idx.length === 1 ? ': ' + cgEsc(idx[0].name) : ''} · doğrulama, sorun giderme ve günlük işletim komutları. Komuta tıklayınca kopyalanır.</p>
             </div>
-            <div class="cg-chips" id="cg-cli-vendors">${vchips}</div>
+            ${vchips ? `<div class="cg-chips" id="cg-cli-vendors" role="group" aria-label="Platform">${vchips}</div>` : ''}
             <div class="cg-home-search">
                 <i class="fas fa-search"></i>
                 <input type="text" id="cg-cli-q" placeholder="${cgEsc(d.name || '')} içinde ara: bgp, vpn, interface, log…" autocomplete="off" value="${cgEsc(this._q)}">

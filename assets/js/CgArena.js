@@ -55,7 +55,7 @@ const CgArena = {
         const members = Object.entries(t.pools);
         this._root.innerHTML = `<div class="cg-ar cg-ar-deskwrap">
             <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Trafik Masası</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
-            <div class="cg-ar-brief"><div><h2>${E(t.title)}</h2><p>${t.brief}</p></div>
+            <div class="cg-ar-brief"><div><h1>${E(t.title)}</h1><p>${t.brief}</p></div>
                 <ol class="cg-ar-goals">${t.goals.map(g => `<li>${g}</li>`).join('')}</ol></div>
             ${t.panel ? '<section class="cg-ar-panel" aria-label="Profil ayarları"></section>' : ''}
             <div class="cg-ar-desk">
@@ -275,7 +275,7 @@ const CgArena = {
         this._t = t; this._hint = 0;
         this._root.innerHTML = `<div class="cg-ar cg-mo">
             <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Meydan Okuma</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
-            <div class="cg-ar-brief"><div><h2><i class="fas fa-flag-checkered"></i> ${E(t.title)}</h2><p>${t.story}</p><p class="cg-mo-meta"><span>${vis.length} görünür test</span><span>${hid} gizli test</span><span>maliyet = çalışan kural satırı + regex cezası</span></p></div>
+            <div class="cg-ar-brief"><div><h1><i class="fas fa-flag-checkered" aria-hidden="true"></i> ${E(t.title)}</h1><p>${t.story}</p><p class="cg-mo-meta"><span>${vis.length} görünür test</span><span>${hid} gizli test</span><span>maliyet = çalışan kural satırı + regex cezası</span></p></div>
                 <ol class="cg-ar-goals">${t.reqs.map(g => `<li>${g}</li>`).join('')}</ol></div>
             <div class="cg-ar-desk">
                 <section class="cg-ar-ed"><div class="cg-ar-edh"><span><i class="fas fa-code"></i> ltm rule <b>${this.RULE}</b> <small class="cg-ar-kbd">Esc → Tab: editörden çık</small></span><span class="cg-ar-edtools"><button type="button" data-a="hint" class="cg-ar-lnk"><i class="fas fa-lightbulb"></i> İpucu</button><button type="button" data-a="reset" class="cg-ar-lnk" title="Başlangıç koduna dön"><i class="fas fa-undo"></i></button></span></div>
@@ -351,7 +351,7 @@ const CgArena = {
         const E = cgEsc, st = this._wst(t.id); this._t = t; this._hint = 0;
         this._root.innerHTML = `<div class="cg-ar cg-waf">
             <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>WAF Masası</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
-            <div class="cg-ar-brief"><div><h2><i class="fas fa-shield-alt"></i> ${E(t.title)}</h2><p>${t.brief}</p><p class="cg-mo-meta"><span>İmzalar eğitim amaçlı (E-xxxx), gerçek F5 imza veritabanı değildir</span><span>Violation rating sadeleştirilmiştir</span></p></div>
+            <div class="cg-ar-brief"><div><h1><i class="fas fa-shield-alt" aria-hidden="true"></i> ${E(t.title)}</h1><p>${t.brief}</p><p class="cg-mo-meta"><span>İmzalar eğitim amaçlı (E-xxxx), gerçek F5 imza veritabanı değildir</span><span>Violation rating sadeleştirilmiştir</span></p></div>
                 <ol class="cg-ar-goals">${t.goals.map(g => `<li>${g}</li>`).join('')}</ol></div>
             <section class="cg-waf-main"></section>
             <div class="cg-ar-hintbox cg-waf-hint" hidden></div>
@@ -477,7 +477,7 @@ const CgArena = {
         const lvl = { best: 'En iyi', good: 'Kabul edilebilir', bad: 'Yanlış / yan etkili' };
         this._root.innerHTML = `<div class="cg-ar cg-nb">
             <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Nöbet</span><i class="fas fa-chevron-right"></i><span>${E(v.title)}</span></nav>
-            <div class="cg-nb-bar"><h2><i class="fas fa-bell"></i> ${E(v.title)}</h2><span class="cg-nb-meter" aria-live="polite"></span></div>
+            <div class="cg-nb-bar"><h1><i class="fas fa-bell" aria-hidden="true"></i> ${E(v.title)}</h1><span class="cg-nb-meter" aria-live="polite"></span></div>
             <div class="cg-nb-grid">
                 <aside class="cg-nb-side">
                     <section class="cg-nb-alarm is-${v.alarm.sev}"><div class="cg-nb-ah"><i class="fas ${v.alarm.sev === 'crit' ? 'fa-exclamation-circle' : 'fa-exclamation-triangle'}"></i> ${v.alarm.sev === 'crit' ? 'ALARM' : 'UYARI'} · ${E(v.alarm.src)} <time>${E(v.clock)}</time></div><p>${E(v.alarm.text)}</p></section>

@@ -1868,13 +1868,13 @@ const ConfigGenerator = {
         }
         if (sec === 'lab' && !sub) {
             if (!f.lab.length) { redirect('#/v/' + slug + '/araclar', f.name + ' için henüz CLI lab yok; ' + f.name + ' araçları gösteriliyor.'); return; }
-            this._renderLab(null, null, f.lab[0]);   // aile bağlamında katalog (adres #/v/<aile>/lab kalır, ağaç görünür)
+            this._renderLab(null, null, f.lab[0], f);   // vendor kilitli katalog (adres #/v/<aile>/lab kalır, ağaç görünür)
             return;
         }
         if (sec === 'yol' && !sub) {
             if (!f.lab.length || typeof CgLab === 'undefined' || typeof CgCli === 'undefined') { redirect('#/v/' + slug + '/araclar', f.name + ' için henüz öğrenme yolu yok; ' + f.name + ' araçları gösteriliyor.'); return; }
             const want = location.hash;
-            this._setNav('lab');
+            this._setNav('vendors');
             this._root.innerHTML = '<div class="cg-empty"><i class="fas fa-spinner fa-spin"></i><p>Öğrenme yolu yükleniyor…</p></div>';
             CgLab._loadAll().then(() => {
                 if (location.hash !== want) return;   // bu arada başka yere gidildi
@@ -1885,10 +1885,10 @@ const ConfigGenerator = {
         }
         if (sec === 'komutlar') {
             if (sub && !f.cli.includes(sub)) { redirect('#/v/' + slug + '/komutlar', '“' + sub + '” ' + f.name + ' komut kütüphanelerinden biri değil.'); return; }
-            this._renderCli(sub || f.cli[0]);
+            this._renderCli(sub || f.cli[0], f);
             return;
         }
-        if (sec === 'sorun' && !sub) { this._renderTs(); return; }
+        if (sec === 'sorun' && !sub) { this._renderTs(null, P.get('k'), f); return; }
         if (sec === 'arena' && !sub && f.arena) { redirect('#/arena'); return; }
         redirect('#/v/' + slug + '/araclar', 'Bu bölüm ' + f.name + ' için yok; ' + f.name + ' araçları gösteriliyor.');
     },
@@ -1918,13 +1918,14 @@ const ConfigGenerator = {
     },
 
     // ── Üst çubuktaki aktif sekmeyi işaretle ────────────────────────────
-    _setNav(which) {
+    // title verilirse sekme eşlemesi yerine o başlık yazılır (aile sayfaları: Vendorlar sekmesi + "<Aile> lablar")
+    _setNav(which, title) {
         document.querySelectorAll('.app-nav-tab').forEach(b => {
             b.classList.toggle('active', b.dataset.nav === which);
             if (b.dataset.nav === which) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
         });
         const T = { vendors: 'Vendorlar', tools: 'Config araçları', cli: 'Komut kütüphanesi', lab: 'CLI Laboratuvarı', arena: 'iRule Arenası', ts: 'Sorun giderme', conv: 'Dönüştürücü' };
-        document.title = (T[which] ? T[which] + ' · ' : '') + 'Config Generator';
+        document.title = (title || T[which] ? (title || T[which]) + ' · ' : '') + 'Config Generator';
     },
 
     // ── ANA SAYFA: aranabilir araç ızgarası ──────────────────────────────
@@ -1955,7 +1956,7 @@ const ConfigGenerator = {
                     </button>`;
         }).join('');
 
-        this._setNav('tools');
+        this._setNav(fam ? 'vendors' : 'tools');   // aile sayfaları (#/v/<aile>/…) Vendorlar sekmesi altında
         document.title = (fam ? fam.name + ' araçları' : 'Tüm araçlar') + ' · Config Generator';
         const ph = fam ? fam.name + ' araçlarında ara: ' + (fam.slug === 'f5' ? 'pool, monitor, irule…' : 'vlan, nat, bgp…') : 'Araç ara: vlan, ipsec, bgp, nat, interface…';
         this._root.innerHTML = `
@@ -2223,21 +2224,23 @@ const ConfigGenerator = {
     },
 
     // ── KOMUTLAR: çok vendorlu CLI komut kütüphanesi ────────────────────
-    _renderCli(vendor) {
-        this._setNav('cli');
+    // fam: vendor kilidi (#/v/<aile>/komutlar): yalnız o ailenin komut kütüphaneleri
+    _renderCli(vendor, fam) {
+        if (fam) this._setNav('vendors', fam.name + ' komutları'); else this._setNav('cli');
         this._vendor = this._type = null;
         if (typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Komut kütüphanesi yüklenemedi.</p></div>'; return; }
-        CgCli.render(this._root, vendor);
+        CgCli.render(this._root, vendor, fam || null);
     },
 
     // ── CLI LABORATUVARI: görevli terminal simülatörü ────────────────────
-    _renderLab(id, pathId, vf) {
-        this._setNav('lab');
+    // fam: vendor kilidi (#/v/<aile>/lab): çip satırı yerine seviye rayı, yalnız o ailenin labları
+    _renderLab(id, pathId, vf, fam) {
+        if (fam) this._setNav('vendors', fam.name + ' lablar'); else this._setNav('lab');
         this._vendor = this._type = null;
         if (typeof CgLab === 'undefined' || typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Laboratuvar yüklenemedi.</p></div>'; return; }
         // #/lab?v=<vendor>: katalog süzgeci URL'den (geçersizse tümü); ?v yoksa bellekteki süzgeç, katalog adresi ona göre güncellenir
         if (!id && !pathId && vf !== null && vf !== undefined) CgLab._vf = CgLab.VENDORS[vf] ? vf : 'all';
-        CgLab.render(this._root, id, pathId);
+        CgLab.render(this._root, id, pathId, fam || null);
         window.scrollTo(0, 0);
     },
 
@@ -2251,10 +2254,12 @@ const ConfigGenerator = {
     },
 
     // ── SORUN GİDERME: senaryo tabanlı adım adım sihirbaz ────────────────
-    _renderTs(a, b) {
-        this._setNav('ts');
+    // fam: vendor kilidi (#/v/<aile>/sorun[?k=<konu>]): konu çipleri + o ailenin senaryoları (b = konu)
+    _renderTs(a, b, fam) {
+        if (fam) this._setNav('vendors', fam.name + ' sorun giderme'); else this._setNav('ts');
         this._vendor = this._type = null;
         if (typeof CgTroubleshoot === 'undefined' || typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Sorun giderme sihirbazı yüklenemedi.</p></div>'; return; }
+        if (fam) { CgTroubleshoot.renderFamily(this._root, fam, b); window.scrollTo(0, 0); return; }
         CgTroubleshoot.render(this._root, a, b);
         window.scrollTo(0, 0);
     },
