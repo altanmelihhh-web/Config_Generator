@@ -1513,3 +1513,35 @@
 #config-generator-root .cg-ar-why { display: block; font-size: .72rem; color: #b45309; margin-top: 2px; }
 #config-generator-root .cg-ar-lockn { font-size: .78rem; padding: 6px 10px; margin-bottom: 8px; border-radius: 8px; background: rgba(96, 165, 250, .12); color: var(--text-primary, #111827); border: 1px solid rgba(96, 165, 250, .45); }
 #config-generator-root .cg-ar-panel input:disabled + *, #config-generator-root .cg-ar-panel select:disabled { opacity: .6; }
+/* Denetim S1: kontrast ve mobil */
+#config-generator-root .cg-ar pre.cg-ar-tmsh, #config-generator-root .cg-ar-hintbox pre { color: #d6e2f5; background: #0d1117; }
+#config-generator-root .cg-ar-edmsg code { background: #1f2937; color: #e5e7eb; padding: 0 4px; border-radius: 4px; }
+#config-generator-root .cg-ar-panel .cg-ar-lnk, #config-generator-root .cg-waf .cg-ar-lnk { color: var(--primary-color, #4F46E5); }
+#config-generator-root .cg-ar-panel .cg-ar-lnk:hover { background: var(--bg-tertiary, #f3f4f6); }
+#config-generator-root .cg-ar-kbd { color: #8b98ad; font-weight: 400; margin-left: 6px; font-size: .7rem; }
+#config-generator-root .cg-ar-gut { color: #7d8aa0; }
+#config-generator-root .cg-ar-lamps li { color: #7d8aa0; }
+#config-generator-root .cg-ar-ts { color: #b45309; }
+[data-theme="dark"] #config-generator-root .cg-ar-ts { color: #fbbf24; }
+@media (max-width: 600px) {
+    #config-generator-root .cg-ar-topo { grid-template-columns: 1fr; }
+    #config-generator-root .cg-ar-col.cg-ar-cli { flex-direction: row; flex-wrap: wrap; }
+    #config-generator-root .cg-ar-col.cg-ar-cli .cg-ar-node { flex: 1 1 45%; }
+    #config-generator-root .cg-ar-srv { display: grid; grid-template-columns: 1fr 1fr; }
+    #config-generator-root .cg-ar-mem { white-space: normal; word-break: break-all; }
+    #config-generator-root .cg-ar-tbl th:nth-child(2), #config-generator-root .cg-ar-tbl td:nth-child(2) { display: none; }
+    #config-generator-root .cg-ar-tbl td { white-space: normal; }
+    #config-generator-root .cg-waf-eh { flex-wrap: wrap; min-width: 0; }
+    #config-generator-root .cg-waf-eh small { word-break: break-all; }
+    #config-generator-root .cg-waf-e select, #config-generator-root .cg-waf select { max-width: 100%; }
+    #config-generator-root .cg-waf-e code { word-break: break-all; white-space: normal; }
+}
+@media (max-width: 1000px) {
+    #config-generator-root .cg-ar-desk, #config-generator-root .cg-ar-brief, #config-generator-root .cg-ar-modes { grid-template-columns: minmax(0, 1fr); }
+    #config-generator-root .cg-ar-desk > *, #config-generator-root .cg-ar-topo > * { min-width: 0; }
+}
+@media (max-width: 600px) {
+    #config-generator-root .cg-ar-topo { grid-template-columns: minmax(0, 1fr); }
+    #config-generator-root .cg-ar-lamps li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #config-generator-root .cg-ar-srv { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}

@@ -59,7 +59,7 @@ const CgArena = {
                 <ol class="cg-ar-goals">${t.goals.map(g => `<li>${g}</li>`).join('')}</ol></div>
             ${t.panel ? '<section class="cg-ar-panel" aria-label="Profil ayarları"></section>' : ''}
             <div class="cg-ar-desk">
-                <section class="cg-ar-ed"><div class="cg-ar-edh"><span><i class="fas fa-code"></i> ltm rule <b>${this.RULE}</b></span><span class="cg-ar-edtools"><button type="button" data-a="hint" class="cg-ar-lnk"><i class="fas fa-lightbulb"></i> İpucu</button><button type="button" data-a="reset" class="cg-ar-lnk" title="Başlangıç koduna dön"><i class="fas fa-undo"></i></button></span></div>
+                <section class="cg-ar-ed"><div class="cg-ar-edh"><span><i class="fas fa-code"></i> ltm rule <b>${this.RULE}</b> <small class="cg-ar-kbd">Esc → Tab: editörden çık</small></span><span class="cg-ar-edtools"><button type="button" data-a="hint" class="cg-ar-lnk"><i class="fas fa-lightbulb"></i> İpucu</button><button type="button" data-a="reset" class="cg-ar-lnk" title="Başlangıç koduna dön"><i class="fas fa-undo"></i></button></span></div>
                     <div class="cg-ar-edbox"><div class="cg-ar-gut" aria-hidden="true"></div><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="iRule kodu"></textarea><ol class="cg-ar-view" hidden></ol></div>
                     <div class="cg-ar-edmsg" role="status"></div><div class="cg-ar-hintbox" hidden></div>
                     <div class="cg-ar-ctl"><button type="button" class="cg-ar-go" data-a="run"><i class="fas fa-play"></i> Kaydet ve trafiği başlat</button>
@@ -85,14 +85,30 @@ const CgArena = {
         this._gutter();
         ta.addEventListener('input', () => { st.code = ta.value; this._save(); this._gutter(); });
         ta.addEventListener('scroll', () => { $('.cg-ar-gut').scrollTop = ta.scrollTop; });
-        ta.addEventListener('keydown', e => { if (e.key === 'Tab') { e.preventDefault(); const a = ta.selectionStart; ta.setRangeText('    ', a, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); } if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); this._go(); } });
+        ta.addEventListener('keydown', e => { if (e.key === 'Escape') { ta.dataset.esc = '1'; return; } if (e.key === 'Tab' && ta.dataset.esc) { delete ta.dataset.esc; return; } delete ta.dataset.esc; if (e.key === 'Tab') { e.preventDefault(); const a = ta.selectionStart; ta.setRangeText('    ', a, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); } if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); this._go(); } });
         this._root.querySelectorAll('.cg-ar-spd button').forEach(b => b.addEventListener('click', () => { this._root.querySelectorAll('.cg-ar-spd button').forEach(x => x.classList.toggle('is-on', x === b)); this._speed = +b.dataset.s;
             if (this._run) { const sb = this._$('[data-a="step"]'); sb.hidden = this._speed !== 0; if (this._speed !== 0 && this._stepRes) { const r = this._stepRes; this._stepRes = null; r(); } } }));
         $('[data-a="run"]').addEventListener('click', () => this._go());
         $('[data-a="step"]').addEventListener('click', () => { if (this._stepRes) { const r = this._stepRes; this._stepRes = null; r(); } });
         $('[data-a="reset"]').addEventListener('click', () => { if (this._run) return; ta.value = t.start; st.code = null; st.prof = null; this._prof = this._profDef(t); this._save(); this._edit(); this._gutter(); if (t.panel) this._panel(); });
-        $('[data-a="hint"]').addEventListener('click', () => { const h = t.hints[Math.min(this._hint, t.hints.length - 1)]; this._hint = Math.min(this._hint + 1, t.hints.length); st.hints = Math.max(st.hints, this._hint); this._save(); const box = $('.cg-ar-hintbox'); box.hidden = false; box.innerHTML = t.hints.slice(0, this._hint).map((x, k) => `<p><b>İpucu ${k + 1}</b> ${x}</p>`).join('') + (this._hint >= t.hints.length ? `<details><summary>Örnek çözümü göster</summary><pre>${E(t.solution)}</pre></details>` : ''); });
+        $('[data-a="hint"]').addEventListener('click', () => { const h = t.hints[Math.min(this._hint, t.hints.length - 1)]; this._hint = Math.min(this._hint + 1, t.hints.length); st.hints = Math.max(st.hints, this._hint); this._save(); const box = $('.cg-ar-hintbox'); box.hidden = false; box.innerHTML = t.hints.slice(0, this._hint).map((x, k) => `<p><b>İpucu ${k + 1}</b> ${x}</p>`).join('') + (this._hint >= t.hints.length ? `<details><summary>Örnek çözümü göster</summary>${this._solHtml(t)}</details>` : ''); });
         $('.cg-ar-view').addEventListener('click', () => { if (!this._run) this._edit(); });
+    },
+    // örnek çözüm: iRule + (varsa) panel ayarları ve tmsh karşılığı
+    _solHtml(t) {
+        const E = cgEsc, P = t.solutionProf ? Object.assign(this._profDef(t), t.solutionProf) : null, parts = [];
+        if (P) { const L = []; if (t.panel.includes('methods')) L.push('known-methods: <b>' + P.known.join(' ') + '</b>', 'unknown-method: <b>' + P.unknown + '</b>'); if (t.panel.includes('persist')) L.push('Persistence: <b>' + P.persist + '</b>');
+            parts.push('<p><b>Panel ayarı</b> — ' + L.join(' · ') + '</p><pre class="cg-ar-tmsh">' + E(this._profCmds(t, P).join('\n')) + '</pre>'); }
+        parts.push(t.solution && t.solution.trim() ? '<p><b>iRule</b></p><pre>' + E(t.solution) + '</pre>' : '<p><b>Kod gerekmez:</b> yalnız panel ayarı yeterli.</p>');
+        return parts.join('');
+    },
+    // panel ayarının tmsh karşılığı: türetilmiş profil oluştur + VS'ye bağla (varsayılan http profili değiştirilmez)
+    _profCmds(t, P) {
+        const cmds = [], pn = 'http_' + t.vs.name.replace(/^vs_/, '');
+        if (t.panel.includes('methods')) { const def = this._profDef({}).known; const same = P.known.length === def.length && def.every(m => P.known.includes(m));
+            if (!same || P.unknown !== 'allow') cmds.push('create ltm profile http ' + pn + ' defaults-from http enforcement { known-methods replace-all-with { ' + P.known.join(' ') + ' } unknown-method ' + P.unknown + ' }', 'modify ltm virtual ' + t.vs.name + ' profiles delete { http } profiles add { ' + pn + ' }'); }
+        if (t.panel.includes('persist')) cmds.push(P.persist === 'none' ? 'modify ltm virtual ' + t.vs.name + ' persist none' : 'modify ltm virtual ' + t.vs.name + ' persist replace-all-with { ' + P.persist + ' }');
+        return cmds;
     },
     // koşu süresince panel ve sıfırlama kilitli (değişiklik sessizce yok sayılmasın)
     _lock(on) {
@@ -112,10 +128,7 @@ const CgArena = {
     _panel() {
         const t = this._t, P = this._prof, box = this._$('.cg-ar-panel'), st = this._st(t.id), E = cgEsc;
         const ALL = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'TRACE', 'CONNECT', 'PROPFIND', 'LOCK', 'UNLOCK'];
-        const cmds = [];
-        if (t.panel.includes('methods')) { const def = this._profDef({}).known; const same = P.known.length === def.length && def.every(m => P.known.includes(m));
-            if (!same || P.unknown !== 'allow') cmds.push('modify ltm profile http http_' + t.vs.name.replace(/^vs_/, '') + ' enforcement { known-methods replace-all-with { ' + P.known.join(' ') + ' } unknown-method ' + P.unknown + ' }'); }
-        if (t.panel.includes('persist')) cmds.push(P.persist === 'none' ? 'modify ltm virtual ' + t.vs.name + ' persist none' : 'modify ltm virtual ' + t.vs.name + ' persist replace-all-with { ' + P.persist + ' }');
+        const cmds = this._profCmds(t, P);
         box.innerHTML = `<div class="cg-ar-ph2"><i class="fas fa-sliders-h"></i> <b>${E(t.vs.name)}</b> profil ayarları <small>(iRule\'dan önce uygulanır; kodsuz çözüm ucuzdur)</small></div>
             <div class="cg-ar-pgrid">
             ${t.panel.includes('methods') ? `<div class="cg-ar-pf"><span class="cg-ar-pl">HTTP profili · known-methods</span><div class="cg-ar-mets">${ALL.map(m => `<label class="cg-ar-met${P.known.includes(m) ? ' is-on' : ''}"><input type="checkbox" data-m="${m}"${P.known.includes(m) ? ' checked' : ''}> ${m}</label>`).join('')}</div>
@@ -263,7 +276,7 @@ const CgArena = {
             <div class="cg-ar-brief"><div><h2><i class="fas fa-flag-checkered"></i> ${E(t.title)}</h2><p>${t.story}</p><p class="cg-mo-meta"><span>${vis.length} görünür test</span><span>${hid} gizli test</span><span>maliyet = çalışan kural satırı + regex cezası</span></p></div>
                 <ol class="cg-ar-goals">${t.reqs.map(g => `<li>${g}</li>`).join('')}</ol></div>
             <div class="cg-ar-desk">
-                <section class="cg-ar-ed"><div class="cg-ar-edh"><span><i class="fas fa-code"></i> ltm rule <b>${this.RULE}</b></span><span class="cg-ar-edtools"><button type="button" data-a="hint" class="cg-ar-lnk"><i class="fas fa-lightbulb"></i> İpucu</button><button type="button" data-a="reset" class="cg-ar-lnk" title="Başlangıç koduna dön"><i class="fas fa-undo"></i></button></span></div>
+                <section class="cg-ar-ed"><div class="cg-ar-edh"><span><i class="fas fa-code"></i> ltm rule <b>${this.RULE}</b> <small class="cg-ar-kbd">Esc → Tab: editörden çık</small></span><span class="cg-ar-edtools"><button type="button" data-a="hint" class="cg-ar-lnk"><i class="fas fa-lightbulb"></i> İpucu</button><button type="button" data-a="reset" class="cg-ar-lnk" title="Başlangıç koduna dön"><i class="fas fa-undo"></i></button></span></div>
                     <div class="cg-ar-edbox"><div class="cg-ar-gut" aria-hidden="true"></div><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="iRule kodu"></textarea><ol class="cg-ar-view" hidden></ol></div>
                     <div class="cg-ar-edmsg" role="status"></div><div class="cg-ar-hintbox" hidden></div>
                     <div class="cg-ar-ctl"><button type="button" class="cg-mo-run" data-a="run"><i class="fas fa-play"></i> Çalıştır <small>(görünür testler)</small></button><button type="button" class="cg-ar-go" data-a="submit"><i class="fas fa-paper-plane"></i> Gönder <small>(tüm testler)</small></button></div></section>
@@ -274,7 +287,7 @@ const CgArena = {
         const ta = $('textarea'); ta.value = st.code != null ? st.code : t.start; this._gutter();
         ta.addEventListener('input', () => { st.code = ta.value; this._save(); this._gutter(); });
         ta.addEventListener('scroll', () => { $('.cg-ar-gut').scrollTop = ta.scrollTop; });
-        ta.addEventListener('keydown', e => { if (e.key === 'Tab') { e.preventDefault(); const a = ta.selectionStart; ta.setRangeText('    ', a, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); } if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); this._moGo(e.shiftKey); } });
+        ta.addEventListener('keydown', e => { if (e.key === 'Escape') { ta.dataset.esc = '1'; return; } if (e.key === 'Tab' && ta.dataset.esc) { delete ta.dataset.esc; return; } delete ta.dataset.esc; if (e.key === 'Tab') { e.preventDefault(); const a = ta.selectionStart; ta.setRangeText('    ', a, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); } if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); this._moGo(e.shiftKey); } });
         $('[data-a="run"]').addEventListener('click', () => this._moGo(false));
         $('[data-a="submit"]').addEventListener('click', () => this._moGo(true));
         $('[data-a="reset"]').addEventListener('click', () => { ta.value = t.start; st.code = null; this._save(); this._gutter(); });
@@ -549,7 +562,7 @@ const CgArena = {
         const msg = $('.cg-ar-edmsg'); msg.className = 'cg-ar-edmsg'; msg.textContent = '';
         const k = this._compile(code);
         if (k.err) { msg.className = 'cg-ar-edmsg is-err'; msg.innerHTML = '<i class="fas fa-times-circle"></i> ' + cgEsc(k.err) + '<small>Kural kaydedilmedi; trafik başlatılmadı.</small>'; return; }
-        msg.className = 'cg-ar-edmsg is-ok'; msg.innerHTML = '<i class="fas fa-check-circle"></i> Kural kaydedildi ve <code>' + cgEsc(t.vs.name) + '</code>\'e bağlandı.';
+        msg.className = 'cg-ar-edmsg is-ok'; msg.innerHTML = k.empty ? '<i class="fas fa-check-circle"></i> Kural yok; yalnız profil ayarları uygulandı.' : '<i class="fas fa-check-circle"></i> Kural kaydedildi ve <code>' + cgEsc(t.vs.name) + '</code>\'e bağlandı.';
         const run = this._run = { stop: false }; st.runs++; this._save();
         this._view(code);
         const tb = $('.cg-ar-flow tbody'); tb.innerHTML = ''; $('.cg-ar-log').textContent = ''; $('.cg-ar-logn').textContent = ''; $('.cg-ar-done').hidden = true;
@@ -565,7 +578,7 @@ const CgArena = {
             await this._animate(cl, res, hits);
             res.logs.forEach(l => logs.push(l));
             row.classList.remove('is-run'); row.classList.add(good ? 'is-ok' : 'is-bad');
-            row.querySelector('.cg-ar-res').innerHTML = this._chips(this._parts(exp, res.out)) + (!good && t.panel && t.panel.includes('methods') && !this._prof.known.includes(q.method) && this._prof.unknown === 'allow' ? '<small class="cg-ar-why">' + cgEsc(q.method) + ' listede yok ama unknown-method <b>allow</b>: geçti</small>' : '');
+            row.querySelector('.cg-ar-res').innerHTML = this._chips(this._parts(exp, res.out)) + (!good && t.panel && t.panel.includes('methods') && exp.deny ? (!this._prof.known.includes(q.method) && this._prof.unknown === 'allow' ? '<small class="cg-ar-why">' + cgEsc(q.method) + ' listede yok ama unknown-method <b>allow</b>: geçti</small>' : this._prof.known.includes(q.method) ? '<small class="cg-ar-why">' + cgEsc(q.method) + ' profilin bilinen metotlar listesinde: profil geçirdi, kural da durdurmadı</small>' : '') : '');
             row.querySelector('.cg-ar-ok').innerHTML = good ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>';
             if (good) ok++;
             $('.cg-ar-score').textContent = ok + '/' + (i + 1) + ' doğru';
