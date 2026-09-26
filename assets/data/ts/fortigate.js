@@ -212,5 +212,78 @@
                 { code: 'execute telnet 172.24.50.10 443', desc: 'FortiGate\'ten sunucunun portu: "refused" = servis kapalı (sunucu tarafı), "timed out" = DMZ erişimi ya da sunucu kapalı. Bu test forward kuralına tabi değildir.' },
             ],
         },
+        // ── Müfredat Seviye 7 (sorun gidermede ustalık): paket yakalama, kural tanılama, rota tanılama, oturum tanılama
+        {
+            title: 'Uygulama Açılmıyor: Sniffer ile TCP El Sıkışmasını Okumak (SYN-ACK mı, RST mi, Yanıt Yok mu?)', severity: 'warn', topic: 'traffic', lab: 'fgt-41',
+            symptom: 'Kullanıcı bir sunucunun belirli bir portuna (ör. 8080) bağlanamıyor; aynı sunucunun başka portları çalışıyor. Sorunun sunucuda mı, yolda mı, FortiGate\'te mi olduğu el sıkışmanın kablodaki izinden anlaşılır.',
+            steps: [
+                { expect: 'bad', code: 'diagnose sniffer packet any \'host 198.51.100.25 and port 8080\' 4 20', desc: 'Seviye 4 arayüzü ve yönü gösterir, 20 adet sınırıdır. Sağlıklı bağlantı: istemcinin "syn"i, WAN\'dan çıkan (NAT\'lı) "syn", dönen "syn ack". Aşağıdaki örnekte SYN sunucuya ulaşıyor ve "rst ack" dönüyor: sunucu portu reddediyor.',
+                  sample: 'interfaces=[any]\nfilters=[host 198.51.100.25 and port 8080]\n0.800000 port2 in 10.64.10.20.50222 -> 198.51.100.25.8080: syn\n0.821300 port1 out 203.0.113.2.64266 -> 198.51.100.25.8080: syn\n0.842600 port1 in 198.51.100.25.8080 -> 203.0.113.2.64266: rst ack\n0.863900 port2 out 198.51.100.25.8080 -> 10.64.10.20.50222: rst ack\n\n# "rst ack" = paket sunucuya ulaştı, sunucu reddetti',
+                  fix: [{ cause: 'Dönüşte "rst ack": o portta dinleyen servis yok ya da sunucunun kendi güvenlik duvarı reddediyor. Portu FortiGate\'ten de sınayıp sonucu ("refused") sunucu ekibine iletin', cmd: 'execute telnet 198.51.100.25 8080' },
+                        { cause: 'Yalnız "port2 in" var, "port1 out" yok: FortiGate düşürüyor. Nedeni debug flow ya da kural araması gösterir', cmd: 'diagnose firewall iprope lookup 10.64.10.20 50000 198.51.100.25 8080 tcp port2' },
+                        { cause: '"out" var, dönüş hiç yok: sorun FortiGate\'ten sonra (ISS, karşı güvenlik duvarı, sunucunun dönüş rotası). Yolu ölçüp kanıtla yönlendirin', cmd: 'execute traceroute 198.51.100.25' }] },
+                { code: 'diagnose sniffer packet any \'host 198.51.100.25 and port 443\' 4 20', desc: 'Karşılaştırma için çalışan portu yakalayın: "syn" → "syn ack" dönüyorsa ağ yolu ve NAT sağlamdır; sorun yalnız 8080\'e özgüdür.' },
+                { code: 'diagnose sniffer packet port1 \'host 198.51.100.25\' 4 20', desc: 'WAN arayüzünde kaynak adres FortiGate\'in WAN adresi (203.0.113.2) olmalı. İstemcinin özel adresi (10.64.x.x) görünüyorsa kuralda NAT kapalıdır ve dönüş hiç gelmez.',
+                  fix: [{ cause: 'Giden kuralda kaynak NAT kapalı', cmd: 'config firewall policy\nedit 1\nset nat enable\nend' }] },
+                { code: 'diagnose sniffer packet any \'udp and port 53\' 4 10', desc: 'Uygulama ada göre bağlanıyorsa önce DNS: UDP\'de el sıkışma yoktur, sorgu ve yanıt satırlarının ikisi de görünmelidir. Yalnız sorgu varsa DNS sunucusuna erişim ya da dönüş sorunludur.' },
+            ],
+            quiz: [
+                { q: 'SYN\'e "syn ack" dönüyor ama uygulama yine açılmıyor. Sorun büyük olasılıkla nerede?', choices: [['app', 'Uygulama katmanında (TLS, HTTP, kimlik doğrulama): TCP bağlantısı kuruluyor'], ['fw', 'FortiGate SYN\'i düşürüyor'], ['route', 'Rota yok']], correct: 'app', why: 'SYN-ACK, port açık ve yol sağlam demektir. Bundan sonrası TCP\'nin üstündeki katmanlardır; sniffer\'da el sıkışmadan sonraki paketlere ya da uygulama loglarına bakılır.' },
+                { q: 'UDP 53 yakalamasında yalnız "port2 in … : udp" satırı var, başka satır yok. İlk şüpheli?', choices: [['fgt', 'FortiGate sorguyu dışarı çıkarmıyor (kural ya da rota)'], ['srv', 'DNS sunucusu yanıt vermiyor'], ['client', 'İstemci sorgu göndermiyor']], correct: 'fgt', why: 'Paket FortiGate\'e girmiş ama çıkış arayüzünde görünmüyor: karar FortiGate\'te. Sunucu yanıt vermiyor olsaydı "port1 out" satırı olurdu.' },
+            ],
+        },
+        {
+            title: 'Trafik Engelleniyor Ama Logda İz Yok: iprope lookup ve Örtük Deny', severity: 'warn', topic: 'traffic', lab: 'fgt-58',
+            symptom: 'Kullanıcı bir servise erişemiyor; trafik logunda ilgili bağlantı hiç görünmüyor. Hangi kuralın (ya da hiçbirinin) eşleştiği bilinmiyor.',
+            steps: [
+                { expect: 'bad', code: 'diagnose firewall iprope lookup 10.64.10.20 50000 198.51.100.80 23 tcp port2', desc: 'Sırasıyla kaynak, kaynak port, hedef, hedef port, protokol ve giriş arayüzü. Trafik beklemeden kural tablosunu sorgular. "policy id: 0" = hiçbir kural eşleşmedi, örtük deny düşürüyor; örtük deny varsayılan olarak loglamaz, logun boş olmasının nedeni budur.',
+                  sample: '<src [10.64.10.20-50000] dst [198.51.100.80-23] proto tcp dev port2> matches policy id: 0',
+                  fix: [{ cause: 'Servis gerçekten izinli olmalı: mevcut kurala yalnız gereken servisi ekleyin', cmd: 'config firewall policy\nedit 1\nappend service TELNET\nend' },
+                        { cause: 'Engel doğru ama görünmeli: en alta loglanan açık bir deny kuralı ekleyin', cmd: 'config firewall policy\nedit 0\nset name LAN-DENY-LOG\nset srcintf port2\nset dstintf port1\nset srcaddr all\nset dstaddr all\nset schedule always\nset service ALL\nset action deny\nset logtraffic all\nend' }] },
+                { code: 'show firewall policy', desc: 'Lookup\'ın döndürdüğü kimliği tabloda bulun: eylem, servis, durum (status disable kurallar eşleşmeye katılmaz) ve sırası. Beklenen izin kuralının üstünde daha geniş bir deny kuralı varsa ilk eşleşen o olur.',
+                  fix: [{ cause: 'Beklenen kural devre dışı', cmd: 'config firewall policy\nedit 1\nset status enable\nend' },
+                        { cause: 'Üstteki bir deny kuralı önce eşleşiyor: izin kuralını üste taşıyın', cmd: 'config firewall policy\nmove 1 before 3\nend' }] },
+                { code: 'diagnose firewall iprope lookup 10.64.10.20 50000 198.51.100.80 23 tcp port2', desc: 'Düzeltmeden sonra aynı sorguyu tekrarlayın: beklenen kural kimliği dönmelidir. Değişikliğin kanıtı budur; kullanıcıdan yeniden denemesini istemeden önce yapılır.' },
+            ],
+            quiz: [
+                { q: 'Lookup "matches policy id: 0" döndü. Anlamı?', choices: [['implicit', 'Hiçbir kural eşleşmedi; tablonun sonundaki örtük deny uygulanır'], ['first', 'İlk kural eşleşti'], ['err', 'Sorgu hatalı']], correct: 'implicit', why: 'Policy 0 örtük deny\'dır. Varsayılan olarak loglanmadığı için "logda hiçbir şey yok" belirtisiyle birlikte görülür.' },
+                { q: 'Loglanan "her şeyi reddet" kuralı nereye konur?', choices: [['bottom', 'İzin kurallarının altına, tablonun sonuna'], ['top', 'En üste'], ['any', 'Fark etmez']], correct: 'bottom', why: 'İlk eşleşen kural uygulanır; en üstteki bir deny tüm izin kurallarını gölgeler.' },
+            ],
+        },
+        {
+            title: 'Bir Ağa Trafik Yanlış Hattan Çıkıyor ya da Hiç Gitmiyor: Rota Tablosu Tanılama (Maske, En Uzun Önek)', severity: 'warn', topic: 'routing', lab: 'fgt-40',
+            symptom: 'Şubeden merkezdeki bir ağa ya da iç bir segmente gidilemiyor; traceroute trafiğin internete (varsayılan rotaya) gittiğini ya da hiç çıkmadığını gösteriyor.',
+            steps: [
+                { expect: 'bad', code: 'get router info routing-table all', desc: 'Önce hedefi kapsayan en uzun önekli satırı bulun: C (bağlı), S (statik), S* (varsayılan). Hedefi kapsayan özel bir satır yoksa trafik varsayılan rotayla internete gider. Beklenen statik rota tabloda yoksa ya devre dışıdır ya da ağ geçidi çıkış arayüzünün bağlı alt ağında değildir.',
+                  sample: 'S*      0.0.0.0/0 [10/0] via 203.0.113.1, port1, [1/0]\nC       10.64.20.0/25 is directly connected, port2\nC       203.0.113.0/30 is directly connected, port1\n\n# 10.64.192.0/18 satırı yok: port3 adresi eksik ya da yanlış maskeli, statik rotanın ağ geçidi (10.64.20.130) bağlı bir ağda değil',
+                  fix: [{ cause: 'Ağ geçidinin bulunduğu arayüzün adresi eksik ya da maskesi yanlış: statik rota tabloya giremiyor', cmd: 'config system interface\nedit port3\nset ip 10.64.20.129 255.255.255.192\nend' },
+                        { cause: 'Hedef ağa rota hiç yok', cmd: 'config router static\nedit 2\nset dst 10.64.192.0 255.255.192.0\nset gateway 10.64.20.130\nset device port3\nend' }] },
+                { code: 'show router static', desc: 'Her rotada dst, gateway ve device doğru mu? Maske hataları sık: /18 = 255.255.192.0, /17 = 255.255.128.0. "set status disable" rotanın pasif bırakıldığını gösterir.',
+                  fix: [{ cause: 'Rota pasif', cmd: 'config router static\nedit 2\nset status enable\nend' }] },
+                { code: 'show system interface', desc: 'Arayüz maskeleri plana uygun mu? Bloğun tamamını (/24) tek arayüze vermek, aynı bloktaki başka bir segmenti "bağlı" sanmaya yol açar; o adreslere yönlendirici yerine doğrudan ARP sorulur.' },
+                { code: 'execute traceroute 10.64.200.5', desc: 'Doğrulama: ilk sekme beklenen iç yönlendirici (ör. 10.64.20.130) olmalı. İlk sekme ISS ağ geçidiyse (203.0.113.1) hâlâ varsayılan rota kullanılıyordur.' },
+            ],
+            quiz: [
+                { q: 'Hedef hem 0.0.0.0/0 hem 10.64.192.0/18 ile eşleşiyor, ikisinin mesafesi 10. Hangisi kullanılır?', choices: [['long', '/18: önce en uzun önek kazanır'], ['def', 'Varsayılan rota'], ['ecmp', 'İkisi arasında yük paylaşılır']], correct: 'long', why: 'Mesafe yalnız aynı öneke sahip rotalar arasında karşılaştırılır. Farklı önekler arasında en özel olan kazanır.' },
+                { q: 'Statik rota yapılandırmada var ama tabloda görünmüyor. İlk kontrol?', choices: [['gw', 'Ağ geçidi, çıkış arayüzünün bağlı alt ağında mı ve arayüz up mı'], ['dist', 'Mesafe 10 mu'], ['prio', 'Öncelik 1 mi']], correct: 'gw', why: 'Ağ geçidine bağlı bir ağ üzerinden ulaşılamıyorsa ya da arayüz kapalıysa rota tabloya girmez. Yüksek mesafeli yedek rotalar da tabloda görünmez; onlar "database" çıktısında bekler.' },
+            ],
+        },
+        {
+            title: 'NAT ya da Kural Değişti Ama Kullanıcı Eski Davranışı Görüyor: Oturum Tanılama (session filter / list / clear)', severity: 'warn', topic: 'traffic', lab: 'fgt-07',
+            symptom: 'Kural, NAT havuzu ya da rota değiştirildi; yeni bağlantılar doğru çalışıyor ama bazı kullanıcılar hâlâ eski çıkış adresiyle görünüyor ya da eski yoldan gidiyor.',
+            steps: [
+                { code: 'diagnose sys session filter src 10.64.50.25', desc: 'Oturum tablosu büyüktür; önce filtre. src, dst, dport, proto, policy ile daraltılabilir. Filtreyi görmek için argümansız "diagnose sys session filter".',
+                  fix: [{ cause: 'Önceki filtre kalmış', cmd: 'diagnose sys session filter clear\ndiagnose sys session filter src 10.64.50.25' }] },
+                { expect: 'bad', code: 'diagnose sys session list', desc: 'Oturumun hangi kurala (policy_id), hangi arayüz çiftine (dev=) ve hangi NAT\'a (act=snat …(çevrilmiş adres:port)) bağlı olduğunu gösterir. Mevcut oturumlar kuruldukları andaki kararı taşır: değişiklik yalnız yeni oturumlara uygulanır.',
+                  sample: 'session info: proto=6 proto_state=11 duration=842 expire=3587 timeout=3600 flags=00000000 socktype=0 sockport=0 av_idx=0 use=3\nstatistic(bytes/packets/allow_err): org=1843/12/1 reply=5230/10/1 tuples=2\norgin->sink: org pre->post, reply pre->post dev=port2->port1/port1->port2 gwy=203.0.113.1/10.64.50.25\nhook=post dir=org act=snat 10.64.50.25:50000->198.51.100.80:443(203.0.113.2:61234)\nmisc=0 policy_id=1 auth_info=0 chk_client_info=0 vd=0\ntotal session 1\n\n# NAT havuzu değiştiği hâlde bu oturum hâlâ eski çıkış adresiyle (203.0.113.2) duruyor',
+                  fix: [{ cause: 'Eski karar üzerindeki oturumlar: yalnız ilgili oturumları filtreyle temizleyin (kullanıcı yeniden bağlanınca yeni kural/NAT uygulanır)', cmd: 'diagnose sys session filter src 10.64.50.25\ndiagnose sys session clear' }] },
+                { code: 'diagnose sys session clear', desc: 'DİKKAT: filtre yokken tüm oturumları siler, cihazdaki herkes kopar. Her zaman önce filtre, sonra "diagnose sys session filter" ile filtreyi kontrol edin, sonra clear.' },
+                { code: 'diagnose sys session list', desc: 'Doğrulama: kullanıcı yeniden bağlandıktan sonra oturum yeni kural kimliği ve yeni çıkış adresiyle görünmeli. İş bitince "diagnose sys session filter clear".' },
+            ],
+            quiz: [
+                { q: 'NAT havuzunu değiştirdiniz. Açık kalan eski oturumlar ne yapar?', choices: [['old', 'Kuruldukları andaki NAT ile sürer; değişiklik yeni oturumlara uygulanır'], ['new', 'Hemen yeni havuza geçer'], ['drop', 'Hepsi otomatik düşer']], correct: 'old', why: 'Oturum tablosu kararı önbellekler. Uzun ömürlü oturumlar (VPN, veritabanı bağlantıları) bu yüzden değişiklikten saatler sonra bile eski davranışı gösterebilir.' },
+                { q: 'Filtre koymadan "diagnose sys session clear" çalıştırmanın sonucu?', choices: [['all', 'Tüm oturumlar silinir, herkesin bağlantısı kopar'], ['none', 'Hiçbir şey olmaz'], ['mine', 'Yalnız kendi yönetim oturumunuz silinir']], correct: 'all', why: 'Filtre yoksa kapsam tüm tablodur. Üretimde yalnız filtrelenmiş clear kullanılır.' },
+            ],
+        },
     ];
 })();

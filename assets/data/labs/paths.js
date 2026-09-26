@@ -103,7 +103,7 @@
         { id: 'fortigate-fw', vendor: 'fortigate', title: 'FortiGate: sıfırdan üretime', desc: 'Yedi seviyede ağ temellerinden FortiGate temellerine, güvenlik profillerine, VPN\'e, HA\'ya ve sorun gidermede ustalığa adım adım ilerleyin.',
           modules: FGT({ 1: ['fgt-00'], 2: ['fgt-40'], 3: ['fgt-41'], 4: ['fgt-20', 'fgt-26'], 5: ['fgt-01', 'fgt-17', 'fgt-09'], 6: ['fgt-02'], 7: ['fgt-13'], 8: ['fgt-03'], 9: ['fgt-04', 'fgt-05'],
               10: ['fgt-06'], 11: ['fgt-07', 'fgt-08', 'fgt-42'], 12: ['fgt-18'], 13: ['fgt-58'], 14: ['fgt-10', 'fgt-43', 'fgt-44', 'fgt-45'], 15: ['fgt-14', 'fgt-46'],
-              16: ['fgt-11', 'fgt-31'], 17: ['fgt-12'], 18: ['fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-52', 'fgt-53'], 21: ['fgt-56', 'fgt-57'],
+              16: ['fgt-11', 'fgt-31'], 17: ['fgt-12'], 18: ['fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-60', 'fgt-52', 'fgt-53'], 21: ['fgt-59', 'fgt-56', 'fgt-57'],
               22: ['fgt-15', 'fgt-16', 'fgt-32'], 23: ['fgt-21', 'fgt-22'], 24: ['fgt-23', 'fgt-24'], 25: ['fgt-27'], 26: ['fgt-55'] }) },
         { id: 'paloalto-fw', vendor: 'paloalto', title: 'Palo Alto: sıfırdan üretime', desc: 'PAN-OS güvenlik duvarını kurulumdan güvenlik profillerine ve arıza teşhisine adım adım üretime hazırlayın.',
           modules: FW({ 1: ['pan-01'], 2: ['pan-07'], 3: ['pan-08'], 4: ['pan-02', 'pan-09'], 5: ['pan-03'], 6: ['pan-05'], 8: ['pan-14'], 9: ['pan-04'], 11: ['pan-10'], 12: ['pan-11'], 15: ['pan-12'], 16: ['pan-15'], 17: ['pan-06', 'pan-13'] },
