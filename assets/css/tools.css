@@ -108,3 +108,22 @@
 @media (prefers-reduced-motion: reduce) {
     :root #config-generator-root .cg-tools .cg-tool { transition: none; }
 }
+
+/* ─── Araç sayfası uyarıları: terminalin DIŞINDA, altında (cgShowWarnings) — kompakt, token renkleri ─── */
+:root #config-generator-root .cg-split-out > .cg-term { flex-shrink: 0; }   /* uyarılar terminal yüksekliğini değiştirmez */
+:root #config-generator-root .cg-warns { flex: 0 1 auto; min-height: 0; overflow: auto; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: .82rem; line-height: 1.45; }
+:root #config-generator-root .cg-warns[hidden] { display: none; }
+:root #config-generator-root .cg-warns-hd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 4px; color: var(--muted); }
+:root #config-generator-root .cg-warns-hd b { color: var(--text); font-weight: 600; }
+:root #config-generator-root .cg-warns-err { color: var(--err); font-weight: 600; }
+:root #config-generator-root .cg-warns-list { margin: 0; padding: 0; list-style: none; max-height: 40vh; overflow: auto; }
+:root #config-generator-root .cg-warn { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+:root #config-generator-root .cg-warn[hidden] { display: none; }
+:root #config-generator-root .cg-warn > i { flex: none; width: 14px; text-align: center; font-size: .82rem; }
+:root #config-generator-root .cg-warn.is-err > i { color: var(--err); }
+:root #config-generator-root .cg-warn.is-warn > i { color: var(--warn); }
+:root #config-generator-root .cg-warn.is-info > i { color: var(--muted); }
+:root #config-generator-root .cg-warn > span { min-width: 0; overflow-wrap: break-word; }
+:root #config-generator-root .cg-warns-more { margin-top: 4px; min-height: 28px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--primary); font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
+:root #config-generator-root .cg-warns-more:hover { border-color: var(--primary); }
+:root #config-generator-root .cg-warns-more:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

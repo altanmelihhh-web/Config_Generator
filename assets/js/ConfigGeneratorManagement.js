@@ -723,6 +723,35 @@ function cgHighlight(text) {
 function cgUnesc(v) {
     return String(v == null ? '' : v).replace(/&(lt|gt|quot|#39|amp);/g, (m, e) => ({ lt: '<', gt: '>', quot: '"', '#39': "'", amp: '&' })[e]);
 }
+// Uyarı listesi: ⛔ (zorunlu/geçersiz) önce, sonra ⚠, sonra ℹ; ilk 2 görünür, kalanı "N uyarı daha" ile açılır.
+// Açık/kapalı durumu canlı yeniden çizimlerde korunur (yazarken liste zıplamaz).
+let cgWarnOpen = false;
+function cgShowWarnings(warnings) {
+    const box = document.getElementById('cg-term-warn');
+    if (!box) return;
+    const W = (warnings || []).map(w => String(w)).filter(Boolean);
+    if (!W.length) { box.hidden = true; box.innerHTML = ''; return; }
+    const kind = w => /^\u26D4/.test(w) ? 'err' : /^\u2139/.test(w) ? 'info' : 'warn';
+    const rank = { err: 0, warn: 1, info: 2 };
+    const L = W.map((w, i) => ({ w, i, k: kind(w) })).sort((a, b) => rank[a.k] - rank[b.k] || a.i - b.i);
+    const ico = { err: ['fa-circle-xmark', 'Hata'], warn: ['fa-triangle-exclamation', 'Uyarı'], info: ['fa-circle-info', 'Bilgi'] };
+    const SHOW = 2, more = L.length - SHOW;
+    const row = (x, hid) => '<li class="cg-warn is-' + x.k + '"' + (hid ? ' data-more hidden' : '') + '><i class="fas ' + ico[x.k][0] + '" aria-hidden="true"></i>' +
+        '<span><span class="cg-sr-only">' + ico[x.k][1] + ': </span>' + cgEsc(x.w.replace(/^[\u26D4\u26A0\u2139]\uFE0F?\s*/, '')) + '</span></li>';
+    const nErr = L.filter(x => x.k === 'err').length;
+    box.innerHTML = '<div class="cg-warns-hd"><b>' + L.length + ' uyarı</b>' + (nErr ? '<span class="cg-warns-err">' + nErr + ' zorunlu/geçersiz alan</span>' : '') + '</div>' +
+        '<ul class="cg-warns-list" id="cg-warns-list">' + L.map((x, i) => row(x, i >= SHOW && !cgWarnOpen)).join('') + '</ul>' +
+        (more > 0 ? '<button type="button" class="cg-warns-more" aria-controls="cg-warns-list" aria-expanded="' + cgWarnOpen + '">' +
+            (cgWarnOpen ? 'Daha az göster' : more + ' uyarı daha') + '</button>' : '');
+    box.hidden = false;
+    const btn = box.querySelector('.cg-warns-more');
+    if (btn) btn.addEventListener('click', () => {
+        cgWarnOpen = !cgWarnOpen;
+        box.querySelectorAll('[data-more]').forEach(li => { li.hidden = !cgWarnOpen; });
+        btn.setAttribute('aria-expanded', String(cgWarnOpen));
+        btn.textContent = cgWarnOpen ? 'Daha az göster' : more + ' uyarı daha';
+    });
+}
 function cgShowOutput(config, warnings = []) {
     const body = document.getElementById('cg-term-body');
     if (!body) return;
@@ -738,18 +767,8 @@ function cgShowOutput(config, warnings = []) {
         body.innerHTML = '<span class="cg-term-idle"><b>' + cgEsc(prompt) + ' #</b> Yapılandırma bekleniyor\u2026</span>';
     }
 
-    // Uyarı şeridi
-    const warnBox = document.getElementById('cg-term-warn');
-    if (warnBox) {
-        if (warnings && warnings.length) {
-            warnBox.innerHTML = '<strong><i class="fas fa-exclamation-triangle"></i> ' + warnings.length + ' uyarı</strong><ul>' +
-                warnings.map(w => '<li>' + cgEsc(w) + '</li>').join('') + '</ul>';
-            warnBox.style.display = '';
-        } else {
-            warnBox.innerHTML = '';
-            warnBox.style.display = 'none';
-        }
-    }
+    // Uyarılar: terminalin DIŞINDA, altında kompakt liste (kopyala/indir yalnız config'i alır: cgLastOutput)
+    cgShowWarnings(warnings);
 
     // Kopyala / indir butonları
     ['cg-term-copy', 'cg-term-dl'].forEach(id => {
@@ -2319,8 +2338,8 @@ const ConfigGenerator = {
                             </div>
                         </div>
                         <pre class="cg-term-body" id="cg-term-body"></pre>
-                        <div class="cg-term-warn" id="cg-term-warn" style="display:none"></div>
                     </div>
+                    <div class="cg-warns" id="cg-term-warn" role="region" aria-label="Uyarılar" hidden></div>
                 </div>
             </div>
         </div>`;
