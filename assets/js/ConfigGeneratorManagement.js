@@ -837,34 +837,152 @@ function cgHighlight(text) {
 function cgUnesc(v) {
     return String(v == null ? '' : v).replace(/&(lt|gt|quot|#39|amp);/g, (m, e) => ({ lt: '<', gt: '>', quot: '"', '#39': "'", amp: '&' })[e]);
 }
-// Uyarı listesi: ⛔ (zorunlu/geçersiz) önce, sonra ⚠, sonra ℹ; ilk 2 görünür, kalanı "N uyarı daha" ile açılır.
-// Açık/kapalı durumu canlı yeniden çizimlerde korunur (yazarken liste zıplamaz).
+// Uyarı alanı (terminalin altında): önem düzeyine göre renkli kartlar — hata (⛔) önce, sonra ⚠, sonra ℹ.
+// Başlıkta özet rozetleri; kutu çerçevesi en yüksek önem düzeyini alır. Geçersiz/boş alan adları
+// tıklanabilir çiptir (alana kaydırıp odaklar). Görünen madde sayısı sütunda kalan boşluğa göre
+// hesaplanır; sığmayanlar "N daha" ile açılır. Uyarı yoksa ince yeşil "config hazır" satırı.
+// cgWarnMeta: canlı üretimin kendi eklediği hata iletileri için yapı (başlık, alan listesi, açıklama).
 let cgWarnOpen = false;
-function cgShowWarnings(warnings) {
+const cgWarnMeta = new Map();
+let cgWarnLiveMsg = '';
+function cgShowWarnings(warnings, hasConfig) {
     const box = document.getElementById('cg-term-warn');
     if (!box) return;
+    let live = document.getElementById('cg-warns-live');
+    if (!live && box.parentNode) {
+        live = document.createElement('span');
+        live.id = 'cg-warns-live'; live.className = 'cg-sr-only';
+        live.setAttribute('aria-live', 'polite'); live.setAttribute('role', 'status');
+        box.parentNode.insertBefore(live, box.nextSibling);
+    }
+    const say = t => { if (live && t !== cgWarnLiveMsg) { cgWarnLiveMsg = t; live.textContent = t; } };
     const W = (warnings || []).map(w => String(w)).filter(Boolean);
-    if (!W.length) { box.hidden = true; box.innerHTML = ''; return; }
-    const kind = w => /^\u26D4/.test(w) ? 'err' : /^\u2139/.test(w) ? 'info' : 'warn';
+    box.classList.remove('lvl-err', 'lvl-warn', 'lvl-info', 'lvl-ok');
+    if (!W.length) {
+        box.innerHTML = '';
+        if (hasConfig) {
+            box.classList.add('lvl-ok');
+            box.innerHTML = '<p class="cg-warns-ok"><i class="fas fa-circle-check" aria-hidden="true"></i>Uyarı yok — config hazır</p>';
+            box.hidden = false;
+            say('Uyarı yok');
+        } else { box.hidden = true; say(''); }
+        cgWarnBar(box, 0, 0);
+        return;
+    }
+    const kind = w => /^⛔/.test(w) ? 'err' : /^ℹ/.test(w) ? 'info' : 'warn';
     const rank = { err: 0, warn: 1, info: 2 };
     const L = W.map((w, i) => ({ w, i, k: kind(w) })).sort((a, b) => rank[a.k] - rank[b.k] || a.i - b.i);
     const ico = { err: ['fa-circle-xmark', 'Hata'], warn: ['fa-triangle-exclamation', 'Uyarı'], info: ['fa-circle-info', 'Bilgi'] };
-    const SHOW = 2, more = L.length - SHOW;
-    const row = (x, hid) => '<li class="cg-warn is-' + x.k + '"' + (hid ? ' data-more hidden' : '') + '><i class="fas ' + ico[x.k][0] + '" aria-hidden="true"></i>' +
-        '<span><span class="cg-sr-only">' + ico[x.k][1] + ': </span>' + cgEsc(x.w.replace(/^[\u26D4\u26A0\u2139]\uFE0F?\s*/, '')) + '</span></li>';
-    const nErr = L.filter(x => x.k === 'err').length;
-    box.innerHTML = '<div class="cg-warns-hd"><b>' + L.length + ' uyarı</b>' + (nErr ? '<span class="cg-warns-err">' + nErr + ' zorunlu/geçersiz alan</span>' : '') + '</div>' +
-        '<ul class="cg-warns-list" id="cg-warns-list">' + L.map((x, i) => row(x, i >= SHOW && !cgWarnOpen)).join('') + '</ul>' +
-        (more > 0 ? '<button type="button" class="cg-warns-more" aria-controls="cg-warns-list" aria-expanded="' + cgWarnOpen + '">' +
-            (cgWarnOpen ? 'Daha az göster' : more + ' uyarı daha') + '</button>' : '');
+    const n = { err: 0, warn: 0, info: 0 };
+    L.forEach(x => { n[x.k]++; });
+    const top = n.err ? 'err' : n.warn ? 'warn' : 'info';
+    const fields = [];
+    const row = x => {
+        const m = cgWarnMeta.get(x.w);
+        const text = x.w.replace(/^[⛔⚠ℹ]️?\s*/, '');
+        let title = ico[x.k][1], body;
+        if (m) {
+            title = m.t;
+            body = '<span class="cg-warn-chips">' + m.f.map(f => {
+                fields.push(f.el);
+                return '<button type="button" class="cg-wchip" data-wf="' + (fields.length - 1) + '" title="Alana git">' +
+                    '<i class="fas fa-arrow-turn-down" aria-hidden="true"></i><span class="cg-wchip-l">' + cgEsc(f.label) + '</span>' +
+                    (f.note ? '<small>' + cgEsc(f.note) + '</small>' : '') + '<span class="cg-sr-only"> — alana git</span></button>';
+            }).join('') + '</span><span class="cg-warn-d">' + cgEsc(m.d) + '</span>';
+        } else {
+            // "Kısa başlık: ayrıntı" biçimindeki iletilerde başlık ayrılır; değilse düzey adı başlık olur.
+            const c = text.indexOf(': ');
+            if (c >= 8 && c <= 60) { title = text.slice(0, c); body = '<span class="cg-warn-d">' + cgEsc(text.slice(c + 2)) + '</span>'; }
+            else body = '<span class="cg-warn-d">' + cgEsc(text) + '</span>';
+        }
+        return '<li class="cg-warn is-' + x.k + '"><i class="fas ' + ico[x.k][0] + '" aria-hidden="true"></i>' +
+            '<div class="cg-warn-c"><b class="cg-warn-t"><span class="cg-sr-only">' + ico[x.k][1] + ': </span>' + cgEsc(title) + '</b>' + body + '</div></li>';
+    };
+    const badge = (k, lbl) => '<span class="cg-wbadge is-' + k + (n[k] ? '' : ' is-zero') + '">' + n[k] + ' ' + lbl + '</span>';
+    const head = n.err ? 'Düzeltilmesi gerekenler var' : n.warn ? 'Kontrol edilecekler var' : 'Bilgilendirme';
+    box.classList.add('lvl-' + top);
+    box.innerHTML = '<div class="cg-warns-hd"><i class="fas ' + ico[top][0] + '" aria-hidden="true"></i><b>' + head + '</b>' +
+        '<span class="cg-wbadges">' + badge('err', 'hata') + badge('warn', 'uyarı') + badge('info', 'bilgi') + '</span></div>' +
+        '<ul class="cg-warns-list" id="cg-warns-list">' + L.map(row).join('') + '</ul>' +
+        '<button type="button" class="cg-warns-more" aria-controls="cg-warns-list" hidden></button>';
     box.hidden = false;
+    say(n.err + ' hata, ' + n.warn + ' uyarı, ' + n.info + ' bilgi');
+    cgWarnBar(box, n.err, n.warn);
+    box.querySelectorAll('.cg-wchip').forEach(b => b.addEventListener('click', () => cgWarnGoto(fields[+b.dataset.wf])));
     const btn = box.querySelector('.cg-warns-more');
-    if (btn) btn.addEventListener('click', () => {
-        cgWarnOpen = !cgWarnOpen;
-        box.querySelectorAll('[data-more]').forEach(li => { li.hidden = !cgWarnOpen; });
-        btn.setAttribute('aria-expanded', String(cgWarnOpen));
-        btn.textContent = cgWarnOpen ? 'Daha az göster' : more + ' uyarı daha';
-    });
+    btn.addEventListener('click', () => { cgWarnOpen = !cgWarnOpen; cgFitWarnings(); });
+    cgFitWarnings();
+    if (!cgShowWarnings.rz) {
+        let t = null;
+        cgShowWarnings.rz = true;
+        window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(cgFitWarnings, 120); });
+    }
+}
+// Tek sütunda (mobil) ekranın altında ince yapışkan özet çubuğu: hata/uyarı varsa ve uyarı kutusu
+// görünür değilken çıkar; dokununca kutuya kaydırır. Çekmece/palet açıkken CSS ile gizlenir.
+function cgWarnBar(box, nErr, nWarn) {
+    let bar = document.getElementById('cg-warns-bar');
+    if (!bar && box.parentNode) {
+        bar = document.createElement('button');
+        bar.type = 'button'; bar.id = 'cg-warns-bar'; bar.className = 'cg-warns-bar'; bar.hidden = true;
+        bar.setAttribute('aria-controls', 'cg-term-warn');
+        bar.addEventListener('click', () => {
+            const b = document.getElementById('cg-term-warn');
+            if (!b) return;
+            const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            b.setAttribute('tabindex', '-1');
+            b.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+            try { b.focus({ preventScroll: true }); } catch (e) { b.focus(); }
+        });
+        box.parentNode.appendChild(bar);
+        if ('IntersectionObserver' in window) {
+            new IntersectionObserver(es => es.forEach(e => bar.classList.toggle('is-near', e.isIntersecting))).observe(box);
+        }
+    }
+    if (!bar) return;
+    bar.hidden = !(nErr + nWarn);
+    if (bar.hidden) return;
+    bar.innerHTML = (nErr ? '<span class="is-err"><i class="fas fa-circle-xmark" aria-hidden="true"></i>' + nErr + ' hata</span>' : '') +
+        (nWarn ? '<span class="is-warn"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>' + nWarn + ' uyarı</span>' : '') +
+        '<span class="cg-warns-bar-go">Göster<i class="fas fa-chevron-down" aria-hidden="true"></i></span>';
+}
+// Çip → ilgili form alanı: kapalı <details> açılır, alan ortalanır ve odaklanır.
+function cgWarnGoto(el) {
+    if (!el || !el.isConnected) return;
+    for (let d = el.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) d.open = true;
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+}
+// Sütunda kalan boşluğa sığan kadar madde göster (en az 1; tek sütunda en çok 3); kalanı "N daha".
+function cgFitWarnings() {
+    const box = document.getElementById('cg-term-warn');
+    if (!box || box.hidden) return;
+    const items = Array.from(box.querySelectorAll('.cg-warn'));
+    const btn = box.querySelector('.cg-warns-more');
+    if (!items.length || !btn) return;
+    items.forEach(li => { li.hidden = false; });
+    btn.hidden = true;
+    const out = box.offsetParent;
+    const cs = out ? getComputedStyle(out) : null;
+    const stuck = cs && cs.position === 'sticky' && cs.maxHeight !== 'none';
+    let shown = items.length;
+    if (!cgWarnOpen) {
+        if (stuck) {
+            const avail = parseFloat(cs.maxHeight) - box.offsetTop;
+            btn.hidden = false;
+            btn.textContent = '0 daha';
+            while (shown > 1 && box.scrollHeight > avail + 1) items[--shown].hidden = true;
+        } else if (items.length > 3) {
+            shown = 3;
+            items.slice(3).forEach(li => { li.hidden = true; });
+        }
+    }
+    const more = items.length - shown;
+    btn.hidden = !(more > 0 || cgWarnOpen) || items.length < 2;
+    btn.setAttribute('aria-expanded', String(!!cgWarnOpen && !btn.hidden));
+    btn.innerHTML = cgWarnOpen ? '<i class="fas fa-chevron-up" aria-hidden="true"></i>Daha az göster'
+        : '<i class="fas fa-chevron-down" aria-hidden="true"></i>' + more + ' madde daha';
 }
 function cgShowOutput(config, warnings = []) {
     const body = document.getElementById('cg-term-body');
@@ -882,7 +1000,7 @@ function cgShowOutput(config, warnings = []) {
     }
 
     // Uyarılar: terminalin DIŞINDA, altında kompakt liste (kopyala/indir yalnız config'i alır: cgLastOutput)
-    cgShowWarnings(warnings);
+    cgShowWarnings(warnings, has);
 
     // Kopyala / indir butonları
     ['cg-term-copy', 'cg-term-dl'].forEach(id => {
@@ -1181,7 +1299,7 @@ function cgFormBuilder(container, schema, generateFn) {
                 // aynen config'e girerse satiri bozar. Bunlari isaretle.
                 const ph = el.placeholder;
                 const proseHint = /\b(veya|ya da|or)\b|\.\.\.|…/i.test(ph);
-                empties.push({ label: _cgLabelOf(el), ph: ph, prose: proseHint });
+                empties.push({ el: el, label: _cgLabelOf(el), ph: ph, prose: proseHint });
                 // ZORUNLU alanin bos olmasi bir uyari degil HATADIR. Ilk render'da
                 // butun form kirmiziya donmesin diye cerceve yalnizca kullanicinin
                 // dokundugu (odakladiktan sonra ciktigi) alanlara cizilir.
@@ -1201,23 +1319,30 @@ function cgFormBuilder(container, schema, generateFn) {
             delete collected.__cgInvalid;
             const result = generateFn(collected, formEl);
             const warns = [];
+            cgWarnMeta.clear();
             if (invalid.length) {
                 invalid.forEach(iv => {
                     iv.el.classList.add('is-invalid');
                     _cgSetError(iv.el, iv.msg);
                 });
-                warns.push('\u26D4 ' + invalid.length + ' alan GEÇERSİZ, config\'e yazılmadı: ' +
+                const msgI = '\u26D4 ' + invalid.length + ' alan GEÇERSİZ, config\'e yazılmadı: ' +
                     invalid.slice(0, 4).map(iv => iv.label + ' = "' + iv.value + '"' +
                         (iv.reason ? ' (' + iv.reason + ')' : '')).join('; ') +
                     (invalid.length > 4 ? ' ve ' + (invalid.length - 4) + ' tane daha' : '') +
-                    ' — düzeltmeden kullanmayın.');
+                    ' — düzeltmeden kullanmayın.';
+                warns.push(msgI);
+                cgWarnMeta.set(msgI, { t: invalid.length + ' geçersiz alan', d: 'Bu alanlar config\'e yazılmadı — düzeltmeden kullanmayın.',
+                    f: invalid.map(iv => ({ el: iv.el, label: iv.label, note: '"' + iv.value + '"' + (iv.reason ? ' · ' + iv.reason : '') })) });
             }
             if (empties.length) {
                 const anyProse = empties.some(e => e.prose);
-                warns.push('\u26D4 ' + empties.length + ' ZORUNLU alan boş: ' +
+                const msgE = '\u26D4 ' + empties.length + ' ZORUNLU alan boş: ' +
                     empties.slice(0, 4).map(e => e.label + (e.prose ? ' \u26A0' : '')).join(', ') +
                     (empties.length > 4 ? ' ve ' + (empties.length - 4) + ' tane daha' : '') +
-                    ' — önizlemede örnek değerle dolduruldu, cihaza uygulamadan önce doldurun.');
+                    ' — önizlemede örnek değerle dolduruldu, cihaza uygulamadan önce doldurun.';
+                warns.push(msgE);
+                cgWarnMeta.set(msgE, { t: empties.length + ' zorunlu alan boş', d: 'Önizlemede örnek değerle dolduruldu — cihaza uygulamadan önce doldurun.',
+                    f: empties.map(e => ({ el: e.el, label: e.label, note: e.prose ? 'örnek değer açıklama metni' : '' })) });
                 if (anyProse) {
                     warns.push('\u26A0 ile işaretli alanların örnek değeri bir açıklama metnidir, geçerli bir ' +
                                'yapılandırma değeri değildir — o satırlar cihazda çalışmaz, elle doldurun.');

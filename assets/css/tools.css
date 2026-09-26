@@ -109,21 +109,66 @@
     :root #config-generator-root .cg-tools .cg-tool { transition: none; }
 }
 
-/* ─── Araç sayfası uyarıları: terminalin DIŞINDA, altında (cgShowWarnings) — kompakt, token renkleri ─── */
+/* ─── Araç sayfası uyarı alanı: terminalin altında, önem düzeyine göre renkli kartlar (cgShowWarnings) ─── */
 :root #config-generator-root .cg-split-out > .cg-term { flex-shrink: 0; }   /* uyarılar terminal yüksekliğini değiştirmez */
-:root #config-generator-root .cg-warns { flex: 0 1 auto; min-height: 0; overflow: auto; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: .82rem; line-height: 1.45; }
+:root #config-generator-root .cg-warns { --wc: var(--primary); --ws: var(--primary-soft); flex: 0 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; margin-top: 12px; padding: 10px 12px 12px; border: 1px solid var(--border); border-top: 3px solid var(--wc); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: .84rem; line-height: 1.45; box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,.06)); }
 :root #config-generator-root .cg-warns[hidden] { display: none; }
-:root #config-generator-root .cg-warns-hd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 4px; color: var(--muted); }
-:root #config-generator-root .cg-warns-hd b { color: var(--text); font-weight: 600; }
-:root #config-generator-root .cg-warns-err { color: var(--err); font-weight: 600; }
-:root #config-generator-root .cg-warns-list { margin: 0; padding: 0; list-style: none; max-height: 40vh; overflow: auto; }
-:root #config-generator-root .cg-warn { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+:root #config-generator-root .cg-warns.lvl-err { --wc: var(--err); --ws: var(--err-soft); border-color: var(--err); }
+:root #config-generator-root .cg-warns.lvl-warn { --wc: var(--warn); --ws: var(--warn-soft); border-color: var(--warn); }
+:root #config-generator-root .cg-warns.lvl-info { --wc: var(--primary); --ws: var(--primary-soft); }
+:root #config-generator-root .cg-warns.lvl-ok { --wc: var(--ok); --ws: var(--ok-soft); padding: 6px 12px; border: 1px solid var(--ok); border-left: 3px solid var(--ok); background: var(--ok-soft); box-shadow: none; }
+:root #config-generator-root .cg-warns-ok { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text); font-weight: 600; font-size: .82rem; }
+:root #config-generator-root .cg-warns-ok > i { color: var(--ok); }
+:root #config-generator-root .cg-warns-hd { position: sticky; top: -10px; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -10px -12px 8px; padding: 10px 12px 6px; background: var(--surface); }
+:root #config-generator-root .cg-warns-hd > i { color: var(--wc); font-size: .95rem; }
+:root #config-generator-root .cg-warns-hd > b { color: var(--text); font-weight: 700; font-size: .88rem; }
+:root #config-generator-root .cg-wbadges { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+:root #config-generator-root .cg-wbadge { padding: 1px 8px; border-radius: 999px; border: 1px solid transparent; font-size: .74rem; font-weight: 700; line-height: 1.5; white-space: nowrap; }
+:root #config-generator-root .cg-wbadge.is-err { background: var(--err-soft); color: var(--err); border-color: var(--err); }
+:root #config-generator-root .cg-wbadge.is-warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+:root #config-generator-root .cg-wbadge.is-info { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); }
+:root #config-generator-root .cg-wbadge.is-zero { background: transparent; color: var(--muted); border-color: var(--border); font-weight: 500; }
+:root #config-generator-root .cg-warns-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+:root #config-generator-root .cg-warn { --ic: var(--primary); --wb: var(--primary-soft); display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-left: 3px solid var(--ic); border-radius: 6px; background: var(--wb); }
+:root #config-generator-root .cg-warn.is-err { --ic: var(--err); --wb: var(--err-soft); }
+:root #config-generator-root .cg-warn.is-warn { --ic: var(--warn); --wb: var(--warn-soft); }
 :root #config-generator-root .cg-warn[hidden] { display: none; }
-:root #config-generator-root .cg-warn > i { flex: none; width: 14px; text-align: center; font-size: .82rem; }
-:root #config-generator-root .cg-warn.is-err > i { color: var(--err); }
-:root #config-generator-root .cg-warn.is-warn > i { color: var(--warn); }
-:root #config-generator-root .cg-warn.is-info > i { color: var(--muted); }
-:root #config-generator-root .cg-warn > span { min-width: 0; overflow-wrap: break-word; }
-:root #config-generator-root .cg-warns-more { margin-top: 4px; min-height: 28px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--primary); font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
+:root #config-generator-root .cg-warn > i { flex: none; width: 16px; margin-top: 2px; text-align: center; color: var(--ic); font-size: .9rem; }
+:root #config-generator-root .cg-warn-c { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+:root #config-generator-root .cg-warn-t { color: var(--text); font-weight: 700; font-size: .84rem; }
+:root #config-generator-root .cg-warn-d { color: var(--text); overflow-wrap: anywhere; }
+:root #config-generator-root .cg-warn-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+:root #config-generator-root .cg-wchip { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; max-width: 100%; min-height: 28px; padding: 3px 10px; border: 1px solid var(--ic); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: .78rem; font-weight: 600; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+:root #config-generator-root .cg-wchip > i { color: var(--ic); font-size: .7rem; transform: rotate(90deg); }
+:root #config-generator-root .cg-wchip-l { white-space: nowrap; }
+:root #config-generator-root .cg-wchip small { color: var(--muted); font-weight: 400; font-family: var(--font-mono, ui-monospace, monospace); font-size: .74rem; }
+:root #config-generator-root .cg-wchip:hover { background: var(--wb); }
+:root #config-generator-root .cg-wchip:focus-visible, :root #config-generator-root .cg-warns-more:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+:root #config-generator-root .cg-warns-more { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; min-height: 28px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--primary); font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
+:root #config-generator-root .cg-warns-more[hidden] { display: none; }
 :root #config-generator-root .cg-warns-more:hover { border-color: var(--primary); }
-:root #config-generator-root .cg-warns-more:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 1100px) {
+    :root #config-generator-root .cg-wchip, :root #config-generator-root .cg-warns-more { min-height: 36px; }
+}
+/* Masaüstü: terminal içeriğe göre (en az 260px, en çok 60vh), kalan sütun yüksekliği uyarı kutusunun.
+   Yükseklik yalnız config içeriğine bağlı; uyarı sayısı terminali etkilemez (flex-shrink: 0). */
+@media (min-width: 1101px) {
+    :root #config-generator-root .cg-split-out > .cg-term { height: auto; min-height: 260px; max-height: 60vh; }
+    :root #config-generator-root .cg-split-out > .cg-term > .cg-term-body { min-height: 0; }
+}
+/* Tek sütun: ekranın altında yapışkan özet çubuğu (cgWarnBar) */
+:root #config-generator-root .cg-warns-bar { display: none; }
+@media (max-width: 1100px) {
+    :root #config-generator-root .cg-warns-bar:not([hidden]) { position: fixed; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 1900; display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 14px; border: 1px solid var(--border); border-left: 4px solid var(--err); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: .86rem; font-weight: 600; box-shadow: var(--shadow-lg, 0 8px 24px rgba(0,0,0,.18)); cursor: pointer; transition: opacity .15s, transform .15s; }
+    :root #config-generator-root .cg-warns-bar:not(:has(.is-err)) { border-left-color: var(--warn); }
+    :root #config-generator-root .cg-warns-bar span { display: inline-flex; align-items: center; gap: 6px; }
+    :root #config-generator-root .cg-warns-bar .is-err i { color: var(--err); }
+    :root #config-generator-root .cg-warns-bar .is-warn i { color: var(--warn); }
+    :root #config-generator-root .cg-warns-bar-go { margin-left: auto; color: var(--primary); }
+    :root #config-generator-root .cg-warns-bar:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    :root #config-generator-root .cg-warns-bar.is-near { opacity: 0; transform: translateY(8px); pointer-events: none; visibility: hidden; }
+    :root body.cg-drawer-open #config-generator-root .cg-warns-bar:not([hidden]), :root body.cg-pal-open #config-generator-root .cg-warns-bar:not([hidden]) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { :root #config-generator-root .cg-warns-bar { transition: none; } }
+/* Seçili tip kartındaki açıklama: primary-soft zeminde --subtle yetersiz kontrast (3.86) */
+:root:not([data-theme="dark"]) #config-generator-root .gen-type-card-enhanced.active .card-desc { color: var(--muted); }
