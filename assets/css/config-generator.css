@@ -1487,3 +1487,23 @@
 #config-generator-root .cg-mo-hid li.is-ok { color: #16a34a; }
 #config-generator-root .cg-mo-hid li.is-bad { color: #dc2626; }
 #config-generator-root .cg-mo-note { font-size: .8rem; color: var(--text-secondary, #6b7280); margin: 0; }
+/* Arena · WAF Masası */
+#config-generator-root .cg-waf-s { font-size: .74rem; color: var(--text-secondary, #6b7280); }
+#config-generator-root .cg-waf-s code { background: var(--bg-tertiary, #f3f4f6); color: var(--text-primary, #111827); padding: 0 4px; border-radius: 4px; }
+#config-generator-root .cg-waf input[type=text] { font: .8rem ui-monospace, Menlo, monospace; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color, #d1d5db); background: var(--bg-primary, #fff); color: var(--text-primary, #111827); }
+#config-generator-root .cg-waf-hb { margin-left: 8px; }
+#config-generator-root .cg-waf-hint { margin: 0 0 12px; }
+#config-generator-root .cg-waf-ctl { border-top: 0; padding: 10px 0 0; }
+#config-generator-root .cg-waf .cg-ar-tbl tr[data-i] { cursor: pointer; }
+#config-generator-root .cg-waf .cg-ar-tbl td small { color: var(--text-secondary, #6b7280); }
+#config-generator-root .cg-waf-new { margin-left: 4px; font-size: .64rem; padding: 0 5px; border-radius: 99px; background: #7c3aed; color: #fff; }
+#config-generator-root .cg-waf-detail { margin-top: 14px; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; padding: 12px 14px; }
+#config-generator-root .cg-waf-dh { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: var(--text-primary, #111827); }
+#config-generator-root .cg-waf-dt { width: 100%; font-size: .82rem; border-collapse: collapse; }
+#config-generator-root .cg-waf-dt th { text-align: left; width: 150px; color: var(--text-secondary, #6b7280); font-weight: 600; padding: 5px 8px 5px 0; vertical-align: top; }
+#config-generator-root .cg-waf-dt td { padding: 5px 0; color: var(--text-primary, #111827); border-top: 1px solid var(--border-color, #eef0f3); }
+#config-generator-root .cg-waf-dt code, #config-generator-root .cg-waf-e code { background: var(--bg-tertiary, #f3f4f6); color: var(--text-primary, #111827); padding: 0 4px; border-radius: 4px; font-size: .78rem; }
+#config-generator-root .cg-waf-log { display: grid; gap: 10px; }
+#config-generator-root .cg-waf-e { border: 1px solid var(--border-color, #e5e7eb); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; font-size: .82rem; color: var(--text-primary, #111827); }
+#config-generator-root .cg-waf-eh { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-waf-v { font-size: .78rem; color: var(--text-secondary, #4b5563); display: grid; gap: 2px; }

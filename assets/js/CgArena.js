@@ -6,10 +6,11 @@
 // Görevler: assets/data/arena/masa.js · İlerleme: localStorage 'cg-arena-v1'
 const CgArena = {
     KEY: 'cg-arena-v1',
-    FILES: ['assets/js/lab/irule.js', 'assets/data/arena/masa.js', 'assets/data/arena/meydan.js'],
+    FILES: ['assets/js/lab/irule.js', 'assets/js/lab/asm.js', 'assets/data/arena/masa.js', 'assets/data/arena/meydan.js', 'assets/data/arena/waf.js'],
     RULE: 'r_masa',
     MODES: [
         { id: 'masa', icon: 'fa-project-diagram', title: 'Trafik Masası', desc: 'Kuralı yaz, trafiği başlat: her isteğin hangi olaydan geçtiğini, hangi satırın çalıştığını ve nereye gittiğini canlı izle.', ready: true },
+        { id: 'waf', icon: 'fa-shield-alt', title: 'WAF Masası', desc: 'ASM politikasını ayarla ya da istek logunu incele: meşru trafik geçsin, saldırı engellensin. Geniş istisna kaybettirir.', ready: true },
         { id: 'nobet', icon: 'fa-bell', title: 'Nöbet', desc: 'Kurgusal şirkette nöbettesin: alarm, grafik, log ve ekip mesajlarından kök nedeni bul, kesintiyi kapat.' },
         { id: 'meydan', icon: 'fa-flag-checkered', title: 'Meydan Okuma', desc: 'Gizli testli kod görevleri: görünür testlerle dene, tümüyle gönder; doğruluk + maliyet puanı.', ready: true },
     ],
@@ -18,6 +19,7 @@ const CgArena = {
     _store() { if (this._mem) return this._mem; let d = null; try { d = JSON.parse(localStorage.getItem(this.KEY) || 'null'); } catch (e) { d = null; } return (this._mem = d && d.masa ? d : { masa: {} }); },
     _save() { try { localStorage.setItem(this.KEY, JSON.stringify(this._store())); } catch (e) { /* yalnız oturum */ } },
     _st(id) { const s = this._store(); return s.masa[id] || (s.masa[id] = { code: null, runs: 0, done: false, stars: 0, hints: 0 }); },
+    _wst(id) { const s = this._store(); s.waf = s.waf || {}; return s.waf[id] || (s.waf[id] = { cfg: null, dec: null, runs: 0, done: false, stars: 0, hints: 0 }); },
     _mst(id) { const s = this._store(); s.meydan = s.meydan || {}; return s.meydan[id] || (s.meydan[id] = { code: null, subs: 0, done: false, stars: 0, hints: 0, best: null }); },
 
     async render(root, mode, id) {
@@ -27,6 +29,7 @@ const CgArena = {
         catch (e) { root.innerHTML = '<div class="cg-empty"><i class="fas fa-exclamation-triangle"></i><p>Arena yüklenemedi.</p></div>'; return; }
         const T = window.CG_ARENA_MASA || [];
         if (mode === 'masa' && id) { const t = T.find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._desk(t); return; }
+        if (mode === 'waf' && id) { const t = (window.CG_ARENA_WAF || []).find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._waf(t); return; }
         if (mode === 'meydan' && id) { const t = (window.CG_ARENA_MO || []).find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._mo(t); return; }
         this._hub(T);
     },
@@ -37,6 +40,7 @@ const CgArena = {
         this._root.innerHTML = `<div class="cg-ar"><nav class="cg-ts-crumbs"><a href="#/lab"><i class="fas fa-flask"></i> Laboratuvar</a><i class="fas fa-chevron-right"></i><span>iRule Arenası</span></nav>
             <header class="cg-ar-head"><h1><i class="fas fa-chess-knight"></i> iRule Arenası</h1><p>Kuralın içini gör: istek gelir, olaylar tetiklenir, satırlar çalışır, trafik yönlenir. Üç mod, her biri farklı bir beceri.</p></header>
             <div class="cg-ar-modes">${this.MODES.map(m => `<section class="cg-ar-mode${m.ready ? '' : ' is-soon'}"><div class="cg-ar-mh"><i class="fas ${m.icon}"></i><b>${E(m.title)}</b>${m.ready ? '' : '<span class="cg-ar-soon">Yakında</span>'}</div><p>${E(m.desc)}</p>
+                ${m.id === 'waf' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_WAF || []).map((t, k) => { const st = this._wst(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/waf/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}
                 ${m.id === 'meydan' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_MO || []).map((t, k) => { const st = this._mst(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/meydan/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : t.tests.filter(x => x.hidden).length + ' gizli test'}</span></a>`; }).join('')}</div>` : ''}
                 ${m.id === 'masa' ? `<div class="cg-ar-tasks">${T.map((t, k) => { const st = this._st(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/masa/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}</section>`).join('')}</div></div>`;
     },
@@ -290,6 +294,114 @@ const CgArena = {
                 <div class="cg-ar-db">${nx ? `<a class="cg-ar-go" href="#/arena/meydan/${nx.id}"><i class="fas fa-arrow-right"></i> Sonraki meydan okuma</a>` : ''}<a class="cg-ar-ghost" href="#/arena"><i class="fas fa-chess-knight"></i> Arena</a></div>`;
         } else { this._save(); d.hidden = false; d.className = 'cg-ar-done is-bad'; d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-exclamation-triangle"></i> ${R.n - R.pass} test kaldı.</div><p class="cg-ar-dm">Kalan gizli testlerin konusuna bakın; genellikle bir kenar durumudur (büyük/küçük harf, önek, sorgu dizesi, metot).</p>`; }
         d.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    },
+    // ═══ WAF Masası: ASM eğitim motoru ile politika ayarı ve istek logu ═══
+    _wReq(t, x) { const c = t.clients[x.c]; return { method: x.m, uri: x.u, body: x.b || '', form: !!x.b, ip: c.ip, headers: [['Host', 'www.example.com'], ['User-Agent', (x.h && x.h['User-Agent']) || c.ua]].concat(x.b ? [['Content-Type', 'application/x-www-form-urlencoded']] : []) }; },
+    _wPolicy(cfg) {
+        const P = [{ name: '*', meta: !!(cfg.params['*'] && cfg.params['*'].meta) }].concat(Object.entries(cfg.params).filter(([n]) => n !== '*').map(([n, v]) => ({ name: n, meta: !!v.meta })));
+        return window.CgASM.policy({ name: cfg.name || 'waf', blocking: !!cfg.blocking, methods: cfg.methods.slice(), filetypes: cfg.filetypes.length ? cfg.filetypes.slice() : ['*'], parameters: P, sigOverrides: (cfg.overrides || []).slice() });
+    },
+    _wEval(t, cfg, list) { const pol = this._wPolicy(cfg); return list.map(x => { const r = window.CgASM.evaluate(pol, this._wReq(t, x)); return { x, r, good: r.blocked === x.block }; }); },
+    // log modu: kararlar → politika (base üzerine)
+    _wFromDec(t, dec, entries) {
+        const cfg = JSON.parse(JSON.stringify(t.base)); cfg.overrides = [];
+        entries.forEach((e, i) => { const a = dec[i]; if (!a || a === 'none') return;
+            if (a === 'transparent') cfg.blocking = false;
+            if (a === 'method' && !cfg.methods.includes(e.x.m)) cfg.methods.push(e.x.m);
+            if (a === 'meta') e.r.violations.filter(v => v.name === 'Illegal meta character in parameter value').forEach(v => { const pn = v.detail.split(':')[0]; cfg.params[pn] = Object.assign({}, cfg.params[pn], { meta: true }); });
+            if (a === 'sigall') e.r.sigs.forEach(sg => { if (!cfg.overrides.some(o => o.sig === sg.id && !o.param)) cfg.overrides.push({ sig: sg.id }); });
+        });
+        return cfg;
+    },
+    _waf(t) {
+        const E = cgEsc, st = this._wst(t.id); this._t = t; this._hint = 0;
+        this._root.innerHTML = `<div class="cg-ar cg-waf">
+            <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>WAF Masası</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
+            <div class="cg-ar-brief"><div><h2><i class="fas fa-shield-alt"></i> ${E(t.title)}</h2><p>${t.brief}</p><p class="cg-mo-meta"><span>İmzalar eğitim amaçlı (E-xxxx), gerçek F5 imza veritabanı değildir</span><span>Violation rating sadeleştirilmiştir</span></p></div>
+                <ol class="cg-ar-goals">${t.goals.map(g => `<li>${g}</li>`).join('')}</ol></div>
+            <section class="cg-waf-main"></section>
+            <div class="cg-ar-hintbox cg-waf-hint" hidden></div>
+            <section class="cg-ar-flow" hidden><div class="cg-ar-flh"><span><i class="fas fa-stream"></i> Sonuç</span><span class="cg-ar-score"></span></div><div class="cg-ar-tbl"><table><thead><tr><th>#</th><th>İstemci</th><th>İstek</th><th>Beklenen</th><th>ASM kararı ve ihlaller</th><th></th></tr></thead><tbody></tbody></table></div></section>
+            <div class="cg-waf-detail" hidden></div>
+            <div class="cg-ar-done" hidden></div></div>`;
+        this._$ = s2 => this._root.querySelector(s2);
+        if (t.mode === 'policy') this._wPolicyUI(); else this._wLogUI();
+    },
+    _wHintBtn() { const t = this._t, st = this._wst(t.id); return `<button type="button" class="cg-ar-lnk cg-waf-hb" data-a="hint"><i class="fas fa-lightbulb"></i> İpucu</button>`; },
+    _wBindHint() { const t = this._t, st = this._wst(t.id), b = this._$('[data-a="hint"]'); if (b) b.addEventListener('click', () => { this._hint = Math.min(this._hint + 1, t.hints.length); st.hints = Math.max(st.hints, this._hint); this._save(); const box = this._$('.cg-waf-hint'); box.hidden = false; box.innerHTML = t.hints.slice(0, this._hint).map((x, k) => `<p><b>İpucu ${k + 1}</b> ${x}</p>`).join(''); }); },
+    _wPolicyUI() {
+        const t = this._t, st = this._wst(t.id), E = cgEsc, cfg = this._wcfg = st.cfg ? JSON.parse(JSON.stringify(st.cfg)) : JSON.parse(JSON.stringify(t.base));
+        const M = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'TRACE'];
+        const main = this._$('.cg-waf-main');
+        const paint = () => { main.innerHTML = `<div class="cg-ar-panel"><div class="cg-ar-ph2"><i class="fas fa-sliders-h"></i> <b>${E(t.base.name)}</b> politika ayarları ${this._wHintBtn()}</div>
+            <div class="cg-ar-pgrid">
+                <div class="cg-ar-pf"><label class="cg-ar-pl">Uygulama modu <select data-w="blocking"><option value="0"${cfg.blocking ? '' : ' selected'}>Transparent (yalnız log)</option><option value="1"${cfg.blocking ? ' selected' : ''}>Blocking</option></select></label>
+                    <span class="cg-ar-pl">İzinli metotlar</span><div class="cg-ar-mets">${M.map(m => `<label class="cg-ar-met${cfg.methods.includes(m) ? ' is-on' : ''}"><input type="checkbox" data-wm="${m}"${cfg.methods.includes(m) ? ' checked' : ''}> ${m}</label>`).join('')}</div></div>
+                <div class="cg-ar-pf"><label class="cg-ar-pl">İzinli dosya türleri <input type="text" data-w="filetypes" value="${E(cfg.filetypes.join(', '))}" size="30" spellcheck="false"></label><small class="cg-waf-s">"*" hepsi; uzantısız yollar için <code>no_ext</code></small>
+                    <span class="cg-ar-pl">Parametreler (meta karakter izni; imza denetimi her zaman açık)</span>
+                    <div class="cg-ar-mets">${Object.keys(cfg.params).map(n => `<label class="cg-ar-met${cfg.params[n].meta ? ' is-on' : ''}"><input type="checkbox" data-wp="${E(n)}"${cfg.params[n].meta ? ' checked' : ''}> ${n === '*' ? '* (diğer tüm parametreler)' : E(n)}</label>`).join('')}</div></div>
+            </div>
+            <pre class="cg-ar-tmsh">${E(this._wJson(cfg))}</pre>
+            <div class="cg-ar-ctl cg-waf-ctl"><button type="button" class="cg-ar-go" data-a="send"><i class="fas fa-paper-plane"></i> Politikayı yayınla ve trafiği gönder</button></div></div>`;
+            const save = () => { st.cfg = JSON.parse(JSON.stringify(cfg)); this._save(); paint(); };
+            main.querySelector('[data-w="blocking"]').addEventListener('change', e => { cfg.blocking = e.target.value === '1'; save(); });
+            main.querySelector('[data-w="filetypes"]').addEventListener('change', e => { cfg.filetypes = e.target.value.split(/[\s,]+/).map(x => x.trim().toLowerCase()).filter(Boolean); save(); });
+            main.querySelectorAll('[data-wm]').forEach(x => x.addEventListener('change', () => { const m = x.dataset.wm; cfg.methods = x.checked ? cfg.methods.concat([m]) : cfg.methods.filter(y => y !== m); save(); }));
+            main.querySelectorAll('[data-wp]').forEach(x => x.addEventListener('change', () => { cfg.params[x.dataset.wp] = Object.assign({}, cfg.params[x.dataset.wp], { meta: x.checked }); save(); }));
+            main.querySelector('[data-a="send"]').addEventListener('click', () => this._wSend(this._wEval(t, cfg, t.traffic)));
+            this._wBindHint(); };
+        paint();
+    },
+    // declarative JSON'a yakın özet (öğretim amaçlı; tam şema değil)
+    _wJson(cfg) {
+        const o = { policy: { name: cfg.name, enforcementMode: cfg.blocking ? 'blocking' : 'transparent', methods: cfg.methods.map(n => ({ name: n })), filetypes: (cfg.filetypes.length ? cfg.filetypes : ['*']).map(n => ({ name: n, type: n === '*' ? 'wildcard' : 'explicit' })),
+            parameters: Object.entries(cfg.params).map(([n, v]) => ({ name: n, type: n === '*' ? 'wildcard' : 'explicit', metacharsOnParameterValueCheck: !v.meta, attackSignaturesCheck: true })) } };
+        return '// declarative politikaya yakın özet (öğretim amaçlı, tam şema değil)\n' + JSON.stringify(o, null, 1).replace(/\n\s*/g, ' ');
+    },
+    _wRow(res, i) {
+        const t = this._t, c = t.clients[res.x.c], r = res.r, E = cgEsc;
+        const act = r.blocked ? '<span class="cg-ar-chip is-bad">Blocked · ' + r.supportId + '</span>' : r.violations.length ? '<span class="cg-ar-chip">Geçti (alarm)</span>' : '<span class="cg-ar-chip">Geçti</span>';
+        return `<tr class="${res.good ? 'is-ok' : 'is-bad'}" data-i="${i}" tabindex="0" title="İstek detayı"><td>${i + 1}${res.hidden ? '<small class="cg-waf-new">yeni</small>' : ''}</td><td><i class="fas ${c.icon}"></i> ${E(c.label)}</td><td><code>${E(res.x.m)} ${E(res.x.u)}</code>${res.x.b ? '<br><small>' + E(decodeURIComponent(res.x.b.replace(/\+/g, ' '))) + '</small>' : ''}</td>
+            <td><span class="cg-ar-chip">${res.x.block ? 'Engellenmeli' : 'Geçmeli'}</span><br><small>${E(res.x.why)}</small></td><td>${act} ${r.violations.map(v => `<span class="cg-ar-chip">${E(v.name)}</span>`).join('')}</td><td class="cg-ar-ok">${res.good ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>'}</td></tr>`;
+    },
+    _wDetail(res) {
+        const r = res.r, c = this._t.clients[res.x.c], E = cgEsc, box = this._$('.cg-waf-detail');
+        box.hidden = false;
+        box.innerHTML = `<div class="cg-waf-dh"><b><i class="fas fa-file-alt"></i> İstek detayı</b><button type="button" class="cg-ar-lnk" data-a="close">Kapat ✕</button></div>
+            <table class="cg-waf-dt"><tr><th>Support ID</th><td>${r.supportId || '—'}</td></tr><tr><th>Politika</th><td>${E(r.policy)}</td></tr><tr><th>Durum</th><td>${E(r.status)}</td></tr><tr><th>Violation rating</th><td>${r.rating} / 5 <small>(sadeleştirilmiş)</small></td></tr>
+            <tr><th>İstemci</th><td>${E(c.label)} · ${E(c.ip)} · ${E(c.ua)}</td></tr><tr><th>İstek</th><td><code>${E(res.x.m)} ${E(res.x.u)}</code>${res.x.b ? '<br><code>' + E(res.x.b) + '</code>' : ''}</td></tr>
+            <tr><th>İhlaller</th><td>${r.violations.length ? r.violations.map(v => `<div><b>${E(v.name)}</b> — ${E(v.detail || '')}${v.sub ? ' <small>(' + E(v.sub) + ')</small>' : ''}</div>`).join('') : 'yok'}</td></tr>
+            <tr><th>İmzalar</th><td>${r.sigs.length ? r.sigs.map(sg => `<div><code>${sg.id}</code> ${E(sg.name)} · ${E(sg.where)}${sg.staged ? ' <small>(staging: engellemez)</small>' : ''}</div>`).join('') : 'yok'}</td></tr></table>
+            ${r.blocked ? `<details><summary>Kullanıcının gördüğü sayfa (HTTP 200)</summary><pre class="cg-ar-tmsh">${E(window.CgASM.blockPage(r.supportId))}</pre></details>` : ''}`;
+        box.querySelector('[data-a="close"]').addEventListener('click', () => { box.hidden = true; });
+        box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    },
+    _wSend(results) {
+        const t = this._t, st = this._wst(t.id), $ = this._$, fl = $('.cg-ar-flow'), tb = fl.querySelector('tbody');
+        fl.hidden = false; tb.innerHTML = results.map((x, i) => this._wRow(x, i)).join('');
+        tb.querySelectorAll('tr').forEach(tr => { const h = () => this._wDetail(results[+tr.dataset.i]); tr.addEventListener('click', h); tr.addEventListener('keydown', e => { if (e.key === 'Enter') h(); }); });
+        const fp = results.filter(x => !x.x.block && x.r.blocked).length, miss = results.filter(x => x.x.block && !x.r.blocked).length, ok = results.filter(x => x.good).length;
+        fl.querySelector('.cg-ar-score').textContent = ok + '/' + results.length + ' doğru · yanlış pozitif ' + fp + ' · kaçan saldırı ' + miss;
+        st.runs++; const d = $('.cg-ar-done'); d.hidden = false;
+        if (!fp && !miss) { const stars = Math.max(1, 3 - Math.min(2, st.hints) - (st.runs > 5 ? 1 : 0)); st.done = true; st.stars = Math.max(st.stars, stars); d.className = 'cg-ar-done is-ok';
+            d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-trophy"></i> Sıfır yanlış pozitif, sıfır kaçak! <span class="cg-ar-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</span></div><p class="cg-ar-dm">${st.runs} deneme · ${st.hints} ipucu</p><ul>${t.learn.map(x => `<li>${x}</li>`).join('')}</ul><div class="cg-ar-db"><a class="cg-ar-ghost" href="#/arena"><i class="fas fa-chess-knight"></i> Arena</a></div>`; }
+        else { d.className = 'cg-ar-done is-bad'; d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-exclamation-triangle"></i> ${fp} yanlış pozitif, ${miss} kaçan saldırı.</div><p class="cg-ar-dm">Kırmızı satırlara tıklayıp istek detayını okuyun: hangi ihlal engelledi ya da neden hiçbir ihlal çıkmadı?</p>`; }
+        this._save(); fl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    },
+    _wLogUI() {
+        const t = this._t, st = this._wst(t.id), E = cgEsc, main = this._$('.cg-waf-main');
+        const base = this._wEval(t, t.base, t.traffic), entries = base.filter(x => x.r.blocked);
+        const dec = this._wdec = st.dec ? st.dec.slice() : entries.map(() => '');
+        const paint = () => { main.innerHTML = `<div class="cg-ar-panel"><div class="cg-ar-ph2"><i class="fas fa-list"></i> Security › Event Logs › Application › Requests <small>(${entries.length} engellenen istek)</small> ${this._wHintBtn()}</div>
+            <div class="cg-waf-log">${entries.map((e, i) => { const c = t.clients[e.x.c]; return `<div class="cg-waf-e"><div class="cg-waf-eh"><code>${e.r.supportId}</code><span>${E(c.ip)} · <small>${E(c.ua)}</small></span><span class="cg-ar-chip is-bad">Blocked · rating ${e.r.rating}</span></div>
+                <div><code>${E(e.x.m)} ${E(e.x.u)}</code>${e.x.b ? ' <code>' + E(decodeURIComponent(e.x.b.replace(/\+/g, ' '))) + '</code>' : ''}</div>
+                <div class="cg-waf-v">${e.r.violations.map(v => `<div><b>${E(v.name)}</b> ${E(v.detail || '')}</div>`).join('')}${e.r.sigs.map(sg => `<div><code>${sg.id}</code> ${E(sg.name)} · ${E(sg.where)}</div>`).join('')}</div>
+                <label class="cg-ar-pl">Karar <select data-d="${i}"><option value="">— seçin —</option>${t.actions.map(([v, l]) => `<option value="${v}"${dec[i] === v ? ' selected' : ''}>${E(l)}</option>`).join('')}</select></label></div>`; }).join('')}</div>
+            <div class="cg-ar-ctl"><button type="button" class="cg-ar-go" data-a="replay"${dec.every(Boolean) ? '' : ' disabled'}><i class="fas fa-redo"></i> Uygula ve tekrar oynat${dec.every(Boolean) ? '' : ' (tüm kayıtlara karar verin)'}</button></div></div>`;
+            main.querySelectorAll('[data-d]').forEach(x => x.addEventListener('change', () => { dec[+x.dataset.d] = x.value; st.dec = dec.slice(); this._save(); paint(); }));
+            main.querySelector('[data-a="replay"]').addEventListener('click', () => { const cfg = this._wFromDec(t, dec, entries); const res = this._wEval(t, cfg, t.traffic).concat(this._wEval(t, cfg, t.hidden).map(x => Object.assign(x, { hidden: true }))); this._wSend(res); });
+            this._wBindHint(); };
+        paint();
     },
     _profDef(t) { return Object.assign({ known: ['CONNECT', 'DELETE', 'GET', 'HEAD', 'LOCK', 'OPTIONS', 'POST', 'PROPFIND', 'PUT', 'TRACE', 'UNLOCK'], unknown: 'allow', persist: 'none' }, (t && t.prof) || {}); },
     _runAll(t, c, prof) {

@@ -318,4 +318,40 @@ window.CG_ARENA_MASA = [
         solutionProf: { persist: 'cookie' },
         learn: ['Round robin durum tutmaz; sunucu belleğinde oturum varsa persistence gerekir.', 'Cookie insert: BIG-IP ilk yanıtta <code>BIGipServer&lt;pool&gt;</code> çerezi verir, tarayıcı geri getirdikçe aynı üye seçilir.', 'source-addr NAT arkasındaki kullanıcıları tek sunucuya yığar; HTTP\'de cookie tercih edilir.'],
     },
+    {
+        id: 'evasion', twoWay: true, title: 'Evasion Avı: kodlamayla atlatılan filtre', level: 3, topic: 'URI::decode, tekrarlı çözme, normalleştirme; neden WAF',
+        brief: 'Birisi arama kutusundaki SQL enjeksiyonunu durdurmak için hızlıca bir iRule yazmış. Sızma testi raporu aynı saldırının URL kodlamasıyla (<code>%27</code>), <b>çift kodlamayla</b> (<code>%2527</code>) ve boşluk yerine sekme karakteriyle geçtiğini söylüyor. Kuralı düzeltin; meşru aramalar (ör. soyadında kesme işareti) etkilenmesin.',
+        goals: [
+            'Kodlanmış, çift kodlanmış ve sekmeli <code>\' OR …</code> kalıpları <code>403</code> almalı',
+            'Meşru aramalar (<code>O\'Neil</code>, <code>or ve and</code>) <code>web_pool</code>\'a gitmeli',
+            'Karşılaştırmadan önce değeri normalleştirin (kodlama çözülene kadar)',
+        ],
+        vs: { name: 'vs_web', ip: '203.0.113.100', port: 80, pool: 'web_pool' },
+        pools: { web_pool: ['10.64.30.50:80', '10.64.30.51:80'] },
+        clients: [
+            { id: 'pc', ip: '198.51.100.20', label: 'Masaüstü', icon: 'fa-desktop', ua: 'Mozilla/5.0 (Windows NT 10.0) Chrome/128.0' },
+            { id: 'sal', ip: '203.0.113.66', label: 'Saldırgan', icon: 'fa-user-secret', ua: 'Mozilla/5.0 (X11; Linux x86_64) Firefox/130.0' },
+        ],
+        traffic: [
+            ['pc', 'GET', 'www.example.com', '/ara?q=kablosuz%20kulaklik'],
+            ['sal', 'GET', 'www.example.com', "/ara?q='%20or%201=1"],
+            ['sal', 'GET', 'www.example.com', '/ara?q=%27%20OR%201%3D1'],
+            ['pc', 'GET', 'www.example.com', '/uye?ad=O%27Neil'],
+            ['sal', 'GET', 'www.example.com', '/ara?q=%2527%2520OR%25201%253D1'],
+            ['sal', 'GET', 'www.example.com', '/ara?q=%27%09OR%091%3D1'],
+            ['pc', 'GET', 'www.example.com', '/ara?q=or%20ve%20and'],
+            ['sal', 'GET', 'www.example.com', '/ara?q=x%27%20AnD%20%27a%27%3D%27a'],
+        ],
+        expect: q => {
+            let v = q.query; for (let i = 0; i < 3; i++) { let d; try { d = decodeURIComponent(v); } catch (e) { d = v; } if (d === v) break; v = d; }
+            return /'\s*(or|and)\s/i.test(v) ? { code: 403 } : { pool: 'web_pool' };
+        },
+        start: 'when HTTP_REQUEST {\n    if { [string tolower [HTTP::query]] contains "\' or " } {\n        HTTP::respond 403 content "Engellendi"\n    }\n}',
+        hints: [
+            '<code>[HTTP::query]</code> ham (kodlu) değerdir: <code>%27</code> bir kesme işareti değil, üç karakterdir. <code>URI::decode</code> bir kat çözer; çift kodlamada iki kat gerekir. Değişmeyene kadar (en fazla 3 kez) çözün.',
+            'Karşılaştırmayı boşluk türünden bağımsız yapın: <code>regexp -nocase {\'\\s*(or|and)\\s} $q</code>. Döngü: <code>for { set i 0 } { $i &lt; 3 } { incr i } { set d [URI::decode $q] ; if { $d eq $q } { break } ; set q $d }</code>',
+        ],
+        solution: 'when HTTP_REQUEST {\n    set q [HTTP::query]\n    for { set i 0 } { $i < 3 } { incr i } {\n        set d [URI::decode $q]\n        if { $d eq $q } { break }\n        set q $d\n    }\n    if { [regexp -nocase {\'\\s*(or|and)\\s} $q] } {\n        HTTP::respond 403 content "Engellendi"\n    }\n}',
+        learn: ['Filtre, sunucunun göreceği değerle çalışmalı: önce normalleştir (kodlama, büyük/küçük harf, boşluk), sonra karşılaştır.', 'Her yeni atlatma yeni bir kural satırı ister; ASM gibi bir WAF normalleştirmeyi ve yüzlerce imzayı merkezde yapar (Evasion technique detected).', 'Kara liste iRule\'u geçici önlemdir; kalıcı çözüm uygulamada parametreli sorgudur.'],
+    },
 ];

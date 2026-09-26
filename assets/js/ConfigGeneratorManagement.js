@@ -1817,7 +1817,7 @@ const ConfigGenerator = {
         if (lp) { this._renderLab(null, lp[1]); return; }
         const lab = h.match(/^#\/lab(?:\/([a-z0-9-]+))?$/);
         if (lab) { this._renderLab(lab[1]); return; }
-        const ar = h.match(/^#\/arena(?:\/(masa|meydan)\/([a-z0-9-]+))?$/);
+        const ar = h.match(/^#\/arena(?:\/(masa|meydan|waf)\/([a-z0-9-]+))?$/);
         if (ar) { this._renderArena(ar[1], ar[2]); return; }
         const ts = h.match(/^#\/troubleshoot(?:\/([a-z0-9-]+))?(?:\/(\d+))?$/);
         if (ts) { this._renderTs(ts[1], ts[2]); return; }
