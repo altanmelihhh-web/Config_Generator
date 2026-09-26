@@ -63,8 +63,10 @@ const CgPalette = {
 
     open(from) {
         if (!this._dlg) return;
+        // Dönüş odağı çekmece kapanmadan alınır; çekmece açıktıysa menü düğmesine döner (gizli bağlantıya değil)
+        const drawer = document.body.classList.contains('cg-drawer-open');
+        this._ret = from || (drawer ? document.getElementById('cg-menu-btn') : document.activeElement);
         if (typeof CgShell !== 'undefined' && CgShell.closeDrawer) CgShell.closeDrawer(true);
-        this._ret = from || document.activeElement;
         this._dlg.hidden = false;
         document.body.classList.add('cg-pal-open');
         document.querySelectorAll('[data-pal-open]').forEach(b => b.setAttribute('aria-expanded', 'true'));
@@ -79,8 +81,11 @@ const CgPalette = {
         this._dlg.hidden = true;
         document.body.classList.remove('cg-pal-open');
         document.querySelectorAll('[data-pal-open]').forEach(b => b.setAttribute('aria-expanded', 'false'));
-        const r = this._ret; this._ret = null;
-        if (!noFocus && r && r.focus && document.contains(r)) r.focus();
+        let r = this._ret; this._ret = null;
+        if (noFocus) return;
+        const vis = el => el && el.isConnected && el.offsetParent !== null && el !== document.body;
+        if (!vis(r)) r = [document.getElementById('cg-menu-btn'), document.querySelector('[data-pal-open]')].find(vis) || null;
+        if (r && r.focus) r.focus();
     },
 
     // ── Dizin ────────────────────────────────────────────────────────────
@@ -155,6 +160,14 @@ const CgPalette = {
         for (const x of this._idx) {
             let s = 0, ok = true;
             for (const t of toks) {
+                // 1–2 harfli terim (ör. "ha", "l2") sözcük ortasında eşleşmez: yalnız başta ya da sözcük başında
+                // Tam sözcük ("HA kümesi") sözcük başı önekten ("hazırlık") çok önde
+                if (t.length <= 2) {
+                    const esc = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const whole = new RegExp('(^|[^a-z0-9])' + esc + '($|[^a-z0-9])'), pre = new RegExp('(^|[^a-z0-9])' + esc);
+                    if (whole.test(x.n)) s += x.n.startsWith(t) ? 40 : 30; else if (pre.test(x.n)) s += 6; else if (whole.test(x.k)) s += 4; else if (pre.test(x.k)) s += 1; else { ok = false; break; }
+                    continue;
+                }
                 if (x.n.startsWith(t)) s += 30;
                 else if (x.n.includes(' ' + t) || x.n.includes('-' + t) || x.n.includes('/' + t)) s += 20;
                 else if (x.n.includes(t)) s += 10;
@@ -182,8 +195,10 @@ const CgPalette = {
             toks.forEach(k => { const p = n.indexOf(k); if (p >= 0 && (best < 0 || p < best)) { best = p; len = k.length; } });
             return best < 0 || n.length !== t.length ? E(t) : E(t.slice(0, best)) + '<mark>' + E(t.slice(best, best + len)) + '</mark>' + E(t.slice(best + len));
         };
+        this._in.setAttribute('aria-expanded', String(!!this._res.length));
+        if (this._stat && !this._loading) this._stat.textContent = q ? (this._res.length ? this._res.length + ' sonuç' : '') : '';
         if (!this._res.length) {
-            this._in.setAttribute('aria-activedescendant', '');
+            this._in.removeAttribute('aria-activedescendant');
             const qe = E(q), enc = encodeURIComponent(q);
             this._list.innerHTML = `<li class="cg-pal-empty" role="presentation"><p><b>“${qe}”</b> için sonuç yok${this._loading ? ' (lablar ve komutlar hâlâ yükleniyor)' : ''}.</p>
                 <p>Daha kısa ya da farklı bir terim deneyin (ör. <i>vlan</i>, <i>bgp</i>, <i>ipsec</i>, <i>fgt-03</i>). Ayrıca:</p>

@@ -103,7 +103,7 @@ const CgLab = {
             st.stars = Math.max(st.stars || 0, st.best || 0);
             const badge = done || st.best ? `<span class="cg-lab-badge ok" aria-label="3 üzerinden ${st.stars} yıldız">${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}</span>` : started ? '<span class="cg-lab-badge run">Devam ediyor</span>' : '<span class="cg-lab-badge">Yeni</span>';
             return `<a class="cg-lab-card${done ? ' is-done' : ''}" href="#/lab/${l.id}">
-                <span class="cg-lab-card-top">${one ? '' : this._mark(l.vendor)}<span class="cg-lab-id">${l.id.toUpperCase()}</span>${this._ver(l)}${badge}</span>
+                <span class="cg-lab-card-top">${one ? '' : this._mark(l.vendor)}<span class="cg-lab-id">${l.id.toUpperCase()}</span>${one ? '' : this._ver(l)}${badge}</span>
                 <span class="cg-lab-card-t">${cgEsc(l.title)}</span>
                 <span class="cg-lab-card-m"><i class="far fa-clock" aria-hidden="true"></i> ${l.minutes} dk · <i class="fas fa-list-check" aria-hidden="true"></i> ${l.tasks.length} görev${l.cert ? ' · ' + cgEsc(l.cert) : ''}</span>
                 ${pre.length ? `<span class="cg-lab-card-pre"><i class="fas fa-route" aria-hidden="true"></i> Önce önerilir: ${pre.map(p => p.toUpperCase()).join(', ')}</span>` : ''}
@@ -148,6 +148,10 @@ const CgLab = {
             sec.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' }); sec.focus({ preventScroll: true });
         }));
         if (!L) this._syncVf();
+        else if (keys.length > 1) {   // aile içinde birden çok lab vendoru (ör. FortiGate 7.4 / 7.6): seçim adreste, yenileyince korunur
+            const want = '#/v/' + L.slug + '/lab' + (this._vf !== keys[0] ? '?v=' + this._vf : '');
+            if (location.hash !== want) history.replaceState(null, '', want);
+        }
         this._root.querySelector('[data-exp]').addEventListener('click', () => this._export());
         this._root.querySelector('[data-imp]').addEventListener('change', e => this._import(e.target.files[0]));
     },

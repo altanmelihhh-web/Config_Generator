@@ -22,10 +22,10 @@
 
 /* Sol vendor ağacı: yalnız ≥1280px ve vendor bağlamlı sayfalarda */
 .cg-side { font-size: .88rem; }
-.cg-side-h { margin: 18px 10px 6px; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--subtle); }
+.cg-side-h { margin: 14px 10px 4px; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--subtle); }
 .cg-side-h:first-child { margin-top: 0; }
 .cg-side a, .cg-side-off, .cg-drawer-tree a, .cg-drawer-tree .cg-side-off {
-    display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 5px 10px; border-radius: 6px;
+    display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 10px; border-radius: 6px;
     color: var(--muted); text-decoration: none;
 }
 .cg-side a:hover, .cg-drawer-tree a:hover { background: var(--surface); color: var(--text); }
@@ -33,7 +33,7 @@
 .cg-side a.on .cg-side-n, .cg-drawer-tree a.on .cg-side-n { color: var(--primary); }
 .cg-side a.is-open, .cg-drawer-tree a.is-open { color: var(--text); font-weight: 600; }
 .cg-side a i, .cg-drawer-tree a i { width: 16px; text-align: center; font-size: .85em; }
-.cg-side-sub { margin: 2px 0 6px 16px; padding-left: 6px; border-left: 1px solid var(--border); }
+.cg-side-sub { margin: 0 0 4px 16px; padding-left: 6px; border-left: 1px solid var(--border); }
 .cg-side-n { margin-left: auto; font-size: .75rem; color: var(--subtle); font-weight: 400; }
 .cg-side-off { color: var(--subtle) !important; cursor: default; }
 .cg-side-off .cg-side-n { font-style: italic; }
@@ -42,7 +42,9 @@
     body.cg-has-side .cg-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 28px; align-items: start; }
     body.cg-has-side .cg-side { grid-column: 1; grid-row: 1; }
     body.cg-has-side .cg-shell-main { grid-column: 2; grid-row: 1; }
-    body.cg-has-side .cg-side { position: sticky; top: 76px; max-height: calc(100vh - 152px); /* 76 üst + ~76 alt (dolgu + altbilgi): sayfa sonunda üst çubuğun altına girmesin */ overflow: auto; padding: 4px 8px 16px 0; border-right: 1px solid var(--border); }
+    /* İç kaydırma yok: menünün tüm öğeleri görünür, sayfayla akar. Yapışkanlık yalnız menü ekrana sığıyorsa (CgShell._fit ölçer, .is-sticky) */
+    body.cg-has-side .cg-side { padding: 4px 8px 16px 0; border-right: 1px solid var(--border); }
+    body.cg-has-side .cg-side.is-sticky { position: sticky; top: 76px; }
 }
 @media (max-width: 1279.98px) { .cg-side { display: none !important; } }
 

@@ -1481,6 +1481,7 @@ const CG_REGISTRY = {
             { id: 'sslvpn',     cat: 'vpn', label: 'SSL-VPN',             gen: () => typeof FortiGate !== 'undefined' && FortiGate.sslvpn },
             { id: 'ipsecdialup', cat: 'vpn', label: 'IPsec Dial-up (FortiClient)', gen: () => typeof FortiGate !== 'undefined' && FortiGate.ipsecdialup },
             { id: 'secprofile', cat: 'utm', label: 'Security Profiles',   gen: () => typeof FortiGate !== 'undefined' && FortiGate.secprofile },
+            { id: 'sslinspect', cat: 'utm', label: 'SSL/SSH İnceleme Profili', gen: () => typeof FortiGate !== 'undefined' && FortiGate.sslinspect },
             { id: 'sdwan',      cat: 'routing', label: 'SD-WAN',              gen: () => typeof FortiGate !== 'undefined' && FortiGate.sdwan },
             { id: 'ha',         cat: 'ha', label: 'HA Active-Passive',   gen: () => typeof FortiGate !== 'undefined' && FortiGate.ha },
             { id: 'vlanintf',   cat: 'iface', label: 'VLAN Interface',          gen: () => typeof FortiGate !== 'undefined' && FortiGate.vlanintf },
@@ -1497,6 +1498,8 @@ const CG_REGISTRY = {
             { id: 'vdom',       cat: 'base', label: 'VDOM',                    gen: () => typeof FortiGate !== 'undefined' && FortiGate.vdom },
             { id: 'haaa',       cat: 'ha', label: 'HA Active-Active',        gen: () => typeof FortiGate !== 'undefined' && FortiGate.haaa },
             { id: 'snmpv3',     cat: 'mgmt', label: 'SNMP v3',                 gen: () => typeof FortiGate !== 'undefined' && FortiGate.snmpv3 },
+            { id: 'snmpv2c', cat: 'mgmt', label: 'SNMP v2c Community', gen: () => typeof FortiGate !== 'undefined' && FortiGate.snmpv2c },
+            { id: 'fmgfaz', cat: 'mgmt', label: 'FortiManager + FortiAnalyzer', gen: () => typeof FortiGate !== 'undefined' && FortiGate.fmgfaz },
             { id: 'fswport',    cat: 'l2', label: 'FortiSwitch Port Profile', gen: () => typeof FortiGate !== 'undefined' && FortiGate.fswport },
             { id: 'static', cat: 'routing', label: 'Static Route', gen: () => typeof FortiGate !== 'undefined' && FortiGate.static },
             { id: 'service', cat: 'secpol', label: 'Service Object / Group', gen: () => typeof FortiGate !== 'undefined' && FortiGate.service },
@@ -1820,6 +1823,8 @@ const ConfigGenerator = {
 
     _route() {
         const t = document.getElementById('cg-toast'); if (t) t.hidden = true;
+        // go() ile listeden hemen bu rotaya gelindiyse kaynak liste; başka her rotada sıfırlanır (bayat history.back olmasın)
+        this._goArr = this._goFrom || null; this._goFrom = null;
         let full = location.hash || '';
         // #/V/Cisco/ → #/v/cisco (yalnız vendor rotaları; sorgu kısmı korunur)
         const nv = full.match(/^#\/v(\/[^?]*)?(\?.*)?$/i);
@@ -1876,7 +1881,7 @@ const ConfigGenerator = {
         }
         if (sec === 'lab' && !sub) {
             if (!f.lab.length) { redirect('#/v/' + slug + '/araclar', f.name + ' için henüz CLI lab yok; ' + f.name + ' araçları gösteriliyor.'); return; }
-            this._renderLab(null, null, f.lab[0], f);   // vendor kilitli katalog (adres #/v/<aile>/lab kalır, ağaç görünür)
+            this._renderLab(null, null, f.lab.includes(P.get('v')) ? P.get('v') : f.lab[0], f);   // ?v=: ailede birden çok lab vendoru (7.4 / 7.6)   // vendor kilitli katalog (adres #/v/<aile>/lab kalır, ağaç görünür)
             return;
         }
         if (sec === 'yol' && !sub) {
@@ -1909,7 +1914,8 @@ const ConfigGenerator = {
         clearTimeout(this._toastT); this._toastT = setTimeout(() => { el.hidden = true; }, 5000);
     },
 
-    go(vendorId, typeId) { location.hash = '#/' + vendorId + '/' + typeId; },
+    // Listeden araca: dönüşte (Esc / ← Tüm araçlar) yeni geçmiş kaydı eklemek yerine history.back() kullanılabilsin
+    go(vendorId, typeId) { this._goFrom = location.hash; location.hash = '#/' + vendorId + '/' + typeId; },
     // Üst çubuktaki "Araçlar": süzgeçsiz tüm araçlar (bellekteki süzgeç ve aile kilidi taşınmaz)
     goHome() {
         this._filter = 'all'; this._cat = 'all'; this._query = ''; this._fam = null;
@@ -1922,6 +1928,9 @@ const ConfigGenerator = {
         const f = this._vendor && typeof cgFamilyOf === 'function' ? cgFamilyOf(this._vendor) : null;
         const lf = h.match(/^#\/v\/([a-z0-9-]+)/), lp = (h.split('?')[1] || '').match(/(?:^|&)p=([a-z0-9-]+)/);
         if ((lf && (!f || lf[1] !== f.slug)) || (lp && lp[1] !== this._vendor)) h = f ? '#/v/' + f.slug + '/araclar' : '#/araclar';
+        // Araca bu listeden gelindiyse geri git (Geri tuşu tekrar araca götürmesin); yoksa listeye yeni kayıt
+        const from = this._goArr, at = '#/' + this._vendor + '/' + this._type; this._goArr = null;
+        if (from && from === h && location.hash === at && history.length > 1) { history.back(); return; }
         if (location.hash === h) this._route(); else location.hash = h;
     },
 
@@ -1951,7 +1960,10 @@ const ConfigGenerator = {
         // Kategori seçili platform(lar)da yoksa düşer (ör. #/v/fortinet/araclar?k=mpls)
         if (this._cat !== 'all' && !(CG_CAT_BY_ID[this._cat] && this._regEntries().some(([vid, v]) => (this._filter === 'all' || this._filter === vid) && v.types.some(t => t.cat === this._cat)))) this._cat = 'all';
 
-        const chips = ['all', ...ids].map(id => {
+        // Tüm vendorlar: platformlar aile sırasıyla (Cisco IOS, NX-OS, ASA, FTD yan yana); aile içinde kayıt sırası
+        const famIx = id => { const i = typeof CG_FAMILIES !== 'undefined' ? CG_FAMILIES.findIndex(f => f.reg.includes(id)) : -1; return i < 0 ? 99 : i; };
+        const segIds = fam ? ids : ids.map((id, i) => [id, i]).sort((a, b) => famIx(a[0]) - famIx(b[0]) || a[1] - b[1]).map(x => x[0]);
+        const chips = ['all', ...segIds].map(id => {
             const v = CG_REGISTRY[id];
             const lbl = id === 'all' ? 'Tümü' : v.label;
             const n   = id === 'all' ? this._totalTools(ids) : v.types.length;
@@ -1975,12 +1987,13 @@ const ConfigGenerator = {
                     <a class="cg-famlock-x" href="#/araclar" onclick="ConfigGenerator.goHome();return false">Tüm vendorların araçları <i class="fas fa-arrow-right" aria-hidden="true"></i></a></p>` : ''}
             </header>
             <div class="cg-tools-bar">
-                <div class="cg-chips cg-seg" id="cg-chips" role="group" aria-label="Platform süzgeci"${ids.length < 2 ? ' hidden' : ''}>${chips}</div>
+                <div class="cg-chips cg-seg${fam ? '' : ' cg-seg-many'}" id="cg-chips" role="group" aria-label="Platform süzgeci"${ids.length < 2 ? ' hidden' : ''}>${chips}</div>
                 <div class="cg-home-search">
                     <i class="fas fa-search" aria-hidden="true"></i>
                     <input type="text" id="cg-home-q" placeholder="${cgEsc(ph)}" aria-label="${fam ? cgEsc(fam.name) + ' araçlarında ara' : 'Araç ara'}"
                            autocomplete="off" value="${cgEsc(this._query)}"
-                           oninput="ConfigGenerator._setQuery(this.value)">
+                           oninput="ConfigGenerator._setQuery(this.value)"
+                           onkeydown="if(event.key==='Escape'&&this.value){event.preventDefault();this.value='';ConfigGenerator._setQuery('');}">
                     <kbd aria-hidden="true">/</kbd>
                 </div>
             </div>
@@ -2102,7 +2115,7 @@ const ConfigGenerator = {
             return `<li><button class="cg-card cg-tool${stub ? ' is-stub' : ''}"
                 ${stub ? 'disabled title="Yakında eklenecek"' : `onclick="ConfigGenerator.go('${vid}','${t.id}')"`}>
                 <i class="${icon}" aria-hidden="true"></i>
-                <span class="cg-card-t">${cgEsc(t.label)}</span>
+                <span class="cg-card-t">${cgEsc(t.label).replace(/\//g, '/<wbr>')}</span>
                 ${stub ? '<span class="cg-card-soon">yakında</span>' : tag ? `<span class="cg-tool-tag${plat ? ' is-plat' : ''}">${cgEsc(tag)}</span>` : ''}
             </button></li>`;
         };
@@ -2169,7 +2182,7 @@ const ConfigGenerator = {
         const siblings = vendor.types.filter(t => { const g = t.gen(); return g && typeof g.init === 'function'; });
 
         cgTermPrompt = typeObj.label || vendor.label;
-        this._setNav('tools');
+        this._setNav('tools', typeObj.label + ' · ' + vendor.label);   // sekmede araç adı görünsün
         this._root.innerHTML = `
         <div class="cg-work">
             <div class="cg-work-hd">

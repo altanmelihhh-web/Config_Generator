@@ -67,21 +67,28 @@ const CgHub = {
     _platforms(f) { return f.reg.map(r => this._reg(r)).map((v, i) => v && { key: f.reg[i], label: v.label, n: v.types.length }).filter(Boolean); },
     _counts(slug) { return typeof cgFamilyCounts === 'function' ? (cgFamilyCounts(slug) || {}) : {}; },
     // Öğrenme yolu: CgLab verisi yüklendiyse ailenin ilk yolu (boş modüller zaten ayıklanmış), değilse undefined
+    // Lab verisi yoksa özet (CG_LAB_INDEX): modüller { title, n } biçiminde; _start ikisini de okur
     _path(f) {
-        if (typeof CgLab === 'undefined' || !window.CG_LAB_PATHS || !window.CG_LABS) return undefined;
-        return CgLab._paths().find(p => f.lab.includes(p.vendor)) || null;
+        if (typeof CgLab !== 'undefined' && window.CG_LAB_PATHS && window.CG_LABS) return CgLab._paths().find(p => f.lab.includes(p.vendor)) || null;
+        const ix = window.CG_LAB_INDEX;
+        if (!ix) return undefined;
+        return ix.paths.find(p => f.lab.includes(p.vendor)) || null;
     },
     _arenaN(f) {
-        if (!f.arena || !window.CG_LABS) return null;
-        return window.CG_LABS.filter(l => f.lab.includes(l.vendor) && /^Arena ·/.test(l.title || '')).length;
+        if (!f.arena) return null;
+        if (window.CG_LABS) return window.CG_LABS.filter(l => f.lab.includes(l.vendor) && /^Arena ·/.test(l.title || '')).length;
+        const ix = window.CG_LAB_INDEX;
+        return ix ? f.lab.reduce((a, k) => a + ((ix.v[k] || {}).arena || 0), 0) : null;
     },
     // Hedef kök hâlâ bu çizime mi ait? (tembel yükleme dönerken kullanıcı başka sayfaya geçmiş olabilir)
     _alive(root, tok) { return root.isConnected && root.dataset.cgHub === tok; },
     _stamp(root) { const tok = String(Date.now()) + Math.random().toString(36).slice(2, 6); root.dataset.cgHub = tok; return tok; },
     // Veri yükleyicileri: her biri kendi başına başarısız olabilir; hata sessizce yutulur (sayı gösterilmez)
     _loadCliIndex() { return typeof CgCli !== 'undefined' ? CgCli._load('assets/data/cli/index.js') : Promise.reject(new Error('CgCli yok')); },
-    _loadLabs() { return typeof CgLab !== 'undefined' && typeof CgCli !== 'undefined' ? CgLab._loadAll() : Promise.reject(new Error('CgLab yok')); },
-    _loadTs() { return typeof CgTroubleshoot !== 'undefined' && typeof CgCli !== 'undefined' ? CgTroubleshoot._loadAll() : Promise.reject(new Error('CgTroubleshoot yok')); },
+    // Sayılar için yalnız küçük özet yüklenir (~9 KB); motor + lab verisi (~2,9 MB) lab sayfasında yüklenir
+    _loadLabs() { return typeof CgCli !== 'undefined' ? CgCli._load('assets/data/labs/index.js') : Promise.reject(new Error('CgCli yok')); },
+    // Senaryo sayısı için küçük özet (~1 KB); tüm komut verisi (~1 MB) yalnız sorun giderme sayfasında
+    _loadTs() { return typeof CgCli !== 'undefined' ? CgCli._load('assets/data/ts/index.js') : Promise.reject(new Error('CgCli yok')); },
 
     // ── #/v: vendor kartları ────────────────────────────────────────────
     renderVendors(root) {
@@ -238,7 +245,7 @@ const CgHub = {
             }
             const mods = p ? p.modules.slice(0, 4) : [];
             return `${H}<p class="cg-hub-sp">${p ? `“${E(p.title)}” yolu sıralı modüllerle ilerler; her modülde tarayıcıda çalışan lablar var.` : `Sıralı modüllerden oluşan öğrenme yoluyla başlayın; her modülde tarayıcıda çalışan lablar var.`}</p>
-                ${mods.length ? `<ol class="cg-hub-steps">${mods.map(x => `<li><span>${E(x.title)}</span><small>${this._n(x.labs.length)} lab</small></li>`).join('')}</ol>` : ''}
+                ${mods.length ? `<ol class="cg-hub-steps">${mods.map(x => `<li><span>${E(x.title)}</span><small>${this._n(x.labs ? x.labs.length : x.n)} lab</small></li>`).join('')}</ol>` : ''}
                 <a class="cg-hub-btn" href="${base}/yol">Öğrenme yoluna başla ${this._ico('arrow')}</a>`;
         }
         const plats = this._platforms(f);

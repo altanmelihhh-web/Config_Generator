@@ -47,7 +47,7 @@
 .cg-pal-o.is-act .cg-pal-t { color: var(--primary); }
 .cg-pal-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); }
 .cg-pal-t.is-mono { font: 500 .88rem var(--font-mono); }
-.cg-pal-t mark { background: none; color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+.cg-pal-t mark { padding: 0; background: none; color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
 .cg-pal-s { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; color: var(--muted); }
 .cg-pal-k { flex: none; margin-left: auto; font-size: .72rem; color: var(--muted); }
 .cg-pal-ver { flex: none; padding: 1px 6px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); background: var(--surface-2); font: 600 .7rem var(--font-mono); }

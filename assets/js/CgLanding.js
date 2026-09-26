@@ -32,10 +32,11 @@ const CgLanding = {
     _stats() {
         const R = typeof CG_REGISTRY !== 'undefined' ? CG_REGISTRY : {};
         const fams = this._fams();
-        const tools = Object.keys(R).reduce((a, k) => a + ((R[k] && R[k].types && R[k].types.length) || 0), 0);
+        // "config aracı": Referans/Topoloji sayfaları araç değil, sayılmaz
+        const tools = Object.keys(R).filter(k => k !== 'referans').reduce((a, k) => a + ((R[k] && R[k].types && R[k].types.length) || 0), 0);
         const idx = window.CG_CLI_INDEX || null;
-        const labs = window.CG_LABS ? window.CG_LABS.filter(l => !l.sandbox).length : null;
-        const ts = typeof CgTroubleshoot !== 'undefined' && CgTroubleshoot._list ? CgTroubleshoot._list.length : null;
+        const labs = window.CG_LABS ? window.CG_LABS.filter(l => !l.sandbox).length : window.CG_LAB_INDEX ? window.CG_LAB_INDEX.total : null;
+        const ts = typeof CgTroubleshoot !== 'undefined' && CgTroubleshoot._list ? CgTroubleshoot._list.length : window.CG_TS_INDEX ? window.CG_TS_INDEX.total : null;
         const paths = this._paths();
         return {
             fams: fams.length,
@@ -49,6 +50,8 @@ const CgLanding = {
     // Yollar: CG_LABS yüklüyse CgLab._paths() (yazılmamış lab kimlikleri ayıklanmış, lab sayısı kesin);
     // değilse yol tanımından: lab listesi boş olmayan modüller, lab sayısı bilinmez (null).
     _paths() {
+        const ix = window.CG_LAB_INDEX;
+        if (ix && !window.CG_LABS) return ix.paths.map(p => ({ id: p.id, vendor: p.vendor, title: p.title, mods: p.modules.length, labs: p.modules.reduce((a, m) => a + m.n, 0) }));
         if (!window.CG_LAB_PATHS) return null;
         if (window.CG_LABS && typeof CgLab !== 'undefined' && typeof CgLab._paths === 'function') {
             return CgLab._paths().map(p => ({ id: p.id, vendor: p.vendor, title: p.title, mods: p.modules.length, labs: p.modules.reduce((a, m) => a + m.labs.length, 0) }));
@@ -167,9 +170,10 @@ const CgLanding = {
             if (pt && pt.innerHTML !== ph && !pt.contains(document.activeElement)) pt.innerHTML = ph;
             if (h) fams.forEach(f => h._vcardCounts(root, f));
         };
-        // Yalnız küçük dosyalar: komut dizini (~1 KB) ve yol tanımları (~17 KB). Lab verisi yüklenmez.
+        // Yalnız küçük dosyalar: komut dizini (~1 KB) ve lab özeti (~9 KB: vendor başına lab sayısı + yollar). Lab verisi yüklenmez.
         this._load('assets/data/cli/index.js').then(paint, () => {});
-        this._load('assets/data/labs/paths.js').then(paint, () => {});
+        this._load('assets/data/labs/index.js').then(paint, () => {});
+        this._load('assets/data/ts/index.js').then(paint, () => {});   // senaryo sayısı (~1 KB)
     },
 
     _lead(s) {

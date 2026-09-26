@@ -43,6 +43,15 @@
 :root #config-generator-root .cg-tools .cg-home-search > i { left: 13px; color: var(--muted); font-size: .88rem; }
 :root #config-generator-root .cg-tools .cg-home-search kbd { right: 10px; background: var(--surface); border-color: var(--border); color: var(--muted); font: 500 .72rem var(--font-mono); }
 
+/* Tüm vendorlar (20+ platform): masaüstünde en çok 2 satır, fazlası yatay kaydırılır (sütun akışlı ızgara); arama alt satırda */
+@media (min-width: 601px) {
+    :root #config-generator-root .cg-tools .cg-seg-many {
+        flex: 1 1 100%; display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, auto); grid-auto-columns: max-content;
+        gap: 2px 2px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; scroll-snap-type: x proximity;
+    }
+    :root #config-generator-root .cg-tools .cg-seg-many .cg-chip { scroll-snap-align: start; }
+}
+
 /* Kategori süzgeci: sakin sekme hapları */
 :root #config-generator-root .cg-tools .cg-cat-chips { display: flex; flex-wrap: wrap; gap: 6px; max-width: none; margin: 0 0 var(--space-2); justify-content: flex-start; }
 :root #config-generator-root .cg-tools .cg-cat-chips .cg-chip {
@@ -76,8 +85,8 @@
 :root #config-generator-root .cg-tools .cg-tool:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 :root #config-generator-root .cg-tools .cg-tool > i { width: 20px; height: 20px; flex: 0 0 20px; background: none; color: var(--subtle); font-size: .82rem; }
 :root #config-generator-root .cg-tools .cg-tool:hover:not(:disabled) > i { color: var(--primary); }
-:root #config-generator-root .cg-tools .cg-tool .cg-card-t { flex: 1; min-width: 0; line-height: 1.3; overflow-wrap: break-word; hyphens: auto; }
-:root #config-generator-root .cg-tool-tag { flex: 0 1 auto; max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .74rem; font-weight: 500; color: var(--muted); }
+:root #config-generator-root .cg-tools .cg-tool .cg-card-t { flex: 1 1 auto; min-width: 0; line-height: 1.3; overflow-wrap: break-word; word-break: normal; hyphens: manual; } /* bölme önce '/' sonrasındaki <wbr>'de; kelime ortası yalnız son çare */
+:root #config-generator-root .cg-tool-tag { flex: 0 1 auto; min-width: 3ch; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .74rem; font-weight: 500; color: var(--muted); }
 /* Aile içi kısa platform etiketi (IOS, NX-OS…) mockup'taki gibi eş aralıklı */
 :root #config-generator-root .cg-tools .cg-tool-tag.is-plat { flex: none; font: 500 .72rem var(--font-mono); }
 :root #config-generator-root .cg-tools .cg-tool.is-stub { opacity: 1; border-style: dashed; background: var(--surface); color: var(--muted); cursor: not-allowed; }

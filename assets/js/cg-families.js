@@ -30,13 +30,16 @@ function cgFamilyCounts(slug) {
     const R = typeof CG_REGISTRY !== 'undefined' ? CG_REGISTRY : {};
     const idx = (typeof window !== 'undefined' && window.CG_CLI_INDEX) || null;
     const labs = (typeof window !== 'undefined' && window.CG_LABS) || null;
+    // Lab verisi yüklü değilse küçük özet (assets/data/labs/index.js, derleme anında üretilir; labtest güncelliğini denetler)
+    const lix = (typeof window !== 'undefined' && window.CG_LAB_INDEX) || null;
     const pick = k => idx ? f.cli.reduce((a, c) => a + ((idx.find(v => v.key === c) || {})[k] || 0), 0) : null;
     return {
         tools: f.reg.reduce((a, r) => a + ((R[r] && R[r].types.length) || 0), 0),
-        labs: labs ? labs.filter(l => !l.sandbox && f.lab.includes(l.vendor)).length : null,
+        labs: labs ? labs.filter(l => !l.sandbox && f.lab.includes(l.vendor)).length : lix ? f.lab.reduce((a, k) => a + ((lix.v[k] || {}).labs || 0), 0) : null,
         cmds: pick('count'),
         // Sorun giderme: CgTroubleshoot listesi yüklendiyse o (ek senaryolar ve "replaces" dahil), değilse null
-        scenarios: typeof CgTroubleshoot !== 'undefined' && CgTroubleshoot._list ? CgTroubleshoot._list.filter(x => f.cli.includes(x.vendor)).length : null,
+        scenarios: typeof CgTroubleshoot !== 'undefined' && CgTroubleshoot._list ? CgTroubleshoot._list.filter(x => f.cli.includes(x.vendor)).length
+            : (typeof window !== 'undefined' && window.CG_TS_INDEX) ? f.cli.reduce((a, k) => a + (window.CG_TS_INDEX.v[k] || 0), 0) : null,   // özet: assets/data/ts/index.js
     };
 }
 

@@ -24,6 +24,7 @@ const CgShell = {
             new MutationObserver(() => { clearTimeout(this._t); this._t = setTimeout(() => this.update(), 60); }).observe(root, { childList: true });
         }
         if (this._menuBtn) this._menuBtn.addEventListener('click', () => this.openDrawer());
+        window.addEventListener('resize', () => { cancelAnimationFrame(this._fr); this._fr = requestAnimationFrame(() => this._fit()); });
         // Komut sayıları için küçük dizin (CgCli tembel yükleyicisi; hata olursa sayı gösterilmez)
         if (typeof CgCli !== 'undefined' && !window.CG_CLI_INDEX) CgCli._load('assets/data/cli/index.js').then(() => this.update(), () => {});
         if (this._drawer) {
@@ -140,10 +141,16 @@ const CgShell = {
             document.body.classList.toggle('cg-has-side', !!side);
             // Aynı hash'te birkaç kez çağrılır (hashchange, URL eşitleme, gözlemci, veri yükleme):
             // yalnız çıktı değiştiyse DOM'a yazılır; ağaç kaydırma konumu ve odak korunur.
-            if (side) { const t = this._tree(M.fam, M.sec); if (t !== this._lastTree) { this._side.innerHTML = t; this._lastTree = t; } }
+            if (side) { const t = this._tree(M.fam, M.sec); if (t !== this._lastTree) { this._side.innerHTML = t; this._lastTree = t; } this._fit(); }
             else this._lastTree = null;
         }
         this._ctx = M;
+    },
+
+    // Sol menü ekrana (üst çubuk 76 + alt pay) sığıyorsa yapışkan; sığmıyorsa sayfayla akar (iç kaydırma alanı yok, son öğe hep ulaşılabilir)
+    _fit() {
+        const s = this._side; if (!s || s.hidden) return;
+        s.classList.toggle('is-sticky', s.scrollHeight <= window.innerHeight - 76 - 80);   // 80: sayfa sonunda alt dolgu + altbilgi; yapışkanken üst çubuğun altına girmesin
     },
 
     _paintCrumb(items) {
