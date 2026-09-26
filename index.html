@@ -23,14 +23,16 @@
   <link rel="stylesheet" href="assets/css/base.css">
   <link rel="stylesheet" href="assets/css/config-generator.css">
   <link rel="stylesheet" href="assets/css/cg-nobet.css">
+  <link rel="stylesheet" href="assets/css/shell.css">
 </head>
 <body>
+  <button type="button" class="cg-skip" onclick="var m=document.getElementById('cg-content');m.focus();m.scrollIntoView();">İçeriğe geç</button>
   <header class="app-topbar">
     <a class="app-brand" href="#" aria-label="Config Generator — ana sayfa" onclick="ConfigGenerator.goHome();return false">
       <span class="app-brand-logo"><i class="fas fa-terminal"></i></span>
       <span class="app-brand-txt">Config Generator<small>Network konfigürasyon üretici &amp; dönüştürücü</small></span>
     </a>
-    <nav class="app-nav" id="app-nav">
+    <nav class="app-nav" id="app-nav" aria-label="Ana menü">
       <button class="app-nav-tab active" data-nav="tools" title="Araçlar" aria-label="Araçlar" onclick="ConfigGenerator.goHome()">
         <i class="fas fa-th-large"></i> <span class="app-nav-l">Araçlar</span>
       </button>
@@ -53,14 +55,28 @@
     <div class="app-actions">
       <button type="button" id="themeToggle" class="app-icon-btn" title="Tema değiştir" aria-label="Tema değiştir"><i class="fas fa-moon"></i></button>
       <a class="app-icon-btn" href="https://github.com/altanmelihhh-web/Config_Generator" target="_blank" rel="noopener" title="GitHub" aria-label="GitHub"><i class="fab fa-github"></i></a>
+      <button type="button" id="cg-menu-btn" class="app-icon-btn app-menu-btn" aria-label="Menüyü aç" aria-controls="cg-drawer" aria-expanded="false"><i class="fas fa-bars" aria-hidden="true"></i></button>
     </div>
   </header>
 
-  <main class="app-main">
-    <div class="cgpage-container">
-      <div id="config-generator-root"></div>
+  <main class="app-main" id="cg-main" tabindex="-1">
+    <div class="cgpage-container cg-shell">
+      <div class="cg-shell-main" id="cg-content" tabindex="-1">
+        <nav class="cg-bc" id="cg-bc" aria-label="Sayfa yolu" hidden></nav>
+        <div id="config-generator-root"></div>
+      </div>
+      <aside class="cg-side" id="cg-side" aria-label="Vendor ağacı" hidden></aside>
     </div>
   </main>
+
+  <div class="cg-drawer" id="cg-drawer" role="dialog" aria-modal="true" aria-label="Menü" hidden>
+    <div class="cg-drawer-scrim" data-close></div>
+    <div class="cg-drawer-panel">
+      <div class="cg-drawer-hd"><b>Menü</b><button type="button" class="app-icon-btn cg-drawer-close" data-close aria-label="Menüyü kapat"><i class="fas fa-times" aria-hidden="true"></i></button></div>
+      <nav class="cg-drawer-nav" aria-label="Bölümler"></nav>
+      <nav class="cg-drawer-tree" aria-label="Vendor ağacı"></nav>
+    </div>
+  </div>
 
   <footer class="app-footer">
     <i class="fas fa-lock"></i> Tüm işlemler tarayıcınızda yapılır; girdiğiniz config ve parametreler hiçbir sunucuya gönderilmez.
@@ -107,6 +123,7 @@
   <script src="assets/js/ConfigConverter.js"></script>
   <script src="assets/js/cg-brands.js"></script>
   <script src="assets/js/cg-families.js"></script>
+  <script src="assets/js/CgShell.js"></script>
   <script src="assets/js/CgCli.js"></script>
   <script src="assets/js/CgTroubleshoot.js"></script>
   <script src="assets/js/CgLab.js"></script>

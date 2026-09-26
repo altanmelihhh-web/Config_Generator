@@ -60,7 +60,11 @@ const CgLab = {
 
     // Katalog adresi süzgeci yansıtır: #/lab veya #/lab?v=<vendor> (replaceState; geri yığını şişmez)
     _syncVf() {
-        if (typeof location === 'undefined' || (location.hash || '').split('?')[0] !== '#/lab') return;
+        if (typeof location === 'undefined') return;
+        const path = (location.hash || '').split('?')[0];
+        // Aile sayfasında (#/v/<aile>/lab) başka vendor seçilirse genel katalog adresine geç
+        if (/^#\/v\/[a-z0-9-]+\/lab$/.test(path)) { const f = typeof cgFamilyOf === 'function' && cgFamilyOf(this._vf); if (f && path === '#/v/' + f.slug + '/lab') return; }
+        else if (path !== '#/lab') return;
         const want = '#/lab' + (this._vf && this._vf !== 'all' ? '?v=' + this._vf : '');
         if (location.hash !== want) history.replaceState(null, '', want);
     },

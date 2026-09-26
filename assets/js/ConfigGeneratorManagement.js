@@ -1807,8 +1807,11 @@ const ConfigGenerator = {
         const root = document.getElementById('config-generator-root');
         if (!root) return;
         this._root = root;
-        window.addEventListener('hashchange', () => this._route());
+        const shell = typeof CgShell !== 'undefined' ? CgShell : null;
+        if (shell) shell.init();
+        window.addEventListener('hashchange', () => { this._route(); if (shell) { shell.closeDrawer(true); shell.update(); } });
         this._route();
+        if (shell) shell.update();
     },
 
     _route() {
@@ -1856,7 +1859,7 @@ const ConfigGenerator = {
         }
         if (sec === 'lab' && !sub) {
             if (!f.lab.length) { redirect('#/v/' + slug + '/araclar', f.name + ' için henüz CLI lab yok; ' + f.name + ' araçları gösteriliyor.'); return; }
-            redirect('#/lab?v=' + f.lab[0]);
+            this._renderLab(null, null, f.lab[0]);   // aile bağlamında katalog (adres #/v/<aile>/lab kalır, ağaç görünür)
             return;
         }
         if (sec === 'yol' && !sub) {
@@ -1897,7 +1900,11 @@ const ConfigGenerator = {
     },
     // Araç sayfasından geri: son liste görünümü (aile kilidi, süzgeç ve arama korunur)
     backToList() {
-        const h = this._lastList || '#/araclar';
+        let h = this._lastList || '#/araclar';
+        // Son liste başka bir aileye/platforma aitse o aileye değil, bu aracın ailesine dön
+        const f = this._vendor && typeof cgFamilyOf === 'function' ? cgFamilyOf(this._vendor) : null;
+        const lf = h.match(/^#\/v\/([a-z0-9-]+)/), lp = (h.split('?')[1] || '').match(/(?:^|&)p=([a-z0-9-]+)/);
+        if ((lf && (!f || lf[1] !== f.slug)) || (lp && lp[1] !== this._vendor)) h = f ? '#/v/' + f.slug + '/araclar' : '#/araclar';
         if (location.hash === h) this._route(); else location.hash = h;
     },
 
@@ -2022,6 +2029,7 @@ const ConfigGenerator = {
         const next = base + (qs ? '?' + qs : '');
         if (next !== h) history.replaceState(null, '', next);
         this._lastList = next;
+        if (typeof CgShell !== 'undefined') CgShell.update();
     },
 
     _setFilter(id) {
@@ -2137,12 +2145,10 @@ const ConfigGenerator = {
                 <button class="cg-back" onclick="ConfigGenerator.backToList()">
                     <i class="fas fa-arrow-left"></i> Tüm araçlar
                 </button>
-                <div class="cg-crumb">
+                <h1 class="cg-crumb cg-work-h1" title="${cgEsc(vendor.label)}">
                     ${cgBrandMark(vendorId, 16)}
-                    <span>${cgEsc(vendor.label)}</span>
-                    <i class="fas fa-chevron-right cg-crumb-sep"></i>
                     <strong>${cgEsc(typeObj.label)}</strong>
-                </div>
+                </h1>
                 <div class="cg-work-jump">
                     <select onchange="if(this.value)ConfigGenerator.go('${vendorId}',this.value)" aria-label="Diğer araçlar">
                         ${siblings.map(t => `<option value="${t.id}"${t.id === typeId ? ' selected' : ''}>${cgEsc(t.label)}</option>`).join('')}

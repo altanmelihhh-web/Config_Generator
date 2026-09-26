@@ -1,0 +1,93 @@
+/* ─── Kabuk (UI A3, Tema 1 "Kılavuz"): üst çubuk, sayfa yolu, sol vendor ağacı, mobil çekmece ─── */
+
+/* Üst çubuk: düz zemin, ince çizgi (Tema 1) */
+.app-topbar { background: var(--bg); box-shadow: none; border-bottom: 1px solid var(--border); min-height: 60px; }
+.app-brand-logo { border-radius: 6px; }
+.app-menu-btn { display: none; }
+
+/* İçeriğe geç bağlantısı: yalnız klavye odağında görünür */
+.cg-skip { position: absolute; left: 12px; top: -48px; z-index: 3000; padding: 8px 14px; border-radius: 6px; background: var(--primary); color: var(--on-primary); font-weight: 600; text-decoration: none; transition: top var(--dur-fast, 150ms); }
+.cg-skip:focus { top: 10px; }
+#cg-main:focus, #cg-content:focus { outline: none; }
+.cg-skip { border: 0; cursor: pointer; font: inherit; }
+
+/* Sayfa yolu */
+.cg-bc { margin: 0 0 14px; font-size: .84rem; color: var(--subtle); }
+.cg-bc ol { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; list-style: none; margin: 0; padding: 0; }
+.cg-bc li { display: inline-flex; align-items: center; min-width: 0; }
+.cg-bc li + li::before { content: "›"; margin: 0 8px; color: var(--subtle); }
+.cg-bc a { color: var(--primary); text-decoration: none; }
+.cg-bc a:hover { text-decoration: underline; }
+.cg-bc [aria-current] { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60ch; }
+
+/* Sol vendor ağacı: yalnız ≥1280px ve vendor bağlamlı sayfalarda */
+.cg-side { font-size: .88rem; }
+.cg-side-h { margin: 18px 10px 6px; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--subtle); }
+.cg-side-h:first-child { margin-top: 0; }
+.cg-side a, .cg-side-off, .cg-drawer-tree a, .cg-drawer-tree .cg-side-off {
+    display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 5px 10px; border-radius: 6px;
+    color: var(--muted); text-decoration: none;
+}
+.cg-side a:hover, .cg-drawer-tree a:hover { background: var(--surface); color: var(--text); }
+.cg-side a.on, .cg-drawer-tree a.on { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+.cg-side a.on .cg-side-n, .cg-drawer-tree a.on .cg-side-n { color: var(--primary); }
+.cg-side a.is-open, .cg-drawer-tree a.is-open { color: var(--text); font-weight: 600; }
+.cg-side a i, .cg-drawer-tree a i { width: 16px; text-align: center; font-size: .85em; }
+.cg-side-sub { margin: 2px 0 6px 16px; padding-left: 6px; border-left: 1px solid var(--border); }
+.cg-side-n { margin-left: auto; font-size: .75rem; color: var(--subtle); font-weight: 400; }
+.cg-side-off { color: var(--subtle) !important; cursor: default; }
+.cg-side-off .cg-side-n { font-style: italic; }
+
+@media (min-width: 1280px) {
+    body.cg-has-side .cg-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 28px; align-items: start; }
+    body.cg-has-side .cg-side { grid-column: 1; grid-row: 1; }
+    body.cg-has-side .cg-shell-main { grid-column: 2; grid-row: 1; }
+    body.cg-has-side .cg-side { position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; padding: 4px 8px 16px 0; border-right: 1px solid var(--border); }
+}
+@media (max-width: 1279.98px) { .cg-side { display: none !important; } }
+
+/* Mobil: üst menü gizlenir, menü düğmesi + çekmece */
+/* Ağaç 1280 altında gizli: menü düğmesi (çekmecede ağaç) 1279'a kadar görünür */
+@media (max-width: 1279.98px) { .app-menu-btn { display: inline-flex; } }
+@media (max-width: 1150px) { .app-brand small { display: none; } }
+@media (max-width: 960px) {
+    .app-nav { display: none; }
+    .app-menu-btn { width: 40px; height: 40px; }
+    .app-actions .app-icon-btn { width: 40px; height: 40px; }
+}
+.cg-drawer { position: fixed; inset: 0; z-index: 2500; }
+.cg-drawer-scrim { position: absolute; inset: 0; background: rgba(2, 6, 23, .5); }
+.cg-drawer-panel {
+    position: absolute; top: 0; right: 0; bottom: 0; width: min(340px, 88vw); overflow: auto;
+    background: var(--bg); border-left: 1px solid var(--border); box-shadow: -8px 0 32px rgba(0, 0, 0, .2);
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 14px calc(24px + env(safe-area-inset-bottom, 0px));
+}
+.cg-drawer-hd { position: sticky; top: calc(-12px - env(safe-area-inset-top, 0px)); z-index: 1; display: flex; align-items: center; justify-content: space-between; margin: -12px -14px 8px; padding: 12px 14px 8px; background: var(--bg); }
+.cg-drawer-close { width: 44px; height: 44px; }
+.cg-drawer-hd b { font-size: 1rem; color: var(--text); }
+.cg-drawer-nav { display: grid; gap: 2px; padding-bottom: 10px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+.cg-drawer-nav a { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 12px; border-radius: 8px; color: var(--text); font-weight: 600; text-decoration: none; }
+.cg-drawer-nav a i { width: 18px; text-align: center; color: var(--muted); }
+.cg-drawer-nav a:hover { background: var(--surface); }
+.cg-drawer-nav a.on { background: var(--primary-soft); color: var(--primary); }
+.cg-drawer-nav a.on i { color: var(--primary); }
+.cg-drawer-tree a, .cg-drawer-tree .cg-side-off { min-height: 44px; }
+body.cg-drawer-open { overflow: hidden; }
+@media (prefers-reduced-motion: no-preference) {
+    .cg-drawer:not([hidden]) .cg-drawer-panel { animation: cg-drawer-in var(--dur, 200ms) ease-out; }
+    @keyframes cg-drawer-in { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+}
+
+/* Dar ekranda süzgeç çipleri tek satır, yatay kaydırmalı (ızgarayı aşağı itmez); dokunma hedefi büyür */
+@media (max-width: 600px) {
+    #config-generator-root .cg-home .cg-chips { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; margin-bottom: 14px; padding-bottom: 6px; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+    #config-generator-root .cg-home .cg-chip { flex: 0 0 auto; min-height: 40px; }
+    .cg-bc [aria-current] { max-width: 100%; white-space: normal; }
+}
+
+/* Araç sayfası başlığı (eski iç kırıntının yerine h1; üst kırıntı yolu gösterir) */
+#config-generator-root .cg-work-h1 { margin: 0; font-size: 1rem; line-height: 1.3; }
+
+/* Kabuk kırıntısı varken modüllerin eski iç kırıntısı gizlenir (üst düzey sayfalarda iç kırıntı kalır) */
+body.cg-has-bc #config-generator-root .cg-ts-crumbs { display: none; }
+.app-brand { white-space: nowrap; }
