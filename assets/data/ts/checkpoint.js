@@ -347,6 +347,52 @@
                         { cause: 'Kural yayınlanmış ama kurulmamış', cmd: 'mgmt_cli install-policy policy-package standard targets.1 gw-a -r true' }] },
                 { code: 'mgmt_cli install-policy policy-package standard targets.1 gw-a -r true', desc: 'NAT değişikliği de kurulumla gateway\'e gider; ardından aynı fw monitor ile i/I noktalarını doğrulayın.' },
             ]
-        }
+        },
+        {
+            title: 'Yönetici RADIUS/TACACS+ ile Giremiyor ya da Giriş Çok Yavaş', severity: 'warn', topic: 'aaa', lab: 'cp-28',
+            symptom: 'Kurumsal hesapla Gaia\'ya giriş reddediliyor, çok geç açılıyor ya da kullanıcı girip hiçbir komut çalıştıramıyor. Kaynak: R81.20 Gaia Administration Guide s. 516–534.',
+            steps: [
+                { code: 'show aaa radius-servers list\nshow aaa tacacs-servers list', desc: 'Küçük priority numaralı sunucu önce denenir; yanıt gelmezse timeout kadar beklenir. Kapatılmış bir sunucu listenin başındaysa her giriş gecikir.',
+                  fix: [{ cause: 'Kapatılmış sunucu listede', cmd: 'delete aaa radius-servers priority 0' }, { cause: 'RADIUS timeout toplamı 50 sn\'ye yakın', cmd: 'set aaa radius-servers priority 1 timeout 3' }] },
+                { code: 'show aaa tacacs-servers state', desc: 'TACACS+ sunucusu tanımlı olsa da state off ise kullanılmaz (varsayılan off).', fix: [{ cause: 'TACACS+ kapalı', cmd: 'set aaa tacacs-servers state on' }] },
+                { code: 'set aaa radius-servers priority 1 prompt-secret', desc: 'Paylaşılan anahtar Gaia ve sunucuda birebir aynı olmalı (boşluk ve ters eğik çizgi yok). Anahtar uyuşmazsa sunucu isteği sessizce reddeder. Güvenlik duvarında UDP 1812 açık olmalı.' },
+                { code: 'show rba role radius-group-any\nshow rba role TACP-0', desc: 'Kullanıcı girip bir şey yapamıyorsa rolü yoktur: sunucuda grup yoksa radius-group-any, TACACS+ için TACP-0 tanımlanır.',
+                  fix: [{ cause: 'Dış kullanıcı rolü yok', cmd: 'add rba role radius-group-any domain-type System readonly-features interface,static-route' }] },
+                { code: 'show aaa radius-servers super-user-uid', desc: '0: süper kullanıcı sudo\'suz root; 96: expert\'te sudo /usr/bin/su - gerekir. TACACS+ sunucusu yanıt vermezse Gaia yerel parolaya düşer.' },
+            ]
+        },
+        {
+            title: 'Zamanlanmış Snapshot Alınmıyor ya da Disk Doluyor', severity: 'warn', topic: 'ops', lab: 'cp-29',
+            symptom: 'Beklenen haftalık snapshot yok, eski snapshot\'lar silinmiyor ya da disk doluyor. Görev başarısız olunca bildirim gelmez. Kaynak: R81.20 Gaia Administration Guide s. 606–621.',
+            steps: [
+                { code: 'show snapshot-scheduled', desc: 'activation enabled mı, tekrar (Every week on …) satırı var mı? R81.20\'de tek zamanlanmış görev vardır.',
+                  fix: [{ cause: 'Görev kapalı ya da değişiklikten sonra yeniden etkinleştirilmemiş', cmd: 'set snapshot-scheduled activation enabled' }, { cause: 'Tekrar tanımlı değil', cmd: 'set snapshot-scheduled recurrence weekly days 6 time 02:00' }] },
+                { code: 'vgdisplay | grep Free\nlvs | egrep "LSize|lv_current"', desc: 'Expert modda. Snapshot\'lar için kullanılabilir alan = Free − 1,1 × lv_current. keep-disk-space-above-in-GB = kullanılabilir alan − korunacak boş alan.',
+                  fix: [{ cause: 'Saklama politikası yok: eski snapshot\'lar birikiyor', cmd: 'set snapshot-scheduled retention-policy max-snapshots-to-keep 4' }] },
+                { code: 'show snapshots', desc: 'Oluşan snapshot\'lar <Önek>_<YYYY_MM_DD__HH_mm> adını taşır. Oluşmadıysa /var/log/messages*, sorunlu oluştuysa /var/log/CPsnapshot/ incelenir.' },
+                { code: 'save config', desc: 'Görev Gaia yapılandırmasıdır; kaydedilmezse yeniden başlatmada kaybolur. Politika hatası için snapshot yerine SmartConsole Installation History\'den önceki revizyon kurulur.' },
+            ]
+        },
+        {
+            title: 'Saldırı Şüphesi: Drop Sayısı Aniden Arttı', severity: 'info', topic: 'traffic', lab: 'cp-35',
+            symptom: 'İzleme ekranında WAN\'da drop artışı görülüyor; kimin, neyi denediği ve içeri giren olup olmadığı bilinmiyor. Kaynak: R81.20 CLI Reference Guide s. 1123–1132; check_point.mgmt show-logs.',
+            steps: [
+                { code: 'fw log -l -c drop -b "10:05:00" "10:10:00"', desc: 'Expert modda. -l tarih+saat, -c eylem, -b zaman aralığı (-s/-e ile birlikte kullanılmaz).' },
+                { code: 'mgmt_cli show-logs new-query.time-frame today new-query.filter "action:Drop" new-query.top.field sources -r true', desc: 'En çok drop üreten kaynaklar. Eylem filtresi olmadan olağan kullanıcı trafiği üstte çıkar.' },
+                { code: 'mgmt_cli show-logs new-query.filter "src:198.51.100.77 AND action:Drop" -r true', desc: 'Sabit hedef + değişen port: port taraması; değişen hedef + sabit port: ağ taraması; sabit hedef ve port, çok deneme: parola denemesi.' },
+                { code: 'fw log -l -c accept | grep 198.51.100.77', desc: 'Aynı kaynaktan kabul edilmiş bağlantı var mı? Boşsa denemeler politika tarafından durdurulmuştur.',
+                  fix: [{ cause: 'Saldırgandan accept edilmiş bağlantı var', cmd: 'SmartConsole: kaynağı engelleyen kural + politika kurulumu; Threat Prevention (IPS) korumalarını gözden geçirin' }] },
+            ]
+        },
+        {
+            title: 'SIEM\'e Log Gelmiyor (Log Exporter)', severity: 'warn', topic: 'ops', lab: 'cp-36',
+            symptom: 'SOC ekibi Check Point loglarını SIEM\'de göremiyor ya da loglar yanlış ayrıştırılıyor. Kaynak: R81.20 CLI Reference Guide s. 80–100.',
+            steps: [
+                { code: 'cp_log_export status', desc: 'Expert modda. Her hedefin süreci Running olmalı.', fix: [{ cause: 'Hedef devre dışı (enabled false)', cmd: 'cp_log_export set name siem1 enabled true --apply-now' }, { cause: 'Süreç durmuş', cmd: 'cp_log_export start name siem1' }] },
+                { code: 'cp_log_export show name siem1', desc: 'target-server, target-port ve protocol SIEM\'in dinlediğiyle aynı olmalı; format SIEM\'in ayrıştırıcısıyla (syslog, cef, leef …) eşleşmeli.',
+                  fix: [{ cause: 'Protokol uyuşmuyor', cmd: 'cp_log_export set name siem1 protocol tcp --apply-now' }, { cause: 'Port yanlış', cmd: 'cp_log_export set name siem1 target-port 514 --apply-now' }, { cause: 'Biçim yanlış', cmd: 'cp_log_export set name siem1 format cef --apply-now' }] },
+                { code: 'cp_log_export restart name siem1', desc: 'set/add/delete --apply-now olmadan verildiyse değişiklik süreç yeniden başlatılana kadar uygulanmaz. Yapılandırma $EXPORTERDIR/targets/<ad>/ altındadır.' },
+            ]
+        },
     ];
 })();
