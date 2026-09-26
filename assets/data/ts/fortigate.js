@@ -602,5 +602,38 @@
                 { q: 'Kara delik rotasına neden yüksek mesafe (254) verilir?', choices: [['fallback', 'Daha özel ya da daha düşük mesafeli gerçek rota varken devreye girmesin, yalnız o yokken trafiği düşürsün'], ['speed', 'Daha hızlı çalışsın'], ['req', 'Zorunlu değer']], correct: 'fallback', why: 'Kara delik son çare rotadır.' },
             ],
         },
+        // ── Parti 10: yedekleme ve geri yükleme (fgt-18), VDOM yöneticisi ve vdom-link (fgt-66)
+        {
+            title: 'Değişiklik Sonrası Geri Dönmek: Revizyon, Yedek ve Geri Yükleme', severity: 'warn', topic: 'ops', lab: 'fgt-18',
+            symptom: 'Bir yapılandırma değişikliğinden sonra servis bozuldu ve değişikliğin tamamını geri almak gerekiyor; ya da bakım öncesi güvenli bir dönüş noktası isteniyor.',
+            steps: [
+                { code: 'execute revision list config', desc: 'Cihazda saklanan yapılandırma revizyonları: kimlik, zaman ve yorum. Bakımdan önce alınmış bir revizyon varsa dönüş noktası odur.' },
+                { code: 'execute backup config flash BAKIM-ONCESI', desc: 'Bakımdan önce yorumlu bir revizyon kaydeder. Cihaz dışı kopya için ayrıca "execute backup config tftp <dosya> <sunucu>" (ya da sftp) kullanılır; cihaz arızalanırsa flash\'taki revizyon da gider.',
+                  fix: [{ cause: 'Cihaz dışı yedek yok', cmd: 'execute backup config tftp fgt-a-yedek.conf 10.64.99.50' }] },
+                { expect: 'bad', code: 'execute restore config flash 1', desc: 'Seçilen revizyonu geri yükler. Yapılandırmanın tamamı değişir ve cihaz yeniden başlayabilir (onay sorar): trafik kısa süre kesilir, bu yüzden bakım penceresinde yapılır.',
+                  sample: 'This operation will overwrite the current setting and could possibly reboot the system!\nDo you want to continue? (y/n)' },
+                { code: 'show firewall policy', desc: 'Geri yüklemeden sonra değişikliğin gerçekten geri alındığını doğrulayın; ardından servisi test edin.' },
+            ],
+            quiz: [
+                { q: 'Flash\'taki revizyon neden tek başına yeterli değildir?', choices: [['offbox', 'Cihaz arızalanır ya da değiştirilirse revizyon da gider; cihaz dışı (TFTP/SFTP) kopya gerekir'], ['size', 'Flash küçüktür'], ['none', 'Yeterlidir']], correct: 'offbox', why: 'Yedeğin amacı cihazın kendisinin kaybına karşı da korumaktır.' },
+                { q: 'Geri yükleme neden bakım penceresinde yapılır?', choices: [['reboot', 'Yapılandırmanın tamamı değişir ve cihaz yeniden başlayabilir'], ['slow', 'Yavaş olduğu için'], ['log', 'Loglar silinir']], correct: 'reboot', why: 'Onay mesajı yeniden başlatma olasılığını açıkça söyler.' },
+            ],
+        },
+        {
+            title: 'Kiracı Yöneticisi Her Şeyi Görüyor ya da Kiracı VDOM\'u İnternete Çıkamıyor', severity: 'warn', topic: 'ops', lab: 'fgt-66',
+            symptom: 'Çoklu VDOM kipinde kiracı yöneticisi global ayarları da değiştirebiliyor; ya da kiracı VDOM\'u vdom-link kurulduğu hâlde internete çıkamıyor.',
+            steps: [
+                { expect: 'bad', code: 'show system admin musteri-yonetici', desc: '"config global" içinde bakın: accprofile super_admin ise yönetici cihazın tamamına erişir. Kiracıya kendi VDOM\'uyla sınırlı bir profil (ör. prof_admin) ve "set vdom <kiracı>" verilir.',
+                  sample: 'config system admin\n    edit "musteri-yonetici"\n        set accprofile "super_admin"\n        set vdom "MUSTERI"\n    next\nend\n\n# super_admin: global erişim',
+                  fix: [{ cause: 'Kiracı yöneticisi super_admin', cmd: 'config global\nconfig system admin\nedit musteri-yonetici\nset accprofile prof_admin\nend\nend' }] },
+                { code: 'show system interface VL1', desc: '"config global" içinde: vdom-link uçları farklı VDOM\'larda ve aynı alt ağda mı (ör. VL0 root 10.64.255.1/30, VL1 MUSTERI 10.64.255.2/30)?' },
+                { code: 'get router info routing-table all', desc: 'Kiracı VDOM\'unda ("config vdom" → "edit MUSTERI") varsayılan rota VL1 üzerinden olmalı; root\'ta kiracı ağına dönüş rotası VL0 üzerinden olmalı. Ayrıca root\'ta VL0 → WAN NAT\'lı kural gerekir.',
+                  fix: [{ cause: 'Kiracı VDOM\'unda çıkış rotası yok', cmd: 'config vdom\nedit MUSTERI\nconfig router static\nedit 1\nset gateway 10.64.255.1\nset device VL1\nend\nnext\nend' }] },
+            ],
+            quiz: [
+                { q: 'Yönetici hesapları çoklu VDOM kipinde nerede tanımlanır?', choices: [['global', 'config global altında'], ['vdom', 'Her VDOM\'da'], ['root', 'Yalnız root\'ta']], correct: 'global', why: 'Yöneticiler cihaz geneli nesnelerdir; kapsamları set vdom ile daraltılır.' },
+                { q: 'vdom-link oluşturunca hangi arayüzler açılır?', choices: [['two', '<ad>0 ve <ad>1'], ['one', 'Tek arayüz'], ['none', 'Hiçbiri']], correct: 'two', why: 'İki uç ayrı VDOM\'lara atanır.' },
+            ],
+        },
     ];
 })();

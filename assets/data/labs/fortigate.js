@@ -1153,27 +1153,30 @@
             utm: ['config webfilter urlfilter', 'edit 1', 'set name BAKIM-TEST', 'config entries', 'edit 1', 'set url *.example.com', 'set type wildcard', 'set action block', 'next', 'end', 'next', 'end',
                 'config webfilter profile', 'edit WF-BAKIM', 'config web', 'set urlfilter-table 1', 'end', 'next', 'end',
                 'config firewall policy', 'edit 1', 'set utm-status enable', 'set webfilter-profile WF-BAKIM', 'set ssl-ssh-profile certificate-inspection', 'end'],
+            // vdom (M17): bakımda açılan TEST VDOM\'u ve LAN arayüzü yanlışlıkla ona taşınmış; paket TEST\'in (boş) tablolarıyla değerlendirilir
+            vdom: ['config system global', 'set vdom-mode multi-vdom', 'end', 'config vdom', 'edit TEST', 'next', 'end', 'config global', 'config system interface', 'edit port2', 'set vdom TEST', 'end', 'end'],
             order: ['config firewall policy', 'edit 2', 'set name TMP-BLOCK', 'set srcintf port2', 'set dstintf port1', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action deny', 'set schedule always', 'set service ALL', 'end', 'config firewall policy', 'move 2 before 1', 'end'] };
         const FIX = { route: ['config router static', 'edit 1', 'set status enable', 'end'], nat: ['config firewall policy', 'edit 1', 'set nat enable', 'end'],
             svc: ['config firewall policy', 'edit 1', 'append service HTTPS', 'end'], down: ['config system interface', 'edit port2', 'set status up', 'end'],
             utm: ['config webfilter urlfilter', 'edit 1', 'config entries', 'edit 1', 'set status disable', 'next', 'end', 'next', 'end'],
+            vdom: ['config global', 'config system interface', 'edit port2', 'set vdom root', 'end', 'end'],
             order: ['config firewall policy', 'move 1 before 2', 'end'] };
         const OK = { route: s => !!def0(s.rib()) && def0(s.rib()).gw === '203.0.113.1', nat: s => s.obj('firewall policy', '1').nat === 'enable',
-            svc: s => (s.obj('firewall policy', '1').service || []).some(x => x === 'HTTPS' || x === 'ALL'), utm: s => { const p = s.obj('firewall policy', '1'); if (p['utm-status'] !== 'enable' || p['webfilter-profile'] !== 'WF-BAKIM') return true; const c = s.subObj('webfilter urlfilter', '1', 'entries'), e = c && c.v['1']; return !e || e.status === 'disable' || e.action !== 'block'; }, down: s => s.obj('system interface', 'port2').status === 'up',
+            svc: s => (s.obj('firewall policy', '1').service || []).some(x => x === 'HTTPS' || x === 'ALL'), utm: s => { const p = s.obj('firewall policy', '1'); if (p['utm-status'] !== 'enable' || p['webfilter-profile'] !== 'WF-BAKIM') return true; const c = s.subObj('webfilter urlfilter', '1', 'entries'), e = c && c.v['1']; return !e || e.status === 'disable' || e.action !== 'block'; }, down: s => s.obj('system interface', 'port2').status === 'up', vdom: s => (s.obj('system interface', 'port2').vdom || 'root') === 'root',
             order: s => { const o = s.order('firewall policy'), t = pol(s, 'TMP-BLOCK'), k = s.keys('firewall policy').find(x => s.obj('firewall policy', x).name === 'TMP-BLOCK'); return !t || t.status === 'disable' || o.indexOf('1') < o.indexOf(k); } };
-        const CH = [['down', 'LAN arayüzü (port2) kapalı: paket FortiGate\'e hiç girmiyor'], ['route', 'Varsayılan rota yok ya da pasif: hedefe rota bulunamıyor'], ['order', 'Üstteki bir deny kuralı önce eşleşiyor'], ['svc', 'Kuralın servis listesinde HTTPS yok: örtük deny (policy 0)'], ['nat', 'Kural eşleşiyor ama kaynak NAT kapalı: özel adres internete çıkıyor'], ['utm', 'Kural ve NAT sağlam ama güvenlik profili (web filtre) engelliyor']];
-        const HOW = 'Tanılama sırası paketin yolunu izler: arayüz (paket giriyor mu) → rota → kural → NAT. debug flow\'da "find a route" satırı yoksa rota, "Denied by forward policy check (policy N)" kural, "Allowed by Policy-1" var ama SNAT yoksa NAT sorunudur; hiç satır yoksa paket FortiGate\'e girmiyordur. Kural ve NAT sağlam görünüp sayfa yine açılmıyorsa güvenlik profiline bakılır: web filtre logu (execute log filter category 3 → execute log display). Cihaz çoklu VDOM kipindeyse (get system status) tüm tanılama ve düzeltmeler config vdom → edit root içinde yapılır.';
-        const V = (key, a, b, c, vd) => ({ key, a, b, c, vd, start: BREAK[a].concat(BREAK[b], c ? BREAK[c] : [], vd ? ['config system global', 'set vdom-mode multi-vdom', 'end'] : []) });   // c: zor turda üçüncü arıza; vd: cihaz çoklu VDOM kipinde
-        const IN = (v, cmds) => v.vd ? ['config vdom', 'edit root'].concat(cmds, ['next', 'end']) : cmds;   // çoklu VDOM kipinde komutlar root VDOM bağlamında
+        const CH = [['down', 'LAN arayüzü (port2) kapalı: paket FortiGate\'e hiç girmiyor'], ['route', 'Varsayılan rota yok ya da pasif: hedefe rota bulunamıyor'], ['order', 'Üstteki bir deny kuralı önce eşleşiyor'], ['svc', 'Kuralın servis listesinde HTTPS yok: örtük deny (policy 0)'], ['nat', 'Kural eşleşiyor ama kaynak NAT kapalı: özel adres internete çıkıyor'], ['utm', 'Kural ve NAT sağlam ama güvenlik profili (web filtre) engelliyor'], ['vdom', 'LAN arayüzü (port2) başka bir VDOM\'a taşınmış: paket o VDOM\'un kural ve rotalarıyla değerlendiriliyor']];
+        const HOW = 'Tanılama sırası paketin yolunu izler: arayüz (paket giriyor mu) → rota → kural → NAT. debug flow\'da "find a route" satırı yoksa rota, "Denied by forward policy check (policy N)" kural, "Allowed by Policy-1" var ama SNAT yoksa NAT sorunudur; hiç satır yoksa paket FortiGate\'e girmiyordur. Kural ve NAT sağlam görünüp sayfa yine açılmıyorsa güvenlik profiline bakılır: web filtre logu (execute log filter category 3 → execute log display). Cihaz çoklu VDOM kipindeyse (get system status) tanılama ve düzeltmeler config vdom → edit root içinde yapılır; arayüzün hangi VDOM\'da olduğu config global → show system interface ile görülür ve oradan düzeltilir.';
+        const V = (key, a, b, c, vd) => { const ks = [a, b, c].filter(Boolean), nv = ks.filter(k => k !== 'vdom'); return { key, a, b, c, vd, start: [].concat(...nv.map(k => BREAK[k]), ks.includes('vdom') ? BREAK.vdom : vd ? ['config system global', 'set vdom-mode multi-vdom', 'end'] : []) }; };   // vdom arızası en son uygulanır (kipi değiştirir)   // c: zor turda üçüncü arıza; vd: cihaz çoklu VDOM kipinde
+        const IN = (v, cmds, k) => v.vd && k !== 'vdom' ? ['config vdom', 'edit root'].concat(cmds, ['next', 'end']) : cmds;   // vdom arızası global bağlamda düzeltilir   // çoklu VDOM kipinde komutlar root VDOM bağlamında
         const TRACE = v => ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable'];
-        const LOOK = (v, k) => k === 'utm' ? ['execute log filter category 3', 'execute log display'] : TRACE(v);
+        const LOOK = (v, k) => k === 'utm' ? ['execute log filter category 3', 'execute log display'] : k === 'vdom' ? ['get system status', 'config global', 'show system interface port2', 'end'] : TRACE(v);
         const lastCfg = s => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (L[i].canon && /^(set |append |move |unset )/.test(L[i].canon)) return i; return -1; };
         return {
             id: 'fgt-55', vendor: 'fortigate', level: 8, title: 'Sınav: karma arıza kaydı — LAN internete çıkamıyor', minutes: 30, timed: 1200, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-15', 'fgt-58'],
             up: ['port1', 'port2'], hosts: ['203.0.113.1'],
             start: BASE().concat(POL(['HTTP', 'HTTPS', 'DNS'])),
             sim: { flows: [FLOW] },
-            variants: [V('route-nat', 'route', 'nat'), V('order-svc', 'order', 'svc'), V('down-svc', 'down', 'svc'), V('route-order', 'route', 'order'), V('zor-down-route-nat', 'down', 'route', 'nat'), V('zor-vdom-route-utm', 'route', 'utm', null, true)],
+            variants: [V('route-nat', 'route', 'nat'), V('order-svc', 'order', 'svc'), V('down-svc', 'down', 'svc'), V('route-order', 'route', 'order'), V('zor-down-route-nat', 'down', 'route', 'nat'), V('zor-vdom-route-utm', 'route', 'utm', null, true), V('vdom-nat', 'vdom', 'nat', null, true)],
             story: '<b>Arıza kaydı (öncelik: yüksek):</b> "Gece yapılan bakımdan sonra LAN\'daki kullanıcılar internete çıkamıyor. Örnek: 10.64.10.50, 198.51.100.80:443." Bakımda <b>en az iki ayrı</b> hata yapılmış (zor turda üç); hangileri olduğunu bilmiyorsunuz. Bakım sırasında cihazın VDOM kipi de değişmiş olabilir: önce <code>get system status</code>. Beklenen durum: LAN-TO-WAN kuralı (port2 → port1) HTTP, HTTPS ve DNS\'e izin verir ve kaynak NAT yapar; varsayılan rota 203.0.113.1. Kanıtla bulun, yalnız bozulan ayarları düzeltin ve düzeltmeyi kanıtla doğrulayın. <small>Hedef süre 20 dk. Her turda farklı arızalar — "Yeni tur".</small>',
             lesson: L('Sınav labı yeni bir konu öğretmez; önceki seviyelerin araçlarını birlikte kullandırır: <code>show</code> ile yapılandırma, <code>get router info routing-table all</code> ile rota, <code>diagnose debug flow</code> ve <code>diagnose firewall iprope lookup</code> ile kural kararı, <code>diagnose sniffer packet</code> ile paketin yolu. ' + HOW,
                 'Gerçek arıza kayıtlarında çoğu zaman tek bir neden yoktur: ilk hatayı düzelttiğinizde ikincisi ortaya çıkar. Her düzeltmeden sonra aynı testi yeniden yapmak, "düzelttim" ile "çalışıyor" arasındaki farkı kapatır.',
@@ -1183,23 +1186,23 @@
             tasks: [
                 { t: 'Sorunlu akışı bir tanılama aracıyla sınayın. <b>İlk</b> arıza hangisi?', ask: { choices: CH, correct: v => v.a },
                   why: HOW, hints: ['debug flow ya da iprope lookup ile başlayın; sonuç yoksa arayüz ve rota tablosuna bakın.', '<code>diagnose debug flow trace start 5</code> → <code>diagnose debug enable</code>; <code>show system interface port2</code>; <code>get router info routing-table all</code>'],
-                  steps: v => IN(v, LOOK(v, v.a)).concat([{ answer: 0, v: v.a }]) },
+                  steps: v => IN(v, LOOK(v, v.a), v.a).concat([{ answer: 0, v: v.a }]) },
                 { t: 'İlk arızayı düzeltin: yalnız bozulan ayar.',
                   why: 'Arızaya karşılık gelen tek değişiklik: arayüzü açmak, rotayı etkinleştirmek, kuralı taşımak, servisi eklemek ya da NAT\'ı açmak. Kuralı genişletmek (ALL, any) arızayı gizler.',
                   hints: ['Bulduğunuz nedene karşılık gelen tek ayar.', 'down → set status up · route → set status enable (router static 1) · order → move 1 before 2 · svc → append service HTTPS · nat → set nat enable'],
-                  steps: v => IN(v, FIX[v.a]), check: s => OK[s.variant().a](s) },
+                  steps: v => IN(v, FIX[v.a], v.a), check: s => OK[s.variant().a](s) },
                 { t: 'Testi tekrarlayın. <b>İkinci</b> arıza hangisi?', ask: { choices: CH, correct: v => v.b },
                   why: 'İlk engel kalkınca paket bir sonraki aşamaya ilerler ve orada takılır. Aynı test yeniden yapılmadan ikinci arıza görünmez.',
                   hints: ['Aynı debug flow ya da lookup.', 'Bu kez paket hangi aşamaya kadar ilerliyor?'],
-                  steps: v => IN(v, LOOK(v, v.b)).concat([{ answer: 2, v: v.b }]), needs: [1] },
+                  steps: v => IN(v, LOOK(v, v.b), v.b).concat([{ answer: 2, v: v.b }]), needs: [1] },
                 { t: 'İkinci arızayı düzeltin.',
                   why: 'Yine yalnız bozulan ayar. Düzeltmelerin sonunda akış LAN-TO-WAN\'dan geçmeli ve WAN adresine (203.0.113.2) çevrilmeli.',
                   hints: ['İkinci nedene karşılık gelen tek ayar.', 'Aynı eşleme: down / route / order / svc / nat'],
-                  steps: v => IN(v, FIX[v.b]), check: s => OK[s.variant().b](s) },
+                  steps: v => IN(v, FIX[v.b], v.b), check: s => OK[s.variant().b](s) },
                 { t: 'Testi yeniden yapın. Başka arıza kaldı mı?', ask: { choices: CH.concat([['none', 'Kalmadı: akış kural 1\'den geçiyor ve NAT yapılıyor']]), correct: v => v.c || 'none' },
                   why: 'İki düzeltmeden sonra da test tekrarlanır: gerçek kayıtlarda arıza sayısı önceden bilinmez. "Allowed by Policy-1" ve SNAT satırı görünüyorsa arıza kalmamıştır.',
                   hints: ['Aynı debug flow ya da lookup.', 'Paket bu kez nereye kadar ilerliyor; SNAT satırı var mı?'],
-                  steps: v => IN(v, LOOK(v, v.c)).concat([{ answer: 4, v: v.c || 'none' }]), needs: [1, 3] },
+                  steps: v => IN(v, LOOK(v, v.c), v.c).concat([{ answer: 4, v: v.c || 'none' }]), needs: [1, 3] },
                 { t: 'Kalan arıza varsa düzeltin; sonra düzeltmeyi kanıtlayın: son değişiklikten sonra akışı <code>iprope lookup</code> ile yeniden sınayın, LAN-TO-WAN (kural 1) eşleşmeli.',
                   why: 'Kayıt kanıtla kapanır: son değişiklikten sonra alınmış bir test çıktısı. Kural 1 eşleşiyor ve kural NAT yapıyorsa kullanıcı trafiği geçer.',
                   hints: ['Varsa kalan arızanın tek ayarı; ardından diagnose firewall iprope lookup <kaynak> <kaynak port> <hedef> <hedef port> <protokol> <arayüz> policy', '<code>diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2 policy</code>'],
@@ -2017,6 +2020,55 @@
         learn: ['Aynı önek + aynı mesafe = ECMP.', 'priority: küçük değer tercih edilir; diğeri tabloda yedek.', 'Yüksek mesafe = beklemede (database).', 'Kara delik (distance 254) iç blok sızıntısını önler.'],
         links: { tool: '#/fortigate/static', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/135' }, cert: 'NSE 4 · M3'
     },
+    // ═══ Parti 10: VDOM yöneticisi ve vdom-link (fgt-66) ═══
+    (() => {
+        const vdT = (s, vd) => { const m = s.model; if (!m.vdt) return null; return (m.curVd || 'root') === vd ? m.t : (m.vdt[vd] || null); };
+        return {
+            id: 'fgt-66', vendor: 'fortigate', level: 5, title: 'VDOM yöneticisi ve vdom-link: kiracıya yetki ve internete çıkış yolu', minutes: 25, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-53'],
+            up: ['port1', 'port2', 'port3'], hosts: ['203.0.113.1'],
+            start: BASE().concat(['config system global', 'set vdom-mode multi-vdom', 'end', 'config vdom', 'edit MUSTERI', 'next', 'end',
+                'config global', 'config system interface', 'edit port3', 'set vdom MUSTERI', 'set ip 10.64.30.1 255.255.255.0', 'end', 'end']),
+            story: 'Cihaz çoklu VDOM kipinde; kiracı VDOM\'u <b>MUSTERI</b> ve arayüzü port3 (10.64.30.0/24) hazır. Kiracının kendi yöneticisi olacak ama yalnız kendi VDOM\'unu görecek. Kiracının internete çıkışı da root VDOM\'daki WAN üzerinden yapılacak: iki VDOM arasında bir <b>vdom-link</b> kurun. <small>[Simülatör] Yönetici oturumu benzetilmez; yetki kapsamı yapılandırmadan okunur. vdom-link üzerinden VDOM\'lar arası trafik akışı benzetilmez.</small>',
+            lesson: L('Çoklu VDOM kipinde yöneticiler <code>config global</code> → <code>config system admin</code> altında tanımlanır; <code>set vdom</code> yöneticinin erişebileceği VDOM\'ları, <code>accprofile</code> yetkisini belirler. <code>super_admin</code> profili cihazın tamamına (global) erişir; <code>prof_admin</code> gibi bir profil ve tek VDOM ile yönetici yalnız o VDOM\'un kural, nesne ve rotalarını yönetir. <b>vdom-link</b> (<code>config global</code> → <code>config system vdom-link</code>) iki uçlu sanal bir bağlantıdır: <code>&lt;ad&gt;0</code> ve <code>&lt;ad&gt;1</code> arayüzleri oluşur, uçlar farklı VDOM\'lara atanıp aynı alt ağdan IP alır. Sonrası sıradan yönlendirme ve kural işidir: kiracı VDOM\'unda varsayılan rota vdom-link üzerinden root\'a, root\'ta vdom-link\'ten WAN\'a NAT\'lı kural ve kiracı ağına dönüş rotası.',
+                'Kiracı yöneticisine super_admin vermek, onun HA\'yı, arayüzleri ve diğer kiracıları değiştirebilmesi demektir. vdom-link ise VDOM\'ları ayrı tutarken ortak bir internet çıkışını mümkün kılar.',
+                'config global\n    config system admin\n        edit musteri-yonetici\n            set accprofile prof_admin\n            set vdom MUSTERI\n            set password &lt;parola&gt;\n        next\n    end\n    config system vdom-link\n        edit VL\n        next\n    end\n    config system interface\n        edit VL0\n            set ip 10.64.255.1 255.255.255.252\n        next\n        edit VL1\n            set vdom MUSTERI\n            set ip 10.64.255.2 255.255.255.252\n        next\n    end\nend\nconfig vdom\n    edit MUSTERI\n        config router static\n            edit 1\n                set gateway 10.64.255.1\n                set device VL1\n            next\n        end\n    next\nend',
+                ['Kiracı yöneticisine super_admin vermek.', 'vdom-link\'in iki ucunu aynı VDOM\'da bırakmak.', 'Kiracı VDOM\'una rota yazıp root\'ta dönüş rotasını ve kuralı unutmak.']),
+            goals: ['VDOM kapsamlı yönetici', 'Yetki profilinin rolü', 'vdom-link oluşturmak ve uçlarını atamak', 'Kiracı VDOM\'unda çıkış rotası'],
+            tasks: [
+                { t: 'Kiracı yöneticisi: <code>musteri-yonetici</code>, profil <b>prof_admin</b>, yalnız MUSTERI VDOM\'u, parola <code>Musteri-Pw-1</code>.',
+                  why: 'Yöneticiler global bağlamda tanımlanır; set vdom kapsamı, accprofile yetkiyi belirler.',
+                  hints: ['config global → config system admin → edit musteri-yonetici', '<code>set accprofile prof_admin</code> → <code>set vdom MUSTERI</code> → <code>set password Musteri-Pw-1</code> → <code>end</code> → <code>end</code>'],
+                  steps: ['config global', 'config system admin', 'edit musteri-yonetici', 'set accprofile prof_admin', 'set vdom MUSTERI', 'set password Musteri-Pw-1', 'end', 'end'],
+                  check: s => { const a = s.adminScope('musteri-yonetici'); return !!a && a.profile === 'prof_admin' && a.vdoms.length === 1 && a.vdoms[0] === 'MUSTERI' && !a.global; },
+                  fb: s => { const a = s.adminScope('musteri-yonetici'); return a && a.global ? 'Bu yönetici global erişime sahip (super_admin?): kiracıya prof_admin verin.' : null; } },
+                { t: 'musteri-yonetici neyi yönetebilir?', ask: { choices: [['vdom', 'Yalnız MUSTERI VDOM\'unun kurallarını, nesnelerini ve rotalarını; HA, arayüzler ve diğer VDOM\'lar kapsam dışı'], ['all', 'Cihazın tamamını'], ['ro', 'Hiçbir şeyi, yalnız okur']], correct: 'vdom' },
+                  why: 'VDOM kapsamı ve global olmayan bir profil, yöneticiyi kendi VDOM\'uyla sınırlar. Global ayarlar super_admin gerektirir.',
+                  hints: ['set vdom', 'prof_admin global mi?'] },
+                { t: 'root ile MUSTERI arasında <code>VL</code> adlı vdom-link oluşturun.',
+                  why: 'vdom-link global bağlamda oluşturulur; VL0 ve VL1 uçları açılır.',
+                  hints: ['config global → config system vdom-link → edit VL', '<code>edit VL</code> → <code>end</code> → <code>end</code>'],
+                  steps: ['config global', 'config system vdom-link', 'edit VL', 'end', 'end'],
+                  check: s => !!s.obj('system interface', 'VL0') && !!s.obj('system interface', 'VL1') && s.obj('system interface', 'VL1').type === 'vdom-link' },
+                { t: 'Uçları yapılandırın: VL0 root\'ta 10.64.255.1/30, VL1 MUSTERI\'de 10.64.255.2/30.',
+                  why: 'İki uç aynı /30 alt ağdan adres alır ve farklı VDOM\'lara atanır; arayüz ayarları global bağlamdadır.',
+                  hints: ['config global → config system interface → edit VL0 / edit VL1', 'VL1 için <code>set vdom MUSTERI</code>; ikisine <code>set ip … 255.255.255.252</code>'],
+                  steps: ['config global', 'config system interface', 'edit VL0', 'set ip 10.64.255.1 255.255.255.252', 'next', 'edit VL1', 'set vdom MUSTERI', 'set ip 10.64.255.2 255.255.255.252', 'end', 'end'], needs: [2],
+                  check: s => { const a = s.obj('system interface', 'VL0'), b = s.obj('system interface', 'VL1'); return !!a && !!b && (a.vdom || 'root') === 'root' && b.vdom === 'MUSTERI' && a.ip === '10.64.255.1 255.255.255.252' && b.ip === '10.64.255.2 255.255.255.252'; } },
+                { t: 'MUSTERI VDOM\'unda varsayılan rota: ağ geçidi 10.64.255.1, çıkış VL1.',
+                  why: 'Kiracının internete giden trafiği vdom-link üzerinden root\'a gider. Rota VDOM\'a aittir: config vdom → edit MUSTERI içinde yazılır.',
+                  hints: ['config vdom → edit MUSTERI → config router static → edit 1', '<code>set gateway 10.64.255.1</code> → <code>set device VL1</code> → <code>end</code> → <code>next</code> → <code>end</code>'],
+                  steps: ['config vdom', 'edit MUSTERI', 'config router static', 'edit 1', 'set gateway 10.64.255.1', 'set device VL1', 'end', 'next', 'end'], needs: [2, 3],
+                  check: s => { const t = vdT(s, 'MUSTERI'), r = t && t['router static']; return !!r && r.o.some(k => r.v[k].device === 'VL1' && r.v[k].gateway === '10.64.255.1'); },
+                  fb: s => { const t = vdT(s, 'root'), r = t && t['router static']; return r && r.o.some(k => r.v[k].device === 'VL1') ? 'Rota root VDOM\'da yazılmış: config vdom → edit MUSTERI içinde yazın.' : null; } },
+                { t: 'Kiracının internete çıkabilmesi için root VDOM\'da daha ne gerekir?', ask: { choices: [['root', 'VL0\'dan WAN\'a (port1) NAT\'lı bir kural ve 10.64.30.0/24 için VL0 üzerinden dönüş rotası'], ['none', 'Hiçbir şey: vdom-link yeterli'], ['ha', 'HA kümesi']], correct: 'root' },
+                  why: 'vdom-link yalnız bir arayüz çiftidir; trafik her VDOM\'da kendi kural ve rotalarından geçer.',
+                  hints: ['Trafik root\'a VL0\'dan girer.', 'Dönüş yolu?'] },
+            ],
+            verify: ['get system status', 'show system interface VL1', 'show system admin musteri-yonetici'],
+            learn: ['VDOM yöneticisi: config global → system admin; set vdom + accprofile.', 'super_admin global; prof_admin + tek VDOM sınırlı.', 'vdom-link: <ad>0 / <ad>1; uçlar farklı VDOM\'larda, aynı alt ağda.', 'Her VDOM\'da kendi rotası ve kuralı.'],
+            links: { tool: '#/fortigate/vdom', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/137' }, cert: 'NSE 4 · M13'
+        };
+    })(),
     ];
     // Çoktan seçmeli (ask) görevler: cevap s.answers['<lab>:<görev>'] içinde
     LABS.forEach(l => l.tasks.forEach((t, i) => {
