@@ -6,18 +6,19 @@
 // Görevler: assets/data/arena/masa.js · İlerleme: localStorage 'cg-arena-v1'
 const CgArena = {
     KEY: 'cg-arena-v1',
-    FILES: ['assets/js/lab/irule.js', 'assets/data/arena/masa.js'],
+    FILES: ['assets/js/lab/irule.js', 'assets/data/arena/masa.js', 'assets/data/arena/meydan.js'],
     RULE: 'r_masa',
     MODES: [
         { id: 'masa', icon: 'fa-project-diagram', title: 'Trafik Masası', desc: 'Kuralı yaz, trafiği başlat: her isteğin hangi olaydan geçtiğini, hangi satırın çalıştığını ve nereye gittiğini canlı izle.', ready: true },
         { id: 'nobet', icon: 'fa-bell', title: 'Nöbet', desc: 'Kurgusal şirkette nöbettesin: alarm, grafik, log ve ekip mesajlarından kök nedeni bul, kesintiyi kapat.' },
-        { id: 'meydan', icon: 'fa-flag-checkered', title: 'Meydan Okuma', desc: 'Gizli testli iRule görevleri: doğruluk + maliyet puanı, konu rozetleri, zorluk ağacı.' },
+        { id: 'meydan', icon: 'fa-flag-checkered', title: 'Meydan Okuma', desc: 'Gizli testli kod görevleri: görünür testlerle dene, tümüyle gönder; doğruluk + maliyet puanı.', ready: true },
     ],
 
     _mem: null,
     _store() { if (this._mem) return this._mem; let d = null; try { d = JSON.parse(localStorage.getItem(this.KEY) || 'null'); } catch (e) { d = null; } return (this._mem = d && d.masa ? d : { masa: {} }); },
     _save() { try { localStorage.setItem(this.KEY, JSON.stringify(this._store())); } catch (e) { /* yalnız oturum */ } },
     _st(id) { const s = this._store(); return s.masa[id] || (s.masa[id] = { code: null, runs: 0, done: false, stars: 0, hints: 0 }); },
+    _mst(id) { const s = this._store(); s.meydan = s.meydan || {}; return s.meydan[id] || (s.meydan[id] = { code: null, subs: 0, done: false, stars: 0, hints: 0, best: null }); },
 
     async render(root, mode, id) {
         this._root = root; this._run = null;
@@ -26,6 +27,7 @@ const CgArena = {
         catch (e) { root.innerHTML = '<div class="cg-empty"><i class="fas fa-exclamation-triangle"></i><p>Arena yüklenemedi.</p></div>'; return; }
         const T = window.CG_ARENA_MASA || [];
         if (mode === 'masa' && id) { const t = T.find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._desk(t); return; }
+        if (mode === 'meydan' && id) { const t = (window.CG_ARENA_MO || []).find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._mo(t); return; }
         this._hub(T);
     },
 
@@ -35,6 +37,7 @@ const CgArena = {
         this._root.innerHTML = `<div class="cg-ar"><nav class="cg-ts-crumbs"><a href="#/lab"><i class="fas fa-flask"></i> Laboratuvar</a><i class="fas fa-chevron-right"></i><span>iRule Arenası</span></nav>
             <header class="cg-ar-head"><h1><i class="fas fa-chess-knight"></i> iRule Arenası</h1><p>Kuralın içini gör: istek gelir, olaylar tetiklenir, satırlar çalışır, trafik yönlenir. Üç mod, her biri farklı bir beceri.</p></header>
             <div class="cg-ar-modes">${this.MODES.map(m => `<section class="cg-ar-mode${m.ready ? '' : ' is-soon'}"><div class="cg-ar-mh"><i class="fas ${m.icon}"></i><b>${E(m.title)}</b>${m.ready ? '' : '<span class="cg-ar-soon">Yakında</span>'}</div><p>${E(m.desc)}</p>
+                ${m.id === 'meydan' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_MO || []).map((t, k) => { const st = this._mst(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/meydan/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : t.tests.filter(x => x.hidden).length + ' gizli test'}</span></a>`; }).join('')}</div>` : ''}
                 ${m.id === 'masa' ? `<div class="cg-ar-tasks">${T.map((t, k) => { const st = this._st(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/masa/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}</section>`).join('')}</div></div>`;
     },
 
@@ -205,6 +208,7 @@ const CgArena = {
         if (e.sticky) { if (!o) P.push([e.stickyTo ? 'aynı üye: ' + e.stickyTo : 'ilk istek: üye seçilir', true]); else if (o.kind === 'pool') P.push([(o.persisted ? 'kalıcı: ' : 'yeni seçim: ') + o.member, !e.stickyTo || o.member === e.stickyTo]); }
         if (o && o.kind === 'reset') return P;
         if (e.pool && e.code) P.push([String(o ? o.code : e.code), !o || o.code === e.code]);
+        if (e.allow) { const a = o ? this._hv(o.hdrs, 'Allow') : [e.allow.join(', ')]; P.push(['Allow: ' + (a.length ? a.join(' | ') : 'yok'), !o || this._match(e, o)]); }
         if (e.uri && (!o || o.kind === 'pool')) P.push(['sunucuya ' + (o ? o.uri : e.uri), !o || o.uri === e.uri]);
         const hp = (want, L, pre) => Object.keys(want || {}).forEach(n => { const w = want[n], v = o ? hv(L, n) : (w === null ? [] : [w]); P.push([pre + n + ': ' + (v.length ? v.join(', ') : 'yok'), !o || (w === null ? !v.length : v.length === 1 && v[0] === w)]); });
         if (!o || o.kind === 'pool') hp(e.sent, o && o.sent, '→ ');
@@ -220,6 +224,73 @@ const CgArena = {
         return 'Sıfırlandı (' + o.why + ')';
     },
     _expLabel(e) { return (e.pool ? e.pool + (e.code ? ' · ' + e.code : '') : e.reset ? 'Sıfırlanır' : e.code + (e.loc ? ' → ' + e.loc : '')) + this._extras(e); },
+    // ═══ Meydan Okuma: görünür testlerle çalıştır, gizlilerle gönder ═══
+    _moRun(t, code, all) {
+        this._t = t; const k = this._compile(code); if (k.err) return { err: k.err };
+        const tests = t.tests.filter(x => all || !x.hidden); let cost = 0;
+        const results = tests.map(x => { const q = this._req(t, x.req), res = this._sim(k.c, q, {}, { jar: {} }); cost += res.trace.reduce((a, s2) => a + s2.lines.length, 0); return { test: x, q, res, good: this._match(x.expect, res.out) }; });
+        const rx = (code.match(/\b(regexp|regsub|matches_regex)\b/g) || []).length * 10;
+        return { results, cost: cost + rx, rx, pass: results.filter(r => r.good).length, n: results.length };
+    },
+    _mo(t) {
+        const E = cgEsc, st = this._mst(t.id), vis = t.tests.filter(x => !x.hidden), hid = t.tests.length - vis.length;
+        this._t = t; this._hint = 0;
+        this._root.innerHTML = `<div class="cg-ar cg-mo">
+            <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Meydan Okuma</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
+            <div class="cg-ar-brief"><div><h2><i class="fas fa-flag-checkered"></i> ${E(t.title)}</h2><p>${t.story}</p><p class="cg-mo-meta"><span>${vis.length} görünür test</span><span>${hid} gizli test</span><span>maliyet = çalışan kural satırı + regex cezası</span></p></div>
+                <ol class="cg-ar-goals">${t.reqs.map(g => `<li>${g}</li>`).join('')}</ol></div>
+            <div class="cg-ar-desk">
+                <section class="cg-ar-ed"><div class="cg-ar-edh"><span><i class="fas fa-code"></i> ltm rule <b>${this.RULE}</b></span><span class="cg-ar-edtools"><button type="button" data-a="hint" class="cg-ar-lnk"><i class="fas fa-lightbulb"></i> İpucu</button><button type="button" data-a="reset" class="cg-ar-lnk" title="Başlangıç koduna dön"><i class="fas fa-undo"></i></button></span></div>
+                    <div class="cg-ar-edbox"><div class="cg-ar-gut" aria-hidden="true"></div><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="iRule kodu"></textarea><ol class="cg-ar-view" hidden></ol></div>
+                    <div class="cg-ar-edmsg" role="status"></div><div class="cg-ar-hintbox" hidden></div>
+                    <div class="cg-ar-ctl"><button type="button" class="cg-mo-run" data-a="run"><i class="fas fa-play"></i> Çalıştır <small>(görünür testler)</small></button><button type="button" class="cg-ar-go" data-a="submit"><i class="fas fa-paper-plane"></i> Gönder <small>(tüm testler)</small></button></div></section>
+                <section class="cg-mo-tests" aria-label="Testler"></section>
+            </div>
+            <div class="cg-ar-done" hidden></div></div>`;
+        const $ = s2 => this._root.querySelector(s2); this._$ = $;
+        const ta = $('textarea'); ta.value = st.code != null ? st.code : t.start; this._gutter();
+        ta.addEventListener('input', () => { st.code = ta.value; this._save(); this._gutter(); });
+        ta.addEventListener('scroll', () => { $('.cg-ar-gut').scrollTop = ta.scrollTop; });
+        ta.addEventListener('keydown', e => { if (e.key === 'Tab') { e.preventDefault(); const a = ta.selectionStart; ta.setRangeText('    ', a, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); } if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); this._moGo(e.shiftKey); } });
+        $('[data-a="run"]').addEventListener('click', () => this._moGo(false));
+        $('[data-a="submit"]').addEventListener('click', () => this._moGo(true));
+        $('[data-a="reset"]').addEventListener('click', () => { ta.value = t.start; st.code = null; this._save(); this._gutter(); });
+        $('[data-a="hint"]').addEventListener('click', () => { this._hint = Math.min(this._hint + 1, t.hints.length); st.hints = Math.max(st.hints, this._hint); this._save(); const box = $('.cg-ar-hintbox'); box.hidden = false; box.innerHTML = t.hints.slice(0, this._hint).map((x, k) => `<p><b>İpucu ${k + 1}</b> ${x}</p>`).join(''); });
+        this._moTests(null);
+    },
+    _moTests(R, all) {
+        const t = this._t, vis = t.tests.filter(x => !x.hidden), box = this._$('.cg-mo-tests'), E = cgEsc;
+        const byTest = new Map((R && R.results || []).map(r => [r.test, r]));
+        const row = (x, k) => { const q = this._req(t, x.req), r = byTest.get(x);
+            return `<li class="cg-mo-t${r ? (r.good ? ' is-ok' : ' is-bad') : ''}"><div class="cg-mo-th"><span class="cg-mo-ti">${r ? (r.good ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>') : k + 1}</span><code>${E(q.method)} ${E(q.host + q.uri)}</code><small>${E(q.cl.label)} · ${E(q.ip)}${x.req[4] ? ' · ' + E(Object.keys(x.req[4]).join(', ')) : ''}</small></div>
+                <div class="cg-mo-tb"><span class="cg-mo-l">Beklenen</span>${this._chips(this._parts(x.expect))}</div>
+                ${r ? `<div class="cg-mo-tb"><span class="cg-mo-l">Gerçekleşen</span>${this._chips(this._parts(x.expect, r.res.out))}</div>` : ''}</li>`; };
+        const hidR = R && all ? R.results.filter(r => r.test.hidden) : null;
+        box.innerHTML = `<div class="cg-mo-h"><b><i class="fas fa-vial"></i> Görünür testler</b>${R ? `<span>${R.results.filter(r => !r.test.hidden && r.good).length}/${vis.length}</span>` : ''}</div><ol class="cg-mo-list">${vis.map(row).join('')}</ol>
+            <div class="cg-mo-h"><b><i class="fas fa-eye-slash"></i> Gizli testler</b><span>${hidR ? hidR.filter(r => r.good).length + '/' + hidR.length : t.tests.length - vis.length + ' test · Gönder ile çalışır'}</span></div>
+            ${hidR ? `<ul class="cg-mo-hid">${hidR.map(r => `<li class="${r.good ? 'is-ok' : 'is-bad'}"><i class="fas fa-${r.good ? 'check' : 'times'}"></i> ${r.good ? 'geçti' : 'kaldı: <b>' + E(r.test.tag || 'gizli durum') + '</b>'}</li>`).join('')}</ul>` : '<p class="cg-mo-note">Gizli testlerin girdisi gösterilmez; kalan testin yalnız konusu söylenir.</p>'}`;
+    },
+    _moGo(all) {
+        const t = this._t, st = this._mst(t.id), $ = this._$, code = $('textarea').value, msg = $('.cg-ar-edmsg');
+        const R = this._moRun(t, code, all);
+        if (R.err) { msg.className = 'cg-ar-edmsg is-err'; msg.innerHTML = '<i class="fas fa-times-circle"></i> ' + cgEsc(R.err) + '<small>Kural kaydedilmedi; testler çalışmadı.</small>'; this._moTests(null); return; }
+        msg.className = 'cg-ar-edmsg is-ok'; msg.innerHTML = '<i class="fas fa-check-circle"></i> ' + (all ? 'Gönderildi: ' : 'Çalıştırıldı: ') + R.pass + '/' + R.n + ' test geçti · maliyet ' + R.cost + (R.rx ? ' (regex cezası ' + R.rx + ')' : '');
+        this._moTests(R, all);
+        const d = $('.cg-ar-done');
+        if (!all) { d.hidden = true; return; }
+        st.subs++;
+        if (R.pass === R.n) {
+            const ref = this._moRun(t, t.solution, true).cost, stars = R.cost <= t.cost[2] ? 3 : R.cost <= t.cost[1] ? 2 : 1;
+            st.done = true; st.stars = Math.max(st.stars, stars); st.best = st.best == null ? R.cost : Math.min(st.best, R.cost); this._save();
+            const nx = (window.CG_ARENA_MO || [])[(window.CG_ARENA_MO || []).indexOf(t) + 1];
+            d.hidden = false; d.className = 'cg-ar-done is-ok';
+            d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-trophy"></i> Tüm testler geçti! <span class="cg-ar-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</span></div>
+                <p class="cg-ar-dm">Maliyetin <b>${R.cost}</b> · örnek çözüm ${ref} · ★★★ için ≤ ${t.cost[2]}, ★★ için ≤ ${t.cost[1]} · ${st.subs} gönderim · en iyi ${st.best}</p>
+                <details><summary>Örnek çözümü karşılaştır</summary><pre class="cg-ar-tmsh">${cgEsc(t.solution)}</pre></details>
+                <div class="cg-ar-db">${nx ? `<a class="cg-ar-go" href="#/arena/meydan/${nx.id}"><i class="fas fa-arrow-right"></i> Sonraki meydan okuma</a>` : ''}<a class="cg-ar-ghost" href="#/arena"><i class="fas fa-chess-knight"></i> Arena</a></div>`;
+        } else { this._save(); d.hidden = false; d.className = 'cg-ar-done is-bad'; d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-exclamation-triangle"></i> ${R.n - R.pass} test kaldı.</div><p class="cg-ar-dm">Kalan gizli testlerin konusuna bakın; genellikle bir kenar durumudur (büyük/küçük harf, önek, sorgu dizesi, metot).</p>`; }
+        d.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    },
     _profDef(t) { return Object.assign({ known: ['CONNECT', 'DELETE', 'GET', 'HEAD', 'LOCK', 'OPTIONS', 'POST', 'PROPFIND', 'PUT', 'TRACE', 'UNLOCK'], unknown: 'allow', persist: 'none' }, (t && t.prof) || {}); },
     _runAll(t, c, prof) {
         const rr = {}, jars = {}, src = {}, first = {};
@@ -236,6 +307,7 @@ const CgArena = {
         });
     },
     _match(e, o) {
+        if (e.allow) { const a = this._hv(o.hdrs, 'Allow'); if (o.kind !== 'resp' || o.code !== e.code || a.length !== 1) return false; const got = a[0].split(',').map(x => x.trim()).filter(Boolean).sort().join(); if (got !== e.allow.slice().sort().join()) return false; }
         if (e.deny) return o.kind === 'reset' || (o.kind === 'resp' && [403, 405].includes(o.code));
         const hdrOk = (want, L) => Object.entries(want || {}).every(([n, v]) => { const got = this._hv(L, n); return v === null ? !got.length : got.length === 1 && got[0] === v; });
         if (e.pool) return o.kind === 'pool' && o.pool === e.pool && (!e.code || o.code === e.code) && (!e.uri || o.uri === e.uri) && hdrOk(e.sent, o.sent) && hdrOk(e.hdr, o.hdrs);

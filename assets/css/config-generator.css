@@ -1464,3 +1464,26 @@
 #config-generator-root .cg-ar-met input { margin: 0 4px 0 0; vertical-align: -1px; }
 #config-generator-root .cg-ar-met.is-on { border-color: #16a34a; color: var(--text-primary, #111827); background: rgba(22, 163, 74, .08); }
 #config-generator-root .cg-ar-tmsh { margin: 10px 0 0; background: #0d1117; color: #c9d1d9; padding: 8px 10px; border-radius: 8px; font-size: .74rem; white-space: pre-wrap; }
+/* Arena · Meydan Okuma */
+#config-generator-root .cg-mo-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px !important; }
+#config-generator-root .cg-mo-meta span { font-size: .74rem; padding: 2px 8px; border-radius: 99px; background: var(--bg-tertiary, #f3f4f6); color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-mo-run { display: inline-flex; align-items: center; gap: 8px; background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 8px; padding: 9px 14px; font-weight: 600; cursor: pointer; font-size: .88rem; }
+#config-generator-root .cg-mo-run:hover { background: #273244; }
+#config-generator-root .cg-mo-tests { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; padding: 12px; overflow: auto; max-height: 640px; }
+#config-generator-root .cg-mo-h { display: flex; justify-content: space-between; align-items: center; font-size: .88rem; color: var(--text-primary, #111827); margin: 4px 0 8px; }
+#config-generator-root .cg-mo-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+#config-generator-root .cg-mo-t { border: 1px solid var(--border-color, #e5e7eb); border-radius: 10px; padding: 8px 10px; }
+#config-generator-root .cg-mo-t.is-ok { border-color: rgba(22, 163, 74, .5); }
+#config-generator-root .cg-mo-t.is-bad { border-color: rgba(220, 38, 38, .5); background: rgba(220, 38, 38, .04); }
+#config-generator-root .cg-mo-th { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+#config-generator-root .cg-mo-th code { font-size: .8rem; color: var(--text-primary, #111827); background: none; }
+#config-generator-root .cg-mo-th small { color: var(--text-secondary, #6b7280); font-size: .74rem; }
+#config-generator-root .cg-mo-ti { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--bg-tertiary, #f3f4f6); font-size: .74rem; color: var(--text-secondary, #4b5563); flex: none; }
+#config-generator-root .cg-mo-t.is-ok .cg-mo-ti { background: #16a34a; color: #fff; }
+#config-generator-root .cg-mo-t.is-bad .cg-mo-ti { background: #dc2626; color: #fff; }
+#config-generator-root .cg-mo-tb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 2px; }
+#config-generator-root .cg-mo-l { font-size: .72rem; color: var(--text-secondary, #6b7280); width: 82px; flex: none; }
+#config-generator-root .cg-mo-hid { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: .82rem; }
+#config-generator-root .cg-mo-hid li.is-ok { color: #16a34a; }
+#config-generator-root .cg-mo-hid li.is-bad { color: #dc2626; }
+#config-generator-root .cg-mo-note { font-size: .8rem; color: var(--text-secondary, #6b7280); margin: 0; }
