@@ -460,13 +460,60 @@ const CgLabTmsh = (function () {
             props: typ === 'cookie' ? ['defaults-from', 'method', 'cookie-name', 'expiration'] : ['defaults-from', 'timeout', 'mask'],
         });
         T['ltm persistence cookie'] = persistT('cookie', 'cookie'); T['ltm persistence source-addr'] = persistT('source-addr', 'source_addr');
+        // HTTP profili: yalnız açıkça ayarlanan alanlar saklanır; gerisi defaults-from zincirinden (httpEff) gelir
+        // Varsayılanlar: clouddocs tmsh-reference ltm profile http (v16); metot reddi K85840901
+        const HTTP_DEF = { known: ['CONNECT', 'DELETE', 'GET', 'HEAD', 'LOCK', 'OPTIONS', 'POST', 'PROPFIND', 'PUT', 'TRACE', 'UNLOCK'], unknown: 'allow', maxHdrSize: 32768, maxHdrCount: 64,
+            hsts: { mode: 'disabled', maxAge: 16070400, sub: 'enabled', preload: 'disabled' }, fallbackHost: 'none', serverAgent: 'BigIP', xff: 'disabled', redirectRewrite: 'none' };
+        const httpEff = n => { if (!n || n === 'http' || !M().httpProfiles[n]) return JSON.parse(JSON.stringify(HTTP_DEF)); const o = M().httpProfiles[n], b = httpEff(o.parent), e = o.enf || {}, h = o.hsts || {};
+            return { known: e.known || b.known, unknown: e.unknown || b.unknown, maxHdrSize: e.maxHdrSize || b.maxHdrSize, maxHdrCount: e.maxHdrCount || b.maxHdrCount, hsts: Object.assign(b.hsts, h),
+                fallbackHost: o.fallbackHost || b.fallbackHost, serverAgent: o.serverAgent || b.serverAgent, xff: o.xff || b.xff, redirectRewrite: o.redirectRewrite || b.redirectRewrite }; };
+        // { a b c { … } d add { … } } → [{k, v} | {k, op, items}]
+        const subPairs = items => { const out = []; for (let j = 0; j < items.length; j++) { const it = items[j], nx = items[j + 1];
+            if (it.b) { out.push({ k: it.k, op: 'replace-all-with', items: it.b }); continue; }
+            if (nx && ['add', 'delete', 'replace-all-with'].includes(nx.k) && nx.b) { out.push({ k: it.k, op: nx.k, items: nx.b }); j++; continue; }
+            if (!nx) return { err: it.k }; out.push({ k: it.k, v: nx.k }); j++; } return { P: out }; };
+        const intIn = (v, lo, hi) => /^\d+$/.test(v) && +v >= lo && +v <= hi;
         T['ltm profile http'] = {
             kind: 'profile', named: true, coll: () => M().httpProfiles,
-            fresh: () => ({ parent: 'http', xff: 'disabled', redirectRewrite: 'none' }),
-            set(o, P) { for (const p of P) { if (p.k === 'defaults-from') { if (profType(p.v) !== 'http') return NF('profile', p.v); o.parent = p.v; } else if (p.k === 'insert-xforwarded-for') { if (!['enabled', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.xff = p.v; } else if (p.k === 'redirect-rewrite') { if (!['none', 'all', 'matching', 'nodes'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.redirectRewrite = p.v; } else return SYN(p.k); } return null; },
-            del(name) { const u = Object.entries(M().virtuals).find(([, v]) => v.profiles.includes(name)); if (u) return E('# [Simülatör] Profil /Common/' + u[0] + ' tarafından kullanılıyor.'); return null; },
-            list(n, o) { return ['ltm profile http ' + n + ' {', '    app-service none', '    defaults-from /Common/' + o.parent, '    insert-xforwarded-for ' + o.xff, '    redirect-rewrite ' + o.redirectRewrite, '}']; },
-            props: ['defaults-from', 'insert-xforwarded-for', 'redirect-rewrite'],
+            fresh: () => ({ parent: 'http' }),
+            set(o, P) {
+                for (const p of P) {
+                    if (p.k === 'defaults-from') { if (profType(p.v) !== 'http') return NF('profile', p.v); o.parent = p.v; }
+                    else if (p.k === 'insert-xforwarded-for') { if (!['enabled', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.xff = p.v; }
+                    else if (p.k === 'redirect-rewrite') { if (!['none', 'all', 'matching', 'nodes'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.redirectRewrite = p.v; }
+                    else if (p.k === 'fallback-host') o.fallbackHost = p.v;
+                    else if (p.k === 'server-agent-name') o.serverAgent = p.v;
+                    else if (p.k === 'enforcement' || p.k === 'hsts') {
+                        if (!p.items) return SYNx('"' + p.k + '" requires a { } block');
+                        const r = subPairs(p.items); if (r.err) return E('Syntax Error: "' + r.err + '" requires a value', 'incomplete');
+                        const cur = httpEff(o.parent), e = o.enf || (o.enf = {}), h = o.hsts || (o.hsts = {});
+                        for (const q of r.P) {
+                            if (p.k === 'enforcement') {
+                                if (q.k === 'known-methods') { const base = e.known || cur.known; const lr = q.v === 'none' ? { list: [] } : listOp(base, q.v !== undefined ? { op: 'replace-all-with', items: [{ k: q.v }] } : q, x => (/^[A-Z][A-Z-]*$/.test(x) ? x : null)); if (lr.bad) return SYNx('"' + lr.bad + '" invalid value'); if (lr.missing) return E('# [Simülatör] ' + lr.missing + ' known-methods listesinde yok.'); e.known = lr.list; }
+                                else if (q.k === 'unknown-method') { if (!['allow', 'reject', 'pass-through'].includes(q.v)) return SYNx('"' + q.v + '" invalid value'); e.unknown = q.v; }
+                                else if (q.k === 'max-header-size') { if (!intIn(q.v, 1, 4294967295)) return SYNx('"' + q.v + '" invalid value'); e.maxHdrSize = +q.v; }
+                                else if (q.k === 'max-header-count') { if (!intIn(q.v, 1, 4294967295)) return SYNx('"' + q.v + '" invalid value'); e.maxHdrCount = +q.v; }
+                                else return SYN(q.k);
+                            } else {
+                                if (q.k === 'mode' || q.k === 'include-subdomains' || q.k === 'preload') { if (!['enabled', 'disabled'].includes(q.v)) return SYNx('"' + q.v + '" invalid value'); h[q.k === 'mode' ? 'mode' : q.k === 'preload' ? 'preload' : 'sub'] = q.v; }
+                                else if (q.k === 'maximum-age') { if (!intIn(q.v, 0, 4294967295)) return SYNx('"' + q.v + '" invalid value'); h.maxAge = +q.v; }
+                                else return SYN(q.k);
+                            }
+                        }
+                    }
+                    else return SYN(p.k);
+                }
+                return null;
+            },
+            del(name) { const u = Object.entries(M().virtuals).find(([, v]) => v.profiles.includes(name)); if (u) return E('# [Simülatör] Profil /Common/' + u[0] + ' tarafından kullanılıyor.'); const c = Object.entries(M().httpProfiles).find(([, x]) => x.parent === name); if (c) return E('# [Simülatör] Profil /Common/' + c[0] + ' bu profilden türetilmiş (defaults-from).'); return null; },
+            list(n, o) { const f = httpEff(n), e = o.enf || {}, h = o.hsts || {}, L = ['ltm profile http ' + n + ' {', '    app-service none', '    defaults-from /Common/' + o.parent];
+                if (Object.keys(e).length) { L.push('    enforcement {'); if (e.known) L.push('        known-methods { ' + e.known.join(' ') + ' }'); if (e.maxHdrCount) L.push('        max-header-count ' + e.maxHdrCount); if (e.maxHdrSize) L.push('        max-header-size ' + e.maxHdrSize); if (e.unknown) L.push('        unknown-method ' + e.unknown); L.push('    }'); }
+                if (o.fallbackHost) L.push('    fallback-host ' + o.fallbackHost);
+                if (Object.keys(h).length) { L.push('    hsts {'); L.push('        include-subdomains ' + f.hsts.sub, '        maximum-age ' + f.hsts.maxAge, '        mode ' + f.hsts.mode, '        preload ' + f.hsts.preload); L.push('    }'); }
+                L.push('    insert-xforwarded-for ' + f.xff, '    redirect-rewrite ' + f.redirectRewrite);
+                if (o.serverAgent) L.push('    server-agent-name ' + o.serverAgent);
+                L.push('}'); return L; },
+            props: ['defaults-from', 'enforcement', 'fallback-host', 'hsts', 'insert-xforwarded-for', 'redirect-rewrite', 'server-agent-name'],
         };
         T['ltm virtual'] = {
             kind: 'virtual server', named: true, coll: () => M().virtuals,
@@ -1271,7 +1318,24 @@ const CgLabTmsh = (function () {
             return L.length ? L[0][0] : null;
         }
         const vipOwned = ip => Object.values(M().virtuals).some(v => inNet(ip, vsNet(v)));
+        // istemcinin gönderdiği başlıklar (curl varsayılanları + -b çerezleri + -H); raw: -H ile yinelenenler ayıklanmadan
+        function reqHeaders(o, raw) {
+            const H = [['Host', o.host || o.ip + (o.port === 80 || o.port === 443 ? '' : ':' + o.port)], ['User-Agent', 'curl/7.81.0'], ['Accept', '*/*']].concat(o.cookie && Object.keys(o.cookie).length ? [['Cookie', Object.entries(o.cookie).map(([k, x]) => k + '=' + x).join('; ')]] : [], (o.hdrs || []).map(h => { const m = h.match(/^([^:]+):\s*(.*)$/); return m ? [m[1], m[2]] : null; }).filter(Boolean));
+            if (raw) return H;
+            ['Host', 'User-Agent', 'Accept'].forEach(n => { const hh = H.filter(h => h[0].toLowerCase() === n.toLowerCase()); if (hh.length > 1) H.splice(H.indexOf(hh[0]), 1); });
+            return H;
+        }
+        // HTTP profili yanıt ayarları: HSTS başlığı ve BIG-IP'nin kendi yanıtlarında Server (server-agent-name)
         function vipRequest(o) {
+            const r = vipRequestCore(o);
+            const v = r && r.vs && M().virtuals[r.vs]; if (!v || r.kind !== 'ok' || !r.resp) return r;
+            const hn = v.profiles.find(x => profType(x) === 'http'); if (!hn) return r;
+            const hp = httpEff(hn), H = r.resp.headers = (r.resp.headers || []).slice();
+            if (r.byF5) { const k = H.findIndex(h => /^server:/i.test(h)); if (k >= 0 && H[k] === 'Server: BigIP') { if (hp.serverAgent === 'none' || hp.serverAgent === '') H.splice(k, 1); else H[k] = 'Server: ' + hp.serverAgent; } }
+            if (hp.hsts.mode === 'enabled') { for (let k = H.length - 1; k >= 0; k--) if (/^strict-transport-security:/i.test(H[k])) H.splice(k, 1); H.push('Strict-Transport-Security: max-age=' + hp.hsts.maxAge + (hp.hsts.sub === 'enabled' ? '; includeSubDomains' : '') + (hp.hsts.preload === 'enabled' ? '; preload' : '')); }
+            return r;
+        }
+        function vipRequestCore(o) {
             // o: { ip, port, path, method, src, cookie, https }
             const vn = vsMatch(o.ip, o.port, o.src);
             if (!vn) return vipOwned(o.ip) ? { kind: 'refused', why: 'novs' } : { kind: 'timeout', why: 'noaddr' };
@@ -1287,8 +1351,18 @@ const CgLabTmsh = (function () {
             const tls = o.https ? tlsFor(vn, o.sni) : null;
             if (tls && o.tlsOnly) return { kind: 'tls', vs: vn, tls };
             const hasHttp = v.profiles.some(x => profType(x) === 'http');
+            const hpName = hasHttp ? v.profiles.find(x => profType(x) === 'http') : null, hp = hasHttp ? httpEff(hpName) : null;
+            if (hasHttp) {
+                const method = o.method || 'GET', H0 = reqHeaders(o), size = (method + ' ' + (o.path || '/') + ' HTTP/1.1\r\n').length + H0.reduce((a, h) => a + h[0].length + 2 + h[1].length + 2, 0) + 2;
+                const where = '(Client side: vip=' + vn + ' profile=' + hpName + ' pool=' + (v.pool || 'none') + ')';
+                // K8482: sınır aşımında TCP RST + /var/log/ltm 011f0005
+                if (size > hp.maxHdrSize) { if (!o.test) S.ltmlog.push(lstamp() + ' ' + lh() + ' err tmm1[11925]: 011f0005:3: HTTP header (' + size + ') exceeded maximum allowed size of ' + hp.maxHdrSize + ' ' + where); return { kind: 'reset', why: 'hdrsize', vs: vn, tls }; }
+                if (H0.length > hp.maxHdrCount) { if (!o.test) S.ltmlog.push(lstamp() + ' ' + lh() + ' err tmm1[11925]: [Simülatör] HTTP header count (' + H0.length + ') exceeded maximum allowed count of ' + hp.maxHdrCount + ' ' + where); return { kind: 'reset', why: 'hdrcount', vs: vn, tls }; }
+                // K85840901: known-methods listesinde olmayan metot unknown-method kuralına düşer; reject → bağlantı sıfırlanır
+                if (!hp.known.includes(method) && hp.unknown === 'reject') return { kind: 'reset', why: 'httpmethod', vs: vn, tls };
+            }
             if (X.rules.length && hasHttp) {
-                X.req = { method: o.method || 'GET', uri: o.path || '/', version: '1.1', headers: [['Host', o.host || o.ip + (o.port === 80 || o.port === 443 ? '' : ':' + o.port)], ['User-Agent', 'curl/7.81.0'], ['Accept', '*/*']].concat(o.cookie && Object.keys(o.cookie).length ? [['Cookie', Object.entries(o.cookie).map(([k, x]) => k + '=' + x).join('; ')]] : [], (o.hdrs || []).map(h => { const m = h.match(/^([^:]+):\s*(.*)$/); return m ? [m[1], m[2]] : null; }).filter(Boolean)) };
+                X.req = { method: o.method || 'GET', uri: o.path || '/', version: '1.1', headers: reqHeaders(o, true) };
                 // curl -H ile verilen başlık varsayılanın (Host, User-Agent, Accept) yerine geçer
                 ['Host', 'User-Agent', 'Accept'].forEach(n => { const hh = X.req.headers.filter(h => h[0].toLowerCase() === n.toLowerCase()); if (hh.length > 1) X.req.headers.splice(X.req.headers.indexOf(hh[0]), 1); });
                 const f = fire('HTTP_REQUEST'); if (f) return Object.assign(f, { vs: vn, tls });
@@ -1298,7 +1372,9 @@ const CgLabTmsh = (function () {
             if (!PN) return { kind: 'reset', why: 'nopool', vs: vn };
             const L = eligible(PN);
             const hasPersisted = (S.rt.persist || {})[PN + '|' + o.src];
-            if (!L.length && !hasPersisted) { if (X.rules.length) { X.lb = { pool: PN }; const f = fire('LB_FAILED'); if (f) return Object.assign(f, { vs: vn, tls }); if (X.act.reselect) { X.act.pool = X.act.reselect; X.act.reselect = null; return vipRequestPool(o, X, vn, tls); } } return { kind: 'reset', why: 'nomember', vs: vn }; }
+            if (!L.length && !hasPersisted) { if (X.rules.length) { X.lb = { pool: PN }; const f = fire('LB_FAILED'); if (f) return Object.assign(f, { vs: vn, tls }); if (X.act.reselect) { X.act.pool = X.act.reselect; X.act.reselect = null; return vipRequestPool(o, X, vn, tls); } }
+                if (hasHttp && hp.fallbackHost && hp.fallbackHost !== 'none') return { kind: 'ok', byF5: true, vs: vn, tls, resp: { code: 302, headers: ['Location: ' + hp.fallbackHost, 'Server: BigIP', 'Connection: close'], body: '', noServerHdr: true, version: '1.0' } };
+                return { kind: 'reset', why: 'nomember', vs: vn }; }
             const pl = M().pools[PN], pers = v.persist[0] && persistType(v.persist[0]);
             let key = null, setCookie = null, persisted = false;
             const cname = pers === 'cookie' ? ((M().persists[v.persist[0]] || {}).cookieName || 'BIGipServer' + PN) : null;
@@ -1324,7 +1400,7 @@ const CgLabTmsh = (function () {
             // dönüş yolu: SNAT yoksa sunucu istemciye kendi ağ geçidi üzerinden döner
             if (v.sat.type === 'none') { const back = Object.values(M().selfs).some(s => s.address && s.address.split('/')[0] === srv.gw); if (!back) return { kind: 'timeout', why: 'asym', vs: vn, member: key }; }
             if (v.sat.type === 'snat') { const ok = M().snatpools[v.sat.pool].members.some(ip => Object.values(M().selfs).some(s => s.address && inNet(ip, s.address) && inNet(m.ip, s.address))); if (!ok) return { kind: 'timeout', why: 'snatroute', vs: vn, member: key }; }
-            const resp = srv.ports[sport].tls && !hasSssl ? { code: 400, headers: ['Connection: close'], body: '<p>Your browser sent a request that this server could not understand.<br />\nReason: You\'re speaking plain HTTP to an SSL-enabled server port.<br />\n Instead use the HTTPS scheme to access this URL, please.<br />\n</p>' } : serverResp(srv, sport, X.req ? X.req.uri : o.path, o.method, X.req ? X.req.headers : null);
+            const resp = srv.ports[sport].tls && !hasSssl ? { code: 400, headers: ['Connection: close'], body: '<p>Your browser sent a request that this server could not understand.<br />\nReason: You\'re speaking plain HTTP to an SSL-enabled server port.<br />\n Instead use the HTTPS scheme to access this URL, please.<br />\n</p>' } : serverResp(srv, sport, X.req ? X.req.uri : o.path, o.method, hasHttp && hp.xff === 'enabled' ? (X.req ? X.req.headers : reqHeaders(o)).concat([['X-Forwarded-For', o.src]]) : X.req ? X.req.headers : null);
             if (!resp) return { kind: 'reset', why: 'srvrefused', vs: vn, member: key };
             if (setCookie) resp.headers = resp.headers.concat(['Set-Cookie: ' + setCookie]);
             if (X.rules.length) { const selfIn = Object.values(M().selfs).find(x => x.address && inNet(m.ip, x.address)); X.lb.snat = v.sat.type === 'automap' && selfIn ? selfIn.address.split('/')[0] : null; }
@@ -1593,17 +1669,17 @@ const CgLabTmsh = (function () {
                 const shown = out.length > 6 ? out.slice(0, 3).concat(['# [Simülatör] … ' + (out.length - 5) + ' yönlendirme daha …'], out.slice(-2)) : out;
                 return { out: shown.join('\n') };
             }
-            let url = null, verbose = false, head = false, silent = false, out = null, wfmt = null, method = null, jarR = null, jarW = null, iface = null, insecure = false; const hdr = [], resolve = {};
+            let url = null, verbose = false, head = false, incl = false, silent = false, out = null, wfmt = null, method = null, jarR = null, jarW = null, iface = null, insecure = false; const hdr = [], resolve = {};
             for (let i = 1; i < a.length; i++) {
                 const t = a[i];
-                if (/^-[vkIsSL]+$/.test(t)) { if (t.includes('v')) verbose = true; if (t.includes('I')) head = true; if (t.includes('s')) silent = true; if (t.includes('k')) insecure = true; continue; }
+                if (/^-[vkIsSLi]+$/.test(t)) { if (t.includes('v')) verbose = true; if (t.includes('I')) head = true; if (t.includes('i')) incl = true; if (t.includes('s')) silent = true; if (t.includes('k')) insecure = true; continue; }
                 if (t === '--insecure') { insecure = true; continue; }
                 if (t === '--resolve') { const r = String(a[++i] || '').match(/^([^:]+):(\d+):(\d{1,3}(?:\.\d{1,3}){3})$/); if (!r) return E('curl: option --resolve: error encountered when reading a file\n# [Simülatör] Biçim: --resolve <ad>:<port>:<ip>', 'invalid'); resolve[r[1] + ':' + r[2]] = r[3]; continue; }
                 if (t === '-o') { out = a[++i]; continue; } if (t === '-w') { wfmt = a[++i]; continue; } if (t === '-X') { method = (a[++i] || '').toUpperCase(); continue; }
                 if (t === '-H') { hdr.push(a[++i]); continue; } if (t === '-b') { jarR = a[++i]; continue; } if (t === '-c') { jarW = a[++i]; continue; }
                 if (t === '--interface') { iface = a[++i]; continue; } if (t === '-m' || t === '--max-time' || t === '--connect-timeout') { i++; continue; }
                 if (/^https?:\/\//.test(t)) { url = t; continue; }
-                return E('curl: option ' + t + ': is unknown\n# [Simülatör] Desteklenen: -v -I -k -s -o -w -X -H -b -c --interface -m --resolve', 'invalid');
+                return E('curl: option ' + t + ': is unknown\n# [Simülatör] Desteklenen: -v -i -I -k -s -o -w -X -H -b -c --interface -m --resolve', 'invalid');
             }
             if (!url) return E('curl: no URL specified!', 'incomplete');
             const u = url.match(/^(https?):\/\/([^/:]+)(?::(\d+))?(\/[^\s]*)?$/);
@@ -1657,7 +1733,7 @@ const CgLabTmsh = (function () {
             const r = res.resp, st = 'HTTP/' + (r.version || '1.1') + ' ' + r.code + ' ' + (REASON[r.code] || '');
             if (jarW) { const sc = r.headers.find(h => /^Set-Cookie:/i.test(h)); if (sc) { const m = sc.match(/^Set-Cookie:\s*([^=]+)=([^;]+)/i); JARS[jarW] = Object.assign(JARS[jarW] || {}, { [m[1]]: m[2] }); } }
             if (verbose) { L.push(...reqLines().slice(0, -1)); Object.keys(cookie).length && L.push('> Cookie: ' + Object.entries(cookie).map(([k, v]) => k + '=' + v).join('; ')); L.push('> ', '< ' + st); if (!r.noServerHdr) L.push('< Server: Apache'); r.headers.forEach(h => L.push('< ' + h)); L.push('< Content-Length: ' + r.body.length, '<'); }
-            else if (head) { L.push(st); if (!r.noServerHdr) L.push('Server: Apache'); r.headers.forEach(h => L.push(h)); L.push('Content-Length: ' + r.body.length); }
+            else if (head || incl) { L.push(st); if (!r.noServerHdr) L.push('Server: Apache'); r.headers.forEach(h => L.push(h)); L.push('Content-Length: ' + r.body.length); if (incl && !head) L.push(''); }
             if (!head && out !== '/dev/null' && r.body) L.push(r.body);
             if (verbose) L.push('* Connection #0 to host ' + hostN + ' left intact');
             if (wfmt) L.push(wfmt.replace(/%\{http_code\}/g, String(r.code)).replace(/\\n/g, '\n').replace(/\n$/, ''));
