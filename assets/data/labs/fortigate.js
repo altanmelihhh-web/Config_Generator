@@ -2426,6 +2426,147 @@
         learn: ['Analitik loglara bağlıdır: FortiAnalyzer\'a realtime gönderim + logtraffic all.', 'Basic handler: kurallardan biri; correlation: sıralı dizi (FOLLOWED_BY…).', 'Olay → olay kaydı (elle ya da otomatik).', 'Rapor: şablon (yerleşim) + grafik + dataset; zamanlanabilir.'],
         links: { tool: '#/fortigate/logging', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/147' }, cert: 'FortiAnalyzer (FCP) · kavram'
     },
+    // ═══ Parti 14: sürüm varsayılanı (DH 7.4 ↔ 7.6) ve bayat oturum ═════════
+    // fgt-31 kaynak: FortiOS 7.6.5 Release Notes "Changes in default behavior" (1107163): CLI'da faz 1/faz 2 DH varsayılanı
+    // 14 ve 5'ten 20 ve 21'e; yükseltmede varsayılanlı tüneller 14 20 21 olur. Varyant fos alanı sürümü seçer (motor F76 parti 9).
+    (() => {
+        const P1 = s => s.obj('vpn ipsec phase1-interface', 'TO-B') || {}, P2 = s => s.obj('vpn ipsec phase2-interface', 'TO-B-P2') || {};
+        const has14 = o => Array.isArray(o.dhgrp) && o.dhgrp.includes('14');
+        const lastIdx = (s, re) => s.ev.list().map(e => !!(e.canon && re.test(e.canon))).lastIndexOf(true);
+        return {
+        id: 'fgt-31', vendor: 'fortigate', level: 4, title: 'Aynı IPsec yapılandırması 7.4\'te kalkıyor, 7.6\'da kopuyor: DH varsayılanı', minutes: 30, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-11'],
+        up: ['port1', 'port2'], hosts: ['203.0.113.1'], peer: PEER_B,
+        start: BASE().concat(['config firewall address', 'edit B-NET', 'set subnet 10.128.10.0 255.255.255.0', 'end'], VPN_OK.filter(x => x !== 'set dhgrp 14')),
+        sim: { flows: [{ src: '10.64.10.50', dst: '10.128.10.20', dport: 443, in: 'port2' }] },
+        variants: [{ key: 'v74', fos: '7.4' }, { key: 'v76', fos: '7.6' }],
+        story: '<b>Arıza kaydı:</b> "Şube tünellerini aynı CLI betiğiyle kuruyoruz. Eski cihazda (FortiOS 7.4) tünel kalkıyor; yeni teslim edilen cihazda (FortiOS 7.6.5 ve sonrası) aynı betikle kalkmıyor." Betikte faz 1 ve faz 2 için <code>dhgrp</code> satırı yok. Karşı uç (FGT-B, 198.51.100.2) sabit: IKEv2, <code>aes256-sha256</code>, faz 1 ve PFS için yalnız DH <code>14</code>, PSK <code>Lab-Psk-2026</code>. Karşı ucun ayarına dokunamazsınız. <small>[Simülatör] Her turda cihaz 7.4 ya da 7.6 olabilir: "Yeni tur".</small>',
+        lesson: L('Bir alan yapılandırmada yazılı değilse cihaz o sürümün <b>varsayılanını</b> kullanır. FortiOS 7.6.5 sürüm notuna göre CLI\'da oluşturulan faz 1 ve faz 2 tünellerinin DH varsayılanı 14 ve 5\'ten <b>20 ve 21</b>\'e değişti. <code>dhgrp</code> satırı olmayan bir betik, 7.4\'te karşı uca DH 14 önerir, 7.6.5 ve sonrasında 20 21 önerir. Karşı uç yalnız 14 kabul ediyorsa faz 1 "no SA proposal chosen" ile düşer. Faz 1 düzelince faz 2\'nin PFS grubu da aynı nedenle takılır.',
+            'Sürüm yükseltme ya da cihaz değişiminden sonra "hiçbir şeyi değiştirmedik" denen arızaların önemli bir kısmı varsayılan değişikliğidir. Sürüm notunun "Changes in default behavior" bölümü bu yüzden okunur. Güvenli alışkanlık: iki uçta pazarlığa giren her parametreyi (öneri, DH, IKE sürümü) açıkça yazmak.',
+            'get system status\nget vpn ipsec tunnel summary\ndiagnose vpn ike gateway list name TO-B\ndiagnose debug reset\ndiagnose vpn ike log filter rem-addr4 198.51.100.2\ndiagnose debug application ike -1\ndiagnose debug enable\n# "out SA_INIT request … dh 20 21" / "peer proposal … dh 14" / "no SA proposal chosen"\ndiagnose debug disable\nshow full-configuration vpn ipsec phase1-interface TO-B\nconfig vpn ipsec phase1-interface\n    edit TO-B\n        set dhgrp 14\n    next\nend\nconfig vpn ipsec phase2-interface\n    edit TO-B-P2\n        set dhgrp 14\n    next\nend',
+            ['Yalnız faz 1\'i düzeltip faz 2\'nin PFS grubunu unutmak: faz 1 kalkar, seçiciler 1/0 kalır.', 'Sorunu gidermek için öneri, PSK ya da seçicilere dokunmak: kök neden yalnız DH.', 'Karşı ucun kabul etmediği bir grubu (ör. yalnız 20) yazmak ya da zayıf grupları (1, 2, 5) listeye eklemek.', '<code>show</code> çıktısında satır yok diye değerin "boş" olduğunu sanmak: <code>show full-configuration</code> varsayılanı gösterir.']),
+        goals: ['Sürümü ve tünel katmanını belirlemek', 'IKE debug ile önerilen DH gruplarını görmek', 'Varsayılan değişikliğini kök neden olarak ayırmak', 'En dar düzeltme: faz 1 ve faz 2\'de açık dhgrp', 'Düzeltmeyi kanıtlamak'],
+        tasks: [
+            { t: 'Cihazın FortiOS sürümünü görüntüleyin.',
+              why: 'Aynı yapılandırmanın iki cihazda farklı davranmasının ilk şüphelisi sürümdür: varsayılanlar sürüme göre değişebilir. Destek kaydında da ilk istenen bilgi budur.',
+              hints: ['get fiiliyle sistem durumu.', '<code>get system status</code>'], steps: ['get system status'],
+              check: s => s.ev.ran(/^get system status$/) },
+            { t: 'Tünelin durumunu özetten ve faz 1 (IKE SA) düzeyinden görün.',
+              why: '<code>get vpn ipsec tunnel summary</code> seçici sayısını (1/1 kurulu, 1/0 değil) verir; <code>diagnose vpn ike gateway list</code> ise faz 1\'i ayırır: "IKE SA … established 0/0" faz 1\'in kurulamadığını gösterir.',
+              hints: ['Özet, sonra IKE gateway listesi.', '<code>get vpn ipsec tunnel summary</code> · <code>diagnose vpn ike gateway list name TO-B</code>'],
+              steps: ['get vpn ipsec tunnel summary', 'diagnose vpn ike gateway list name TO-B'],
+              check: s => s.ev.ran(/^diagnose vpn ike gateway list/) },
+            { t: 'Bu cihazda tünel hangi durumda?', ask: { choices: [['up', 'Tünel tamamen kurulu (seçiciler 1/1, IKE SA established 1/1)'], ['p1down', 'Faz 1 kurulamıyor (IKE SA established 0/0, seçiciler 1/0)'], ['p2down', 'Faz 1 kurulu, faz 2 kurulamıyor']], correct: v => v.key === 'v76' ? 'p1down' : 'up' },
+              why: 'Aynı betik: 7.4 cihazında tünel kurulu, 7.6.5 ve sonrası cihazda faz 1 bile kurulamıyor. Fark yapılandırmada değil, yapılandırmada <b>yazılmayan</b> değerlerde.',
+              hints: ['selectors(total,up) değerine bakın.', 'IKE SA satırında established sayısı.'] },
+            { t: 'IKE debug\'ı yalnız 198.51.100.2 için açıp pazarlıkta hangi DH gruplarının önerildiğini görün; sonra debug\'ı kapatın.',
+              why: 'SA_INIT satırı bizim önerdiğimiz grupları gösterir. 7.4\'te "matched proposal … dh 14" ile anlaşma olur. 7.6\'da "dh 20 21" önerilir, karşı uç "dh 14" ister, sonuç "no SA proposal chosen" olur. log filter olmadan tüm tünellerin pazarlığı birbirine karışır.',
+              hints: ['reset → log filter rem-addr4 → application ike -1 → enable → disable', '<code>diagnose vpn ike log filter rem-addr4 198.51.100.2</code> · <code>diagnose debug application ike -1</code>'],
+              steps: ['diagnose debug reset', 'diagnose vpn ike log filter rem-addr4 198.51.100.2', 'diagnose debug application ike -1', 'diagnose debug enable', 'diagnose debug disable'],
+              check: s => { const L = s.ev.list(), i = L.map(e => !!(e.canon && e.canon === 'diagnose debug enable')).lastIndexOf(true); return L.some(e => e.ikedebug) && i >= 0 && L.slice(i + 1).some(e => e.canon && /^diagnose debug (disable|reset)$/.test(e.canon)); } },
+            { t: 'Faz 1 ve faz 2\'nin yapılandırmasını <b>varsayılanlar dahil</b> görüntüleyin: <code>dhgrp</code> hangi değerde?',
+              why: '<code>show</code> yalnız yazılmış satırları, <code>show full-configuration</code> varsayılanları da gösterir. 7.6 cihazında iki bölümde de <code>set dhgrp 20 21</code> görünür, ama bu satırları siz yazmadınız. <small>[Simülatör] 7.4 görünümünde varsayılan dhgrp satırı basılmaz; debug çıktısındaki "dh 14" eşleşmesi 7.4 varsayılanının 14\'ü içerdiğini gösterir.</small>',
+              hints: ['show komutunun tam biçimi, iki bölüm için.', '<code>show full-configuration vpn ipsec phase1-interface TO-B</code> · <code>… phase2-interface TO-B-P2</code>'],
+              steps: ['show full-configuration vpn ipsec phase1-interface TO-B', 'show full-configuration vpn ipsec phase2-interface TO-B-P2'],
+              check: s => s.ev.ran(/^show full-configuration vpn ipsec phase1-interface/) && s.ev.ran(/^show full-configuration vpn ipsec phase2-interface/) },
+            { t: 'Kök neden (ya da risk) hangisi?', ask: { choices: [['def76', 'dhgrp yazılmamış; 7.6.5 ve sonrasında CLI varsayılanı 20 21, karşı uç yalnız 14 kabul ediyor'], ['latent', 'Tünel kurulu, çünkü 7.4 varsayılanı DH 14\'ü içeriyor; ama dhgrp yazılmadığı için aynı betik 7.6.5 ve sonrası cihazda kırılır'], ['proposal', 'Şifreleme önerisi (aes256-sha256) karşı uçla uyuşmuyor'], ['psk', 'Ön paylaşımlı anahtar farklı']], correct: v => v.key === 'v76' ? 'def76' : 'latent' },
+              why: 'Debug\'da öneri (aes256-sha256) iki uçta aynı ve PSK hatası yok; ayrışan tek şey DH grubu. 7.4 cihazında bugün arıza yok, ama yapılandırma sürüm varsayılanına bağımlı: cihaz değişince ya da betik yeni cihaza uygulanınca kırılır.',
+              hints: ['Debug\'da hangi parametre farklı?', 'Sürüm notu: "Changes in default behavior".'] },
+            { t: 'En dar düzeltme: faz 1 ve faz 2\'ye karşı ucun grubunu (DH 14) <b>açıkça</b> yazın. Öneriye, PSK\'ya ve seçicilere dokunmayın. 7.4 cihazında da aynısını yapın.',
+              why: 'Açık <code>dhgrp</code> yapılandırmayı sürüm varsayılanından bağımsız kılar. Faz 2\'yi unutursanız 7.6\'da faz 1 kalkar ama PFS grubu yine 20 21 kalır ve faz 2 "no SA proposal chosen" ile düşer. Güvenlik için uzun vadeli hedef iki uçta birlikte 20/21\'e geçmektir. Bugün karşı ucu değiştiremediğiniz için 14 yazılır.',
+              hints: ['İki bölümde de set dhgrp.', '<code>config vpn ipsec phase1-interface</code> → <code>edit TO-B</code> → <code>set dhgrp 14</code> · aynısı <code>phase2-interface TO-B-P2</code>'],
+              steps: ['config vpn ipsec phase1-interface', 'edit TO-B', 'set dhgrp 14', 'end', 'config vpn ipsec phase2-interface', 'edit TO-B-P2', 'set dhgrp 14', 'end'],
+              check: s => { const a = P1(s), b = P2(s); return has14(a) && has14(b) && s.tun('TO-B').p2up && JSON.stringify(a.proposal) === '["aes256-sha256"]' && a.psksecret === 'Lab-Psk-2026' && JSON.stringify(b.proposal) === '["aes256-sha256"]'; },
+              fb: s => { const a = P1(s), b = P2(s), T = s.tun('TO-B'); if (JSON.stringify(a.proposal) !== '["aes256-sha256"]' || a.psksecret !== 'Lab-Psk-2026' || JSON.stringify(b.proposal) !== '["aes256-sha256"]') return 'Öneri ya da PSK değişti; kök neden yalnız DH. Eski değerlere dönün.'; if (!has14(a)) return 'Faz 1\'de dhgrp açıkça yazılı değil ya da 14\'ü içermiyor.'; if (!T.p1up) return 'Faz 1 hâlâ kurulmuyor.'; if (!has14(b)) return 'Faz 1 kalktı; faz 2 PFS grubu hâlâ varsayılanda. TO-B-P2\'ye de set dhgrp 14.'; return null; } },
+            { t: 'Kanıt: düzeltmeden sonra tünel özetinde seçiciler 1/1 olmalı; <code>show</code> ile dhgrp satırlarının artık yapılandırmada yazılı olduğunu gösterin.',
+              why: 'Düzeltmeden sonra alınan özet (1/1) ve <code>show</code> çıktısındaki <code>set dhgrp 14</code> satırı, tünelin artık sürüm varsayılanına bağlı olmadığının kanıtıdır. Değişiklik kaydına bu iki çıktı eklenir.',
+              hints: ['Özet, sonra show (full değil).', '<code>get vpn ipsec tunnel summary</code> · <code>show vpn ipsec phase1-interface TO-B</code>'],
+              steps: ['get vpn ipsec tunnel summary', 'show vpn ipsec phase1-interface TO-B', 'show vpn ipsec phase2-interface TO-B-P2'], needs: [6],
+              check: s => { const f = lastIdx(s, /^set dhgrp /); return f >= 0 && has14(P1(s)) && has14(P2(s)) && s.tun('TO-B').p2up && lastIdx(s, /^get vpn ipsec tunnel summary$/) > f && lastIdx(s, /^show vpn ipsec phase1-interface/) > f; } },
+            { t: 'Bir 7.4 cihazı, dhgrp satırı olmayan bu tünelle 7.6.5\'e <b>yükseltilirse</b> ne olur?', ask: { choices: [['kept', 'Yükseltme varsayılanlı tünellerin dhgrp değerini 14 20 21 yapar; tünel kalkmaya devam eder. Risk, 7.6.5 ve sonrasında CLI ile sıfırdan yazılan yapılandırmadadır'], ['breaks', 'Tünel hemen düşer, çünkü yükseltme 20 21 yazar'], ['wipe', 'Yükseltme IPsec yapılandırmasını siler']], correct: 'kept' },
+              why: 'FortiOS 7.6.5 sürüm notu: yükseltmeden önce varsayılan DH (14 ve 5) kullanan VPN\'ler yükseltmeden sonra 14, 20 ve 21 gruplarıyla güncellenir. Bu yüzden arıza yükseltilen cihazda değil, yeni kurulan (ya da değiştirilen) cihazda ve aynı betikte ortaya çıkar.',
+              hints: ['Sürüm notu yükseltme için ayrı bir cümle içerir.', '14 listede kalır mı?'] },
+        ],
+        verify: ['get vpn ipsec tunnel summary', 'diagnose vpn ike gateway list name TO-B', 'show full-configuration vpn ipsec phase1-interface TO-B'],
+        learn: ['Yazılmayan alan = sürümün varsayılanı; varsayılanlar sürümle değişebilir.', 'FortiOS 7.6.5+: CLI\'da faz 1/faz 2 DH varsayılanı 20 21 (öncesi 14 ve 5).', 'IKE debug: "out SA_INIT … dh 20 21" / "peer proposal … dh 14" / "no SA proposal chosen".', 'Düzeltme iki bölümde: faz 1 dhgrp ve faz 2 PFS dhgrp.', 'Pazarlığa giren parametreleri betikte açık yazın; yükseltmede varsayılanlı tüneller 14 20 21 olur.'],
+        links: { tool: '#/fortigate/ipsec', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/148' }, cert: 'NSE 4 · M11'
+        };
+    })(),
+    // fgt-32 kaynak: CLI Ref (7.4.8/7.6.6) system settings / firewall policy firewall-session-dirty, system global snat-route-change;
+    // Fortinet KB "Using filters to clear sessions on a FortiGate in the CLI". Motor: sim.sessionSticky (F76 parti 9).
+    (() => {
+        const F = { src: '10.64.10.50', dst: '192.0.2.80', dport: 443, in: 'port2' };
+        const P1 = (x, c) => ['config firewall policy', 'edit 1', 'set name LAN-TO-WAN', 'set srcintf port2', 'set dstintf port1', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service ALL', 'set nat enable'].concat(x || [], ['set comments "' + c + '"', 'end']);
+        const CHG = { pool: ['config firewall ippool', 'edit WAN-POOL', 'set startip 203.0.113.20', 'set endip 203.0.113.20', 'end'],
+            route: ['config router static', 'edit 5', 'set dst 192.0.2.80 255.255.255.255', 'set gateway 198.51.100.1', 'set device port3', 'end'],
+            policy: ['config firewall address', 'edit PARTNER', 'set subnet 192.0.2.80 255.255.255.255', 'end', 'config firewall policy', 'edit 5', 'set name BLOCK-PARTNER', 'set srcintf port2', 'set dstintf port1', 'set srcaddr LAN-NET', 'set dstaddr PARTNER', 'set action deny', 'set schedule always', 'set service ALL', 'next', 'move 5 before 1', 'end'] };
+        const done = (s, k) => k === 'pool' ? (s.obj('firewall ippool', 'WAN-POOL') || {}).startip === '203.0.113.20' && (s.obj('firewall ippool', 'WAN-POOL') || {}).endip === '203.0.113.20'
+            : k === 'route' ? s.rib().some(r => r.net === '192.0.2.80' && r.len === 32 && r.dev === 'port3')
+            : (() => { const o = s.keys('firewall policy'), b = o.find(x => s.obj('firewall policy', x).name === 'BLOCK-PARTNER'); return !!b && s.obj('firewall policy', b).action === 'deny' && o.indexOf(b) < o.indexOf('1'); })();
+        const fresh = (s, k) => { const d = s.decide(F); return k === 'pool' ? d.stage === 'allowed' && d.snat === '203.0.113.20' : k === 'route' ? d.stage === 'allowed' && d.out === 'port3' : d.stage === 'denied'; };
+        const idx = (s, pred) => s.ev.list().map(pred).lastIndexOf(true);
+        const firstClear = s => s.ev.list().findIndex(e => e.cleared);
+        const CHGRE = { pool: /^set (start|end)ip 203\.0\.113\.20$/, route: /^set device port3$/, policy: /^move 5 before 1$|^set action deny$/ };
+        const traceIdx = (s, from) => s.ev.list().findIndex((e, i) => i > from && e.trace && /^10\.64\.10\.50>192\.0\.2\.80/.test(e.flow));
+        return {
+        id: 'fgt-32', vendor: 'fortigate', level: 7, title: 'Bayat oturum: değişiklik yapıldı ama trafik eski kararla sürüyor', minutes: 30, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-16', 'fgt-07'],
+        up: ['port1', 'port2', 'port3'], hosts: ['203.0.113.1', '198.51.100.1'],
+        start: BASE(),
+        sim: { sessionSticky: true, flows: [F] },
+        variants: [
+            { key: 'pool', start: ['config firewall ippool', 'edit WAN-POOL', 'set startip 203.0.113.10', 'set endip 203.0.113.10', 'end'].concat(P1(['set ippool enable', 'set poolname WAN-POOL'], 'CHG-0926: servis sağlayıcı 203.0.113.10 adresini geri alıyor; WAN-POOL havuzunu 203.0.113.20 yapın')) },
+            { key: 'route', start: IF('port3', '198.51.100.2 255.255.255.0', ['set role wan']).concat(P1(null, 'CHG-0926: partner sunucusu 192.0.2.80 ikinci hattan çıksın; /32 rota, ağ geçidi 198.51.100.1, port3'),
+                ['config firewall policy', 'edit 2', 'set name LAN-TO-WAN2', 'set srcintf port2', 'set dstintf port3', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service ALL', 'set nat enable', 'end']) },
+            { key: 'policy', start: ['config system settings', 'set firewall-session-dirty check-new', 'end'].concat(P1(null, 'CHG-0926: partner sunucusu 192.0.2.80 erişimi kesilecek; PARTNER adresi ve kural 5 BLOCK-PARTNER (deny), kural 1\'in üstüne')) },
+        ],
+        story: '<b>Arıza kaydı:</b> "Değişiklik penceresinde talebi uyguladık. Yeni bağlantılar beklendiği gibi, ama 10.64.10.50\'nin partner sunucusuna (192.0.2.80:443) açık bağlantısı hâlâ eski davranışla sürüyor." Ekip değişiklik talebini ilgili kuralın açıklamasına (comments) yazar: talebi okuyun, uygulayın, eski davranışın neden sürdüğünü kanıtlayın ve yalnız bu oturumu temizleyin. <small>[Simülatör] Her turda farklı bir değişiklik (IP havuzu, rota ya da kural): "Yeni tur". Oturum zaman aşımı benzetilmez.</small>',
+        lesson: L('FortiGate paket başına değil <b>oturum</b> başına karar verir. İlk paket kural, rota ve NAT aramasından geçer; karar oturum tablosuna yazılır ve sonraki paketler "Find an existing session" ile bu kararı kullanır. Bu yüzden değişiklik kurulu oturumu her zaman etkilemez:<br>• <b>NAT nesnesi</b> (IP havuzu, VIP) değişince oturum eski çeviriyle sürer.<br>• <b>Kural</b> değişince davranışı <code>config system settings</code> → <code>firewall-session-dirty</code> belirler: <code>check-all</code> (varsayılan) oturumları yeniden değerlendirir, <code>check-new</code> yalnız yeni oturumlara uygular, <code>check-policy-option</code> kararı kuralın kendi ayarına bırakır.<br>• <b>Rota</b> değişince SNAT\'sız oturum yeni rotayı izler. SNAT\'lı oturum ise <code>config system global</code> → <code>snat-route-change disable</code> (varsayılan) iken eski çıkışta kalır.<br>Çözüm: <code>diagnose sys session filter</code> ile yalnız ilgili oturumu seçip <code>diagnose sys session clear</code> ile silmek. Sonraki paket yeni oturumu güncel yapılandırmayla kurar.',
+            '"Değişikliği yaptım ama çalışmıyor" çağrılarının bir kısmı bayat oturumdur. Sık yapılan hata, cihazı yeniden başlatmak ya da filtresiz clear ile tüm kullanıcıları koparmaktır. Filtreli clear yalnız hedef oturumu etkiler. debug flow\'daki "Find an existing session" satırı ise sorunun oturumda olduğunu kanıtlar.',
+            'get system session list\ndiagnose sys session filter clear\ndiagnose sys session filter src 10.64.10.50\ndiagnose sys session filter dst 192.0.2.80\ndiagnose sys session filter dport 443\ndiagnose sys session list\ndiagnose sys session clear\n# Kalıcı davranış (dikkatle, cihaz genelinde):\nconfig system settings\n    set firewall-session-dirty check-all\nend\nconfig system global\n    set snat-route-change enable\nend',
+            ['Filtresiz <code>diagnose sys session clear</code>: cihazdaki tüm oturumları siler, herkes kopar.', 'Önceki işten kalan filtreyi temizlemeden (<code>filter clear</code>) yeni filtre eklemek: yanlış oturumlar seçilir.', 'Sorunu yapılandırmada aramak: yapılandırma doğru, eski olan oturum.', 'Performans için <code>check-new</code> seçip bir deny kuralının açık oturumları kesmeyeceğini unutmak.']),
+        goals: ['Değişiklik talebini okuyup uygulamak', 'Oturumun eski kararı taşıdığını oturum tablosu ve debug flow ile kanıtlamak', 'Nedeni ayırmak: NAT nesnesi, snat-route-change, firewall-session-dirty', 'Yalnız ilgili oturumu filtreyle temizlemek', 'Yeni kararı kanıtlamak'],
+        tasks: [
+            { t: 'Bu turun değişiklik talebini okuyun: LAN-TO-WAN (kural 1) açıklamasında.',
+              why: 'Talep kural açıklamasında (<code>comments</code>) duruyor. Değişiklikten önce neyin değişeceğini ve hangi trafiği etkileyeceğini bilmek, sonrasında "eski davranış"ı tanımanın ön koşuludur.',
+              hints: ['Kural 1\'i gösterin.', '<code>show firewall policy 1</code>'], steps: ['show firewall policy 1'],
+              check: s => s.ev.ran(/^show firewall policy( 1)?$/) },
+            { t: 'Değişiklikten önce oturum tablosunda 10.64.10.50 → 192.0.2.80:443 oturumunu bulun: kaynak NAT adresi ne?',
+              why: '<code>get system session list</code> kısa tablo verir: SOURCE-NAT sütunu oturumun hangi çeviriyle kurulduğunu gösterir. Değişiklikten sonra aynı satırı karşılaştıracaksınız.',
+              hints: ['get ile oturum listesi.', '<code>get system session list</code>'], steps: ['get system session list'],
+              check: s => s.ev.ran(/^get system session list$/) },
+            { t: 'Talebi uygulayın (kural 1 açıklamasındaki CHG-0926).',
+              why: 'Değişiklik yalnız <b>yeni</b> oturumlar için kesin olarak geçerlidir. Kurulu oturumun ne yapacağı değişikliğin türüne ve cihaz ayarlarına bağlıdır.',
+              hints: ['Talep metnindeki nesneyi değiştirin ya da ekleyin.', 'IP havuzu: <code>config firewall ippool</code> · rota: <code>config router static</code> · kural: <code>config firewall policy</code> + <code>move</code>'],
+              steps: v => CHG[v.key],
+              check: s => done(s, s.variant().key),
+              fb: s => { const k = s.variant().key; return k === 'route' && s.keys('router static').some(x => s.obj('router static', x).device === 'port3') && !done(s, k) ? 'Rota var ama tabloda /32 olarak port3 üzerinden görünmüyor: dst 192.0.2.80 255.255.255.255, gateway 198.51.100.1.' : k === 'policy' && s.keys('firewall policy').some(x => s.obj('firewall policy', x).name === 'BLOCK-PARTNER') && !done(s, k) ? 'BLOCK-PARTNER var ama deny değil ya da kural 1\'in altında: move 5 before 1.' : null; } },
+            { t: 'Belirti: 10.64.10.50\'nin trafiğini debug flow ile izleyin. Paket yeni kararla mı işleniyor?',
+              why: '"Find an existing session … original direction" satırı paketin kural ve rota aramasına hiç girmediğini gösterir: oturumdaki karar (eski SNAT, eski çıkış, eski kural) uygulanır. Yeni oturumda ise "allocate a new session" ve "find a route" satırları görünür.',
+              hints: ['reset → filter addr → trace start → enable → disable', '<code>diagnose debug flow filter addr 10.64.10.50</code> · <code>diagnose debug flow trace start 5</code>'],
+              steps: ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable'], needs: [2],
+              check: s => { const k = s.variant().key, c = idx(s, e => !!(e.canon && CHGRE[k].test(e.canon))), t = traceIdx(s, c), cl = firstClear(s); return c >= 0 && t > c && (cl < 0 || t < cl); } },
+            { t: 'Eski davranış neden sürüyor?', ask: { choices: [['nat', 'IP havuzu (NAT nesnesi) değişikliği kurulu oturumun çevirisini değiştirmez; oturum eski SNAT ile sürer'], ['snatroute', 'SNAT\'lı oturum rota değişse de eski çıkışta kalır (snat-route-change disable, varsayılan)'], ['dirty', 'firewall-session-dirty check-new: kural değişikliği kurulu oturumları yeniden değerlendirmez'], ['save', 'Değişiklik kaydedilmedi (end denmedi)']], correct: v => ({ pool: 'nat', route: 'snatroute', policy: 'dirty' })[v.key] },
+              why: 'Talebin türü ve cihaz ayarı birlikte okunur. Kural değişikliği varsayılan (check-all) ayarda oturumu yeniden değerlendirirdi; bu cihazda <code>show full-configuration system settings</code> ya da <code>get system settings</code> değeri gösterir. Rota değişikliğinde SNAT\'sız oturum yeni rotayı izlerdi; bu oturum SNAT\'lı.',
+              hints: ['Değişiklik NAT nesnesi mi, rota mı, kural mı?', 'debug flow\'daki [Simülatör] satırı eski ve güncel kararı yan yana yazar.'] },
+            { t: 'Yalnız bu oturumu temizleyin: önce eski filtreyi sıfırlayın, sonra kaynak, hedef ve port ile filtreleyip silin.',
+              why: 'Filtresiz <code>diagnose sys session clear</code> cihazdaki tüm oturumları siler. Filtre (<code>src</code>, <code>dst</code>, <code>dport</code>) yalnız hedef oturumu seçer, <code>filter clear</code> önceki işten kalan filtreyi sıfırlar. Rota talebinde <code>snat-route-change enable</code> da sonuç verir, ama cihaz genelinde davranışı değiştirir; tek oturum için filtreli clear yeter.',
+              hints: ['filter clear → filter src/dst/dport → clear', '<code>diagnose sys session filter src 10.64.10.50</code> · <code>diagnose sys session clear</code>'],
+              steps: ['diagnose sys session filter clear', 'diagnose sys session filter src 10.64.10.50', 'diagnose sys session filter dst 192.0.2.80', 'diagnose sys session filter dport 443', 'diagnose sys session clear'], needs: [2],
+              check: s => firstClear(s) >= 0 && fresh(s, s.variant().key),
+              fb: s => s.ev.list().some(e => e.warn === 'sclear-all') && firstClear(s) < 0 ? 'Filtresiz clear engellendi: önce diagnose sys session filter src 10.64.10.50.' : firstClear(s) >= 0 && !fresh(s, s.variant().key) ? 'Clear çalıştı ama oturum hâlâ eski kararla: filtre bu oturumu seçmiyor olabilir (diagnose sys session filter ile bakın).' : null },
+            { t: 'Kanıt: temizlikten sonra aynı izi yeniden alın; paket artık yeni kararla işlenmeli.',
+              why: 'Temizlikten sonraki iz yeni kararı gösterir: IP havuzunda yeni SNAT (203.0.113.20), rotada port3 çıkışı, kuralda "Denied by forward policy check (policy 5)". Değişiklik kaydına bu iz eklenir.',
+              hints: ['Aynı debug flow adımları, clear\'dan sonra.', '<code>diagnose debug flow trace start 5</code> → <code>diagnose debug enable</code>'],
+              steps: ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable'], needs: [2, 5],
+              check: s => { const cl = firstClear(s); return cl >= 0 && traceIdx(s, cl) > cl && fresh(s, s.variant().key); } },
+            { t: 'Hangi ayar neyi yönetir?', ask: { choices: [['map', 'firewall-session-dirty kural değişikliğinde kurulu oturumları; snat-route-change rota değişikliğinde SNAT\'lı oturumları. IP havuzu/VIP değişikliği için oturum temizlenir'], ['both', 'İkisi de yalnız NAT nesnesi değişikliklerini yönetir'], ['timeout', 'İkisi de oturum zaman aşımını kısaltır']], correct: 'map' },
+              why: 'CLI Ref: <code>system settings firewall-session-dirty</code> (check-all varsayılan, check-new, check-policy-option) ve <code>system global snat-route-change</code> (disable varsayılan). NAT nesnesi değişikliği için ayrı bir ayar yoktur; Fortinet KB, VIP kaldırıldıktan sonra trafiğin sürmesi için oturumu temizlemeyi önerir.',
+              hints: ['Biri kural, biri rota.', 'NAT nesnesi için ayar yok.'] },
+        ],
+        verify: ['get system session list', 'diagnose sys session list', 'show full-configuration system settings'],
+        learn: ['Karar oturum başınadır; sonraki paketler "Find an existing session" ile eski kararı kullanır.', 'NAT nesnesi değişikliği kurulu oturumu değiştirmez.', 'Kural değişikliği: firewall-session-dirty (check-all varsayılan / check-new / check-policy-option).', 'Rota değişikliği: SNAT\'lı oturum snat-route-change disable (varsayılan) iken eski çıkışta kalır.', 'Temizlik: filter clear → filter src/dst/dport → clear; filtresiz clear herkesi koparır.'],
+        links: { tool: '#/fortigate/policy', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/149' }, cert: 'NSE 4 · M15'
+        };
+    })(),
     ];
     // Çoktan seçmeli (ask) görevler: cevap s.answers['<lab>:<görev>'] içinde
     LABS.forEach(l => l.tasks.forEach((t, i) => {

@@ -64,13 +64,13 @@
         [13, 'Seviye 3 · Güvenlik duvarı politikaları: denetim ve log', 'Kural eşleşmesini sınamak (iprope lookup), örtük deny, engellenen trafiği loglamak.'],
         [14, 'Seviye 3 · Güvenlik profilleri ve SSL denetimi', 'Web ve DNS filtre, uygulama kontrolü, IPS, antivirüs; certificate ve deep inspection.'],
         [15, 'Seviye 3 · Loglama ve izleme', 'Trafik logu, syslog/SIEM, log okuma ve SNMP.'],
-        [16, 'Seviye 4 · Site-to-site IPsec', 'Route-based tünel kurulumu, faz 1 ve faz 2.'],
+        [16, 'Seviye 4 · Site-to-site IPsec', 'Route-based tünel kurulumu, faz 1 ve faz 2; sürüm varsayılanı (DH 7.4 ↔ 7.6).'],
         [17, 'Seviye 4 · SSL-VPN ve uzaktan erişim', 'Uzaktan erişim kurulumu, portal, havuz ve kural.'],
         [18, 'Seviye 4 · İleri yönlendirme, SD-WAN ve policy route', 'ECMP, öncelik, kara delik ve rota veritabanı; SD-WAN, PBR, OSPF ve BGP.'],
         [19, 'Seviye 5 · Yüksek erişilebilirlik (FGCP)', 'Aktif-pasif küme, kontrollü failover, split-brain.'],
         [20, 'Seviye 5 · FortiLink, FortiAP ve VDOM', 'Güvenlik yapısına bağlı switch ve AP; sanal alanlar.'],
         [21, 'Seviye 6 · FortiManager ve FortiAnalyzer', 'Merkezi yönetim bağlantısı (FGFM), revizyonlar, FortiAnalyzer\'a log ve güvenlik analitiği.'],
-        [22, 'Seviye 7 · debug flow, sniffer ve oturumlar', 'Paketin neden düştüğünü ve nerede kaybolduğunu kanıtla bulmak.'],
+        [22, 'Seviye 7 · debug flow, sniffer ve oturumlar', 'Paketin neden düştüğünü ve nerede kaybolduğunu kanıtla bulmak; değişiklik sonrası bayat oturum.'],
         [23, 'Seviye 7 · Performans ve sistem kayıtları', 'CPU/bellek, süreçler, crashlog ve config-error-log.'],
         [24, 'Seviye 7 · VPN tanılama', 'IPsec faz 1/faz 2 ve SSL-VPN bağlantı sorunları.'],
         [25, 'Seviye 7 · HA tanılama', 'Küme neden sağlıksız: checksum, heartbeat, öncelik.'],
@@ -100,8 +100,8 @@
     // SSL-VPN tünel lab'ları (fgt-12, fgt-24) 7.6'da yok, yerlerine 7.6'ya özgü planlı lab'lar (f76-30 dial-up, f76-47 ZTNA, f76-54 dial-up tanılama).
     const FGT_IDS = { 1: ['fgt-00'], 2: ['fgt-62', 'fgt-40'], 3: ['fgt-41', 'fgt-63'], 4: ['fgt-20', 'fgt-26'], 5: ['fgt-64', 'fgt-01', 'fgt-17', 'fgt-09', 'fgt-61'], 6: ['fgt-02'], 7: ['fgt-03'], 8: ['fgt-04', 'fgt-05'], 9: ['fgt-13'],
               10: ['fgt-06'], 11: ['fgt-07', 'fgt-08', 'fgt-42'], 12: ['fgt-18'], 13: ['fgt-58'], 14: ['fgt-10', 'fgt-43', 'fgt-44', 'fgt-45', 'fgt-67'], 15: ['fgt-14', 'fgt-46'],
-              16: ['fgt-11'], 17: ['fgt-12', 'fgt-47'], 18: ['fgt-65', 'fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-60', 'fgt-52', 'fgt-53', 'fgt-66'], 21: ['fgt-59', 'fgt-56', 'fgt-57', 'fgt-68'],
-              22: ['fgt-15', 'fgt-16'], 23: ['fgt-21', 'fgt-22'], 24: ['fgt-23', 'fgt-24'], 25: ['fgt-27'], 26: ['fgt-55'] };
+              16: ['fgt-11', 'fgt-31'], 17: ['fgt-12', 'fgt-47'], 18: ['fgt-65', 'fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-60', 'fgt-52', 'fgt-53', 'fgt-66'], 21: ['fgt-59', 'fgt-56', 'fgt-57', 'fgt-68'],
+              22: ['fgt-15', 'fgt-16', 'fgt-32'], 23: ['fgt-21', 'fgt-22'], 24: ['fgt-23', 'fgt-24'], 25: ['fgt-27'], 26: ['fgt-55'] };
     const FGT_76 = {};
     Object.keys(FGT_IDS).forEach(n => { FGT_76[n] = FGT_IDS[n].filter(id => id !== 'fgt-12' && id !== 'fgt-24').map(id => id.replace(/^fgt-/, 'f76-')); });
     FGT_76[17] = ['f76-30', 'f76-47']; FGT_76[24] = FGT_76[24].concat(['f76-54']);

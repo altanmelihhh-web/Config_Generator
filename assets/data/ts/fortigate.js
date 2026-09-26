@@ -800,5 +800,41 @@
                 { q: 'Rapor boş. En olası neden?', choices: [['logs', 'Seçilen zaman aralığında ilgili loglar yok (logtraffic, gönderim)'], ['tpl', 'Şablon veri içermiyor'], ['pdf', 'PDF biçimi']], correct: 'logs', why: 'Şablon zaten veri içermez; grafikler dataset\'lerle loglardan beslenir.' },
             ],
         },
+        {
+            title: 'Aynı IPsec Betiği 7.4\'te Kalkıyor, 7.6.5+ Cihazda Kalkmıyor: DH Varsayılanı', severity: 'err', topic: 'vpn', lab: 'fgt-31',
+            symptom: 'Tünel betiğinde dhgrp satırı yok. Eski (7.4) cihazda tünel kurulu; yeni kurulan 7.6.5 ve sonrası cihazda aynı betikle faz 1 kurulmuyor. Karşı uç yalnız DH 14 kabul ediyor.',
+            steps: [
+                { code: 'get system status', desc: 'Önce sürüm. FortiOS 7.6.5 sürüm notu (Changes in default behavior): CLI\'da oluşturulan faz 1/faz 2 için DH varsayılanı 14 ve 5\'ten 20 ve 21\'e değişti.' },
+                { code: 'get vpn ipsec tunnel summary', desc: 'selectors(total,up) 1/0 ise tünel kurulu değil. diagnose vpn ike gateway list name <tünel> faz 1\'i ayırır: "IKE SA … established 0/0" faz 1 kurulamıyor demektir.' },
+                { expect: 'bad', code: 'diagnose debug application ike -1', desc: 'Önce diagnose vpn ike log filter rem-addr4 <karşı uç> ile yalnız bu tüneli seçin, sonra diagnose debug enable. SA_INIT satırında önerdiğiniz DH gruplarına, "peer proposal" satırında karşı ucun istediğine bakın.',
+                  sample: 'ike 0:TO-B:12: out SA_INIT request, proposals: aes256-sha256 dh 20 21\nike 0:TO-B:12: peer proposal: aes256-sha256 dh 14\nike 0:TO-B:12: no SA proposal chosen',
+                  fix: [{ cause: 'Varsayılan DH (20 21) karşı ucun grubunu içermiyor: faz 1\'e karşı ucun grubunu açıkça yazın', cmd: 'config vpn ipsec phase1-interface\nedit TO-B\nset dhgrp 14\nend' }] },
+                { code: 'show full-configuration vpn ipsec phase2-interface TO-B-P2', desc: 'Faz 1 kalkınca faz 2 aynı nedenle takılır: PFS açıkken faz 2 dhgrp varsayılanı da 7.6.5 ve sonrasında 20 21. Satırı siz yazmadıysanız bile full-configuration çıktısında görünür.',
+                  fix: [{ cause: 'Faz 2 PFS grubu karşı uçla uyuşmuyor', cmd: 'config vpn ipsec phase2-interface\nedit TO-B-P2\nset dhgrp 14\nend' }] },
+                { code: 'get vpn ipsec tunnel summary', desc: 'Kanıt: seçiciler 1/1. Betiğe dhgrp satırlarını ekleyin ki sonraki cihazlar da sürüm varsayılanına bağlı kalmasın. Uzun vadede iki uçta birlikte DH 20/21\'e geçmek hedeflenir.' },
+            ],
+            quiz: [
+                { q: 'dhgrp yazılmamış bir tünel 7.4\'ten 7.6.5\'e yükseltilirse?', choices: [['kept', 'Yükseltme dhgrp değerini 14 20 21 yapar; tünel kalkmaya devam eder'], ['down', 'Tünel hemen düşer'], ['wipe', 'IPsec yapılandırması silinir']], correct: 'kept', why: 'FortiOS 7.6.5 sürüm notu: yükseltmeden önce varsayılan DH kullanan VPN\'ler 14, 20 ve 21 gruplarıyla güncellenir. Risk, 7.6.5 ve sonrasında CLI ile sıfırdan yazılan yapılandırmadadır.' },
+                { q: 'Faz 1 düzeldi, seçiciler hâlâ 1/0. En olası neden?', choices: [['p2dh', 'Faz 2 PFS DH grubu hâlâ varsayılanda'], ['psk', 'PSK'], ['route', 'Rota eksik']], correct: 'p2dh', why: 'Varsayılan değişikliği faz 1 ve faz 2\'yi birlikte etkiler; faz 2 dhgrp de açıkça yazılmalıdır.' },
+            ],
+        },
+        {
+            title: 'Değişiklik Yapıldı ama Açık Bağlantı Eski Kararla Sürüyor (Bayat Oturum)', severity: 'warn', topic: 'traffic', lab: 'fgt-32',
+            symptom: 'IP havuzu, rota ya da kural değiştirildi. Yeni bağlantılar yeni davranışla çalışıyor, ama değişiklikten önce açılmış bir bağlantı eski SNAT, eski çıkış ya da eski kuralla sürüyor.',
+            steps: [
+                { code: 'get system session list', desc: 'Oturum tablosunda ilgili satırın SOURCE-NAT sütunu oturumun hangi çeviriyle kurulduğunu gösterir. Ayrıntı için: diagnose sys session filter src <istemci> ve diagnose sys session list (dev=giriş->çıkış, act=snat, policy_id).' },
+                { expect: 'bad', code: 'diagnose debug flow trace start 5', desc: 'Önce diagnose debug reset ve diagnose debug flow filter addr <istemci>, sonra diagnose debug enable. "Find an existing session" satırı paketin kural ve rota aramasına girmediğini, oturumdaki kararın uygulandığını gösterir.',
+                  sample: 'id=65308 trace_id=1 msg="Find an existing session, id-0001001, original direction"\nid=65308 trace_id=1 msg="SNAT 10.64.10.50->203.0.113.10:64074"\n\n# IP havuzu 203.0.113.20 yapıldı, oturum hâlâ eski SNAT ile',
+                  fix: [{ cause: 'Yalnız ilgili oturumu seçip silin (filtresiz clear tüm oturumları siler)', cmd: 'diagnose sys session filter clear\ndiagnose sys session filter src 10.64.10.50\ndiagnose sys session filter dst 192.0.2.80\ndiagnose sys session filter dport 443\ndiagnose sys session clear' }] },
+                { code: 'get system settings', desc: 'Kural değişikliği oturumu etkilemiyorsa firewall-session-dirty değerine bakın: check-all (varsayılan) kural değişince oturumları yeniden değerlendirir, check-new yalnız yeni oturumlara uygular, check-policy-option kuralın kendi ayarını kullanır.',
+                  fix: [{ cause: 'Kural değişikliklerinin açık oturumlara da uygulanması isteniyor', cmd: 'config system settings\nset firewall-session-dirty check-all\nend' }] },
+                { code: 'show full-configuration system global', desc: 'Rota değişince SNAT\'sız oturum yeni rotayı izler. SNAT\'lı oturum snat-route-change disable (varsayılan) iken eski çıkışta kalır; enable cihaz genelinde davranışı değiştirir.',
+                  fix: [{ cause: 'SNAT\'lı oturumların rota değişikliğinde yeni çıkışa geçmesi isteniyor (cihaz geneli)', cmd: 'config system global\nset snat-route-change enable\nend' }] },
+            ],
+            quiz: [
+                { q: 'IP havuzu (ippool) değiştirildi. Açık oturum?', choices: [['old', 'Eski çeviriyle sürer; oturum temizlenmeli'], ['new', 'Anında yeni adrese geçer'], ['drop', 'Kendiliğinden düşer']], correct: 'old', why: 'NAT nesnesi değişikliği kurulu oturumun çevirisini değiştirmez; Fortinet KB oturumu temizlemeyi önerir.' },
+                { q: 'Neden filtresiz diagnose sys session clear kullanılmaz?', choices: [['all', 'Cihazdaki tüm oturumları siler; herkes kopar'], ['noop', 'Hiçbir şey silmez'], ['cfg', 'Yapılandırmayı siler']], correct: 'all', why: 'Filtre (src, dst, dport) yalnız hedef oturumu seçer; önce filter clear ile eski filtre sıfırlanır.' },
+            ],
+        },
     ];
 })();
