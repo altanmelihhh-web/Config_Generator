@@ -220,7 +220,7 @@
                 { expect: 'bad', code: 'diagnose sniffer packet any \'host 198.51.100.25 and port 8080\' 4 20', desc: 'Seviye 4 arayüzü ve yönü gösterir, 20 adet sınırıdır. Sağlıklı bağlantı: istemcinin "syn"i, WAN\'dan çıkan (NAT\'lı) "syn", dönen "syn ack". Aşağıdaki örnekte SYN sunucuya ulaşıyor ve "rst ack" dönüyor: sunucu portu reddediyor.',
                   sample: 'interfaces=[any]\nfilters=[host 198.51.100.25 and port 8080]\n0.800000 port2 in 10.64.10.20.50222 -> 198.51.100.25.8080: syn\n0.821300 port1 out 203.0.113.2.64266 -> 198.51.100.25.8080: syn\n0.842600 port1 in 198.51.100.25.8080 -> 203.0.113.2.64266: rst ack\n0.863900 port2 out 198.51.100.25.8080 -> 10.64.10.20.50222: rst ack\n\n# "rst ack" = paket sunucuya ulaştı, sunucu reddetti',
                   fix: [{ cause: 'Dönüşte "rst ack": o portta dinleyen servis yok ya da sunucunun kendi güvenlik duvarı reddediyor. Portu FortiGate\'ten de sınayıp sonucu ("refused") sunucu ekibine iletin', cmd: 'execute telnet 198.51.100.25 8080' },
-                        { cause: 'Yalnız "port2 in" var, "port1 out" yok: FortiGate düşürüyor. Nedeni debug flow ya da kural araması gösterir', cmd: 'diagnose firewall iprope lookup 10.64.10.20 50000 198.51.100.25 8080 tcp port2' },
+                        { cause: 'Yalnız "port2 in" var, "port1 out" yok: FortiGate düşürüyor. Nedeni debug flow ya da kural araması gösterir', cmd: 'diagnose firewall iprope lookup 10.64.10.20 50000 198.51.100.25 8080 tcp port2 policy' },
                         { cause: '"out" var, dönüş hiç yok: sorun FortiGate\'ten sonra (ISS, karşı güvenlik duvarı, sunucunun dönüş rotası). Yolu ölçüp kanıtla yönlendirin', cmd: 'execute traceroute 198.51.100.25' }] },
                 { code: 'diagnose sniffer packet any \'host 198.51.100.25 and port 443\' 4 20', desc: 'Karşılaştırma için çalışan portu yakalayın: "syn" → "syn ack" dönüyorsa ağ yolu ve NAT sağlamdır; sorun yalnız 8080\'e özgüdür.' },
                 { code: 'diagnose sniffer packet port1 \'host 198.51.100.25\' 4 20', desc: 'WAN arayüzünde kaynak adres FortiGate\'in WAN adresi (203.0.113.2) olmalı. İstemcinin özel adresi (10.64.x.x) görünüyorsa kuralda NAT kapalıdır ve dönüş hiç gelmez.',
@@ -236,14 +236,14 @@
             title: 'Trafik Engelleniyor Ama Logda İz Yok: iprope lookup ve Örtük Deny', severity: 'warn', topic: 'traffic', lab: 'fgt-58',
             symptom: 'Kullanıcı bir servise erişemiyor; trafik logunda ilgili bağlantı hiç görünmüyor. Hangi kuralın (ya da hiçbirinin) eşleştiği bilinmiyor.',
             steps: [
-                { expect: 'bad', code: 'diagnose firewall iprope lookup 10.64.10.20 50000 198.51.100.80 23 tcp port2', desc: 'Sırasıyla kaynak, kaynak port, hedef, hedef port, protokol ve giriş arayüzü. Trafik beklemeden kural tablosunu sorgular. "policy id: 0" = hiçbir kural eşleşmedi, örtük deny düşürüyor; örtük deny varsayılan olarak loglamaz, logun boş olmasının nedeni budur.',
+                { expect: 'bad', code: 'diagnose firewall iprope lookup 10.64.10.20 50000 198.51.100.80 23 tcp port2 policy', desc: 'Sırasıyla kaynak, kaynak port, hedef, hedef port, protokol ve giriş arayüzü. Trafik beklemeden kural tablosunu sorgular. "policy id: 0" = hiçbir kural eşleşmedi, örtük deny düşürüyor; örtük deny varsayılan olarak loglamaz, logun boş olmasının nedeni budur.',
                   sample: '<src [10.64.10.20-50000] dst [198.51.100.80-23] proto tcp dev port2> matches policy id: 0',
                   fix: [{ cause: 'Servis gerçekten izinli olmalı: mevcut kurala yalnız gereken servisi ekleyin', cmd: 'config firewall policy\nedit 1\nappend service TELNET\nend' },
                         { cause: 'Engel doğru ama görünmeli: en alta loglanan açık bir deny kuralı ekleyin', cmd: 'config firewall policy\nedit 0\nset name LAN-DENY-LOG\nset srcintf port2\nset dstintf port1\nset srcaddr all\nset dstaddr all\nset schedule always\nset service ALL\nset action deny\nset logtraffic all\nend' }] },
                 { code: 'show firewall policy', desc: 'Lookup\'ın döndürdüğü kimliği tabloda bulun: eylem, servis, durum (status disable kurallar eşleşmeye katılmaz) ve sırası. Beklenen izin kuralının üstünde daha geniş bir deny kuralı varsa ilk eşleşen o olur.',
                   fix: [{ cause: 'Beklenen kural devre dışı', cmd: 'config firewall policy\nedit 1\nset status enable\nend' },
                         { cause: 'Üstteki bir deny kuralı önce eşleşiyor: izin kuralını üste taşıyın', cmd: 'config firewall policy\nmove 1 before 3\nend' }] },
-                { code: 'diagnose firewall iprope lookup 10.64.10.20 50000 198.51.100.80 23 tcp port2', desc: 'Düzeltmeden sonra aynı sorguyu tekrarlayın: beklenen kural kimliği dönmelidir. Değişikliğin kanıtı budur; kullanıcıdan yeniden denemesini istemeden önce yapılır.' },
+                { code: 'diagnose firewall iprope lookup 10.64.10.20 50000 198.51.100.80 23 tcp port2 policy', desc: 'Düzeltmeden sonra aynı sorguyu tekrarlayın: beklenen kural kimliği dönmelidir. Değişikliğin kanıtı budur; kullanıcıdan yeniden denemesini istemeden önce yapılır.' },
             ],
             quiz: [
                 { q: 'Lookup "matches policy id: 0" döndü. Anlamı?', choices: [['implicit', 'Hiçbir kural eşleşmedi; tablonun sonundaki örtük deny uygulanır'], ['first', 'İlk kural eşleşti'], ['err', 'Sorgu hatalı']], correct: 'implicit', why: 'Policy 0 örtük deny\'dır. Varsayılan olarak loglanmadığı için "logda hiçbir şey yok" belirtisiyle birlikte görülür.' },
@@ -555,6 +555,51 @@
             quiz: [
                 { q: 'require-message-authenticator varsayılanı?', choices: [['enable', 'enable'], ['disable', 'disable']], correct: 'enable', why: 'FortiOS CLI başvurusunda (user radius) varsayılan enable.' },
                 { q: 'Kalıcı çözüm?', choices: [['server', 'RADIUS sunucusunu güncellemek ya da RADSEC kullanmak'], ['disable', 'Kontrolü kalıcı kapatmak'], ['secret', 'Anahtarı değiştirmek']], correct: 'server', why: 'Kontrolü kapatmak açığı yeniden açar.' },
+            ],
+        },
+        // ── Parti 9: DHCP/DNS/NAT (fgt-63), donanım aktarımı ve sniffer (fgt-64), ileri statik yönlendirme (fgt-65)
+        {
+            title: 'İstemci Adres Almıyor ya da Ad Çözemiyor: DHCP, DNS ve NAT\'ı Sırayla Kontrol', severity: 'warn', topic: 'iface', lab: 'fgt-63',
+            symptom: 'LAN\'daki bir bilgisayar internete çıkamıyor: ya adres alamıyor (169.254.x.x), ya adres alıyor ama adları çözemiyor, ya da IP ile de hiçbir yere ulaşamıyor.',
+            steps: [
+                { expect: 'bad', code: 'execute dhcp lease-list', desc: 'İstemcinin MAC adresi listede yoksa DHCP adımında takılıyordur: arayüzde DHCP sunucusu açık mı, aralık arayüzün alt ağında mı, havuzda yer var mı?',
+                  sample: 'port2\n  IP                MAC-Address         Hostname            SERVER-ID  Expiry\n  10.64.10.100      00:50:56:a1:03:01   PC-01               1          …\n\n# PC-02 listede yok: adres alamamış',
+                  fix: [{ cause: 'Aralık dolu ya da alt ağ dışında', cmd: 'config system dhcp server\nedit 1\nconfig ip-range\nedit 1\nset start-ip 10.64.10.100\nset end-ip 10.64.10.199\nnext\nend\nnext\nend' }] },
+                { code: 'show system dhcp server', desc: 'default-gateway ve DNS: ağ geçidi verilmezse istemci adres alır ama internete çıkamaz; dns-service istemciye hangi DNS\'in verileceğini belirler.' },
+                { code: 'diagnose sys session list', desc: 'Önce "diagnose sys session filter src <istemci IP>". Oturum varsa "act=snat" satırı çeviriyi gösterir; hiç oturum yoksa trafik kurala ya da rotaya takılıyordur (debug flow).' },
+            ],
+            quiz: [
+                { q: 'DHCP mesaj sırası?', choices: [['dora', 'Discover, Offer, Request, Ack'], ['x', 'Request, Offer, Ack, Discover']], correct: 'dora', why: 'RFC 2131\'deki temel akış.' },
+                { q: 'İstemci IP ile ping atabiliyor ama adlarla hiçbir yere gidemiyor. İlk şüpheli?', choices: [['dns', 'DNS (sunucu, kural ya da istemciye verilen DNS adresi)'], ['dhcp', 'DHCP'], ['nat', 'NAT']], correct: 'dns', why: 'IP ile erişim çalışıyorsa adres, yol ve NAT sağlamdır; sorun ad çözümündedir.' },
+            ],
+        },
+        {
+            title: 'Sniffer ya da debug flow Bir Oturumun Yalnız İlk Paketlerini Gösteriyor', severity: 'info', topic: 'traffic', lab: 'fgt-64',
+            symptom: 'Donanım FortiGate\'te sniffer bir bağlantının yalnız ilk birkaç paketini yakalıyor, sonrası görünmüyor; kullanıcı ise sorunsuz çalıştığını söylüyor.',
+            steps: [
+                { code: 'get system status', desc: 'Model: donanım FortiGate\'lerin çoğunda NP (network processor) bulunur. Oturum CPU\'da kurulur, sonraki paketleri NP\'ye aktarılabilir; aktarılan paketler CPU\'dan geçmediği için sniffer ve debug flow onları göremez.' },
+                { code: 'diagnose sys session list', desc: 'Oturum çıktısındaki npu_state alanı oturumun donanıma aktarılıp aktarılmadığını gösterir. Oturum varsa ve kullanıcı çalışıyorsa bu bir arıza değildir.' },
+                { code: 'show firewall policy', desc: 'Teşhis için gerekiyorsa ilgili kuralda aktarım geçici olarak kapatılabilir ("set auto-asic-offload disable"); performansı etkilediği için kısa süreli ve kayıt altında yapılır, sonra geri açılır.' },
+            ],
+            quiz: [
+                { q: 'NP neyi hızlandırır?', choices: [['net', 'Kurulmuş oturumların ağ trafiğini'], ['av', 'Antivirüs taramasını'], ['log', 'Log yazmayı']], correct: 'net', why: 'Fortinet donanım hızlandırma belgesi: NP yüksek hacimli ağ trafiğini, CP güvenlik işlevlerini hızlandırır.' },
+                { q: 'FortiGate-VM\'de NP yongası var mı?', choices: [['no', 'Yok; bazı ortamlarda vSPU (yazılım vNP + DPDK) kullanılır'], ['yes', 'Var']], correct: 'no', why: 'vSPU, NP\'nin yazılım benzetimidir.' },
+            ],
+        },
+        {
+            title: 'İkinci Hat Eklendi: Trafik İki Hatta Bölünüyor ya da İç Ağ Trafiği İnternete Sızıyor', severity: 'warn', topic: 'routing', lab: 'fgt-65',
+            symptom: 'İkinci internet hattı eklendikten sonra bazı oturumlar yedek hattan çıkıyor; ya da VPN düştüğünde iç bloklara giden trafik internete gidiyor.',
+            steps: [
+                { expect: 'bad', code: 'get router info routing-table all', desc: 'İki varsayılan rota aynı mesafe ve aynı öncelikle görünüyorsa trafik iki hatta paylaşılır (ECMP). Birincil/yedek için yedek rotaya daha büyük priority verin (küçük değer tercih edilir).',
+                  sample: 'S*      0.0.0.0/0 [10/0] via 203.0.113.1, port1\n                  [10/0] via 198.51.100.1, port3\n\n# İki yol eşit: ECMP',
+                  fix: [{ cause: 'Yedek hat birincille eşit', cmd: 'config router static\nedit 2\nset priority 10\nend' }] },
+                { code: 'get router info routing-table database', desc: 'Tabloda olmayan (beklemedeki, yüksek mesafeli) rotalar burada görünür; "*>" seçilen rotadır.' },
+                { code: 'get router info routing-table details 10.64.77.5', desc: 'Bir iç adres için seçilen rota. Varsayılan rota çıkıyorsa iç blok için kara delik rotası yoktur: VPN düştüğünde iç trafik internete gider.',
+                  fix: [{ cause: 'İç blok için kara delik yok', cmd: 'config router static\nedit 3\nset dst 10.64.0.0 255.255.0.0\nset blackhole enable\nset distance 254\nend' }] },
+            ],
+            quiz: [
+                { q: 'Aynı mesafedeki iki rotadan hangisi tercih edilir?', choices: [['low', 'priority değeri küçük olan'], ['high', 'priority değeri büyük olan'], ['first', 'İlk yazılan']], correct: 'low', why: 'Mesafe eşitse öncelik belirler; küçük değer kazanır ve diğeri tabloda yedek kalır.' },
+                { q: 'Kara delik rotasına neden yüksek mesafe (254) verilir?', choices: [['fallback', 'Daha özel ya da daha düşük mesafeli gerçek rota varken devreye girmesin, yalnız o yokken trafiği düşürsün'], ['speed', 'Daha hızlı çalışsın'], ['req', 'Zorunlu değer']], correct: 'fallback', why: 'Kara delik son çare rotadır.' },
             ],
         },
     ];
