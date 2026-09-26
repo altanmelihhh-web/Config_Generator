@@ -1436,3 +1436,19 @@
 #config-generator-root .cg-lab-qwhy.bad { background: rgba(239, 68, 68, .08); }
 #config-generator-root .cg-lab-qscore { font-weight: 700; color: #b45309; }
 [data-theme="dark"] #config-generator-root .cg-lab-choice.pick { background: rgba(129, 140, 248, .15); }
+/* Sorun giderme: örnek çıktı ve kendini sına */
+#config-generator-root .cg-ts-sample { margin-top: 6px; font-size: .82rem; }
+#config-generator-root .cg-ts-sample summary { cursor: pointer; color: var(--primary-color, #4F46E5); }
+#config-generator-root .cg-ts-sample pre { background: #0d1117; color: #d1d9e0; padding: 10px 12px; border-radius: 8px; font-size: .76rem; white-space: pre-wrap; margin: 6px 0 0; }
+#config-generator-root .cg-ts-quiz { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; background: var(--card-bg, #fff); }
+#config-generator-root .cg-ts-quiz h3 { font-size: 1rem; margin: 0 0 10px; color: var(--text-primary, #111827); }
+#config-generator-root .cg-ts-qq { margin-bottom: 12px; }
+#config-generator-root .cg-ts-qt { font-size: .88rem; margin-bottom: 6px; color: var(--text-primary, #111827); }
+#config-generator-root .cg-ts-qc { display: grid; gap: 6px; }
+#config-generator-root .cg-ts-qb { font: inherit; font-size: .84rem; text-align: left; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-color, #d1d5db); background: var(--bg-primary, #fff); color: var(--text-primary, #1f2937); cursor: pointer; }
+#config-generator-root .cg-ts-qb.pick { border-color: var(--primary-color, #4F46E5); background: rgba(79, 70, 229, .08); }
+#config-generator-root .cg-ts-qb.ok { border-color: #10b981; background: rgba(16, 185, 129, .12); font-weight: 600; }
+#config-generator-root .cg-ts-qb.bad { border-color: #ef4444; background: rgba(239, 68, 68, .1); }
+#config-generator-root .cg-ts-qwhy { font-size: .8rem; margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: rgba(16, 185, 129, .08); color: var(--text-primary, #1f2937); }
+#config-generator-root .cg-ts-qwhy.bad { background: rgba(239, 68, 68, .08); }
+#config-generator-root .cg-ts-qscore { font-size: .9rem; color: var(--text-primary, #111827); }

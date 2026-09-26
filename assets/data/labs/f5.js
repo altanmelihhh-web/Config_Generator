@@ -1625,7 +1625,7 @@
               ] } },
         ],
         verify: ['list ltm profile http http_web', 'curl -v -X TRACE http://203.0.113.100/'], learn: ['known-methods + unknown-method reject = metot beyaz listesi.', 'Varsayılan profili değil, türetilmişi değiştir.', 'Engelleme kapıda: istek sunucuya ulaşmaz.'],
-        links: { tool: '#/f5-ltm/httpprofile', cli: '#/cli/f5-ltm' }, cert: 'HTTP'
+        links: { tool: '#/f5-ltm/httpprofile', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/114' }, cert: 'HTTP'
     },
     {
         id: 'f5-62', vendor: 'f5-ltm', level: 3, title: 'HTTP profili: başlık sınırları ve büyük SSO çerezi', minutes: 20, kind: 'adc', hostname: 'bigip-a.lab.example', pre: ['f5-60'],
@@ -1660,7 +1660,7 @@
               ] } },
         ],
         verify: ['grep 011f0005 /var/log/ltm', 'list ltm profile http http_web'], learn: ['max-header-size = istek satırı + tüm başlıklar.', 'Aşım: TCP RST + 011f0005 log satırı (boyut ve sınır).', 'Sorunu, sorunu yaşayan istemciyle doğrula.'],
-        links: { tool: '#/f5-ltm/httpaudit', cli: '#/cli/f5-ltm' }, cert: 'HTTP'
+        links: { tool: '#/f5-ltm/httpaudit', cli: '#/cli/f5-ltm', wizard: '#/troubleshoot/f5-ltm/115' }, cert: 'HTTP'
     },
     // ═══ 8 · iRule Arenası — ikinci dalga ═══
     {

@@ -133,6 +133,7 @@ const CgTroubleshoot = {
                     <div class="cg-ts-step-h">Adım ${i + 1}</div>
                     <code data-code="${cgEsc(s.code)}" title="Kopyala">${cgEsc(s.code)}</code>
                     ${s.desc ? `<div class="cg-ts-look"><b>Neye bakılır:</b> ${cgEsc(s.desc)}</div>` : ''}
+                    ${s.sample ? `<details class="cg-ts-sample"><summary><i class="fas fa-file-alt"></i> Örnek çıktı: nasıl okunur?</summary><pre>${cgEsc(s.sample)}</pre></details>` : ''}
                     ${state === 'cur' ? `<div class="cg-ts-act">
                         <button class="cg-ts-btn ok" data-ans="ok"><i class="fas fa-check"></i> Çıktı normal — sonraki adım</button>
                         <button class="cg-ts-btn bad" data-ans="bad"><i class="fas fa-exclamation"></i> Sorun burada</button>
@@ -152,6 +153,7 @@ const CgTroubleshoot = {
             <div class="cg-ts-prog" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div>
             <ol class="cg-ts-steps">${stepHtml}</ol>
             ${done ? this._resultHtml(x, st, t) : ''}
+            ${done && x.s.quiz ? this._quizHtml(x, st) : ''}
             <div class="cg-ts-foot">
                 ${st.ans.length || st.found !== null ? '<button class="cg-ts-btn" data-reset><i class="fas fa-undo"></i> Baştan başla</button>' : ''}
                 ${st.ans.length && !done ? '<button class="cg-ts-btn" data-back><i class="fas fa-step-backward"></i> Önceki adım</button>' : ''}
@@ -166,6 +168,10 @@ const CgTroubleshoot = {
         if (r) r.addEventListener('click', () => { this._state[key] = { ans: [], found: null }; this._paintScenario(vendor, n); });
         const bk = this._root.querySelector('[data-back]');
         if (bk) bk.addEventListener('click', () => { st.ans.pop(); this._paintScenario(vendor, n); });
+        // Kendini sına: seçimler taslakta, "Değerlendir" ile puan ve açıklamalar
+        this._root.querySelectorAll('[data-tsq]').forEach(b => b.addEventListener('click', () => { const q = st.qz || (st.qz = { ans: {}, shown: false }); q.ans[b.dataset.tsq] = b.dataset.v; q.shown = false; this._paintScenario(vendor, n); }));
+        const qc = this._root.querySelector('[data-tsqchk]');
+        if (qc) qc.addEventListener('click', () => { st.qz.shown = true; this._paintScenario(vendor, n); });
         this._bindCopy();
         if (this._scroll) {   // cevaptan sonra yeni adımı / sonucu görünür yap
             this._scroll = false;
@@ -174,6 +180,17 @@ const CgTroubleshoot = {
         }
     },
 
+    _quizHtml(x, st) {
+        const Q = x.s.quiz, q = st.qz || { ans: {}, shown: false }, n = Q.length, all = Q.every((y, k) => q.ans[k] !== undefined);
+        const score = Q.filter((y, k) => q.ans[k] === y.correct).length;
+        return `<div class="cg-ts-quiz"><h3><i class="fas fa-clipboard-check"></i> Kendini sına</h3>
+            ${Q.map((y, k) => `<div class="cg-ts-qq"><div class="cg-ts-qt"><b>${k + 1}.</b> ${cgEsc(y.q)}</div><div class="cg-ts-qc">${y.choices.map(([v, l]) => {
+                const pick = q.ans[k] === v, cls = q.shown && pick ? (v === y.correct ? ' ok' : ' bad') : pick ? ' pick' : '';
+                return `<button class="cg-ts-qb${cls}" data-tsq="${k}" data-v="${cgEsc(v)}">${cgEsc(l)}</button>`; }).join('')}</div>
+                ${q.shown && y.why ? `<div class="cg-ts-qwhy${q.ans[k] === y.correct ? '' : ' bad'}">${q.ans[k] === y.correct ? '✓' : '✗'} ${cgEsc(y.why)}</div>` : ''}</div>`).join('')}
+            ${q.shown ? `<p class="cg-ts-qscore"><b>${score}/${n}</b> ${score === n ? '— hepsi doğru.' : '— yanlışların açıklamasını okuyup seçimini değiştirebilirsin.'}</p>` : ''}
+            <button class="cg-ts-btn ok" data-tsqchk${all ? '' : ' disabled'}><i class="fas fa-check"></i> Değerlendir${all ? '' : ' (tüm soruları cevapla)'}</button></div>`;
+    },
     // fix: metin ya da [{ cause, cmd }] listesi (cmd isteğe bağlı, satırlar \n ile)
     _fixHtml(fix) {
         if (typeof fix === 'string') return `<p>${cgEsc(fix)}</p>`;

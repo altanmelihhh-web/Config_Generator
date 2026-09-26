@@ -1,7 +1,7 @@
 'use strict';
 // ─── Sorun giderme sihirbazı: ek senaryolar (f5-ltm) ───────────────────────────
 // Kaynak: CLI Lab arıza bulguları (assets/data/labs/f5.js) ve araştırma notları. Hub derlemesinden (clibuild.js) bağımsızdır.
-// Şema: { title, severity: 'err'|'warn'|'info', symptom, topic?, replaces?, lab?, steps: [{ code, desc, fix?: string | [{ cause, cmd? }] }] }
+// Şema: { title, severity: 'err'|'warn'|'info', symptom, topic?, replaces?, lab?, steps: [{ code, desc, sample?, fix?: string | [{ cause, cmd? }] }], quiz?: [{ q, choices: [[v, etiket]], correct, why }] }
 // Komutlar TMOS 16.1/17.x içindir; tmsh komutları tmsh içinde ya da bash'te "tmsh" önekiyle çalışır.
 (function () {
     const root = typeof window !== 'undefined' ? window : globalThis;
@@ -181,6 +181,89 @@
                   fix: [{ cause: 'Tanımsız değişken (bazı yollarda set edilmiyor)', cmd: '# değişkeni her yolda başlatın ya da okumadan önce sınayın:\nif { [info exists user] } { log local0. "kullanıcı: $user" }' }, { cause: 'İkinci respond/redirect', cmd: '# ilk yanıttan sonra olaydan çıkın:\nHTTP::respond 403 content "Erişim yok"\nreturn' }] },
                 { code: 'tmsh modify sys db tm.rstcause.log value enable', desc: 'Sıfırlamaların nedeni loga yazılır: "01230140:3: RST sent from … iRule execution error" satırı sorunun iRule\'da olduğunu kanıtlar. İş bitince disable yapın.' },
                 { code: 'tmsh list ltm rule r_kural', desc: 'Birden çok kural aynı olayı kullanıyorsa sırayı priority belirler (küçük önce, varsayılan 500; eşitse VS\'deki sıra). Bir kuralın verdiği pool kararını sonraki kural ezebilir.' },
+            ]
+        },
+        {
+            title: 'PUT / DELETE / WebDAV İstekleri Sıfırlanıyor, GET Çalışıyor: HTTP Profili Metot Politikası', severity: 'err', topic: 'adc', lab: 'f5-60',
+            symptom: 'Web sayfaları açılıyor ama API\'nin PUT/DELETE istekleri ya da WebDAV istemcisi (PROPFIND) "connection reset" alıyor; sunucu loglarında bu istekler hiç görünmüyor.',
+            steps: [
+                { code: 'curl -v -X PUT http://203.0.113.100/api/kayit/5', desc: '"Recv failure: Connection reset by peer" ve sunucu logunda iz yoksa istek BIG-IP\'de kesiliyor. 405 ya da 501 alıyorsanız istek sunucuya ulaşmış demektir: metodu sunucu reddediyor, BIG-IP değil.',
+                  sample: '> PUT /api/kayit/5 HTTP/1.1\n> Host: 203.0.113.100\n> User-Agent: curl/7.81.0\n>\n* Recv failure: Connection reset by peer\ncurl: (56) Recv failure: Connection reset by peer\n\n# Yanıt satırı (< HTTP/1.1 …) hiç yok: bağlantı yanıt gelmeden kesildi.\n# Karşılaştırın: sunucu reddetseydi "< HTTP/1.1 405 Method Not Allowed" ve "< Server: Apache" görürdünüz.' },
+                { code: 'tmsh list ltm virtual vs_web profiles rules policies', desc: 'VS hangi HTTP profilini kullanıyor; metodu kesen bir iRule (HTTP::method … reject) ya da LTM policy var mı?' },
+                { code: 'tmsh list ltm profile http http_web enforcement', desc: 'known-methods listesinde isteğin metodu var mı? Yoksa istek unknown-method kuralına düşer; "unknown-method reject" bağlantıyı sıfırlar (K85840901). Varsayılan liste CONNECT DELETE GET HEAD LOCK OPTIONS POST PROPFIND PUT TRACE UNLOCK, varsayılan kural allow.',
+                  fix: [{ cause: 'Metot listede yok, unknown-method reject', cmd: 'tmsh modify ltm profile http http_web enforcement { known-methods add { PUT DELETE } }' },
+                        { cause: 'API ve web aynı profili paylaşıyor: API VS\'i için ayrı profil', cmd: 'tmsh create ltm profile http http_api defaults-from http enforcement { known-methods replace-all-with { GET HEAD POST PUT DELETE OPTIONS } unknown-method reject }\ntmsh modify ltm virtual vs_api profiles delete { http_web } profiles add { http_api }' }] },
+                { code: 'tmsh list ltm rule', desc: 'VS\'deki kurallarda HTTP::method ile reject/drop ya da HTTP::respond 405 var mı? iRule sıfırlamasında "tm.rstcause.log" açıkken /var/log/ltm\'de "iRule execution error" ya da kuralın kendi log satırı görünür.' },
+                { code: 'tmsh list ltm virtual vs_web policies', desc: 'VS\'ye ASM (WAF) bağlıysa izinsiz metot "Illegal method" ihlali üretir; ancak ASM bağlantıyı sıfırlamaz, blok sayfasını HTTP 200 ile döner (K41633422). Reset görüyorsanız neden büyük olasılıkla HTTP profili ya da iRule\'dur.' },
+            ],
+            quiz: [
+                { q: 'PUT isteği "405 Method Not Allowed" ve "Server: Apache" ile dönüyor. Metodu kim reddetti?', choices: [['srv', 'Arka uç sunucu: istek BIG-IP\'den geçti'], ['prof', 'BIG-IP HTTP profili'], ['asm', 'ASM']], correct: 'srv', why: 'HTTP profili reddi yanıt üretmez, bağlantıyı sıfırlar; Server: Apache yanıtın sunucudan geldiğini gösterir.' },
+                { q: 'known-methods listesinden TRACE\'i çıkardınız ama unknown-method allow kaldı. Sonuç?', choices: [['same', 'Hiçbir şey değişmez: TRACE artık bilinmeyen metot olarak yine izinli'], ['blk', 'TRACE engellenir'], ['err', 'Profil kaydedilmez']], correct: 'same', why: 'Listeden çıkarmak yalnız hangi kuralın uygulanacağını değiştirir; engellemek için unknown-method reject gerekir.' },
+                { q: 'Varsayılan "http" profilinde metot listesini daraltmanın riski?', choices: [['all', 'Bu profili kullanan tüm VS\'ler etkilenir'], ['none', 'Risk yok'], ['sync', 'HA eşitlemesi bozulur']], correct: 'all', why: 'Değişiklikler defaults-from ile türetilmiş özel profilde yapılır.' },
+            ]
+        },
+        {
+            title: 'SSO Sonrası Bazı Kullanıcılar Siteye Giremiyor (Bağlantı Sıfırlandı): Başlık Boyutu ve Sayısı', severity: 'err', topic: 'adc', lab: 'f5-62',
+            symptom: 'Tek oturum açma (SSO) ya da çok sayıda çerez biriktiren kullanıcılar "bağlantı sıfırlandı" hatası alıyor; aynı sayfa başka kullanıcılar ve gizli pencerede sorunsuz açılıyor.',
+            steps: [
+                { code: 'grep 011f0005 /var/log/ltm', desc: '"HTTP header (N) exceeded maximum allowed size of M" satırı istek (ya da yanıt) başlıklarının profil sınırını aştığını gösterir; N gelen boyut, M sınırdır (K8482). Satırdaki vip ve profile alanları hangi VS ve profil olduğunu söyler.',
+                  sample: 'Sep 26 09:14:02 bigip-a.lab.example err tmm1[11925]: 011f0005:3: HTTP header (20211) exceeded maximum allowed size of 16384 (Client side: vip=vs_web profile=http_web pool=web_pool)\n\n# 20211: bu isteğin başlık boyutu (istek satırı dahil)\n# 16384: http_web profilindeki max-header-size\n# Client side: istemciden gelen istek; "Server side" olsaydı sunucunun yanıt başlıkları büyük demekti',
+                  fix: [{ cause: 'max-header-size düşük (varsayılan 32768)', cmd: 'tmsh modify ltm profile http http_web enforcement { max-header-size 32768 }' }] },
+                { code: 'tmsh list ltm profile http http_web enforcement', desc: 'max-header-size (varsayılan 32768 bayt) ve max-header-count (varsayılan 64) değerleri. Değer, logdaki gerçek boyuta makul pay eklenerek seçilir; sınırı ölçüsüzce büyütmek bellek ve saldırı yüzeyi demektir.',
+                  fix: [{ cause: 'Başlık sayısı sınırı (çok sayıda çerez/başlık, K000161470)', cmd: 'tmsh modify ltm profile http http_web enforcement { max-header-count 128 }' }] },
+                { code: 'curl -I -b /var/tmp/sorunlu_kullanici_cerezleri.txt http://203.0.113.100/', desc: 'Sorunu yaşayan kullanıcının çerezleriyle tekrar deneyin (tarayıcı geliştirici araçlarından dışa aktarılabilir). Kendi küçük çerezli tarayıcınızla yapılan test "çalışıyor" yanıltmasına yol açar.' },
+                { code: 'grep -c 011f0005 /var/log/ltm', desc: 'Düzeltmeden sonra sayı artmaya devam ediyor mu? Artıyorsa başka bir VS/profil de etkileniyor olabilir (satırlardaki vip= alanına bakın).' },
+            ],
+            quiz: [
+                { q: 'max-header-size neyi sınırlar?', choices: [['all', 'İstek satırı dahil tüm başlıkların toplam boyutunu'], ['cookie', 'Yalnız Cookie başlığını'], ['body', 'İstek gövdesini']], correct: 'all', why: 'Tek bir büyük çerez de, çok sayıda küçük başlık da toplamı aşabilir.' },
+                { q: 'Sınır aşıldığında istemci ne görür?', choices: [['rst', 'Bağlantı sıfırlanır'], ['431', '431 hata sayfası'], ['413', '413 hata sayfası']], correct: 'rst', why: 'BIG-IP bu durumda yanıt üretmez; TCP RST gönderir ve 011f0005 loglar (K8482).' },
+            ]
+        },
+        {
+            title: 'ASM: "The requested URL was rejected… Your support ID is" Sayfası: Engellenen İsteği Bul ve Yanlış Pozitifi Ayıkla', severity: 'warn', topic: 'adc',
+            symptom: 'Kullanıcı bir form gönderince ya da belirli bir sayfada "The requested URL was rejected. Please consult with your administrator. Your support ID is: …" sayfası görüyor.',
+            steps: [
+                { code: 'Security ›› Event Logs : Application : Requests  (filtre: Support ID)', desc: 'Kullanıcının verdiği support ID ile isteği bulun. İstek detayında policy adı, ihlaller (violations), istek metni ve engellenip engellenmediği görünür.',
+                  sample: 'Support ID : 1234567890123456789\nPolicy     : /Common/waf_app\nStatus     : Blocked\nViolations : Illegal meta character in parameter value\n             Attack signature detected\nParameter  : yorum\nIstek      : POST /form/gonder  yorum=Fiyat\'lar <b>çok</b> iyi\n\n# Okuma: "yorum" alanındaki kesme işareti ve <b> etiketi meta karakter/imza ihlali üretmiş.\n# Karar: metin düzenleyicili bir yorum alanı için bu meşru olabilir (yanlış pozitif).' },
+                { code: 'İstek detayı › Violations › ihlalin ayrıntısı (imza adı/ID, parametre, URL)', desc: 'Karar: bu meşru kullanıcı davranışı mı (yanlış pozitif), gerçek saldırı mı? Aynı ihlal çok sayıda farklı kullanıcıda ve normal iş akışında görülüyorsa yanlış pozitif olasılığı yüksektir.',
+                  fix: [{ cause: 'Yanlış pozitif: istisnayı en dar kapsamda yapın (yalnız o parametre / URL; tüm policy\'de imzayı kapatmayın)' }, { cause: 'Gerçek saldırı: engel doğru; kaynak IP ve benzer istekleri inceleyin' }] },
+                { code: 'Policy Building › Traffic Learning', desc: 'ASM aynı ihlal için öneri (suggestion) üretmiş olabilir; öneriyi kabul etmeden önce kapsamını okuyun (ör. "parametrede meta karaktere izin ver" mi, "imzayı tüm policy\'de kapat" mı).' },
+                { code: 'tmsh publish asm policy /Common/waf_app', desc: 'Policy değişiklikleri yayınlanmadan (Apply Policy) etkin olmaz. Yayından sonra kullanıcıdan aynı işlemi tekrarlamasını isteyin ve yeni istek logunu kontrol edin.' },
+            ],
+            quiz: [
+                { q: 'Yanlış pozitifte en iyi istisna?', choices: [['narrow', 'İmzayı/ihlali yalnız ilgili parametre ya da URL için devre dışı bırakmak'], ['global', 'İmzayı tüm policy\'de kapatmak'], ['transp', 'Policy\'yi transparent moda almak']], correct: 'narrow', why: 'Geniş istisna, aynı saldırıyı sitenin geri kalanında da serbest bırakır.' },
+                { q: 'Kullanıcının verdiği support ID ne işe yarar?', choices: [['find', 'Engellenen isteği istek logunda bulmaya'], ['auth', 'Kullanıcının kimliğini doğrulamaya'], ['unblock', 'İsteği otomatik olarak serbest bırakmaya']], correct: 'find', why: 'Support ID, istek loğundaki kaydın anahtarıdır.' },
+            ]
+        },
+        {
+            title: 'İzleme Sistemi "200 OK" Görüyor ama Kullanıcı Engellendiğini Söylüyor: ASM Blok Sayfası', severity: 'warn', topic: 'adc',
+            symptom: 'Sentetik izleme ve erişim logları başarılı (200) gösteriyor; kullanıcılar ise işlem yapamadığını, bir "rejected" sayfası gördüğünü söylüyor.',
+            steps: [
+                { code: 'curl -v "http://203.0.113.100/ara?q=%27%20OR%201%3D1"', desc: 'Yanıtın durum satırı ile gövdeyi birlikte okuyun: ASM varsayılan blok sayfası HTTP 200 ile döner (K41633422). Yalnız koda bakan izleme bunu başarı sayar.',
+                  sample: '< HTTP/1.1 200 OK\n< Content-Type: text/html; charset=utf-8\n< Cache-Control: no-cache\n< Connection: close\n<\n<html><head><title>Request Rejected</title></head><body>The requested URL was rejected. Please consult with your administrator.<br><br>Your support ID is: 1234567890123456789 …\n\n# Kod 200 ama gövde bir blok sayfası: koda değil içeriğe bakan bir kontrol gerekir.' },
+                { code: 'Security ›› Event Logs : Application : Requests', desc: 'Aynı zaman aralığında engellenen istekler var mı? Blok oranı ile izleme sonuçlarını karşılaştırın.' },
+                { code: 'Security ›› Application Security : Policy : Response and Blocking Pages', desc: 'Blok sayfasının durum kodu ve içeriği buradan özelleştirilebilir (varsayılan 200; K35004154). İzleme ve analitik için 403 gibi bir hata kodu dönmek daha anlaşılırdır.',
+                  fix: [{ cause: 'İzleme yalnız koda bakıyor', cmd: '# izleme / monitor tarafında gövde kontrolü ekleyin (ör. "Request Rejected" metni görülürse başarısız say)' }, { cause: 'Blok yanıtı 200', cmd: '# Response and Blocking Pages\'te blok yanıtını 403 gibi bir kodla dönecek şekilde özelleştirin (K35004154), sonra policy\'yi yayınlayın:\ntmsh publish asm policy /Common/waf_app' }] },
+            ],
+            quiz: [
+                { q: 'ASM varsayılan blok sayfası hangi HTTP koduyla döner?', choices: [['200', '200'], ['403', '403'], ['503', '503']], correct: '200', why: 'K41633422: engellenen istek varsayılan olarak 200 ile yanıtlanır; bu yüzden içerik kontrolü gerekir.' },
+            ]
+        },
+        {
+            title: 'WAF (ASM) Policy Var ama Hiçbir Şey Engellenmiyor: Bağlama, Blocking Modu, Staging ve Yayın', severity: 'err', topic: 'adc',
+            symptom: 'Güvenlik testi bilinen saldırı kalıplarını (SQL enjeksiyonu, XSS) gönderiyor; istekler sunucuya ulaşıyor, blok sayfası hiç çıkmıyor.',
+            steps: [
+                { code: 'tmsh list ltm virtual vs_web policies profiles', desc: 'ASM policy VS\'ye profil olarak değil, "asm enable policy" eylemli bir LTM policy ile bağlanır; VS\'de websecurity profili de olmalı (K16303347). Liste boşsa policy hiçbir trafiği görmüyor.',
+                  fix: [{ cause: 'Policy VS\'ye bağlı değil', cmd: 'tmsh create ltm policy /Common/Drafts/asm_waf_app controls add { asm } requires add { http } rules add { default { ordinal 1 actions add { 1 { asm enable policy /Common/waf_app } } } }\ntmsh publish ltm policy /Common/Drafts/asm_waf_app\ntmsh modify ltm virtual vs_web profiles add { websecurity } policies add { asm_waf_app }' }] },
+                { code: 'tmsh list asm policy /Common/waf_app blocking-mode', desc: '"blocking-mode disabled" transparent modu demektir: ihlaller loglanır, hiçbir istek engellenmez. Rapid Deployment şablonu varsayılan olarak transparent başlar.',
+                  fix: [{ cause: 'Policy transparent', cmd: 'tmsh modify asm policy /Common/waf_app blocking-mode enabled\ntmsh publish asm policy /Common/waf_app' }] },
+                { code: 'Security ›› Application Security : Policy Building : Enforcement Readiness', desc: 'İmzalar ve varlıklar staging\'de (varsayılan 7 gün) ise ihlaller yalnız loglanır. Hazır olanlar "enforce" edilmeden engelleme olmaz.' },
+                { code: 'tmsh list ltm virtual vs_web profiles', desc: 'HTTPS trafiği BIG-IP\'de client-ssl ile çözülmüyorsa (SSL passthrough) WAF şifreli içeriği göremez; HTTP profili de olmalı.' },
+                { code: 'tmsh publish asm policy /Common/waf_app', desc: 'Yapılan ayar değişiklikleri yayınlanmadan etkin olmaz. Yayından sonra saldırı testini tekrarlayıp istek logunda "Blocked" durumunu arayın.' },
+            ],
+            quiz: [
+                { q: 'ASM policy\'yi VS\'ye bağlamanın doğru yolu?', choices: [['ltmpol', '"asm enable policy" eylemli LTM policy + websecurity profili'], ['prof', 'profiles add { waf_app }'], ['rule', 'rules add { waf_app }']], correct: 'ltmpol', why: 'ASM policy bir profil değildir; K16303347.' },
+                { q: 'Policy blocking modda ama saldırı yalnız loglanıyor. İlk bakılacak yer?', choices: [['stg', 'İlgili imza/varlık staging\'de mi (enforcement readiness)'], ['dns', 'DNS kaydı'], ['mon', 'Pool monitor']], correct: 'stg', why: 'Staging\'deki imza ihlal üretir ama engellemez.' },
             ]
         },
 ];
