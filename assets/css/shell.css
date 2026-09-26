@@ -16,7 +16,7 @@
 .cg-bc ol { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; list-style: none; margin: 0; padding: 0; }
 .cg-bc li { display: inline-flex; align-items: center; min-width: 0; }
 .cg-bc li + li::before { content: "›"; margin: 0 8px; color: var(--subtle); }
-.cg-bc a { color: var(--primary); text-decoration: none; }
+.cg-bc a { display: inline-block; padding-block: 3px; color: var(--primary); text-decoration: none; } /* hedef ≥24px (WCAG 2.5.8) */
 .cg-bc a:hover { text-decoration: underline; }
 .cg-bc [aria-current] { color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60ch; }
 
@@ -50,6 +50,8 @@
 /* Ağaç 1280 altında gizli: menü düğmesi (çekmecede ağaç) 1279'a kadar görünür */
 @media (max-width: 1279.98px) { .app-menu-btn { display: inline-flex; } }
 @media (max-width: 1150px) { .app-brand small { display: none; } }
+/* 1280 altında sekmeler yalnız ikon (Vendorlar sekmesiyle nav 961–1279'da taşıyordu); ad title + aria-label'da, çekmecede etiketli */
+@media (max-width: 1279.98px) { .app-nav-l { display: none; } .app-nav-tab { padding: 8px 10px; } }
 @media (max-width: 960px) {
     .app-nav { display: none; }
     .app-menu-btn { width: 40px; height: 40px; }

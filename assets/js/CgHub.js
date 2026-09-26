@@ -191,6 +191,7 @@ const CgHub = {
             });
             const st = root.querySelector('[data-start]'), sh = this._start(f);
             if (st.innerHTML !== sh && !st.contains(document.activeElement)) st.innerHTML = sh;
+            if (typeof CgShell !== 'undefined') CgShell.update();   // sol ağaçtaki sayılar da gelsin (değişmediyse DOM'a yazılmaz)
         };
         this._loadCliIndex().then(repaint, () => {});
         if (f.lab.length) this._loadLabs().then(repaint, () => {});

@@ -174,9 +174,9 @@ const CgShell = {
             const b = '#/v/' + f.slug + '/';
             html += '<div class="cg-side-sub">' +
                 link(b + 'araclar', 'Config araçları', c.tools, sec === 'araclar') +
-                (f.lab.length ? link(b + 'lab', 'Lablar', null, sec === 'lab') + link(b + 'yol', 'Öğrenme yolu', null, sec === 'yol') : off('Lablar') + off('Öğrenme yolu')) +
+                (f.lab.length ? link(b + 'lab', 'Lablar', c.labs, sec === 'lab') + link(b + 'yol', 'Öğrenme yolu', null, sec === 'yol') : off('Lablar') + off('Öğrenme yolu')) +
                 link(b + 'komutlar', 'Komutlar', c.cmds, sec === 'komutlar') +
-                link(b + 'sorun', 'Sorun giderme', null, sec === 'sorun') +
+                link(b + 'sorun', 'Sorun giderme', c.scenarios, sec === 'sorun') +
                 (f.arena ? link('#/arena', 'iRule Arenası', null, sec === 'arena') : '') +
                 '</div>';
         });

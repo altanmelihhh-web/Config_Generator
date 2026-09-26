@@ -10,15 +10,18 @@ const CgCli = {
     _q: '',
     _sev: 'all',
 
+    // Söz URL başına önbellekte: yükleme sürerken gelen ikinci çağrı aynı sözü alır (betik iki kez eklenmez → "already declared" hatası olmaz).
+    // Hata olursa söz silinir ve betik etiketi kaldırılır; sonraki çağrı yeniden dener.
+    _p: {},
     _load(src) {
-        return new Promise((res, rej) => {
-            if (this._loaded[src]) return res();
+        if (this._loaded[src]) return Promise.resolve();
+        return this._p[src] || (this._p[src] = new Promise((res, rej) => {
             const s = document.createElement('script');
             s.src = src;
             s.onload = () => { this._loaded[src] = true; res(); };
-            s.onerror = () => rej(new Error(src));
+            s.onerror = () => { delete this._p[src]; s.remove(); rej(new Error(src)); };
             document.head.appendChild(s);
-        });
+        }));
     },
 
     // fam: vendor ailesi kilidi (#/v/<aile>/komutlar[/<cli>]); çip satırı yalnız ailede birden çok kütüphane varsa, yalnız onlarla
