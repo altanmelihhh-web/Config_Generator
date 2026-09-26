@@ -799,6 +799,24 @@ Object.assign(CG_RULES, {
     asa_port_list:      'Boşlukla ayrılmış port listesi: numara (0–65535) veya ASA port adı (www, https, domain, ssh, ntp …).',
     asa_ntp_key:        'NTP kimlik doğrulama anahtarı: boşluk içermez, en fazla 32 karakter.',
 });
+// ASA 'router ospf' altındaki 'network <ip> <mask> area <id>' SUBNET maskesi alır
+// (IOS'taki wildcard değil). Geçerlilik 'subnet' ile aynı; sebep üreteci IOS
+// alışkanlığıyla girilen wildcard'ı (0.0.0.255) tanıyıp karşılığını söyler.
+function _asaOspfMaskWhy(t) {
+    if (!t || cgMaskLen(t) !== '') return '';
+    const ipw = _cgIpWhy(t);
+    if (ipw) return ipw;
+    const inv = t.split('.').map(o => 255 - (+o)).join('.');
+    return cgMaskLen(inv) !== '' ? 'wildcard girdiniz; ASA subnet maskesi ister, ör. 255.255.255.0 (' + t + ' yerine ' + inv + ')'
+        : 'maske bitişik değil — 1 bitleri soldan kesintisiz olmalı (örn: 255.255.240.0)';
+}
+Object.assign(CG_VALIDATORS, {
+    asa_ospf_mask:     { fn: v => cgMaskLen(String(v).trim()) !== '', msg: 'ASA subnet maskesi ister, ör. 255.255.255.0 (wildcard 0.0.0.255 yazılmaz)' },
+});
+Object.assign(CG_WHY, { asa_ospf_mask: _asaOspfMaskWhy });
+Object.assign(CG_RULES, {
+    asa_ospf_mask:      'ASA OSPF network maskesi: bitişik subnet maskesi, noktalı dörtlü (255.255.255.0). IOS\'taki wildcard (0.0.0.255) ASA\'da kullanılmaz.',
+});
 
 // min/max tasiyan ama dogrulayicisi olmayan alanlar icin dinamik aralik
 // dogrulayicisi: 'range:1:4094'. Kural metni, hata mesaji ve sebebi otomatik.

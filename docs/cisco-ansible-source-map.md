@@ -165,12 +165,19 @@ ve komut başvurusu.
 | SNMP kullanıcı / community | `asa_snmp_user` / `asa_snmp_community` | harfle başlar ≤32 / ≤32 |
 | LDAP base DN / service port listesi | `asa_ldap_dn` / `asa_port_list` | öznitelik=değer / port adı veya 0-65535 |
 | tunnel-group, group-alias, aaa-server grubu, image, SNMP grup ve parolaları, saat dilimi | `asa_token` | belgede sınır yok → yalnız tek sözcük |
-| OSPF pid / area / network; route network | `posint` / `ospf_area` / `ip` (mevcut) | "any positive integer" / 0-4294967295 |
+| OSPF pid / area / network (+ maske `asa_ospf_mask`); route network | `posint` / `ospf_area` / `ip` (mevcut) | "any positive integer" / 0-4294967295 |
 
 Tek placeholder düzeltmesi: `anyconnect.tg_alias` "Corporate VPN" → "Corporate-VPN"
-(Cisco: group-alias boşluk içeremez). Bulgu, dokunulmadı: ASA OSPF `network` komutu
-subnet maskesi ister; mevcut araç wildcard (`0.0.0.255`) yazıyor, bu yüzden alana
-yalnız `wildcard` (noktalı dörtlü) bağlandı. Test: `tests/cisco-asa-validation.test.js`.
+(Cisco: group-alias boşluk içeremez). Test: `tests/cisco-asa-validation.test.js`.
+
+ASA OSPF düzeltmesi (kullanıcı onaylı): `router ospf` → `network <ip> <mask> area <id>`
+**subnet maskesi** alır (ASA 9.18/9.20 CLI kılavuzu, OSPF bölümü:
+`network 10.0.0.0 255.0.0.0 area 0`). Alan artık `asa_ospf_mask` (bitişik subnet
+maskesi) doğrulayıcısına bağlı, placeholder `255.255.255.0`. IOS alışkanlığıyla girilen
+wildcard (`0.0.0.255`) reddedilir, sebep "ASA subnet maskesi ister, ör. 255.255.255.0"
+ve karşılığını gösterir; bu durumda `network` satırı üretilmez, yerine `! UYARI` yazılır.
+Ortak `wildcard`/`wildcard_mask`/`subnet` doğrulayıcılarına dokunulmadı. Veri anahtarı
+(`wildcard`) uyumluluk için korundu.
 
 Kalan Config Generator işleri, öncelik sırasıyla:
 

@@ -70,6 +70,8 @@ const cases = {
     asa_user_pw: [['Str0ngPassw0rd2026', 'P@ss-w0rd!', 'x'.repeat(64)], ['x'.repeat(65), 'my pass', 'şifre1']],
     asa_port_list: [['www https 8080', 'domain 0 65535', 'SSH'], ['70000', 'www,https', 'foo', '']],
     asa_ntp_key: [['NtpKey2026', 'x'.repeat(32)], ['x'.repeat(33), 'ntp key']],
+    // ASA OSPF 'network <ip> <mask> area': subnet maskesi (ASA 9.18/9.20 CLI kılavuzu, OSPF: network 10.0.0.0 255.0.0.0 area 0)
+    asa_ospf_mask: [['255.255.255.0', '255.0.0.0', '255.255.255.252', '255.255.255.255', '0.0.0.0'], ['0.0.0.255', '0.0.255.255', '0.0.0.3', '255.0.255.0', '256.0.0.0', '24']],
 };
 for (const [vt, [good, bad]] of Object.entries(cases)) {
     assert.ok(V[vt] && W[vt] && R[vt], `${vt}: doğrulayıcı/sebep/kural eksik`);
@@ -86,6 +88,11 @@ for (const x of ['-1', '101', 'high', '1.5']) assert.ok(!pass(secVt, x), 'securi
 // Ortak doğrulayıcıların anlamı değişmedi.
 assert.ok(V.nameif.re.test('outside') && !V.nameif.re.test('x'.repeat(49)), 'nameif 48 karakter sınırı');
 assert.ok(V.subnet.fn('255.255.255.0') && !V.subnet.fn('255.0.255.0'), 'subnet anlamı korunmalı');
+assert.ok(V.wildcard.re.test('0.0.0.255') && V.wildcard_mask.fn('0.0.0.255') && !V.wildcard_mask.fn('255.255.255.0'), 'IOS wildcard doğrulayıcılarının anlamı korunmalı');
+// Wildcard girilince açık uyarı: ASA subnet maskesi ister + karşılığı.
+assert.ok(/ASA subnet maskesi ister, ör\. 255\.255\.255\.0/.test(W.asa_ospf_mask('0.0.0.255')) && W.asa_ospf_mask('0.0.0.255').includes('255.255.255.0'), 'wildcard uyarısı');
+assert.ok(W.asa_ospf_mask('0.0.0.3').includes('255.255.255.252'), 'wildcard karşılığı');
+assert.ok(!/wildcard/.test(W.asa_ospf_mask('255.0.255.0')), 'dağınık maske wildcard sayılmamalı');
 
 // 3. Form hattı: geçersiz değer boşaltılır, geçerli değer aynen geçer.
 function run(id, ty, over) {
@@ -139,6 +146,18 @@ for (const [id, ty, over, expInvalid, absent] of bads) {
     for (const n of expInvalid) assert.ok(r.invalid.includes(n), `${id}.${n} geçersiz işaretlenmeli`);
     for (const s of absent) assert.ok(!r.cli.includes(s), `${id}: geçersiz "${s}" config'e girmemeli`);
 }
+// OSPF network: subnet maskesi aynen yazılır; wildcard girilirse satır üretilmez, uyarı düşer.
+const ospfOk = run('ospf', '', { network: '192.0.2.0', wildcard: '255.255.255.0', area: '0' });
+assert.deepStrictEqual(ospfOk.invalid, []);
+assert.ok(ospfOk.cli.includes('router ospf 1\n network 192.0.2.0 255.255.255.0 area 0\n'), 'ASA OSPF network subnet maskesiyle');
+for (const wc of ['0.0.0.255', '0.0.255.255']) {
+    const r = run('ospf', '', { network: '192.0.2.0', wildcard: wc, area: '0' });
+    assert.ok(r.invalid.includes('wildcard'), 'OSPF wildcard ' + wc + ' geçersiz işaretlenmeli');
+    assert.ok(!/^ network /m.test(r.cli) && !r.cli.includes(wc + ' area'), 'OSPF wildcard ' + wc + ' ile network satırı üretilmemeli');
+    assert.ok(r.cli.includes('ASA subnet maskesi ister, ör. 255.255.255.0'), 'OSPF config içinde açık uyarı');
+}
+const ospfField = fieldsOf(tools.ospf, '').find(f => f.name === 'wildcard');
+assert.ok(ospfField.validate === 'asa_ospf_mask' && ospfField.placeholder === '255.255.255.0' && !/tersidir/.test(ospfField.why), 'OSPF maske alanı ASA\'ya uygun');
 // Koşullu alan: sp_iface yalnız interface kapsamında yazılır ve nameif olmalı.
 const spOk = run('mpfServicePolicy', '', { sp_scope: 'interface', sp_iface: 'outside' });
 assert.ok(spOk.cli.includes('service-policy GLOBAL_POLICY interface outside\n'));

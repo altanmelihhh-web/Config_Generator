@@ -733,8 +733,8 @@ CiscoASA.ospf = {
                     fields: [
                         { name: 'pid', why: "Process ID yalnızca yereldir, komşuyla aynı olması gerekmez; ancak ASA’da aynı anda sınırlı sayıda OSPF süreci çalışabilir. Var olan bir ID’yi tekrar kullanmak mevcut yapılandırmayı değiştirir.", label: 'Process ID', type: 'text', validate: 'posint', required: true, placeholder: '1', hint: 'OSPF süreç numarası' },
                         { name: 'router_id', why: "Router-ID elle verilmezse ASA en yüksek arayüz IP’sini seçer; o arayüz kapandığında ID değişir ve <b>tüm komşuluklar sıfırlanır</b>. Sabit bir loopback/ID vermek bu kesintiyi önler.", label: 'Router ID', type: 'text', validate: 'ip', optional: true, placeholder: '1.1.1.1', hint: 'OSPF Router-ID (opsiyonel)' },
-                        { name: 'network', why: "ASA’da OSPF <code>network</code> satırı wildcard maske ile eşleşen arayüzlerde OSPF’i açar. Kapsamı geniş tutmak istemeden WAN arayüzünde de komşuluk kurmaya ve iç topolojinin dışarı sızmasına yol açar.", label: 'Network', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.0', hint: 'OSPF duyurulacak ağ' },
-                        { name: 'wildcard', why: "OSPF wildcard maskesi normal subnet maskesinin tersidir (255.255.255.0 → 0.0.0.255). Subnet maskesi yazmak komşuluk kurulmamasının klasik nedenidir.", label: 'Wildcard Mask', type: 'text', validate: 'wildcard', required: true, placeholder: '0.0.0.255', hint: 'Ters subnet maskesi' },
+                        { name: 'network', why: "ASA’da OSPF <code>network</code> satırı adres + <b>subnet maskesi</b> ile eşleşen arayüzlerde OSPF’i açar. Kapsamı geniş tutmak istemeden WAN arayüzünde de komşuluk kurmaya ve iç topolojinin dışarı sızmasına yol açar.", label: 'Network', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.0', hint: 'OSPF duyurulacak ağ' },
+                        { name: 'wildcard', why: "ASA, IOS’tan farklı olarak <code>network</code> komutunda wildcard değil <b>subnet maskesi</b> ister (<code>network 10.0.0.0 255.0.0.0 area 0</code>). IOS alışkanlığıyla 0.0.0.255 yazılırsa satır üretilmez.", label: 'Subnet Mask', type: 'text', validate: 'asa_ospf_mask', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (wildcard değil)' },
                         { name: 'area', why: "Komşu arayüzler aynı area’da olmalıdır; area uyuşmazlığında hello paketleri gelir ama komşuluk <b>ExStart</b>’ta takılır. Backbone dışı area’lar area 0’a bağlanmak zorundadır.", label: 'Area', type: 'text', validate: 'ospf_area', required: true, placeholder: '0', hint: 'OSPF area numarası' }
                     ]
                 },
@@ -760,7 +760,8 @@ function cgAsaOspfGen(data) {
     let c = '! ========================================\n! Cisco ASA — OSPF Configuration\n! ========================================\n\n';
     c += 'router ospf ' + pid + '\n';
     if (rid) c += ' router-id ' + rid + '\n';
-    c += ' network ' + network + ' ' + wc + ' area ' + area + '\n';
+    if (wc) c += ' network ' + network + ' ' + wc + ' area ' + area + '\n';
+    else c += ' ! UYARI: network satırı üretilmedi — ASA subnet maskesi ister, ör. 255.255.255.0 (wildcard 0.0.0.255 değil)\n';
     c += ' log-adj-changes\n!\n\n';
     if (cost) {
         c += '! OSPF Interface Parameters\ninterface ' + iface + '\n ospf cost ' + cost + '\n ospf hello-interval 10\n ospf dead-interval 40\n!\n\n';
