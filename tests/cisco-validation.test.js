@@ -105,6 +105,44 @@ const badBgpNetwork = bgpAf.generateFn({
 assert.ok(badBgpNetwork.warnings.length > 0, 'BGP network host bitleri açıkken uyarı üretilmeli');
 assert.ok(!badBgpNetwork.config.includes('network 198.51.100.7'), 'Host bitli BGP network satırı config çıktısına girmemeli');
 
+// ── Cisco düzeltme partisi (fix5): BGP AF+VRF, prefix-list ge, EIGRP named network, ios_acl, archive_path ──
+{
+    const G = (n, d) => { const r = captured[Object.keys(generators).indexOf(n)].generateFn(d); return typeof r === 'string' ? { config: r, warnings: [] } : r; };
+    // 1. BGP AF + VRF: remote-as VRF AF içinde (cisco.ios test_ios_bgp_address_family fixture'ı).
+    const bgpBase = { _cgtype: 'ipv4', baf_as: '65000', baf_peer: '192.0.2.2', baf_remote_as: '65001', baf_network: '198.51.100.0', baf_mask: '255.255.255.0' };
+    const vrfAf = G('bgpAddressFamily', Object.assign({}, bgpBase, { baf_vrf: 'CUSTOMER_A' })).config;
+    assert.ok(vrfAf.includes('router bgp 65000\n address-family ipv4 unicast vrf CUSTOMER_A\n  neighbor 192.0.2.2 remote-as 65001\n  neighbor 192.0.2.2 activate\n'), 'VRF komşusu AF içinde remote-as almalı');
+    assert.ok(!/^ neighbor 192\.0\.2\.2 remote-as/m.test(vrfAf), 'VRF komşusu global bağlamda remote-as almamalı');
+    assert.ok(vrfAf.includes('show ip bgp vpnv4 vrf CUSTOMER_A summary') && !vrfAf.includes('show bgp ipv4 unicast summary'), 'VRF doğrulama komutu VRF içermeli');
+    const glAf = G('bgpAddressFamily', bgpBase).config;
+    assert.ok(glAf.includes('router bgp 65000\n neighbor 192.0.2.2 remote-as 65001\n address-family ipv4 unicast\n  neighbor 192.0.2.2 activate\n'), 'Global AF çıktısı değişmemeli');
+    assert.ok(glAf.includes('! show bgp ipv4 unicast summary\n'), 'Global doğrulama değişmemeli');
+    // 2. Prefix-list: uzunluk < ge ≤ le ≤ 32.
+    const pl = (ge, le) => G('prefixList', { _cgtype: 'ipv4', pl_name: 'PL-T', pl_seq: '10', pl_action: 'permit', pl_prefix: '192.0.2.0/24', pl_ge: ge, pl_le: le, pl_desc: '' });
+    for (const [ge, le] of [['24', ''], ['24', '32'], ['33', ''], ['26', '25']]) {
+        const r = pl(ge, le);
+        assert.ok(r.warnings.length > 0 && !r.config.includes('seq 10'), 'prefix-list ge ' + ge + ' le ' + le + ' reddedilmeli');
+    }
+    for (const [ge, le, line] of [['25', '', ' ge 25\n'], ['25', '32', ' ge 25 le 32\n'], ['32', '32', ' ge 32 le 32\n'], ['', '28', ' le 28\n'], ['', '', '\n']]) {
+        const r = pl(ge, le);
+        assert.ok(!r.warnings.length && r.config.includes('seq 10 permit 192.0.2.0/24' + line), 'prefix-list ge ' + ge + ' le ' + le + ' kabul edilmeli');
+    }
+    // 3. EIGRP named: CIDR → wildcard; düz adres aynen.
+    const eg = net => G('eigrpnamed', { _cgtype: 'eigrpnamed', proc_name: 'CORP', asn: '100', router_id: '192.0.2.1', network: net, af_iface: 'GigabitEthernet0/0' }).config;
+    assert.ok(eg('10.1.0.0/24').includes('  network 10.1.0.0 0.0.0.255\n'), 'EIGRP /24 wildcard');
+    assert.ok(eg('10.0.0.0/8').includes('  network 10.0.0.0 0.255.255.255\n'), 'EIGRP /8 wildcard');
+    assert.ok(eg('192.0.2.1/32').includes('  network 192.0.2.1 0.0.0.0\n'), 'EIGRP /32 wildcard');
+    assert.ok(eg('0.0.0.0/0').includes('  network 0.0.0.0 255.255.255.255\n'), 'EIGRP /0 wildcard');
+    assert.ok(eg('10.0.0.0').includes('  network 10.0.0.0\n') && !eg('10.1.0.0/24').includes('/24'), 'EIGRP düz adres aynen, CIDR ham yazılmaz');
+    // 4. ios_acl: 1300-1999 standart, 2000-2699 genişletilmiş (Cisco-IOS-XE-types std/ext-acl-type).
+    for (const v of ['1', '99', '100', '199', '1300', '1999', '2000', '2699', 'ACL_WEB']) assert.strictEqual(valid('ios_acl', v), true, 'ios_acl ' + v);
+    for (const v of ['0', '200', '1299', '2700', '9999']) assert.strictEqual(valid('ios_acl', v), false, 'ios_acl ' + v);
+    // 5. archive_path: ftp/http/https/rcp/disk0 (Cisco Configuration Versioning).
+    for (const v of ['flash:archive-$h', 'bootflash:a', 'nvram:a', 'disk0:archive-$h-$t', 'scp://u@192.0.2.30/y/$h', 'tftp://192.0.2.30/$h', 'ftp://u:p@192.0.2.30/y/$h', 'http://192.0.2.30/y/$h', 'https://192.0.2.30/y/$h', 'rcp://u@192.0.2.30/y/$h']) assert.strictEqual(valid('archive_path', v), true, 'archive_path ' + v);
+    for (const v of ['usb0:a', 'ftp:/a', 'disk0: a', 'gopher://x/a', 'archive']) assert.strictEqual(valid('archive_path', v), false, 'archive_path ' + v);
+    console.log('OK: Cisco fix5 (BGP AF VRF, prefix-list ge, EIGRP wildcard, ios_acl, archive_path) geçti.');
+}
+
 // ── EVPN / VXLAN (cisco.ios ios_evpn_* + ios_vxlan_vtep; IOS XE 17.11 YANG sınırları) ──
 // vm bağlamındaki diziler farklı realm'dedir; yapısal karşılaştırma JSON ile.
 const same = (a, b, m) => assert.strictEqual(JSON.stringify(a), JSON.stringify(b), m);

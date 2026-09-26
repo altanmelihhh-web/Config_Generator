@@ -56,14 +56,14 @@ const CG_VALIDATORS = {
     nameif:   { re: /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/, msg: 'Nameif girin (örn: outside, inside, dmz)' },
     // Genel nesne adi (VRF, VLAN adi, grup, profil): harfle baslar, bosluk yok.
     objname:  { re: /^[A-Za-z][A-Za-z0-9_.:-]{0,62}$/, msg: 'Geçerli bir ad girin (harfle başlar, boşluk içermez)' },
-    ios_acl:  { fn: v => /^(?:[1-9]|[1-9]\d|1[0-9]{2}|2[0-6]\d{2}|[A-Za-z][A-Za-z0-9_.:-]{0,62})$/.test(String(v).trim()), msg: 'ACL numarası (1-199/2000-2699) veya harfle başlayan ACL adı girin' },
+    ios_acl:  { fn: v => /^(?:[1-9]|[1-9]\d|1[0-9]{2}|1[3-9]\d{2}|2[0-6]\d{2}|[A-Za-z][A-Za-z0-9_.:-]{0,62})$/.test(String(v).trim()), msg: 'ACL numarası (1-199/1300-2699) veya harfle başlayan ACL adı girin' },
     // SNMPv3 USM auth/priv passphrase için Cisco'nun belgelediği asgari uzunluk.
     // Genel PSK/TACACS/NTP sırlarına uygulanmaz; bu sınırlar sürüme/komuta göre değişir.
     snmpv3_secret:{ fn: v => String(v).length >= 8, msg: 'SNMPv3 parolası en az 8 karakter olmalı' },
     ios_domain:{ fn: v => { const t=String(v).trim(); return t.length <= 253 && t.includes('.') && t.split('.').every(x => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(x)); }, msg: 'Geçerli tam domain adı girin (örn: example.com)' },
     ios_proto_list:{ fn: v => String(v).split(',').map(x=>x.trim().toLowerCase()).filter(Boolean).every(x => ['tcp','udp','icmp','ftp','http','https','dns','smtp','sip','h323'].includes(x)), msg: 'Desteklenen protokolleri virgülle ayırın (örn: tcp,udp,icmp)' },
     isis_net: { re: /^[0-9a-fA-F]{2}(?:\.[0-9a-fA-F]{4}){3,6}\.00$/, msg: 'Geçerli IS-IS NET girin; selector .00 olmalı (örn: 49.0001.0000.0000.0001.00)' },
-    archive_path:{ fn: v => /^(?:flash:|bootflash:|nvram:|scp:\/\/|tftp:\/\/)[^\s\r\n]+$/i.test(String(v).trim()), msg: 'Geçerli flash/bootflash/nvram/scp/tftp arşiv yolu girin' },
+    archive_path:{ fn: v => /^(?:flash:|bootflash:|nvram:|disk0:|scp:\/\/|tftp:\/\/|ftp:\/\/|https?:\/\/|rcp:\/\/)[^\s\r\n]+$/i.test(String(v).trim()), msg: 'Geçerli flash/bootflash/nvram/disk0/scp/tftp/ftp/http(s)/rcp arşiv yolu girin' },
     // Bitisik ag maskesi (255.255.255.0 gibi); Cisco disi vendorlarin maske alanlari bunu
     // kullanir. 'subnet' Cisco alanlarina ozeldir (ayni kural, Cisco belgesine gore).
     // prefix'e cevrilecek alanlarda bu kullanilir — 255.0.255.0 cevrilemez.
@@ -615,7 +615,7 @@ Object.assign(CG_WHY, {
     ipv6:            _cgIpv6Why,
     ipv6_cidr:       _cgIpv6CidrWhy,
     ios_acl:         t => (!t || CG_VALIDATORS.ios_acl.fn(t) ? '' : /\s/.test(t) ? 'ACL adı boşluk içeremez'
-                         : /^\d+$/.test(t) ? t + ' IP ACL numarası değil (1-199 veya 2000-2699)' : /^\d/.test(t) ? 'ACL adı harfle başlamalı' : 'yalnızca harf, rakam, _ . : - kullanılır'),
+                         : /^\d+$/.test(t) ? t + ' IP ACL numarası değil (1-199, 1300-1999 veya 2000-2699)' : /^\d/.test(t) ? 'ACL adı harfle başlamalı' : 'yalnızca harf, rakam, _ . : - kullanılır'),
     snmpv3_secret:   t => (String(t).length >= 8 ? '' : String(t).length + ' karakter girdiniz, en az 8 olmalı'),
     ios_domain:      t => (!t || CG_VALIDATORS.ios_domain.fn(t) ? '' : t.length > 253 ? t.length + ' karakter girdiniz, en fazla 253'
                          : t.indexOf('.') < 0 ? 'tam domain adı en az bir nokta içerir (örn: example.com)'
@@ -627,7 +627,7 @@ Object.assign(CG_WHY, {
     isis_net:        t => (!t || CG_VALIDATORS.isis_net.re.test(t) ? '' : /[^0-9a-fA-F.]/.test(t) ? 'yalnızca onaltılık rakam ve nokta kullanılır'
                          : !/\.00$/.test(t) ? 'NET, NSEL = 00 ile bitmeli (.00)' : 'alan kimliği + 3 dörtlü system-id + .00 biçiminde olmalı'),
     archive_path:    t => (!t || CG_VALIDATORS.archive_path.fn(t) ? '' : /\s/.test(t) ? 'yol boşluk içeremez'
-                         : 'yol flash:, bootflash:, nvram:, scp:// veya tftp:// ile başlamalı'),
+                         : 'yol flash:, bootflash:, nvram:, disk0:, scp://, tftp://, ftp://, http(s):// veya rcp:// ile başlamalı'),
     track_id:        t => _cgNumWhy(t, 1, 1000),
     ip_sla_id:       t => _cgNumWhy(t, 1, 2147483647),
     ospf_pid:        t => _cgNumWhy(t, 1, 65535),
@@ -660,12 +660,12 @@ Object.assign(CG_RULES, {
     subnet:          'Bitişik ağ maskesi, noktalı dörtlü: 255.255.255.0 olur, 255.0.255.0 olmaz. Ağ adresi (10.0.0.0) bu alana yazılmaz.',
     ipv6:            'IPv6 adresi: en fazla 8 onaltılık grup, "::" yalnızca bir kez. Önek (/64) yazılmaz. Örn: 2001:db8::1',
     ipv6_cidr:       'IPv6 adres/önek, önek 0–128 zorunlu. Örn: 2001:db8::/32',
-    ios_acl:         'IP ACL numarası 1–199 veya 2000–2699 ya da harfle başlayan, boşluksuz ACL adı.',
+    ios_acl:         'IP ACL numarası 1–199 (standart 1–99, genişletilmiş 100–199), 1300–1999 (standart), 2000–2699 (genişletilmiş) ya da harfle başlayan, boşluksuz ACL adı.',
     snmpv3_secret:   'SNMPv3 auth/priv parolası: en az 8 karakter (Cisco USM alt sınırı).',
     ios_domain:      'Tam domain adı: en az bir nokta, etiketler harf/rakam/tire (tireyle başlamaz/bitmez), toplam en fazla 253 karakter. Örn: example.com',
     ios_proto_list:  'Virgülle ayrılmış protokoller: tcp, udp, icmp, ftp, http, https, dns, smtp, sip, h323.',
     isis_net:        'IS-IS NET: alan kimliği + system-id (3 dörtlü) + NSEL .00 — örn: 49.0001.0000.0000.0001.00',
-    archive_path:    'flash:, bootflash:, nvram:, scp:// veya tftp:// ile başlayan, boşluksuz yol.',
+    archive_path:    'flash:, bootflash:, nvram:, disk0:, scp://, tftp://, ftp://, http://, https:// veya rcp:// ile başlayan, boşluksuz yol.',
     track_id:        'Track nesne numarası, tam sayı 1–1000.',
     ip_sla_id:       'IP SLA operasyon numarası, tam sayı 1–2147483647.',
     ospf_pid:        'OSPF process ID, tam sayı 1–65535 (yerel anlamlıdır, komşuyla eşleşmesi gerekmez).',

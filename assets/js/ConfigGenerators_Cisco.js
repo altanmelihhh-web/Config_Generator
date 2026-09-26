@@ -168,7 +168,7 @@ CiscoIOS.acl = {
                     icon: 'fas fa-id-card',
                     showFor: ['standard', 'extended', 'named'],
                     fields: [
-                        { name: 'acl_name', why: "Numaralı ACL'lerde aralık anlamı taşır: 1-99 standart, 100-199 genişletilmiş. <b>İsimli ACL kullan</b> — sonradan araya satır ekleyebilirsin, numaralıda ACL'i silip baştan yazman gerekir.", label: 'ACL Ad / Numara', type: 'text', validate: 'ios_acl', required: true, placeholder: 'ACL_PERMIT_WEB', hint: 'Standard: 1-99, Extended: 100-199, Named: harfle başlayan metin isim' }
+                        { name: 'acl_name', why: "Numaralı ACL'lerde aralık anlamı taşır: 1-99 standart, 100-199 genişletilmiş. <b>İsimli ACL kullan</b> — sonradan araya satır ekleyebilirsin, numaralıda ACL'i silip baştan yazman gerekir.", label: 'ACL Ad / Numara', type: 'text', validate: 'ios_acl', required: true, placeholder: 'ACL_PERMIT_WEB', hint: 'Standard: 1-99/1300-1999, Extended: 100-199/2000-2699, Named: harfle başlayan metin isim' }
                     ]
                 },
                 {
@@ -2065,7 +2065,7 @@ CiscoIOS.eigrpnamed = {
                         { name: 'proc_name', why: "Named mode'da proses adı <b>yereldir</b>; komşuyla eşleşmesi gereken AS numarasıdır. Adı sonradan değiştirmek tüm alt yapılandırmayı baştan yazmayı gerektirir.", label: 'Proses Adı', type: 'text', validate: 'objname', required: true, placeholder: 'CORP', hint: 'EIGRP named process adı' },
                         { name: 'asn', why: "EIGRP AS numarası komşularla <b>birebir</b> aynı olmalı. Farklıysa komşuluk hiç kurulmaz ve log'da bariz bir hata görmezsin — bu yüzden önce AS'i doğrula.",          label: 'AS Numarası',                  type: 'text', validate: 'asn',   required: true,  placeholder: '100',              hint: 'Autonomous System numarası' },
                         { name: 'router_id', why: "Router-ID benzersiz olmalı. Çakışan ID, harici rotaların sessizce yok sayılmasına yol açar — en zor teşhis edilen EIGRP arızalarından biridir.",    label: 'Router-ID',                    type: 'text', validate: 'ip',   required: true,  placeholder: '1.1.1.1',          hint: 'EIGRP router-id' },
-                        { name: 'network', why: "Named mode'da <code>network</code> yine wildcard maske ister ve hangi arayüzlerin EIGRP'e katılacağını belirler. Fazla geniş yazmak WAN arayüzünü de komşuluğa açar.", label: 'Network', type: 'text', validate: 'ip_cidr', required: true, placeholder: '10.0.0.0', hint: 'IPv4 veya CIDR network' },
+                        { name: 'network', why: "Named mode'da <code>network</code> yine wildcard maske ister ve hangi arayüzlerin EIGRP'e katılacağını belirler. Fazla geniş yazmak WAN arayüzünü de komşuluğa açar.", label: 'Network', type: 'text', validate: 'ip_cidr', required: true, placeholder: '10.0.0.0', hint: 'IPv4 veya CIDR network; CIDR girilirse wildcard maskeye çevrilir (10.0.0.0/24 → 10.0.0.0 0.0.0.255)' },
                         { name: 'af_iface', why: "Named mode'da arayüz ayarları <code>af-interface</code> altında yapılır; klasik mode komutları buraya işlemez. <code>af-interface default</code> ile başlayıp istisnaları ayrı yazmak daha güvenlidir.",     label: 'AF Interface',                 type: 'text', validate: 'iface',   required: true,  placeholder: 'GigabitEthernet0/0',hint: 'Auth + hello ayarları için' },
                         { name: 'hello', why: "EIGRP hello değeri komşuyla eşleşmek <b>zorunda değildir</b>, bu yüzden hata sessizdir: bir tarafta hello'yu kısaltıp diğerinde bırakmak tespit süresini asimetrik yapar.",        label: 'Hello Interval (sn)',          type: 'text',   required: false, placeholder: '5',                hint: 'Hello timer (varsayılan: 5)' },
                         { name: 'hold', why: "Hello'yu değiştirip hold'u güncellemeyi unutmak klasik EIGRP hatasıdır: komşuluk düzenli aralıklarla düşüp geri gelir ve nedeni geç bulunur.",         label: 'Hold Time (sn)',               type: 'text',   required: false, placeholder: '15',               hint: 'Hold-time (varsayılan: 15)' },
@@ -2079,7 +2079,11 @@ CiscoIOS.eigrpnamed = {
         cgFormBuilder(container, schema, (data) => {
             const fv = n => cgEsc((data[n] || '').trim());
             const name = fv('proc_name'), asn = fv('asn'), rid = fv('router_id');
-            const network = fv('network'), afIface = fv('af_iface');
+            // IOS `network ip-address [wildcard-mask]` CIDR kabul etmez: /n → wildcard.
+            const netRaw = fv('network'), afIface = fv('af_iface');
+            const netM = /^(\S+)\/(\d+)$/.exec(netRaw);
+            const wcN = netM ? Math.pow(2, 32 - (+netM[2])) - 1 : 0;
+            const network = netM ? netM[1] + ' ' + [24, 16, 8, 0].map(sh => Math.floor(wcN / Math.pow(2, sh)) % 256).join('.') : netRaw;
             const hello = fv('hello') || '5', hold = fv('hold') || '15';
             const authKey = fv('auth_key'), redistStatic = fv('redist_static');
             let c = '! ========================================\n! Cisco IOS — EIGRP Named Mode\n! ========================================\n\n';
@@ -2931,7 +2935,7 @@ CiscoIOS.prefixList = {
             topic: {
                 icon: 'fas fa-list-ol',
                 title: 'IPv4 Prefix-List — Route Filtreleme',
-                desc: 'Prefix-list ağ adresini ve önek uzunluğunu birlikte denetler. <code>ge</code>/<code>le</code> değerleri temel prefix uzunluğundan küçük olamaz ve IPv4 için 32’yi aşamaz.'
+                desc: 'Prefix-list ağ adresini ve önek uzunluğunu birlikte denetler. <code>ge</code> temel prefix uzunluğundan büyük olmalı, <code>le</code> ondan küçük olamaz; kural uzunluk &lt; ge ≤ le ≤ 32.'
             },
             configTypes: [{ id: 'ipv4', label: 'IPv4 Prefix-List', icon: 'fas fa-route', desc: 'IOS ip prefix-list girdisi', badge: { text: 'Routing', cls: 'recommended' } }],
             sections: [{
@@ -2941,7 +2945,7 @@ CiscoIOS.prefixList = {
                     { name: 'pl_seq', label: 'Sequence', type: 'text', validate: 'posint', required: true, value: '10', placeholder: '10' },
                     { name: 'pl_action', label: 'Aksiyon', type: 'select', required: true, options: [{ value: 'permit', label: 'permit' }, { value: 'deny', label: 'deny' }] },
                     { name: 'pl_prefix', label: 'IPv4 Prefix', type: 'text', validate: 'cidr', required: true, placeholder: '192.0.2.0/24' },
-                    { name: 'pl_ge', label: 'ge (Minimum Prefix)', type: 'number', min: 0, max: 32, placeholder: '24', hint: 'Opsiyonel; temel prefix uzunluğundan küçük olamaz' },
+                    { name: 'pl_ge', label: 'ge (Minimum Prefix)', type: 'number', min: 0, max: 32, placeholder: '25', hint: 'Opsiyonel; temel prefix uzunluğundan büyük olmalı (uzunluk < ge ≤ le ≤ 32)' },
                     { name: 'pl_le', label: 'le (Maksimum Prefix)', type: 'number', min: 0, max: 32, placeholder: '32', hint: 'Opsiyonel; ge değerinden küçük olamaz' },
                     { name: 'pl_desc', label: 'Açıklama', type: 'text', placeholder: 'Kurumsal rotalar', hint: 'Opsiyonel description satırı' }
                 ]
@@ -2951,7 +2955,8 @@ CiscoIOS.prefixList = {
             const f = n => String(data[n] == null ? '' : data[n]).trim();
             const base = +(f('pl_prefix').split('/')[1] || 0), ge = f('pl_ge'), le = f('pl_le');
             const warnings = [];
-            if (ge && +ge < base) warnings.push('⛔ ge değeri temel prefix /' + base + ' değerinden küçük olamaz; satır üretilmedi.');
+            if (ge && +ge <= base) warnings.push('⛔ ge değeri temel prefix /' + base + ' değerinden büyük olmalı (uzunluk < ge ≤ le ≤ 32); satır üretilmedi.');
+            if ((ge && +ge > 32) || (le && +le > 32)) warnings.push('⛔ ge/le değeri 32’yi aşamaz; satır üretilmedi.');
             if (le && +le < base) warnings.push('⛔ le değeri temel prefix /' + base + ' değerinden küçük olamaz; satır üretilmedi.');
             if (ge && le && +ge > +le) warnings.push('⛔ ge değeri le değerinden büyük olamaz; satır üretilmedi.');
             let c = '! ========================================\n! Cisco IOS IPv4 Prefix-List\n! ========================================\n\n';
@@ -3097,14 +3102,18 @@ CiscoIOS.bgpAddressFamily = {
             const networkAligned = ((ipn & maskn) >>> 0) === (ipn >>> 0);
             const warnings = networkAligned ? [] : ['⛔ BGP network adresinde host bitleri açık; ağ adresi ve maske eşleşmeden network satırı üretilmedi.'];
             let c = '! ========================================\n! Cisco IOS BGP Address-Family\n! ========================================\n\n';
-            c += 'router bgp ' + f('baf_as') + '\n neighbor ' + f('baf_peer') + ' remote-as ' + f('baf_remote_as') + '\n ' + af + '\n';
+            // VRF komşusu VRF address-family içinde tanımlanır (cisco.ios bgp_address_family fixture'ı).
+            const vrf = f('baf_vrf');
+            if (vrf) c += 'router bgp ' + f('baf_as') + '\n ' + af + '\n  neighbor ' + f('baf_peer') + ' remote-as ' + f('baf_remote_as') + '\n';
+            else c += 'router bgp ' + f('baf_as') + '\n neighbor ' + f('baf_peer') + ' remote-as ' + f('baf_remote_as') + '\n ' + af + '\n';
             c += '  neighbor ' + f('baf_peer') + ' activate\n';
             if (data.baf_next_hop_self) c += '  neighbor ' + f('baf_peer') + ' next-hop-self\n';
             if (f('baf_in_map')) c += '  neighbor ' + f('baf_peer') + ' route-map ' + f('baf_in_map') + ' in\n';
             if (f('baf_out_map')) c += '  neighbor ' + f('baf_peer') + ' route-map ' + f('baf_out_map') + ' out\n';
             if (networkAligned) c += '  network ' + f('baf_network') + ' mask ' + f('baf_mask') + '\n';
             if (f('baf_max_paths')) c += '  maximum-paths ' + f('baf_max_paths') + '\n';
-            c += ' exit-address-family\n!\n! Doğrulama:\n! show bgp ipv4 unicast summary\n! show bgp ipv4 unicast neighbors ' + f('baf_peer') + ' advertised-routes\n';
+            if (vrf) c += ' exit-address-family\n!\n! Doğrulama:\n! show ip bgp vpnv4 vrf ' + vrf + ' summary\n! show ip bgp vpnv4 vrf ' + vrf + ' neighbors ' + f('baf_peer') + ' advertised-routes\n';
+            else c += ' exit-address-family\n!\n! Doğrulama:\n! show bgp ipv4 unicast summary\n! show bgp ipv4 unicast neighbors ' + f('baf_peer') + ' advertised-routes\n';
             return { config: c, warnings };
         });
     }

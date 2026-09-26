@@ -162,6 +162,16 @@ Kalan Config Generator işleri, öncelik sırasıyla:
 8. Her aile için boş, geçerli, geçersiz ve koşullu alan testlerini tamamlama;
    tarayıcıda masaüstü/mobil regresyon.
 
+### Cisco düzeltme partisi (fix5)
+
+- `bgpAddressFamily`: VRF girilince `neighbor X remote-as` VRF address-family içinde
+  (`test_ios_bgp_address_family.py`, `address-family ipv4 unicast vrf blue`); doğrulama
+  `show ip bgp vpnv4 vrf V ...`. VRF'siz çıktı değişmedi.
+- `prefixList`: `uzunluk < ge ≤ le ≤ 32` (Cisco `ip prefix-list` komut referansı); ihlalde satır yok + uyarı.
+- `eigrpnamed`: CIDR girişi `network A.B.C.D wildcard` olarak yazılır (IOS `network ip-address [wildcard-mask]`).
+- `ios_acl`: 1300–1999 standart, 2000–2699 genişletilmiş (Cisco-IOS-XE-types `std/ext-acl-type`).
+- `archive_path`: ek şemalar `ftp://`, `http(s)://`, `rcp://`, `disk0:` (Configuration Versioning).
+
 Config Generator tamamlandıktan sonraki aşamalar:
 
 1. Ansible `parsed`/`rendered` fixture çiftlerini Converter reader → IR → writer
