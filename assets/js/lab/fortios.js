@@ -336,7 +336,9 @@ const CgLabFgt = (() => {
             vcluster: { t: 'enum', v: ['vcluster1', 'vcluster2'], def: 'vcluster1', quietDef: true, d: 'Sanal küme' } } },
         // M19 — CLI Ref 7.4.8 config system sdwan (838040159); tanılama biçimleri: 7.4.4 Admin Guide "SD-WAN related diagnose commands"
         'system sdwan': { single: true, children: ['zone', 'members', 'health-check', 'service'], attrs: {
-            status: { t: 'enum', v: ED, def: 'disable', d: 'SD-WAN' } } },
+            status: { t: 'enum', v: ED, def: 'disable', d: 'SD-WAN' },
+            // CLI Ref 7.4.8: örtük kural için dağıtım (varsayılan source-ip-based)
+            'load-balance-mode': { t: 'enum', v: ['source-ip-based', 'weight-based', 'usage-based', 'source-dest-ip-based', 'measured-volume-based'], def: 'source-ip-based', d: 'Kural dışı trafiğin üyelere dağıtımı' } } },
         'system sdwan zone': { key: 'name', parent: 'system sdwan', sub: 'zone', attrs: {} },
         'system sdwan members': { key: 'seq-num', num: true, parent: 'system sdwan', sub: 'members', req: ['interface'], attrs: {
             interface: { t: 'ref', ds: 'physIntf', d: 'Üye arayüz' },
@@ -344,6 +346,7 @@ const CgLabFgt = (() => {
             gateway: { t: 'ip', def: '0.0.0.0', d: 'Ağ geçidi' },
             cost: { t: 'int', min: 0, max: 4294967295, def: 0, d: 'SLA modunda maliyet' },
             priority: { t: 'int', min: 1, max: 65535, def: 1, d: 'Öncelik' },
+            weight: { t: 'int', min: 1, max: 255, def: 1, d: 'Ağırlık (weight-based dağıtım)' },
             status: { t: 'enum', v: ED, def: 'enable', d: 'Durum' } } },
         'system sdwan health-check': { key: 'name', parent: 'system sdwan', sub: 'health-check', children: ['sla'], attrs: {
             server: { t: 'str', max: 255, d: 'Ölçüm sunucusu' },
@@ -362,7 +365,10 @@ const CgLabFgt = (() => {
             dst: { t: 'refs', ds: 'addr', d: 'Hedef adres' }, src: { t: 'refs', ds: 'addr', d: 'Kaynak adres' },
             'health-check': { t: 'refs', ds: 'sdwanHc', when: o => o.mode === 'priority' || o.mode === 'auto', d: 'Ölçüm (priority/auto)' },
             'link-cost-factor': { t: 'enum', v: ['latency', 'jitter', 'packet-loss'], def: 'latency', when: o => o.mode === 'priority' || o.mode === 'auto', d: 'Kalite ölçütü' },
-            'priority-members': { t: 'ints', max: 4294967295, d: 'Üye sırası (seq-num)' } } },
+            'priority-members': { t: 'ints', max: 4294967295, d: 'Üye sırası (seq-num)' },
+            // CLI Ref 7.4.8: load-balance (sla/priority kurallarında uygun üyeler arasında dağıtım), hash-mode varsayılan round-robin
+            'load-balance': { t: 'enum', v: ED, def: 'disable', when: o => o.mode === 'sla' || o.mode === 'priority', d: 'Uygun üyeler arasında yük dağıt' },
+            'hash-mode': { t: 'enum', v: ['round-robin', 'source-ip-based', 'source-dest-ip-based', 'inbandwidth', 'outbandwidth', 'bibandwidth'], def: 'round-robin', when: o => o['load-balance'] === 'enable', d: 'Dağıtım yöntemi' } } },
         'system sdwan service sla': { key: 'health-check', parent: 'system sdwan service', sub: 'sla', attrs: {
             id: { t: 'int', min: 1, max: 255, d: 'Ölçümdeki SLA kimliği (yazılmazsa 1)' } } },
         // M20 — CLI Ref 7.4.8 config router policy (796289482)
@@ -388,10 +394,13 @@ const CgLabFgt = (() => {
             interface: { t: 'ref', ds: 'intf', d: 'Arayüz' }, cost: { t: 'int', min: 0, max: 65535, def: 0, d: 'Maliyet (0 = otomatik)' },
             'hello-interval': { t: 'int', min: 1, max: 65535, def: 10, d: 'Hello (sn)' }, 'dead-interval': { t: 'int', min: 1, max: 65535, def: 40, d: 'Dead (sn)' },
             'mtu-ignore': { t: 'enum', v: ED, def: 'disable', d: 'MTU uyuşmazlığını yok say' },
-            'network-type': { t: 'enum', v: ['broadcast', 'non-broadcast', 'point-to-point', 'point-to-multipoint'], def: 'broadcast', d: 'Ağ tipi' } } },
+            'network-type': { t: 'enum', v: ['broadcast', 'non-broadcast', 'point-to-point', 'point-to-multipoint'], def: 'broadcast', d: 'Ağ tipi' },
+            priority: { t: 'int', min: 0, max: 255, def: 1, d: 'DR seçim önceliği (0 = DR/BDR olamaz)' } } },
         'router ospf redistribute': { key: 'name', parent: 'router ospf', sub: 'redistribute', attrs: { status: { t: 'enum', v: ED, def: 'disable', d: 'Yeniden dağıt' } } },
         'router bgp': { single: true, children: ['neighbor', 'network', 'redistribute'], attrs: {
-            as: { t: 'str', max: 11, d: 'Yerel AS (0 = kapalı)' }, 'router-id': { t: 'ip', def: '0.0.0.0', d: 'BGP router ID' } } },
+            as: { t: 'str', max: 11, d: 'Yerel AS (0 = kapalı)' }, 'router-id': { t: 'ip', def: '0.0.0.0', d: 'BGP router ID' },
+            // CLI Ref 7.4.8 router bgp: network-import-check varsayılan enable — network yalnız RIB'de varsa duyurulur
+            'network-import-check': { t: 'enum', v: ED, def: 'enable', d: 'Duyurulacak ağ rota tablosunda olmalı' } } },
         'router bgp neighbor': { key: 'ip', parent: 'router bgp', sub: 'neighbor', req: ['remote-as'], attrs: {
             'remote-as': { t: 'str', max: 11, d: 'Komşu AS' }, description: { t: 'str', max: 63, d: 'Açıklama' },
             password: { t: 'secret', d: 'MD5 parolası (iki uçta aynı)' }, 'ebgp-enforce-multihop': { t: 'enum', v: ED, def: 'disable', d: 'Doğrudan bağlı olmayan eBGP komşusu' },
@@ -1230,8 +1239,12 @@ const CgLabFgt = (() => {
                 if ((nets.v[nk].area || '0.0.0.0') !== (pr.area || '0.0.0.0')) { R.push({ pr, state: null, why: 'area' }); continue; }
                 const ik = oif.o.find(k => (oif.v[k].interface || k) === pr.intf), oi = ik !== undefined ? oif.v[ik] : {};
                 if (+(oi['hello-interval'] || 10) !== +(pr.hello || 10) || +(oi['dead-interval'] || 40) !== +(pr.dead || 40)) { R.push({ pr, state: null, why: 'hello' }); continue; }
+                // Parti 8 — durum geçişleri (sadeleştirilmiş): karşı uç bizi görmüyorsa Init; iki taraf da DROther ise 2-Way; MTU → ExStart
+                if (pr.oneWay) { R.push({ pr, state: 'Init', why: 'oneway' }); continue; }
                 if (pr.mtuMismatch && (oi['mtu-ignore'] || 'disable') !== 'enable') { R.push({ pr, state: 'ExStart', why: 'mtu' }); continue; }
-                R.push({ pr, state: 'Full', cost: +(oi.cost || 10) });
+                const bcast = (oi['network-type'] || 'broadcast') === 'broadcast';
+                if (bcast && (pr.role || 'DR') === 'DROther' && +(oi.priority === undefined ? 1 : oi.priority) === 0) { R.push({ pr, state: '2-Way', why: 'drother' }); continue; }
+                R.push({ pr, state: 'Full', cost: +(oi.cost || 10), p2p: !bcast });
             }
             return R;
         }
@@ -1306,8 +1319,11 @@ const CgLabFgt = (() => {
                     const val = m => { const s0 = hc && hcStates(hc).find(x => x.seq === m.seq); const L = s0 ? s0.L : linkQ(m.interface); return fac === 'jitter' ? L.jitter : fac === 'packet-loss' ? L.loss : L.latency; };
                     cand = order.map(m => ({ m, ok: m.alive, v: val(m) })).sort((a, b) => (b.ok - a.ok) || a.v - b.v);
                 }
-                const pick = cand.find(x => x.ok);
-                return { id, name: sv.name || '', mode, cand, seq: pick && pick.m.seq, iface: pick && pick.m.interface, gw: pick && pick.m.gateway, none: !pick };
+                let pick = cand.find(x => x.ok);
+                // Parti 8 — load-balance: uygun (selected) üyeler arasında hash-mode'a göre dağıtım (bant genişliği modları sadeleştirildi: ilk uygun üye)
+                const lb = (mode === 'sla' || mode === 'priority') && sv['load-balance'] === 'enable', hm = sv['hash-mode'] || 'round-robin';
+                if (lb) { const ok2 = cand.filter(x => x.ok); if (ok2.length > 1) { const hsh = hm === 'source-ip-based' ? ip2n(f.src || '0.0.0.0') : hm === 'source-dest-ip-based' ? ip2n(f.src || '0.0.0.0') + ip2n(dst || '0.0.0.0') : hm === 'round-robin' ? ip2n(f.src || '0.0.0.0') + (+f.sport || 0) : 0; pick = ok2[hsh % ok2.length]; } }
+                return { id, name: sv.name || '', mode, lb, hm, cand, seq: pick && pick.m.seq, iface: pick && pick.m.interface, gw: pick && pick.m.gateway, none: !pick };
             }
             return null;
         }
@@ -1371,7 +1387,13 @@ const CgLabFgt = (() => {
             const all = rib().filter(x => x.len === 0 || sameNet(x.net, r.dst, x.len)).sort((a, b) => b.len - a.len);
             let rt = all[0];
             // SD-WAN ECMP (hizmet kuralı yok): kaynak IP'ye göre üye seçimi (varsayılan source-ip-based)
-            if (rt && rt.sdwan) { const eq = all.filter(x => x.sdwan && x.len === rt.len && x.net === rt.net); rt = eq[ip2n(f.src) % eq.length]; }
+            if (rt && rt.sdwan) {
+                const eq = all.filter(x => x.sdwan && x.len === rt.len && x.net === rt.net), lbm = M().t['system sdwan']['load-balance-mode'] || 'source-ip-based';
+                const mv = mb => +((M().t['system sdwan members'].v[sdwanMembers().find(m => m.interface === mb.dev).seq] || {}).weight || 1);
+                if (lbm === 'usage-based') rt = eq[0];   // taşma (spillover) benzetilmez: ilk üye
+                else if (lbm === 'weight-based' || lbm === 'measured-volume-based') { const tot = eq.reduce((a, x) => a + mv(x), 0); let h = ip2n(f.src) % tot; rt = eq.find(x => (h -= mv(x)) < 0) || eq[0]; }
+                else rt = eq[(lbm === 'source-dest-ip-based' ? ip2n(f.src) + ip2n(r.dst) : ip2n(f.src)) % eq.length];
+            }
             if (!rt) return Object.assign(r, { stage: 'noroute' });
             if (rt.bh) return Object.assign(r, { stage: 'blackhole', out: 'Null' });
             r.out = rt.dev; r.gw = rt.c === 'C' ? r.dst : rt.gw;
@@ -1972,7 +1994,7 @@ const CgLabFgt = (() => {
                 return L.join('\n');
             }
             if (!sdwanOn()) return '# [Simülatör] SD-WAN kapalı (config system sdwan → set status enable).';
-            if (node === 'sdmem') { log({ sdmem: true }); return sdwanMembers().map(m => 'Member(' + m.seq + '): interface: ' + m.interface + ', gateway: ' + m.gateway + ', priority: ' + m.priority + ' 1024, weight: 0').join('\n'); }
+            if (node === 'sdmem') { log({ sdmem: true }); const wb = /weight|volume/.test(M().t['system sdwan']['load-balance-mode'] || ''); return sdwanMembers().map(m => 'Member(' + m.seq + '): interface: ' + m.interface + ', gateway: ' + m.gateway + ', priority: ' + m.priority + ' 1024, weight: ' + (wb ? +((M().t['system sdwan members'].v[m.seq] || {}).weight || 1) : 0)).join('\n'); }
             if (node === 'sdhc') {
                 const args = a.map(x => x.t).filter(x => x !== 'status'), hs = M().t['system sdwan health-check'].o.filter(h => !args[0] || h === args[0]);
                 if (args[0] && !hs.length) return 'Health Check(' + args[0] + ') is not found.';
@@ -1983,9 +2005,9 @@ const CgLabFgt = (() => {
             const st = M().t['system sdwan service'], mbs = sdwanMembers(), L = [];
             st.o.forEach(id => {
                 const sv = st.v[id], mode = sv.mode || 'manual', P = sdwanPickById(id);
-                L.push('Service(' + id + '): Address Mode(IPV4) flags=0x200', 'Gen(1), TOS(0x0/0x0), Protocol(0: 1->65535), Mode(' + mode + ')' + (mode === 'sla' ? ', sla-compare-order' : (mode === 'priority' || mode === 'auto') ? ', link-cost-factor(' + (sv['link-cost-factor'] || 'latency') + '), link-cost-threshold(10), heath-check(' + ((sv['health-check'] || [])[0] || '') + ')' : ''));
+                L.push('Service(' + id + '): Address Mode(IPV4) flags=0x200', 'Gen(1), TOS(0x0/0x0), Protocol(0: 1->65535), Mode(' + (P.lb ? 'load-balance hash-mode=' + P.hm : mode) + ')' + (mode === 'sla' ? ', sla-compare-order' : (mode === 'priority' || mode === 'auto') ? ', link-cost-factor(' + (sv['link-cost-factor'] || 'latency') + '), link-cost-threshold(10), heath-check(' + ((sv['health-check'] || [])[0] || '') + ')' : ''));
                 L.push('Members(' + P.cand.length + '):');
-                P.cand.forEach((c, i) => L.push((i + 1) + ': Seq_num(' + c.m.seq + ' ' + c.m.interface + '), ' + (c.m.alive ? 'alive' : 'dead') + (mode === 'sla' ? ', sla(0x' + (c.ok && !c.fallback ? 1 : 0) + '), gid(0), cfg_order(' + i + '), cost(' + c.m.cost + ')' : (mode === 'priority' || mode === 'auto') ? ', ' + (sv['link-cost-factor'] || 'latency') + ': ' + f3(c.v) : '') + (c.ok ? ', selected' : '')));
+                P.cand.forEach((c, i) => L.push((i + 1) + ': Seq_num(' + c.m.seq + ' ' + c.m.interface + '), ' + (c.m.alive ? 'alive' : 'dead') + (P.lb ? ', sla(0x' + (c.ok && !c.fallback ? 1 : 0) + '), gid(2), num of pass(1)' : mode === 'sla' ? ', sla(0x' + (c.ok && !c.fallback ? 1 : 0) + '), gid(0), cfg_order(' + i + '), cost(' + c.m.cost + ')' : (mode === 'priority' || mode === 'auto') ? ', ' + (sv['link-cost-factor'] || 'latency') + ': ' + f3(c.v) : '') + (c.ok ? ', selected' : '')));
                 const dsts = (sv.dst || []).map(n => { const o = M().t['firewall address'].v[n]; if (!o || n === 'all') return '0.0.0.0-255.255.255.255'; if ((o.type || 'ipmask') === 'iprange') return o['start-ip'] + '-' + o['end-ip']; const [ip, m] = (o.subnet || '0.0.0.0 0.0.0.0').split(' '), l = maskLen(m), b = netOf(ip, l); return n2ip(b) + '-' + n2ip(b + 2 ** (32 - l) - 1); });
                 L.push('Dst address(' + dsts.length + '):', ...dsts.map(x => '        ' + x));
             });
@@ -2004,8 +2026,10 @@ const CgLabFgt = (() => {
         function ospfNbrOut() {
             const L = ['OSPF process 0:', 'Neighbor ID     Pri   State           Dead Time   Address         Interface'];
             const N = ospfNbrs(); log({ ospfnbr: N.map(x => x.state || x.why) });
-            N.filter(x => x.state).forEach(x => L.push(pad(x.pr.rid, 16) + pad(String(x.pr.pri === undefined ? 1 : x.pr.pri), 6) + pad(x.state + '/' + (x.state === 'Full' ? (x.pr.role || 'DR') : 'DROther'), 16) + pad('00:00:3' + (x.pr.pri || 1) % 10, 12) + pad(x.pr.ip, 16) + x.pr.intf));
+            N.filter(x => x.state).forEach(x => L.push(pad(x.pr.rid, 16) + pad(String(x.pr.pri === undefined ? 1 : x.pr.pri), 6) + pad(x.state + '/' + (x.p2p ? ' -' : x.state === 'Init' ? ' -' : x.state === 'Full' ? (x.pr.role || 'DR') : 'DROther'), 16) + pad('00:00:3' + (x.pr.pri || 1) % 10, 12) + pad(x.pr.ip, 16) + x.pr.intf));
             const hid = N.filter(x => !x.state);
+            // Açıklama yalnız yeni durumlar için (Init/2-Way); ExStart çıktısı önceki sürümle aynı kalır
+            if (N.some(x => x.why === 'oneway' || x.why === 'drother')) L.push('# [Simülatör] ' + N.filter(x => x.why === 'oneway' || x.why === 'drother').map(x => x.pr.ip + ' ' + x.state + ': ' + ({ oneway: 'karşı uç hello\'larımızı almıyor (tek yönlü)', drother: 'iki uç da DROther: broadcast ağda DROther\'lar arasında Full kurulmaz, bu normaldir' })[x.why]).join('; '));
             if (hid.length) L.push('# [Simülatör] Komşuluk kurulamayan uçlar listede görünmez: ' + hid.map(x => x.pr.ip + ' (' + ({ area: 'alan kimliği uyuşmuyor', hello: 'hello/dead aralıkları uyuşmuyor' })[x.why] + ')').join(', '));
             return L.join('\n');
         }
@@ -2017,6 +2041,26 @@ const CgLabFgt = (() => {
                 'Neighbor        V         AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd'];
             N.forEach(x => L.push(pad(x.ip, 16) + pad('4', 2) + ('' + x.n['remote-as']).padStart(9) + ' ' + String(x.st === 'Established' ? 42 : 0).padStart(7) + ' ' + String(x.st === 'Established' ? 45 : 3).padStart(7) + ' ' + String(x.st === 'Established' ? 5 : 0).padStart(8) + '    0    0 ' + pad(x.st === 'Established' ? '00:05:12' : 'never', 9) + (x.st === 'Established' ? String((x.pr.routes || []).length) : x.st)));
             L.push('', 'Total number of neighbors ' + N.length);
+            return L.join('\n');
+        }
+        // Parti 8 — get router info bgp neighbors <ip> advertised-routes (biçim: Fortinet "Verifying BGP routing on the hub")
+        function bgpAdvertised(ip) {
+            const B = M().t['router bgp'], nb = bgpNbrs().find(x => x.ip === ip);
+            if (!B.as || B.as === '0') return '# [Simülatör] BGP yapılandırılmamış.';
+            if (!nb) return '% No such neighbor or address family';
+            const nets = M().t['router bgp network'], rd = M().t['router bgp redistribute'], R = rib(true), chk = (B['network-import-check'] || 'enable') === 'enable';
+            const adv = [];
+            nets.o.forEach(k => { const [n, m] = (nets.v[k].prefix || '0.0.0.0 0.0.0.0').split(' '), l = maskLen(m), net = n2ip(netOf(n, l));
+                if (!chk || R.some(r => r.net === net && r.len === l)) adv.push({ net: net + '/' + l, origin: 'i' }); });
+            const on = x => rd.v[x] && (rd.v[x].status || 'disable') === 'enable';
+            R.filter(r => (r.c === 'C' && on('connected')) || ((r.c === 'S' || r.c === 'S*') && on('static'))).forEach(r => { const k = r.net + '/' + r.len; if (!adv.some(a => a.net === k)) adv.push({ net: k, origin: '?' }); });
+            log({ bgpadv: { ip, n: adv.length, st: nb.st } });
+            const me = nb.dev ? ifIp(nb.dev) : '0.0.0.0', ebgp = String(nb.n['remote-as']) !== String(B.as);
+            const L = ['VRF 0 BGP table version is ' + (1 + adv.length) + ', local router ID is ' + (B['router-id'] || '0.0.0.0'), 'Status codes: s suppressed, d damped, h history, * valid, > best, i - internal', 'Origin codes: i - IGP, e - EGP, ? - incomplete', '',
+                '   Network          Next Hop            Metric LocPrf Weight RouteTag Path'];
+            if (nb.st !== 'Established') L.push('# [Simülatör] Komşu ' + nb.st + ': oturum kurulmadan önek gönderilmez.');
+            else adv.forEach(a => L.push('*>' + (ebgp ? ' ' : 'i') + pad(a.net, 17) + pad(me, 20) + pad('0', 7) + pad(ebgp ? '' : '100', 7) + pad('32768', 7) + pad('0', 9) + a.origin + ' <-/1>'));
+            L.push('', 'Total number of prefixes ' + (nb.st === 'Established' ? adv.length : 0));
             return L.join('\n');
         }
         function diagCmd(t, line) {
@@ -2270,6 +2314,12 @@ const CgLabFgt = (() => {
             }
             if (v.ok === 'get') {
                 const rest = t.slice(1).map(x => x.t.toLowerCase());
+                // get router info bgp neighbors <ip> advertised-routes
+                if (rest.length === 6 && ['router', 'info', 'bgp', 'neighbors'].every((w, k) => w.startsWith(rest[k])) && rest[2].length > 1 && 'advertised-routes'.startsWith(rest[5]) && rest[5].length > 2) {
+                    if (!isIp(rest[4])) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + t[5].t + '\''; }
+                    log({ raw: line, canon: 'get router info bgp neighbors ' + rest[4] + ' advertised-routes' });
+                    return bgpAdvertised(rest[4]);
+                }
                 // get router info routing-table details [<ip>]
                 if (rest.length === 5 && ['router', 'info', 'routing-table', 'details'].every((w, k) => w.startsWith(rest[k])) && rest[3].length > 1) {
                     if (!isIp(rest[4])) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + t[5].t + '\''; }

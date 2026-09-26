@@ -3418,3 +3418,68 @@ function cgFgSnmpV2cGen(data) {
     if (!ifc) w.push('ℹ Sorgu arayüzü verilmedi: sunucunun geldiği arayüzde "allowaccess snmp" açık olmalı.');
     return { config: c, warnings: w };
 }
+
+// ── FortiGate: Merkezi yönetim — FortiManager + FortiAnalyzer — F76-G8.
+// CLI Ref 7.4.8 ve 7.6.6 (alanlar iki sürümde aynı): config system central-management (327901742: type fortimanager, fmg,
+// allow-push-configuration), config log fortianalyzer setting (269170403: status, server, upload-option, reliable, certificate-verification).
+FortiGate.fmgfaz = {
+    label: 'FortiManager + FortiAnalyzer',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-sitemap',
+                title: 'Merkezi Yönetim: FortiManager ve FortiAnalyzer (FortiGate)',
+                desc: 'FortiGate\'i FortiManager\'a (FGFM, TCP 541) ve loglarını FortiAnalyzer\'a (OFTP, TCP 514) bağlar. Bağlantı her iki tarafta cihazın yetkilendirilmesiyle (Authorize) tamamlanır.<br><code>config system central-management\n  set type fortimanager\n  set fmg "10.64.10.30"\nend\nconfig log fortianalyzer setting\n  set status enable\n  set server "10.64.10.40"\nend</code>'
+            },
+            sections: [
+                {
+                    title: 'FortiManager',
+                    icon: 'fas fa-server',
+                    fields: [
+                        { name: 'fm_ip', why: 'FortiGate bağlantıyı kendisi başlatır (TCP 541). FortiManager\'da cihaz Device Manager\'da yetkilendirilmeden yönetim başlamaz.', label: 'FortiManager IP', type: 'text', validate: 'ip', required: true, placeholder: '10.64.10.30', hint: 'set fmg' },
+                        { name: 'fm_push', why: 'disable: FortiManager yapılandırma gönderemez (yalnız izleme). Politika paketleri kullanılacaksa enable kalmalı.', label: 'Yapılandırma Gönderimi', type: 'select', options: [
+                            { value: 'enable', label: 'enable (varsayılan)', selected: true }, { value: 'disable', label: 'disable (yalnız izleme)' }
+                        ]},
+                        { name: 'fm_iface', why: 'FortiManager\'ın bağlantıyı kendisi başlatacağı (ör. keşif) arayüzde allowaccess fgfm gerekir; FortiGate başlatıyorsa gerekmez ama sık kullanılır.', label: 'fgfm Erişimli Arayüz', type: 'text', validate: 'iface', placeholder: 'port2', hint: 'append allowaccess fgfm (isteğe bağlı)' }
+                    ]
+                },
+                {
+                    title: 'FortiAnalyzer',
+                    icon: 'fas fa-chart-bar',
+                    fields: [
+                        { name: 'fa_on', why: 'Loglar FortiAnalyzer\'a OFTP (TCP 514) ile gönderilir; FortiAnalyzer\'da cihaz yetkilendirilmelidir.', label: 'FortiAnalyzer\'a log gönder', type: 'checkbox', checked: true, hint: 'set status enable' },
+                        { name: 'fa_ip', why: 'FortiAnalyzer adresi. FortiManager ile aynı cihazsa (FMG\'de FAZ özelliği) aynı IP kullanılır.', label: 'FortiAnalyzer IP', type: 'text', validate: 'ip', requiredIf: { field: 'fa_on', checked: true }, placeholder: '10.64.10.40', hint: 'set server' },
+                        { name: 'fa_upload', why: 'realtime: anlık; 1-minute / 5-minute: toplu. store-and-upload: diskte biriktirip zamanlanmış gönderir (disk gerekir).', label: 'Gönderim', type: 'select', options: [
+                            { value: '5-minute', label: '5-minute (varsayılan)', selected: true }, { value: 'realtime', label: 'realtime' }, { value: '1-minute', label: '1-minute' }, { value: 'store-and-upload', label: 'store-and-upload' }
+                        ]},
+                        { name: 'fa_reliable', why: 'enable: loglar güvenilir (TCP, onaylı) iletilir; bağlantı kesintisinde kayıp azalır.', label: 'Güvenilir İletim', type: 'select', options: [
+                            { value: 'disable', label: 'disable (varsayılan)', selected: true }, { value: 'enable', label: 'enable' }
+                        ]}
+                    ]
+                }
+            ],
+            submit: 'Konfigürasyon Oluştur'
+        }, (data) => cgFgFmgFazGen(data));
+    }
+};
+function cgFgFmgFazGen(data) {
+    const w = [], fm = String(data.fm_ip || '').trim(), ifc = String(data.fm_iface || '').trim(), fa = String(data.fa_ip || '').trim();
+    let c = '# ========================================\n# FortiGate — FortiManager + FortiAnalyzer bağlantısı\n# ========================================\n\n';
+    c += '# 1. FortiManager (FGFM, TCP 541)\nconfig system central-management\n    set type fortimanager\n    set fmg "' + cgEsc(fm) + '"\n';
+    if (data.fm_push === 'disable') c += '    set allow-push-configuration disable\n';
+    c += 'end\n\n';
+    if (ifc) c += 'config system interface\n    edit "' + cgEsc(ifc) + '"\n        append allowaccess fgfm\n    next\nend\n\n';
+    if (data.fa_on) {
+        c += '# 2. FortiAnalyzer (OFTP, TCP 514)\nconfig log fortianalyzer setting\n    set status enable\n    set server "' + cgEsc(fa) + '"\n';
+        if ((data.fa_upload || '5-minute') !== '5-minute') c += '    set upload-option ' + cgEsc(data.fa_upload) + '\n';
+        if (data.fa_reliable === 'enable') c += '    set reliable enable\n';
+        c += 'end\n\n';
+    }
+    c += '# Doğrulama:\n# diagnose fdsm central-mgmt-status\n# diagnose debug application fgfmd -1\n# diagnose debug enable\n';
+    if (data.fa_on) c += '# execute log fortianalyzer test-connectivity\n';
+    w.push('ℹ Bağlantı iki adımda tamamlanır: FortiManager\'da Device Manager → cihazı yetkilendir (Authorize)' + (data.fa_on ? '; FortiAnalyzer\'da da cihaz yetkilendirilmeli (Registration: registered, Connection: allow)' : '') + '.');
+    w.push('ℹ FortiGate\'ten ' + (fm || 'FortiManager') + ' TCP 541' + (data.fa_on ? ' ve ' + (fa || 'FortiAnalyzer') + ' TCP 514' : '') + ' adreslerine yol ve (arada güvenlik duvarı varsa) izin olmalı.');
+    if (data.fa_on && (data.fa_upload || '5-minute') === 'store-and-upload') w.push('⚠ store-and-upload yerel disk gerektirir; disksiz modellerde loglar gönderilmeden kaybolabilir.');
+    if (data.fm_push === 'disable') w.push('ℹ allow-push-configuration disable: FortiManager\'dan politika paketi ve betik kurulamaz, yalnız izleme yapılır.');
+    return { config: c, warnings: w };
+}
