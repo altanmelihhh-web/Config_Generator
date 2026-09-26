@@ -54,6 +54,20 @@ const CgLabGaia = (() => {
     };
     const VARH = { if: 'Arayüz adı (ör. eth1)', ip: 'IPv4 adresi', gw: 'Ağ geçidi IPv4 adresi', pfx: 'Hedef ağ/önek (ör. 10.128.0.0/16)', h: 'Ad', c: 'Metin', u: 'Kullanıcı adı', mask: 'Alt ağ maskesi' };
 
+    // ── Eklenti noktası (paralel lab partileri): assets/js/lab/gaia-pN.js dosyaları
+    // Kayıt: (window|globalThis).CG_GAIA_EXT dizisine push (yükleme sırasından bağımsız; CgLabGaia.ext aynı dizidir):
+    //   (typeof window !== 'undefined' ? window : globalThis).CG_GAIA_EXT = (… .CG_GAIA_EXT || []); ….CG_GAIA_EXT.push({ … })
+    // Nesne: { id, init(x), cl(x), clish(x, line), expert(x, argv, line), mgmt(x, argv, line), roots: [] }
+    // biçiminde kayıt olur (hepsi isteğe bağlı). x = oturum iç bağlamı (S, M, SIM, lab, log, host, E, U, clone, C, MG, inNet …).
+    //  - init(x): oturum başında bir kez (ör. S.rt'ye kendi alanını ekle).
+    //  - cl(x): clish komut tanımı dizisi ({ p, run }) döndürür; yerleşik tabloya eklenir (Tab/?/kısaltma dahil).
+    //  - clish(x, line): yerleşik clish eşleşmezse denenir; string döndürürse o çıktıdır (log'u eklenti yazar).
+    //  - expert(x, argv, line) / mgmt(x, argv, line): yerleşik komutlardan ÖNCE denenir (mgmt yalnız "mgmt_cli" için);
+    //    undefined → işlenmedi, sıradaki eklenti/yerleşik; aksi hâlde expertCmd dönüş biçimi (string | { out, log } | { err, msg }).
+    //  - roots: expert Tab tamamlama ve clish "wrongmode" uyarısına eklenecek kök komutlar.
+    // Eklentiler sırayla denenir; yerleşik komutların çıktısını değiştirmemek eklentinin sorumluluğudur.
+    const GX = (typeof window !== 'undefined' ? window : globalThis);
+    const EXT = GX.CG_GAIA_EXT = GX.CG_GAIA_EXT || [];
     function session(lab, opts) {
         const VAR = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
         if (VAR) lab = Object.assign({}, lab, { start: (lab.start || []).concat(VAR.start || []), sim: Object.assign({}, lab.sim || {}, VAR.sim || {}), mgmtStart: (lab.mgmtStart || []).concat(VAR.mgmtStart || []), mgmtLate: (lab.mgmtLate || []).concat(VAR.mgmtLate || []), up: VAR.up || lab.up, hosts: VAR.hosts || lab.hosts });
@@ -678,7 +692,7 @@ const CgLabGaia = (() => {
             const pipes = parts.slice(1).map(p => shSplit(p) || []);
             for (const p of pipes) if (!p.length || !['grep', 'egrep'].includes(p[0])) { log({ raw: line, err: 'unsupported' }); return '# [Simülatör] Bu lab\'da boru (|) ile yalnız grep desteklenir.'; }
             const canon = [argv.join(' ')].concat(pipes.map(p => p.join(' '))).join(' | ');
-            const r = expertCmd(argv, line, canon, pipes);
+            const r = extTry(argv[0] === 'mgmt_cli' && MG ? 'mgmt' : null, argv, line) ?? extTry('expert', argv, line) ?? expertCmd(argv, line, canon, pipes);
             if (r && r.err) { log({ raw: line, err: r.err }); return r.msg; }
             let out = typeof r === 'string' ? r : (r ? r.out : '');
             const extra = (r && typeof r === 'object' && r.log) || {};
@@ -1217,6 +1231,7 @@ const CgLabGaia = (() => {
             const first = (C.tokenize(line)[0] || { t: '' }).t;
             if (!r.ok) {
                 if (r.err === 'empty') return '';
+                for (const e of EXT) if (typeof e.clish === 'function') { const o = e.clish(XT, line, viaC); if (typeof o === 'string') return o; }
                 if (EXPERT_ROOTS.includes(first) && !viaC) { log({ raw: line, err: 'wrongmode' }); return '# [Simülatör] "' + first + '" bu lab\'da bir expert (bash) komutudur. Önce "expert" yazıp parolayı girin; iş bitince "exit" ile clish\'e dönün.\n# (Gerçek Gaia\'da bazı Check Point komutları clish\'te "extended commands" olarak da çalışır: show extended commands.)'; }
                 log({ raw: line, err: r.err });
                 if (r.err === 'amb') return '# [Simülatör] Belirsiz kısaltma: "' + line.trim() + '" — birden çok komuta uyuyor; ? ile adayları görün.';
@@ -1282,6 +1297,19 @@ const CgLabGaia = (() => {
             return null;
         }
 
+        // ── Eklentiler (CgLabGaia.ext): bağlam, init, clish tablosu, kök komutlar
+        const XT = { S, M, SIM, lab, log, host, E, U, clone, C, MG, inNet, isIp, pad, rib, lookup, ifUp, decide, clishLine, expertLine, rulesNow, natNow, policyNow };
+        function extTry(k, argv, line) {
+            if (!k) return undefined;
+            for (const e of EXT) if (typeof e[k] === 'function') { const o = e[k](XT, argv, line); if (o !== undefined) return o; }
+            return undefined;
+        }
+        for (const e of EXT) {
+            if (typeof e.init === 'function') e.init(XT);
+            if (typeof e.cl === 'function') for (const c of C.build(e.cl(XT) || [])) CL.push(c);
+            for (const r of (e.roots || [])) { if (!EXPERT_ROOTS.includes(r)) EXPERT_ROOTS.push(r); if (!EXP_CMDS.includes(r)) EXP_CMDS.push(r); }
+        }
+
         // ── Başlangıç: lab.start (clish) uygulanır ve kaydedilir; lab.startUnsaved sonra uygulanır
         function apply(cmds) { for (const c of cmds) { const o = clishLine(c); if (/CLINFR|Simülatör/.test(o)) throw new Error('lab başlangıç komutu hatalı: ' + c + ' → ' + o); } }
         S.saved = clone(M());
@@ -1322,7 +1350,7 @@ const CgLabGaia = (() => {
             showRun: () => showConf(), mgmt: () => MG, inactive, allowedOk, files: () => S.files, backups: () => S.rt.backups.slice(), snaps: () => S.rt.snaps.slice(),
         };
     }
-    return { session };
+    return { session, ext: EXT };
 })();
 (typeof window !== 'undefined' ? window : globalThis).CG_LAB_ENGINES = Object.assign((typeof window !== 'undefined' ? window : globalThis).CG_LAB_ENGINES || {}, { 'checkpoint': CgLabGaia });
 if (typeof module !== 'undefined') module.exports = CgLabGaia;
