@@ -186,3 +186,101 @@ same(fieldOf('vxlanVtep', 'vt_mcast4').requiredIf, { field: 'vt_l2_rep', in: ['s
 same(fieldOf('vxlanVtep', 'vt_l3_vrf').requiredIf, { field: 'vt_l3', checked: true });
 
 console.log(`OK: ${captured.length} Cisco IOS generator şeması ve kritik validator regresyonları geçti.`);
+
+// ── NX-OS BGP AF / Neighbor AF / Peer Template (Cisco parti 2) ──
+// Kaynak: cisco.nxos @5645581 argspec + rm_templates + unit fixture komutları;
+// Nexus 9000 Unicast Routing CG 10.4(x) "Configuring Advanced BGP" sınırları.
+{
+    const nxCap = [];
+    context.__capture = (schema, generateFn) => nxCap.push({ schema, generateFn });
+    vm.runInContext('cgFormBuilder = (container, schema, generateFn) => __capture(schema, generateFn);', context);
+    vm.runInContext(fs.readFileSync(path.join(root, 'assets/js/ConfigGenerators_NX-OS.js'), 'utf8') +
+        '\nthis.__CiscoNXOS = CiscoNXOS;', context);
+    const nx = context.__CiscoNXOS;
+    const nxTool = name => { nxCap.length = 0; nx[name].init({}); return nxCap[0]; };
+    const nxGen = name => nxTool(name).generateFn;
+    const nxField = (name, f) => nxTool(name).schema.sections.flatMap(s => s.fields).find(x => x.name === f);
+    const nxOpts = (name, f) => nxField(name, f).options.map(o => o.value).filter(Boolean);
+    const bad = (r, needle, m) => assert.ok(r.warnings && r.warnings.length > 0 && !r.config.includes(needle), m);
+
+    // Mevcut bgp aracı değişmedi (üretilen CLI aynı).
+    const legacy = nxGen('bgp')({ local_as: '65001', rid: '192.0.2.1', nbr_ip: '192.0.2.2', nbr_as: '65002', nbr_type: 'ebgp', network: '' });
+    assert.ok(legacy.includes('router bgp 65001\n router-id 192.0.2.1\n address-family ipv4 unicast\n !\n neighbor 192.0.2.2\n remote-as 65002\n  ebgp-multihop 2\n'));
+
+    // Ansible choices kaybolmamalı.
+    const afis = ['ipv4', 'ipv6', 'link-state', 'vpnv4', 'vpnv6', 'l2vpn'];
+    for (const n of ['bgpAddressFamily', 'bgpNeighborAf']) {
+        same(nxTool(n).schema.configTypes.map(t => t.id).sort(), afis.slice().sort());
+        assert.ok(/Nexus 9000/.test(nxTool(n).schema.topic.desc), n + ': platform etiketi eksik');
+    }
+    same(nxOpts('bgpAddressFamily', 'baf_safi'), ['unicast', 'multicast', 'mvpn', 'evpn']);
+    same(nxOpts('bgpAddressFamily', 'baf_red_proto'), ['am', 'direct', 'eigrp', 'isis', 'lisp', 'ospf', 'ospfv3', 'rip', 'static', 'hmm']);
+    same(nxOpts('bgpNeighborAf', 'nbaf_ap_rx'), ['enable', 'disable']);
+    same(nxOpts('bgpNeighborAf', 'nbaf_ap_tx'), ['enable', 'disable']);
+    same(nxOpts('bgpTemplate', 'bt_afi'), ['ipv4', 'ipv6', 'link-state', 'l2vpn']);
+    same(nxOpts('bgpTemplate', 'bt_af_sc'), ['standard', 'extended', 'both']);
+    same(nxOpts('bgpTemplate', 'bt_bfd'), ['set', 'singlehop', 'multihop']);
+    assert.ok(/Nexus 9000/.test(nxTool('bgpTemplate').schema.topic.desc));
+    // Cisco sınırları şemada.
+    same([nxField('bgpAddressFamily', 'baf_dist_e').min, nxField('bgpAddressFamily', 'baf_dist_e').max], [1, 255]);
+    same([nxField('bgpAddressFamily', 'baf_damp_hl').min, nxField('bgpAddressFamily', 'baf_damp_hl').max], [1, 45]);
+    same([nxField('bgpNeighborAf', 'nbaf_maxp').min, nxField('bgpNeighborAf', 'nbaf_maxp').max], [1, 300000]);
+    same([nxField('bgpNeighborAf', 'nbaf_maxp_th').min, nxField('bgpNeighborAf', 'nbaf_maxp_th').max], [1, 100]);
+    same([nxField('bgpTemplate', 'bt_mhop').min, nxField('bgpTemplate', 'bt_mhop').max], [2, 255]);
+    same([nxField('bgpTemplate', 'bt_ttl').min, nxField('bgpTemplate', 'bt_ttl').max], [1, 254]);
+    same([nxField('bgpTemplate', 'bt_ka').min, nxField('bgpTemplate', 'bt_ka').max], [0, 3600]);
+    same(nxField('bgpAddressFamily', 'baf_red_rm').requiredIf.field, 'baf_red_proto');
+    same(nxField('bgpNeighborAf', 'nbaf_maxp_rst').requiredIf, { field: 'nbaf_maxp_act', in: ['restart'] });
+
+    // BGP AF: olumlu (Ansible fixture: additional-paths yerine rm_template biçimleri), VRF girintisi.
+    const af = nxGen('bgpAddressFamily')({ _cgtype: 'ipv4', baf_as: '65563', baf_safi: 'unicast', baf_vrf: 'site-1',
+        baf_net4: '192.0.2.0/24', baf_net_rm: 'rmap1', baf_red_proto: 'ospf', baf_red_id: '100', baf_red_rm: 'rmap2', baf_mp: '8',
+        baf_dist_e: '20', baf_dist_i: '100', baf_dist_l: '200', baf_damp: true });
+    assert.ok(af.includes('router bgp 65563\n  vrf site-1\n    address-family ipv4 unicast\n      network 192.0.2.0/24 route-map rmap1\n      redistribute ospf 100 route-map rmap2\n      maximum-paths 8\n      distance 20 100 200\n      dampening\n'));
+    const evpnAf = nxGen('bgpAddressFamily')({ _cgtype: 'l2vpn', baf_as: '65000', baf_safi: 'evpn', baf_mp: '2', baf_net4: '192.0.2.0/24' });
+    assert.ok(evpnAf.includes('  address-family l2vpn evpn\n    maximum-paths 2\n') && !evpnAf.includes('network'), 'l2vpn evpn altında IPv4 network yazılmamalı');
+    const ls = nxGen('bgpAddressFamily')({ _cgtype: 'link-state', baf_as: '65000', baf_safi: '' });
+    assert.ok(ls.includes('  address-family link-state\n'));
+    // Olumsuz / koşullu.
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'l2vpn', baf_as: '65000', baf_safi: 'unicast' }), '  address-family', 'l2vpn unicast reddedilmeli');
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'vpnv4', baf_as: '65000', baf_safi: 'unicast', baf_vrf: 'A' }), '  address-family', 'VRF altında vpnv4 reddedilmeli');
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'link-state', baf_as: '65000', baf_safi: 'unicast' }), '  address-family', 'link-state SAFI almaz');
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'ipv4', baf_as: '', baf_safi: 'unicast' }), 'router bgp', 'AS boşken üretilmemeli');
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'ipv4', baf_as: '65000', baf_safi: 'unicast', baf_red_proto: 'ospf', baf_red_rm: 'RM' }), 'redistribute', 'ospf tag zorunlu');
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'ipv4', baf_as: '65000', baf_safi: 'unicast', baf_red_proto: 'static', baf_red_rm: '' }), 'redistribute', 'route-map zorunlu');
+    assert.ok(nxGen('bgpAddressFamily')({ _cgtype: 'ipv4', baf_as: '65000', baf_safi: 'unicast', baf_red_proto: 'static', baf_red_rm: 'RM' }).includes('redistribute static route-map RM\n'));
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'ipv4', baf_as: '65000', baf_safi: 'unicast', baf_dist_e: '20', baf_dist_i: '', baf_dist_l: '' }), 'distance', 'distance üç değer birlikte');
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'ipv4', baf_as: '65000', baf_safi: 'unicast', baf_dist_e: '0', baf_dist_i: '200', baf_dist_l: '220' }), 'distance', 'distance 0 reddedilmeli');
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'ipv4', baf_as: '65000', baf_safi: 'unicast', baf_damp: true, baf_damp_hl: '46', baf_damp_reuse: '750', baf_damp_supp: '2000', baf_damp_max: '60' }), 'dampening', 'half-life 46 reddedilmeli');
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'ipv6', baf_as: '65000', baf_safi: 'unicast', baf_net6: '192.0.2.0/24' }), 'network', 'IPv6 AF altında IPv4 prefix reddedilmeli');
+    bad(nxGen('bgpAddressFamily')({ _cgtype: 'ipv4', baf_as: '65000', baf_safi: 'unicast', baf_adv_evpn: true }), 'advertise l2vpn', 'advertise l2vpn evpn yalnız VRF');
+
+    // Neighbor AF: Ansible fixture biçimleri.
+    const nb = nxGen('bgpNeighborAf')({ _cgtype: 'ipv4', nbaf_as: '65536', nbaf_vrf: 'site-1', nbaf_nbr4: '192.0.2.1', nbaf_safi: 'multicast',
+        nbaf_sc: 'both', nbaf_rm_in: 'rmap1', nbaf_nhs: 'all', nbaf_soft: 'always', nbaf_allowas: true, nbaf_allowas_n: '3',
+        nbaf_maxp: '12', nbaf_maxp_th: '80', nbaf_maxp_act: 'warning', nbaf_ap_rx: 'disable', nbaf_inh: 'POL1', nbaf_inh_seq: '10' });
+    assert.ok(nb.includes('router bgp 65536\n  vrf site-1\n    neighbor 192.0.2.1\n      address-family ipv4 multicast\n        inherit peer-policy POL1 10\n        send-community\n        send-community extended\n        route-map rmap1 in\n        next-hop-self all\n        soft-reconfiguration inbound always\n        allowas-in 3\n        maximum-prefix 12 80 warning-only\n        capability additional-paths receive disable\n'));
+    const nb6 = nxGen('bgpNeighborAf')({ _cgtype: 'ipv6', nbaf_as: '65000', nbaf_nfam: 'ipv6', nbaf_nbr6: '2001:db8::2', nbaf_safi: 'unicast', nbaf_rrc: true });
+    assert.ok(nb6.includes('  neighbor 2001:db8::2\n    address-family ipv6 unicast\n      route-reflector-client\n'));
+    bad(nxGen('bgpNeighborAf')({ _cgtype: 'ipv4', nbaf_as: '65000', nbaf_safi: 'unicast' }), '  neighbor', 'komşusuz üretilmemeli');
+    bad(nxGen('bgpNeighborAf')({ _cgtype: 'ipv4', nbaf_as: '65000', nbaf_nfam: 'ipv6', nbaf_nbr4: '192.0.2.1', nbaf_safi: 'unicast' }), '  neighbor', 'IPv6 komşu seçiliyken IPv4 adresi kullanılmamalı');
+    same(nxField('bgpNeighborAf', 'nbaf_nbr6').requiredIf, { field: 'nbaf_nfam', in: ['ipv6'] });
+    bad(nxGen('bgpNeighborAf')({ _cgtype: 'ipv4', nbaf_as: '65000', nbaf_nbr4: '192.0.2.1', nbaf_safi: 'unicast', nbaf_maxp: '300001' }), 'maximum-prefix', 'maximum-prefix 300001 reddedilmeli');
+    bad(nxGen('bgpNeighborAf')({ _cgtype: 'ipv4', nbaf_as: '65000', nbaf_nbr4: '192.0.2.1', nbaf_safi: 'unicast', nbaf_maxp: '100', nbaf_maxp_act: 'restart', nbaf_maxp_rst: '' }), 'maximum-prefix', 'restart süresi zorunlu');
+    bad(nxGen('bgpNeighborAf')({ _cgtype: 'ipv4', nbaf_as: '65000', nbaf_nbr4: '192.0.2.1', nbaf_safi: 'unicast', nbaf_maxp_th: '80' }), 'maximum-prefix', 'eşik tek başına yazılmamalı');
+    bad(nxGen('bgpNeighborAf')({ _cgtype: 'ipv4', nbaf_as: '65000', nbaf_nbr4: '192.0.2.1', nbaf_safi: 'unicast', nbaf_inh: 'POL1', nbaf_inh_seq: '' }), 'inherit', 'peer-policy sırası zorunlu');
+    assert.ok(nxGen('bgpNeighborAf')({ _cgtype: 'ipv4', nbaf_as: '65000', nbaf_nbr4: '192.0.2.1', nbaf_safi: 'unicast', nbaf_dorig_rm: 'RM' }).includes('      default-originate route-map RM\n'));
+
+    // Peer template: Ansible fixture (tmplt_2 / tmplt_3) komutları.
+    const tp = nxGen('bgpTemplate')({ _cgtype: 'peer', bt_as: '65536', bt_name: 'tmplt_2', bt_bfd: 'set', bt_remote_as: '65534', bt_rpas: 'replace-as',
+        bt_shut: true, bt_ka: '200', bt_hold: '300', bt_passive: true, bt_ttl: '10', bt_upd: 'Ethernet1/1', bt_afi: 'l2vpn', bt_safi: 'evpn', bt_af_sc: 'both' });
+    assert.ok(tp.includes('router bgp 65536\n  template peer tmplt_2\n    bfd\n    remote-as 65534\n    remove-private-as replace-as\n    shutdown\n    timers 200 300\n    transport connection-mode passive\n    ttl-security hops 10\n    update-source Ethernet1/1\n    address-family l2vpn evpn\n      send-community\n      send-community extended\n'));
+    const tpNoAf = nxGen('bgpTemplate')({ _cgtype: 'peer', bt_as: '65536', bt_name: 'tmplt_1', bt_bfd: 'singlehop', bt_desc: 'test-neighbor-template', bt_mhop: '5', bt_local_as: '65535', bt_lnc: 'disable', bt_inh_sess: 'peer_sess_1', bt_afi: '', bt_af_sc: 'both' });
+    assert.ok(tpNoAf.includes('    bfd singlehop\n    description test-neighbor-template\n    ebgp-multihop 5\n    inherit peer-session peer_sess_1\n    local-as 65535\n    log-neighbor-changes disable\n') && !tpNoAf.includes('address-family') && !tpNoAf.includes('send-community'), 'AF seçilmezken AF politikası yazılmamalı');
+    bad(nxGen('bgpTemplate')({ _cgtype: 'peer', bt_as: '65000', bt_name: 'T', bt_mhop: '2', bt_ttl: '1' }), 'template peer', 'ebgp-multihop + ttl-security birlikte reddedilmeli');
+    bad(nxGen('bgpTemplate')({ _cgtype: 'peer', bt_as: '65000', bt_name: 'T', bt_mhop: '1' }), 'template peer', 'ebgp-multihop 1 reddedilmeli');
+    bad(nxGen('bgpTemplate')({ _cgtype: 'peer', bt_as: '65000', bt_name: 'T', bt_ka: '10', bt_hold: '' }), 'template peer', 'timers iki değer birlikte');
+    bad(nxGen('bgpTemplate')({ _cgtype: 'peer', bt_as: '65000', bt_name: '' }), 'template peer', 'ad boşken üretilmemeli');
+    bad(nxGen('bgpTemplate')({ _cgtype: 'peer', bt_as: '65000', bt_name: 'T', bt_afi: 'l2vpn', bt_safi: 'unicast' }), 'template peer', 'template l2vpn unicast reddedilmeli');
+    console.log('OK: NX-OS BGP AF / neighbor AF / peer template regresyonları geçti.');
+}

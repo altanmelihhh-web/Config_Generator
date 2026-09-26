@@ -2532,3 +2532,383 @@ CiscoNXOS.copp = {
         });
     }
 };
+
+// ── NX-OS: BGP Address-Family / Neighbor AF / Peer Template (Cisco parti 2) ──
+// Mevcut CiscoNXOS.bgp aracına dokunmadan ayrı araçlar.
+// Kaynaklar: ansible-collections/cisco.nxos @5645581 — argspec ve rm_templates:
+//   bgp_address_family, bgp_neighbor_address_family, bgp_templates;
+// Cisco Nexus 9000 NX-OS Unicast Routing Configuration Guide 10.4(x),
+//   "Configuring Advanced BGP" (sayısal sınırlar). Belgede sınırı olmayan
+//   değerler (maximum-paths, weight vb.) yalnız tür olarak doğrulanır.
+const CG_NX_BGP_AFI = ['ipv4', 'ipv6', 'link-state', 'vpnv4', 'vpnv6', 'l2vpn'];
+const CG_NX_BGP_SAFI = ['unicast', 'multicast', 'mvpn', 'evpn'];
+const CG_NX_BGP_REDIST = ['am', 'direct', 'eigrp', 'isis', 'lisp', 'ospf', 'ospfv3', 'rip', 'static', 'hmm'];
+// Cisco CLI'de instance tag zorunlu olan redistribute kaynakları
+const CG_NX_BGP_REDIST_TAG = ['eigrp', 'isis', 'ospf', 'ospfv3', 'rip'];
+function cgNxInt(v, min, max) { const s = String(v).trim(); return /^\d+$/.test(s) && +s >= min && +s <= max; }
+function cgNxStr(v) { return String(v == null ? '' : v).trim(); }
+// AFI/SAFI birleşimi: l2vpn yalnız evpn, vpnv4/vpnv6 yalnız unicast, link-state SAFI'siz;
+// ipv4/ipv6 unicast/multicast/mvpn. VRF altında yalnız ipv4/ipv6 AF'leri.
+function cgNxBgpAfCheck(afi, safi, vrf, w) {
+    if (!CG_NX_BGP_AFI.includes(afi)) { w.push('AFI geçersiz.'); return; }
+    if (safi && !CG_NX_BGP_SAFI.includes(safi)) w.push('SAFI geçersiz.');
+    if (afi === 'l2vpn' && safi !== 'evpn') w.push('l2vpn yalnız "evpn" SAFI ile kullanılır (address-family l2vpn evpn).');
+    if ((afi === 'vpnv4' || afi === 'vpnv6') && safi !== 'unicast') w.push(afi + ' yalnız "unicast" SAFI ile kullanılır.');
+    if (afi === 'link-state' && safi) w.push('link-state address-family SAFI almaz.');
+    if ((afi === 'ipv4' || afi === 'ipv6') && !['unicast', 'multicast', 'mvpn'].includes(safi)) w.push(afi + ' için SAFI unicast, multicast veya mvpn olmalı.');
+    if (vrf && afi !== 'ipv4' && afi !== 'ipv6') w.push('VRF altında yalnız ipv4/ipv6 address-family tanımlanır; ' + afi + ' global BGP sürecindedir.');
+}
+function cgNxAfLine(afi, safi) { return 'address-family ' + afi + (safi ? ' ' + safi : ''); }
+const CG_NX_AFI_TYPES = [
+    { id: 'ipv4', label: 'IPv4', icon: 'fas fa-network-wired', desc: 'address-family ipv4 …', badge: { text: 'NX-OS N9K', cls: 'recommended' } },
+    { id: 'ipv6', label: 'IPv6', icon: 'fas fa-project-diagram', desc: 'address-family ipv6 …' },
+    { id: 'l2vpn', label: 'L2VPN EVPN', icon: 'fas fa-layer-group', desc: 'address-family l2vpn evpn' },
+    { id: 'vpnv4', label: 'VPNv4', icon: 'fas fa-route', desc: 'address-family vpnv4 unicast' },
+    { id: 'vpnv6', label: 'VPNv6', icon: 'fas fa-route', desc: 'address-family vpnv6 unicast' },
+    { id: 'link-state', label: 'Link-State', icon: 'fas fa-sitemap', desc: 'address-family link-state' }
+];
+const CG_NX_SAFI_OPTS = [
+    { value: '', label: '(yok — yalnız link-state)' },
+    { value: 'unicast', label: 'unicast', selected: true },
+    { value: 'multicast', label: 'multicast' },
+    { value: 'mvpn', label: 'mvpn' },
+    { value: 'evpn', label: 'evpn (yalnız l2vpn)' }
+];
+const CG_NX_PLATFORM = 'Hedef: Nexus 9000, NX-OS 10.x. Nexus 3000/5000/7000 ve eski sürümlerde AF/seçenek desteği farklıdır; <code>feature bgp</code> (EVPN için <code>nv overlay evpn</code>) gerekir.';
+
+CiscoNXOS.bgpAddressFamily = {
+    label: 'BGP Address-Family',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-route',
+                title: 'BGP Address-Family (NX-OS)',
+                desc: 'router bgp altında global veya VRF address-family: network, aggregate, redistribute, maximum-paths, distance, dampening. ' + CG_NX_PLATFORM
+            },
+            configTypes: CG_NX_AFI_TYPES,
+            sections: [
+                {
+                    title: 'Süreç ve AF', icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'baf_as', label: 'Yerel AS', type: 'text', validate: 'asn', required: true, placeholder: '65000' },
+                        { name: 'baf_safi', label: 'SAFI', type: 'select', options: CG_NX_SAFI_OPTS, hint: 'l2vpn → evpn, vpnv4/vpnv6 → unicast, link-state → yok' },
+                        { name: 'baf_vrf', label: 'VRF (opsiyonel)', type: 'text', validate: 'objname', placeholder: 'TENANT-A', hint: 'Boş = global; VRF yalnız ipv4/ipv6 ile' },
+                        { name: 'baf_mp', label: 'maximum-paths', type: 'text', validate: 'posint', placeholder: '4', hint: 'Üst sınır platforma bağlı (belgede yok)' },
+                        { name: 'baf_mp_ibgp', label: 'maximum-paths ibgp', type: 'text', validate: 'posint', placeholder: '4' }
+                    ]
+                },
+                {
+                    title: 'IPv4 Prefix', icon: 'fas fa-network-wired', showFor: ['ipv4'],
+                    fields: [
+                        { name: 'baf_net4', label: 'network (IPv4, virgülle)', type: 'text', placeholder: '192.0.2.0/24, 198.51.100.0/24' },
+                        { name: 'baf_agg4', label: 'aggregate-address (IPv4)', type: 'text', validate: 'cidr', placeholder: '203.0.113.0/24' }
+                    ]
+                },
+                {
+                    title: 'IPv6 Prefix', icon: 'fas fa-project-diagram', showFor: ['ipv6'],
+                    fields: [
+                        { name: 'baf_net6', label: 'network (IPv6, virgülle)', type: 'text', placeholder: '2001:db8:10::/48' },
+                        { name: 'baf_agg6', label: 'aggregate-address (IPv6)', type: 'text', validate: 'ipv6_cidr', placeholder: '2001:db8::/32' }
+                    ]
+                },
+                {
+                    title: 'Prefix Seçenekleri', icon: 'fas fa-filter', showFor: ['ipv4', 'ipv6'],
+                    fields: [
+                        { name: 'baf_net_rm', label: 'network route-map', type: 'text', validate: 'objname', placeholder: 'RM-NET' },
+                        { name: 'baf_agg_asset', label: 'aggregate as-set', type: 'checkbox' },
+                        { name: 'baf_agg_summ', label: 'aggregate summary-only', type: 'checkbox', checked: true },
+                        { name: 'baf_red_proto', label: 'redistribute kaynağı', type: 'select', options: [{ value: '', label: '(yok)', selected: true }].concat(CG_NX_BGP_REDIST.map(p => ({ value: p, label: p }))) },
+                        { name: 'baf_red_id', label: 'redistribute instance tag', type: 'text', validate: 'nxos_process_tag', requiredIf: { field: 'baf_red_proto', in: CG_NX_BGP_REDIST_TAG }, placeholder: 'UNDERLAY', hint: 'eigrp/isis/ospf/ospfv3/rip için zorunlu' },
+                        { name: 'baf_red_rm', label: 'redistribute route-map', type: 'text', validate: 'objname', requiredIf: { field: 'baf_red_proto', in: CG_NX_BGP_REDIST }, placeholder: 'RM-REDIST', hint: 'NX-OS redistribute route-map ister (Ansible: required)' },
+                        { name: 'baf_dist_e', label: 'distance eBGP', type: 'text', min: 1, max: 255, placeholder: '20', hint: 'Üçü birlikte yazılır; 1-255' },
+                        { name: 'baf_dist_i', label: 'distance iBGP', type: 'text', min: 1, max: 255, placeholder: '200' },
+                        { name: 'baf_dist_l', label: 'distance local', type: 'text', min: 1, max: 255, placeholder: '220' },
+                        { name: 'baf_def_orig', label: 'default-information originate', type: 'checkbox' },
+                        { name: 'baf_supp', label: 'suppress-inactive', type: 'checkbox' },
+                        { name: 'baf_adv_evpn', label: 'advertise l2vpn evpn (VRF)', type: 'checkbox', hint: 'Yalnız VRF altında yazılır' },
+                        { name: 'baf_damp', label: 'dampening', type: 'checkbox' },
+                        { name: 'baf_damp_hl', label: 'half-life (1-45)', type: 'text', min: 1, max: 45, placeholder: '15', hint: 'Dört değer birlikte ya da hiçbiri' },
+                        { name: 'baf_damp_reuse', label: 'reuse-limit (1-20000)', type: 'text', min: 1, max: 20000, placeholder: '750' },
+                        { name: 'baf_damp_supp', label: 'suppress-limit (1-20000)', type: 'text', min: 1, max: 20000, placeholder: '2000' },
+                        { name: 'baf_damp_max', label: 'max-suppress-time (1-255)', type: 'text', min: 1, max: 255, placeholder: '60' },
+                        { name: 'baf_tmap', label: 'table-map', type: 'text', validate: 'objname', placeholder: 'RM-TABLE' },
+                        { name: 'baf_tmap_filter', label: 'table-map filter', type: 'checkbox' }
+                    ]
+                }
+            ],
+            submit: 'Address-Family Oluştur'
+        }, (data) => cgNxBgpAfGen(data));
+    }
+};
+function cgNxBgpAfGen(data) {
+    const afi = data._cgtype || 'ipv4', safi = cgNxStr(data.baf_safi), vrf = cgNxStr(data.baf_vrf);
+    const as = cgNxStr(data.baf_as), w = [];
+    const ipAfi = afi === 'ipv4' || afi === 'ipv6';
+    if (!CG_VALIDATORS.asn.fn(as)) w.push('Yerel AS geçersiz veya boş.');
+    cgNxBgpAfCheck(afi, safi, vrf, w);
+    if (vrf && !CG_VALIDATORS.objname.re.test(vrf)) w.push('VRF adı geçersiz.');
+    ['baf_mp', 'baf_mp_ibgp'].forEach(k => { if (cgNxStr(data[k]) && !CG_VALIDATORS.posint.fn(cgNxStr(data[k]))) w.push('maximum-paths pozitif tam sayı olmalı.'); });
+    const pfxOk = afi === 'ipv6' ? CG_VALIDATORS.ipv6_cidr.fn : (v => CG_VALIDATORS.cidr.re.test(v));
+    const nets = ipAfi ? cgNxList(afi === 'ipv6' ? data.baf_net6 : data.baf_net4) : [];
+    nets.forEach(n => { if (!pfxOk(n)) w.push('network ' + n + ' geçerli ' + afi + ' prefix değil.'); });
+    const agg = ipAfi ? cgNxStr(afi === 'ipv6' ? data.baf_agg6 : data.baf_agg4) : '';
+    if (agg && !pfxOk(agg)) w.push('aggregate-address geçerli ' + afi + ' prefix değil.');
+    const rp = ipAfi ? cgNxStr(data.baf_red_proto) : '', rid = cgNxStr(data.baf_red_id), rrm = cgNxStr(data.baf_red_rm);
+    if (rp) {
+        if (!CG_NX_BGP_REDIST.includes(rp)) w.push('redistribute kaynağı geçersiz.');
+        if (!rrm) w.push('redistribute için route-map zorunlu.');
+        if (CG_NX_BGP_REDIST_TAG.includes(rp) && !rid) w.push('redistribute ' + rp + ' için instance tag zorunlu.');
+    }
+    const dist = ipAfi ? ['baf_dist_e', 'baf_dist_i', 'baf_dist_l'].map(k => cgNxStr(data[k])) : ['', '', ''];
+    if (dist.some(Boolean) && !dist.every(v => cgNxInt(v, 1, 255))) w.push('distance için eBGP/iBGP/local üç değer 1-255 aralığında birlikte girilmeli.');
+    const dampV = [['baf_damp_hl', 1, 45], ['baf_damp_reuse', 1, 20000], ['baf_damp_supp', 1, 20000], ['baf_damp_max', 1, 255]].map(([k, a, b]) => ({ v: cgNxStr(data[k]), a, b }));
+    const damp = ipAfi && !!data.baf_damp;
+    if (damp && dampV.some(x => x.v) && !dampV.every(x => cgNxInt(x.v, x.a, x.b))) w.push('dampening değerleri dördü birlikte ve Cisco aralıklarında girilmeli (half-life 1-45, reuse/suppress 1-20000, max-suppress 1-255).');
+    if (data.baf_adv_evpn && ipAfi && !vrf) w.push('advertise l2vpn evpn yalnız VRF address-family altında kullanılır.');
+    let c = cgNxHdr('BGP Address-Family');
+    if (w.length) return { config: c + '! Geçersiz address-family girdisi; çıktı üretilmedi.\n', warnings: w };
+    c += 'feature bgp\n\nrouter bgp ' + cgEsc(as) + '\n';
+    let ind = '  ';
+    if (vrf) { c += '  vrf ' + cgEsc(vrf) + '\n'; ind = '    '; }
+    c += ind + cgNxAfLine(afi, safi) + '\n';
+    const s = ind + '  ';
+    const nrm = cgNxStr(data.baf_net_rm);
+    nets.forEach(n => { c += s + 'network ' + cgEsc(n) + (nrm ? ' route-map ' + cgEsc(nrm) : '') + '\n'; });
+    if (agg) c += s + 'aggregate-address ' + cgEsc(agg) + (data.baf_agg_asset ? ' as-set' : '') + (data.baf_agg_summ ? ' summary-only' : '') + '\n';
+    if (rp) c += s + 'redistribute ' + rp + (rid ? ' ' + cgEsc(rid) : '') + ' route-map ' + cgEsc(rrm) + '\n';
+    if (cgNxStr(data.baf_mp)) c += s + 'maximum-paths ' + cgEsc(cgNxStr(data.baf_mp)) + '\n';
+    if (cgNxStr(data.baf_mp_ibgp)) c += s + 'maximum-paths ibgp ' + cgEsc(cgNxStr(data.baf_mp_ibgp)) + '\n';
+    if (dist.every(Boolean)) c += s + 'distance ' + dist.map(cgEsc).join(' ') + '\n';
+    if (ipAfi && data.baf_def_orig) c += s + 'default-information originate\n';
+    if (ipAfi && data.baf_supp) c += s + 'suppress-inactive\n';
+    if (ipAfi && data.baf_adv_evpn) c += s + 'advertise l2vpn evpn\n';
+    if (damp) c += s + 'dampening' + (dampV.every(x => x.v) ? ' ' + dampV.map(x => cgEsc(x.v)).join(' ') : '') + '\n';
+    const tm = ipAfi ? cgNxStr(data.baf_tmap) : '';
+    if (tm) c += s + 'table-map ' + cgEsc(tm) + (data.baf_tmap_filter ? ' filter' : '') + '\n';
+    c += '\n! Doğrulama:\n! show running-config bgp\n! show bgp ' + (afi === 'link-state' ? 'link-state' : afi + ' ' + safi) + (vrf ? ' vrf ' + cgEsc(vrf) : '') + ' summary\n';
+    return c;
+}
+
+// Ortak neighbor/template AF politika alanları (bgp_neighbor_address_family + bgp_templates argspec).
+function cgNxNbrAfFields(p) {
+    return [
+        { name: p + 'sc', label: 'send-community', type: 'select', options: [
+            { value: '', label: '(yazma)', selected: true }, { value: 'standard', label: 'standard' },
+            { value: 'extended', label: 'extended' }, { value: 'both', label: 'both (standard + extended)' }] },
+        { name: p + 'rm_in', label: 'route-map in', type: 'text', validate: 'objname', placeholder: 'RM-IN' },
+        { name: p + 'rm_out', label: 'route-map out', type: 'text', validate: 'objname', placeholder: 'RM-OUT' },
+        { name: p + 'pl_in', label: 'prefix-list in', type: 'text', validate: 'objname', placeholder: 'PL-IN' },
+        { name: p + 'pl_out', label: 'prefix-list out', type: 'text', validate: 'objname', placeholder: 'PL-OUT' },
+        { name: p + 'nhs', label: 'next-hop-self', type: 'select', options: [
+            { value: '', label: '(yazma)', selected: true }, { value: 'set', label: 'next-hop-self' }, { value: 'all', label: 'next-hop-self all' }] },
+        { name: p + 'rrc', label: 'route-reflector-client', type: 'checkbox' },
+        { name: p + 'soft', label: 'soft-reconfiguration inbound', type: 'select', options: [
+            { value: '', label: '(yazma)', selected: true }, { value: 'set', label: 'inbound' }, { value: 'always', label: 'inbound always' }] },
+        { name: p + 'allowas', label: 'allowas-in', type: 'checkbox' },
+        { name: p + 'allowas_n', label: 'allowas-in tekrar sayısı', type: 'text', validate: 'posint', placeholder: '3', hint: 'Opsiyonel; allowas-in işaretliyken yazılır' },
+        { name: p + 'asovr', label: 'as-override', type: 'checkbox' },
+        { name: p + 'dorig', label: 'default-originate', type: 'checkbox' },
+        { name: p + 'dorig_rm', label: 'default-originate route-map', type: 'text', validate: 'objname', placeholder: 'RM-DEFAULT' },
+        { name: p + 'maxp', label: 'maximum-prefix (1-300000)', type: 'text', min: 1, max: 300000, placeholder: '12000' },
+        { name: p + 'maxp_th', label: 'eşik % (1-100)', type: 'text', min: 1, max: 100, placeholder: '75' },
+        { name: p + 'maxp_act', label: 'aşımda', type: 'select', options: [
+            { value: '', label: 'oturumu kapat (varsayılan)', selected: true }, { value: 'restart', label: 'restart <dakika>' }, { value: 'warning', label: 'warning-only' }] },
+        { name: p + 'maxp_rst', label: 'restart dakika (1-65535)', type: 'text', min: 1, max: 65535, requiredIf: { field: p + 'maxp_act', in: ['restart'] }, placeholder: '30' },
+        { name: p + 'ap_rx', label: 'capability additional-paths receive', type: 'select', options: [
+            { value: '', label: '(yazma)', selected: true }, { value: 'enable', label: 'enable' }, { value: 'disable', label: 'disable' }] },
+        { name: p + 'ap_tx', label: 'capability additional-paths send', type: 'select', options: [
+            { value: '', label: '(yazma)', selected: true }, { value: 'enable', label: 'enable' }, { value: 'disable', label: 'disable' }] }
+    ];
+}
+function cgNxNbrAfBody(data, p, s, w) {
+    const v = k => cgNxStr(data[p + k]);
+    const lines = [];
+    ['rm_in', 'rm_out', 'pl_in', 'pl_out', 'dorig_rm'].forEach(k => { if (v(k) && !CG_VALIDATORS.objname.re.test(v(k))) w.push(k + ' adı geçersiz.'); });
+    if (v('allowas_n') && !CG_VALIDATORS.posint.fn(v('allowas_n'))) w.push('allowas-in tekrar sayısı pozitif tam sayı olmalı.');
+    if (v('maxp') && !cgNxInt(v('maxp'), 1, 300000)) w.push('maximum-prefix 1-300000 olmalı.');
+    if (v('maxp_th') && !cgNxInt(v('maxp_th'), 1, 100)) w.push('maximum-prefix eşiği 1-100 olmalı.');
+    if (!v('maxp') && (v('maxp_th') || v('maxp_act'))) w.push('maximum-prefix eşiği/aşım eylemi için önce maximum-prefix değeri girilmeli.');
+    if (v('maxp_act') === 'restart' && !cgNxInt(v('maxp_rst'), 1, 65535)) w.push('restart süresi 1-65535 dakika olmalı.');
+    const sc = v('sc');
+    if (sc === 'standard' || sc === 'both') lines.push('send-community');
+    if (sc === 'extended' || sc === 'both') lines.push('send-community extended');
+    if (v('rm_in')) lines.push('route-map ' + cgEsc(v('rm_in')) + ' in');
+    if (v('rm_out')) lines.push('route-map ' + cgEsc(v('rm_out')) + ' out');
+    if (v('pl_in')) lines.push('prefix-list ' + cgEsc(v('pl_in')) + ' in');
+    if (v('pl_out')) lines.push('prefix-list ' + cgEsc(v('pl_out')) + ' out');
+    if (v('nhs')) lines.push('next-hop-self' + (v('nhs') === 'all' ? ' all' : ''));
+    if (data[p + 'rrc']) lines.push('route-reflector-client');
+    if (v('soft')) lines.push('soft-reconfiguration inbound' + (v('soft') === 'always' ? ' always' : ''));
+    if (data[p + 'allowas']) lines.push('allowas-in' + (v('allowas_n') ? ' ' + cgEsc(v('allowas_n')) : ''));
+    if (data[p + 'asovr']) lines.push('as-override');
+    // Ansible rm_template: route_map tanımlıysa "default-originate route-map X" yazılır.
+    if (data[p + 'dorig'] || v('dorig_rm')) lines.push('default-originate' + (v('dorig_rm') ? ' route-map ' + cgEsc(v('dorig_rm')) : ''));
+    if (v('maxp')) lines.push('maximum-prefix ' + cgEsc(v('maxp')) + (v('maxp_th') ? ' ' + cgEsc(v('maxp_th')) : '') +
+        (v('maxp_act') === 'restart' ? ' restart ' + cgEsc(v('maxp_rst')) : v('maxp_act') === 'warning' ? ' warning-only' : ''));
+    if (v('ap_rx')) lines.push('capability additional-paths receive' + (v('ap_rx') === 'disable' ? ' disable' : ''));
+    if (v('ap_tx')) lines.push('capability additional-paths send' + (v('ap_tx') === 'disable' ? ' disable' : ''));
+    return lines.map(l => s + l + '\n').join('');
+}
+
+CiscoNXOS.bgpNeighborAf = {
+    label: 'BGP Neighbor Address-Family',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-user-friends',
+                title: 'BGP Neighbor Address-Family (NX-OS)',
+                desc: 'Komşu bazında address-family politikası: send-community, route-map/prefix-list, next-hop-self, RR client, maximum-prefix, inherit peer-policy. Komşunun <code>remote-as</code> değeri <b>BGP</b> veya <b>BGP Peer Template</b> aracıyla tanımlanmış olmalı. ' + CG_NX_PLATFORM
+            },
+            configTypes: CG_NX_AFI_TYPES,
+            sections: [
+                {
+                    title: 'Süreç, Komşu ve AF', icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'nbaf_as', label: 'Yerel AS', type: 'text', validate: 'asn', required: true, placeholder: '65000' },
+                        { name: 'nbaf_vrf', label: 'VRF (opsiyonel)', type: 'text', validate: 'objname', placeholder: 'TENANT-A', hint: 'Boş = global; VRF yalnız ipv4/ipv6 ile' },
+                        { name: 'nbaf_nfam', label: 'Komşu adres ailesi', type: 'select', options: [
+                            { value: 'ipv4', label: 'IPv4 komşu', selected: true }, { value: 'ipv6', label: 'IPv6 komşu' }], hint: 'Komşu adresi AF\'den bağımsızdır (ör. IPv4 komşu üzerinde l2vpn evpn)' },
+                        { name: 'nbaf_nbr4', label: 'Komşu IPv4', type: 'text', validate: 'ip', requiredIf: { field: 'nbaf_nfam', in: ['ipv4'] }, placeholder: '192.0.2.2' },
+                        { name: 'nbaf_nbr6', label: 'Komşu IPv6', type: 'text', validate: 'ipv6', requiredIf: { field: 'nbaf_nfam', in: ['ipv6'] }, placeholder: '2001:db8::2' },
+                        { name: 'nbaf_safi', label: 'SAFI', type: 'select', options: CG_NX_SAFI_OPTS, hint: 'l2vpn → evpn, vpnv4/vpnv6 → unicast, link-state → yok' },
+                        { name: 'nbaf_inh', label: 'inherit peer-policy', type: 'text', validate: 'objname', placeholder: 'POL-SPINE' },
+                        { name: 'nbaf_inh_seq', label: 'peer-policy sırası', type: 'text', validate: 'posint', placeholder: '10', hint: 'inherit peer-policy <ad> <sıra>' }
+                    ]
+                },
+                { title: 'AF Politikası', icon: 'fas fa-filter', fields: cgNxNbrAfFields('nbaf_') }
+            ],
+            submit: 'Neighbor AF Oluştur'
+        }, (data) => cgNxBgpNbrAfGen(data));
+    }
+};
+function cgNxBgpNbrAfGen(data) {
+    const afi = data._cgtype || 'ipv4', safi = cgNxStr(data.nbaf_safi), vrf = cgNxStr(data.nbaf_vrf);
+    const fam = data.nbaf_nfam === 'ipv6' ? 'ipv6' : 'ipv4';
+    const as = cgNxStr(data.nbaf_as), n4 = fam === 'ipv4' ? cgNxStr(data.nbaf_nbr4) : '', n6 = fam === 'ipv6' ? cgNxStr(data.nbaf_nbr6) : '';
+    const inh = cgNxStr(data.nbaf_inh), seq = cgNxStr(data.nbaf_inh_seq), w = [];
+    if (!CG_VALIDATORS.asn.fn(as)) w.push('Yerel AS geçersiz veya boş.');
+    cgNxBgpAfCheck(afi, safi, vrf, w);
+    if (vrf && !CG_VALIDATORS.objname.re.test(vrf)) w.push('VRF adı geçersiz.');
+    if (!n4 && !n6) w.push('Komşu ' + (fam === 'ipv6' ? 'IPv6' : 'IPv4') + ' adresi girilmedi.');
+    if (n4 && !CG_VALIDATORS.ip.re.test(n4)) w.push('Komşu IPv4 adresi geçersiz.');
+    if (n6 && !CG_VALIDATORS.ipv6.fn(n6)) w.push('Komşu IPv6 adresi geçersiz.');
+    if (inh && (!CG_VALIDATORS.objname.re.test(inh) || !CG_VALIDATORS.posint.fn(seq))) w.push('inherit peer-policy için geçerli ad ve pozitif sıra numarası gerekir.');
+    if (!inh && seq) w.push('peer-policy sırası yalnız inherit peer-policy ile yazılır.');
+    let c = cgNxHdr('BGP Neighbor Address-Family');
+    let ind = '  ';
+    if (vrf) ind = '    ';
+    const body = cgNxNbrAfBody(data, 'nbaf_', ind + '    ', w);
+    if (w.length) return { config: c + '! Geçersiz neighbor address-family girdisi; çıktı üretilmedi.\n', warnings: w };
+    c += 'router bgp ' + cgEsc(as) + '\n';
+    if (vrf) c += '  vrf ' + cgEsc(vrf) + '\n';
+    c += ind + 'neighbor ' + cgEsc(n4 || n6) + '\n';
+    c += ind + '  ' + cgNxAfLine(afi, safi) + '\n';
+    if (inh) c += ind + '    inherit peer-policy ' + cgEsc(inh) + ' ' + cgEsc(seq) + '\n';
+    c += body;
+    c += '\n! Doğrulama:\n! show bgp ' + (afi === 'link-state' ? 'link-state' : afi + ' ' + safi) + ' neighbors ' + cgEsc(n4 || n6) + (vrf ? ' vrf ' + cgEsc(vrf) : '') + '\n';
+    return c;
+}
+
+CiscoNXOS.bgpTemplate = {
+    label: 'BGP Peer Template',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clone',
+                title: 'BGP Peer Template (NX-OS)',
+                desc: '<code>template peer</code>: oturum ayarları (remote-as, update-source, timers, ebgp-multihop / ttl-security, BFD) ve tek address-family politikası. Komşu <code>inherit peer &lt;ad&gt;</code> ile kullanır. ' + CG_NX_PLATFORM
+            },
+            configTypes: [
+                { id: 'peer', label: 'template peer', icon: 'fas fa-clone', desc: 'Ansible nxos_bgp_templates kapsamı', badge: { text: 'NX-OS N9K', cls: 'recommended' } }
+            ],
+            sections: [
+                {
+                    title: 'Şablon ve Oturum', icon: 'fas fa-cog',
+                    fields: [
+                        { name: 'bt_as', label: 'Yerel AS', type: 'text', validate: 'asn', required: true, placeholder: '65000' },
+                        { name: 'bt_name', label: 'Şablon Adı', type: 'text', validate: 'objname', required: true, placeholder: 'SPINE-PEERS' },
+                        { name: 'bt_desc', label: 'description', type: 'text', validate: 'single_cli_line', placeholder: 'Spine iBGP komşuları' },
+                        { name: 'bt_remote_as', label: 'remote-as', type: 'text', validate: 'asn', placeholder: '65000' },
+                        { name: 'bt_local_as', label: 'local-as', type: 'text', validate: 'asn', placeholder: '65010' },
+                        { name: 'bt_upd', label: 'update-source', type: 'text', validate: 'iface', placeholder: 'loopback0' },
+                        { name: 'bt_inh_sess', label: 'inherit peer-session', type: 'text', validate: 'objname', placeholder: 'SESS-BASE' },
+                        { name: 'bt_mhop', label: 'ebgp-multihop (2-255)', type: 'text', min: 2, max: 255, placeholder: '2' },
+                        { name: 'bt_ttl', label: 'ttl-security hops (1-254)', type: 'text', min: 1, max: 254, placeholder: '1', hint: 'ebgp-multihop ile birlikte kullanılmaz' },
+                        { name: 'bt_ka', label: 'timers keepalive (0-3600)', type: 'text', min: 0, max: 3600, placeholder: '10', hint: 'keepalive ve holdtime birlikte' },
+                        { name: 'bt_hold', label: 'timers holdtime (0-3600)', type: 'text', min: 0, max: 3600, placeholder: '30' },
+                        { name: 'bt_bfd', label: 'bfd', type: 'select', options: [
+                            { value: '', label: '(yazma)', selected: true }, { value: 'set', label: 'bfd' },
+                            { value: 'singlehop', label: 'bfd singlehop' }, { value: 'multihop', label: 'bfd multihop' }] },
+                        { name: 'bt_rpas', label: 'remove-private-as', type: 'select', options: [
+                            { value: '', label: '(yazma)', selected: true }, { value: 'set', label: 'remove-private-as' },
+                            { value: 'all', label: 'remove-private-as all' }, { value: 'replace-as', label: 'remove-private-as replace-as' }] },
+                        { name: 'bt_lnc', label: 'log-neighbor-changes', type: 'select', options: [
+                            { value: '', label: '(yazma)', selected: true }, { value: 'set', label: 'log-neighbor-changes' }, { value: 'disable', label: 'log-neighbor-changes disable' }] },
+                        { name: 'bt_passive', label: 'transport connection-mode passive', type: 'checkbox' },
+                        { name: 'bt_dcc', label: 'disable-connected-check', type: 'checkbox' },
+                        { name: 'bt_shut', label: 'shutdown', type: 'checkbox' }
+                    ]
+                },
+                {
+                    title: 'Şablon Address-Family', icon: 'fas fa-filter',
+                    fields: [
+                        { name: 'bt_afi', label: 'AFI', type: 'select', options: [
+                            { value: '', label: '(AF yok)' }, { value: 'ipv4', label: 'ipv4', selected: true }, { value: 'ipv6', label: 'ipv6' },
+                            { value: 'link-state', label: 'link-state' }, { value: 'l2vpn', label: 'l2vpn' }], hint: 'Ansible bgp_templates: vpnv4/vpnv6 yok' },
+                        { name: 'bt_safi', label: 'SAFI', type: 'select', options: CG_NX_SAFI_OPTS },
+                        { name: 'bt_inh_pol', label: 'inherit peer-policy', type: 'text', validate: 'objname', placeholder: 'POL-BASE' }
+                    ].concat(cgNxNbrAfFields('bt_af_'))
+                }
+            ],
+            submit: 'Peer Template Oluştur'
+        }, (data) => cgNxBgpTemplateGen(data));
+    }
+};
+function cgNxBgpTemplateGen(data) {
+    const v = k => cgNxStr(data[k]);
+    const w = [];
+    if (!CG_VALIDATORS.asn.fn(v('bt_as'))) w.push('Yerel AS geçersiz veya boş.');
+    if (!CG_VALIDATORS.objname.re.test(v('bt_name'))) w.push('Şablon adı geçersiz veya boş.');
+    ['bt_remote_as', 'bt_local_as'].forEach(k => { if (v(k) && !CG_VALIDATORS.asn.fn(v(k))) w.push(k.replace('bt_', '') + ' geçersiz.'); });
+    if (v('bt_desc') && /[\r\n\0]/.test(String(data.bt_desc))) w.push('description tek satır olmalı.');
+    if (v('bt_upd') && !CG_VALIDATORS.iface.fn(v('bt_upd'))) w.push('update-source arayüz adı geçersiz.');
+    if (v('bt_inh_sess') && !CG_VALIDATORS.objname.re.test(v('bt_inh_sess'))) w.push('peer-session adı geçersiz.');
+    if (v('bt_mhop') && !cgNxInt(v('bt_mhop'), 2, 255)) w.push('ebgp-multihop 2-255 olmalı.');
+    if (v('bt_ttl') && !cgNxInt(v('bt_ttl'), 1, 254)) w.push('ttl-security hops 1-254 olmalı.');
+    if (v('bt_mhop') && v('bt_ttl')) w.push('ebgp-multihop ile ttl-security hops birlikte kullanılmaz (NX-OS 9.3(5) öncesi komut reddedilir).');
+    if ((v('bt_ka') || v('bt_hold')) && !(cgNxInt(v('bt_ka'), 0, 3600) && cgNxInt(v('bt_hold'), 0, 3600))) w.push('timers için keepalive ve holdtime birlikte 0-3600 girilmeli.');
+    const afi = v('bt_afi'), safi = v('bt_safi');
+    let af = '';
+    if (afi) {
+        if (!['ipv4', 'ipv6', 'link-state', 'l2vpn'].includes(afi)) w.push('Şablon AFI geçersiz.');
+        else cgNxBgpAfCheck(afi, safi, '', w);
+        if (v('bt_inh_pol') && !CG_VALIDATORS.objname.re.test(v('bt_inh_pol'))) w.push('peer-policy adı geçersiz.');
+        af = cgNxNbrAfBody(data, 'bt_af_', '      ', w);
+    }
+    let c = cgNxHdr('BGP Peer Template');
+    if (w.length) return { config: c + '! Geçersiz peer template girdisi; çıktı üretilmedi.\n', warnings: w };
+    c += 'feature bgp\n\nrouter bgp ' + cgEsc(v('bt_as')) + '\n  template peer ' + cgEsc(v('bt_name')) + '\n';
+    const s = '    ', L = x => { c += s + x + '\n'; };
+    if (v('bt_bfd')) L(v('bt_bfd') === 'set' ? 'bfd' : 'bfd ' + v('bt_bfd'));
+    if (v('bt_desc')) L('description ' + cgEsc(v('bt_desc')));
+    if (data.bt_dcc) L('disable-connected-check');
+    if (v('bt_mhop')) L('ebgp-multihop ' + cgEsc(v('bt_mhop')));
+    if (v('bt_inh_sess')) L('inherit peer-session ' + cgEsc(v('bt_inh_sess')));
+    if (v('bt_local_as')) L('local-as ' + cgEsc(v('bt_local_as')));
+    if (v('bt_lnc')) L('log-neighbor-changes' + (v('bt_lnc') === 'disable' ? ' disable' : ''));
+    if (v('bt_remote_as')) L('remote-as ' + cgEsc(v('bt_remote_as')));
+    if (v('bt_rpas')) L('remove-private-as' + (v('bt_rpas') === 'set' ? '' : ' ' + v('bt_rpas')));
+    if (data.bt_shut) L('shutdown');
+    if (v('bt_ka')) L('timers ' + cgEsc(v('bt_ka')) + ' ' + cgEsc(v('bt_hold')));
+    if (data.bt_passive) L('transport connection-mode passive');
+    if (v('bt_ttl')) L('ttl-security hops ' + cgEsc(v('bt_ttl')));
+    if (v('bt_upd')) L('update-source ' + cgEsc(v('bt_upd')));
+    if (afi) {
+        L(cgNxAfLine(afi, safi));
+        if (v('bt_inh_pol')) c += '      inherit peer-policy ' + cgEsc(v('bt_inh_pol')) + '\n';
+        c += af;
+    }
+    c += '\n! Komşuya uygulama örneği:\n!   neighbor 192.0.2.2\n!     inherit peer ' + cgEsc(v('bt_name')) + '\n';
+    c += '! Doğrulama:\n! show running-config bgp\n! show bgp peer-template ' + cgEsc(v('bt_name')) + '\n';
+    return c;
+}
