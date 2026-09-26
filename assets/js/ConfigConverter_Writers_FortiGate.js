@@ -394,6 +394,14 @@ function ccWriteFortiGate(ir) {
                 c += '        set extip ' + n.origDst + '\n';
                 c += '        set mappedip "' + n.transDst + '"\n';
                 if (n.iface) c += '        set extintf "' + n.iface + '"\n';
+                // Port yönlendirme (FortiOS CLI Ref config firewall vip): protocol varsayılanı tcp.
+                if (n.portForward) {
+                    c += '        set portforward enable\n';
+                    if (n.proto && n.proto !== 'tcp') c += '        set protocol ' + n.proto + '\n';
+                    if (n.origPort) c += '        set extport ' + n.origPort + '\n';
+                    if (n.transPort) c += '        set mappedport ' + n.transPort + '\n';
+                    if (n.portMapType && n.portMapType !== '1-to-1') c += '        set portmapping-type ' + n.portMapType + '\n';
+                }
                 c += '    next\n';
             });
             c += 'end\n\n';
@@ -405,6 +413,10 @@ function ccWriteFortiGate(ir) {
                 c += '    edit "' + (n.name || n._ruleName || 'POOL_' + (n.origSrc || 'any').replace(/[^\w]/g, '_')) + '"\n';
                 c += '        set startip ' + (range[0] || n.transSrc) + '\n';
                 c += '        set endip ' + (range[1] || range[0] || n.transSrc) + '\n';
+                // type: one-to-one ek alan istemez; diğerleri (fixed-port-range, port-block-allocation …)
+                // kaynak/blok alanları taşınmadığı için yazılmaz → varsayılan overload + el ile uyarısı
+                if (n.poolType === 'one-to-one') c += '        set type one-to-one\n';
+                else if (n.poolType) ccDropField(ir, 'natRules', n.name || '', 'type', n.poolType, 'fortigate-ippool-type-needs-extra-fields-manual', 'fortigate', CC_SEVERITY.MANUAL);
                 c += '    next\n';
             });
             c += 'end\n\n';
@@ -492,7 +504,15 @@ function ccWriteFortiGate(ir) {
         c += '    end\n';
         if (sw.healthCheck) {
             const hc = sw.healthCheck;
-            c += '    config health-check\n        edit "' + (hc.name || 'hc-primary') + '"\n            set server "' + hc.server + '"\n            set protocol ping\n';
+            c += '    config health-check\n        edit "' + (hc.name || 'hc-primary') + '"\n            set server "' + hc.server + '"\n            set protocol ' + (hc.protocol || 'ping') + '\n';
+            // members: IR'de arayüz adı → yukarıda yazılan üye sıra numarası (0 = FortiOS özel değeri)
+            if (hc.members && hc.members.length) {
+                const ids = hc.members.map(m => m === '0' ? '0' : String((sw.members || []).findIndex(x => x.iface === m) + 1));
+                const bad = hc.members.filter((m, k) => m !== '0' && ids[k] === '0');
+                if (bad.length) ccDropField(ir, 'sdwan', hc.name || '', 'health-check members', bad.join(' '), 'fortigate-sdwan-hc-member-unknown-manual', 'fortigate', CC_SEVERITY.MANUAL);
+                const good = ids.filter((x, k) => x !== '0' || hc.members[k] === '0');
+                if (good.length) c += '            set members ' + good.join(' ') + '\n';
+            }
             c += '            config sla\n                edit 1\n                    set latency-threshold ' + (hc.latency || '150') + '\n                    set jitter-threshold ' + (hc.jitter || '30') + '\n                next\n            end\n        next\n    end\n';
         }
         c += 'end\n\n';
@@ -506,8 +526,13 @@ function ccWriteFortiGate(ir) {
     }
     // PBR
     (ir.pbrRules || []).forEach(p => {
-        c += 'config router policy\n    edit ' + p.seq + '\n        set src ' + p.srcAddr + '\n';
+        c += 'config router policy\n    edit ' + p.seq + '\n';
+        if (p.inInterfaces && p.inInterfaces.length) c += '        set input-device ' + p.inInterfaces.map(x => '"' + x + '"').join(' ') + '\n';
+        c += '        set src ' + p.srcAddr + '\n';
         if (p.dstAddr) c += '        set dst ' + p.dstAddr + '\n';
+        if (p.protocol && p.protocol !== '0') c += '        set protocol ' + p.protocol + '\n';
+        if (p.startPort) c += '        set start-port ' + p.startPort + '\n';
+        if (p.endPort) c += '        set end-port ' + p.endPort + '\n';
         c += '        set output-device "' + p.outInterface + '"\n        set gateway ' + p.gateway + '\n    next\nend\n\n';
     });
     // VDOM

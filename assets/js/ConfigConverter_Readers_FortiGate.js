@@ -12,6 +12,7 @@ function ccReadFortiGate(text) {
     let curIface = null, curPolicy = null, curAddr = null, curSvc = null;
     let curVip = null, curPool = null, curAddrGrp = null, curZone = null;
     let curTunnel = null, curVdom = null, curSdwanMember = null, curSdwanHC = null;
+    let sdwStack = [], sdwMemberById = {};
     let subDepth = 0; // sdwan/vdom içindeki nested 'config ... end' bloklarını saymak için
 
     // Helper: parse quoted tokens from a "set member" line — handles "A" "B" "C"
@@ -25,6 +26,11 @@ function ccReadFortiGate(text) {
         return tokens;
     }
 
+    // VIP kaydı kapanırken: port yönlendirme kapalıysa port alanları IR'ye taşınmaz (FortiOS yok sayar).
+    function _vipDone(v) {
+        if (!v.portForward) { delete v.portForward; delete v.proto; delete v.origPort; delete v.transPort; delete v.portMapType; }
+        return v;
+    }
     const _mask2len = m => ccMaskToPrefix(m || '255.255.255.255');
     // Tablo gövdesini (edit … next) kayıtlara böl: [{ key, sets: {ad: değer}, subs: { tablo: [...] } }] (tek düzey alt tablo yeterli)
     function _fgTable(body, name) {
@@ -44,7 +50,20 @@ function ccReadFortiGate(text) {
     }
     // Üst düzey "set" satırları (iç içe tabloların dışındakiler)
     function _fgTop(body) { const o = {}; let depth = 0; body.forEach(l => { if (/^config\s/.test(l)) depth++; else if (l === 'end') depth--; else if (depth === 0) { const m = l.match(/^set\s+(\S+)\s*(.*)$/); if (m) o[m[1]] = m[2]; } }); return o; }
-    const _redist = body => _fgTable(body, 'redistribute').filter(r => /enable/.test(r.sets.status || '')).map(r => r.key);
+    // İki biçim: "config redistribute / edit \"connected\"" ve cihazın show çıktısındaki
+    // "config redistribute \"connected\" … end" (Fortinet Community OSPF/BGP örnekleri; 7.6.6 CLI Ref).
+    const _redist = body => {
+        const out = _fgTable(body, 'redistribute').filter(r => /enable/.test(r.sets.status || '')).map(r => r.key);
+        let depth = 0, cur = null;
+        body.forEach(l => {
+            const m = depth === 0 && l.match(/^config redistribute "([^"]+)"$/);
+            if (m) { cur = { k: m[1], on: false }; depth++; return; }
+            if (/^config\s/.test(l)) { depth++; return; }
+            if (l === 'end') { depth--; if (depth === 0 && cur) { if (cur.on && !out.includes(cur.k)) out.push(cur.k); cur = null; } return; }
+            if (cur && depth === 1 && /^set status enable\b/.test(l)) cur.on = true;
+        });
+        return out;
+    };
     function _fgParseOspf(body) {
         const top = _fgTop(body), rid = (top['router-id'] || '').trim();
         const proc = { process_id: '1', router_id: rid === '0.0.0.0' ? '' : rid, areas: [] };
@@ -117,7 +136,7 @@ function ccReadFortiGate(text) {
             line === 'config ips sensor' ||
             line === 'config webfilter profile' ||
             line === 'config application list')        { block = 'skip'; i++; continue; }
-        if (line === 'config system sdwan')            { block = 'sdwan'; subDepth = 0; curSdwanMember = null; curSdwanHC = null; i++; continue; }
+        if (line === 'config system sdwan')            { block = 'sdwan'; subDepth = 0; sdwStack = []; sdwMemberById = {}; curSdwanMember = null; curSdwanHC = null; i++; continue; }
         if (line === 'config system ha')               { block = 'ha';      i++; continue; }
         if (line === 'config router policy')           { block = 'pbr';     i++; continue; }
         if (line === 'config vdom')                    { block = 'vdom'; subDepth = 0; i++; continue; }
@@ -151,7 +170,7 @@ function ccReadFortiGate(text) {
             // sdwan/vdom içindeki nested 'config ... / end' çiftini kapat, ana bloğu kapatma
             if ((block === 'sdwan' || block === 'vdom' || block === 'fgglobal') && subDepth > 0) {
                 subDepth--;
-                if (block === 'sdwan') { curSdwanMember = null; curSdwanHC = null; }
+                if (block === 'sdwan') { const t = sdwStack.pop(); if (t === 'members') curSdwanMember = null; if (t === 'health-check') curSdwanHC = null; }
                 i++; continue;
             }
             // flush any pending objects
@@ -160,7 +179,7 @@ function ccReadFortiGate(text) {
             if (block === 'svc'     && curSvc)     { ir.serviceObjects.push(curSvc);     curSvc     = null; }
             if (block === 'svcgrp'  && curSvc)     { ir.serviceObjects.push(curSvc);     curSvc     = null; }
             if (block === 'zone'    && curZone)    { ir.zones.push(curZone);             curZone    = null; }
-            if (block === 'vip'     && curVip)     { ir.natRules.push(curVip);            curVip     = null; }
+            if (block === 'vip'     && curVip)     { ir.natRules.push(_vipDone(curVip));  curVip     = null; }
             if (block === 'ippool'  && curPool)    { ir.natRules.push(curPool);           curPool    = null; }
             if (block === 'sslsettings' && ir.sslVpn) { /* zaten ir.sslVpn üzerinde birikti */ }
             block = null; curIface = null; curPolicy = null; curTunnel = null; curVdom = null;
@@ -343,7 +362,7 @@ function ccReadFortiGate(text) {
         // ── firewall vip block (static NAT / DNAT) ────────────────────────────
         else if (block === 'vip') {
             if (line.startsWith('edit "')) {
-                if (curVip) ir.natRules.push(curVip);
+                if (curVip) ir.natRules.push(_vipDone(curVip));
                 curVip = { type: 'static', name: line.slice(6, -1), origSrc: 'any', transSrc: '', origDst: '', transDst: '', iface: '', bidirectional: false };
             } else if (curVip && line.startsWith('set extip ')) {
                 curVip.origDst = line.slice(10).trim();
@@ -352,7 +371,21 @@ function ccReadFortiGate(text) {
                 curVip.transDst = line.slice(13).trim().replace(/"/g, '');
             } else if (curVip && line.startsWith('set extintf ')) {
                 curVip.iface = line.slice(12).replace(/"/g, '').trim();
-            } else if (line === 'next') { if (curVip) { ir.natRules.push(curVip); curVip = null; } }
+            // Port yönlendirme (FortiOS 7.4.8/7.6.6 CLI Ref, config firewall vip): portforward
+            // varsayılanı disable, protocol varsayılanı tcp; extport/mappedport tek port ya da aralık.
+            // Okunmazsa kural tüm portları açan 1:1 statik NAT'a dönüşür.
+            } else if (curVip && line.startsWith('set portforward ')) {
+                curVip.portForward = line.slice(16).trim() === 'enable';
+                if (curVip.portForward && !curVip.proto) curVip.proto = 'tcp';
+            } else if (curVip && line.startsWith('set protocol ')) {
+                curVip.proto = line.slice(13).trim().toLowerCase();
+            } else if (curVip && line.startsWith('set extport ')) {
+                curVip.origPort = line.slice(12).replace(/"/g, '').trim();
+            } else if (curVip && line.startsWith('set mappedport ')) {
+                curVip.transPort = line.slice(15).replace(/"/g, '').trim();
+            } else if (curVip && line.startsWith('set portmapping-type ')) {
+                curVip.portMapType = line.slice(21).trim();
+            } else if (line === 'next') { if (curVip) { ir.natRules.push(_vipDone(curVip)); curVip = null; } }
         }
 
         // ── firewall ippool block (dynamic NAT/PAT) ───────────────────────────
@@ -366,9 +399,15 @@ function ccReadFortiGate(text) {
                 curPool._endip = line.slice(10).trim();
             } else if (curPool && line.startsWith('set type ')) {
                 curPool._pooltype = line.slice(9).trim(); // 'overload' (PAT) or 'one-to-one'
+            } else if (curPool && line.startsWith('set ') && !/^set (comments|arp-reply) /.test(line)) {
+                // source-startip/endip, block-size, port-per-user … taşınmıyor: açık uyarı
+                const m = line.match(/^set\s+(\S+)\s*(.*)$/);
+                ccDropField(ir, 'natRules', curPool.name, m[1], m[2], 'fortigate-ippool-field-not-converted-manual', 'fortigate', CC_SEVERITY.MANUAL);
             } else if (line === 'next') {
                 if (curPool) {
                     curPool.transSrc = curPool._startip + (curPool._endip && curPool._endip !== curPool._startip ? '-' + curPool._endip : '');
+                    // FortiOS CLI Ref config firewall ippool: type varsayılanı overload; diğerleri IR'ye taşınır
+                    if (curPool._pooltype && curPool._pooltype !== 'overload') curPool.poolType = curPool._pooltype;
                     delete curPool._startip; delete curPool._endip; delete curPool._pooltype;
                     ir.natRules.push(curPool); curPool = null;
                 }
@@ -541,33 +580,65 @@ function ccReadFortiGate(text) {
                 else if (line.startsWith('set dst '))        curTunnel.dstAddr = line.slice(8).trim();
                 else if (line.startsWith('set output-device ')) curTunnel.outInterface = line.slice(18).replace(/"/g, '').trim();
                 else if (line.startsWith('set gateway '))    curTunnel.gateway = line.slice(12).trim();
+                // FortiOS 7.4.8 CLI Ref config router policy: input-device (liste), protocol (0-255, 0 = tümü),
+                // start-port/end-port. input-device okunmazsa kural tüm giriş arayüzlerine genişler.
+                else if (line.startsWith('set input-device ')) curTunnel.inInterfaces = parseQuotedTokens(line.slice(17));
+                else if (line.startsWith('set protocol '))     curTunnel.protocol = line.slice(13).trim();
+                else if (line.startsWith('set start-port '))   curTunnel.startPort = line.slice(15).trim();
+                else if (line.startsWith('set end-port '))     curTunnel.endPort = line.slice(13).trim();
                 else if (line === 'next') curTunnel = null;
+                else if (line.startsWith('set ') && line !== 'set status enable') {
+                    // Diğer alanlar (action deny, srcaddr/dstaddr, negate, tos, internet-service …) taşınmıyor: açık uyarı
+                    const m = line.match(/^set\s+(\S+)\s*(.*)$/);
+                    ccDropField(ir, 'pbrRules', curTunnel.seq, m[1], m[2], 'fortigate-pbr-field-not-converted-manual', 'fortigate', CC_SEVERITY.MANUAL);
+                }
             }
         }
 
         // ── SD-WAN (nested config members / config health-check) ──────────────
         else if (block === 'sdwan') {
-            if (line === 'config members' || line === 'config health-check' || line === 'config service' || line === 'config sla') {
-                subDepth++;
-            } else if (line.startsWith('edit ') || line.startsWith('edit "')) {
-                if (!ir.sdwan) ir.sdwan = { members: [], healthCheck: null };
+            // İç içe tablo yığını (zone / members / health-check[/sla] / service …). Önceki sürüm
+            // yalnız dört tablo adını sayıyordu: "config zone" sonundaki end SD-WAN bloğunu kapatıyor,
+            // service kurallarının "edit <n>" satırları üye sanılıyordu.
+            const top = sdwStack[sdwStack.length - 1] || '';
+            if (line.startsWith('config ')) {
+                sdwStack.push(line.slice(7).trim()); subDepth++;
+            } else if (line.startsWith('edit ')) {
                 const idOrName = line.slice(5).replace(/"/g, '').trim();
-                if (/^\d+$/.test(idOrName) && !curSdwanHC) {
+                // Yalnız üye / sağlık denetimi SD-WAN'ı IR'ye taşır (zone tanımı tek başına etkinleştirmez)
+                if (sdwStack.length === 1 && (top === 'members' || top === 'health-check') && !ir.sdwan) ir.sdwan = { members: [], healthCheck: null };
+                if (sdwStack.length === 1 && top === 'members') {
                     curSdwanMember = { iface: '', gateway: '', cost: '0' };
+                    sdwMemberById[idOrName] = curSdwanMember;
                     ir.sdwan.members.push(curSdwanMember);
-                } else if (!/^\d+$/.test(idOrName)) {
+                } else if (sdwStack.length === 1 && top === 'health-check') {
+                    if (ir.sdwan.healthCheck) ccDropField(ir, 'sdwan', ir.sdwan.healthCheck.name, 'health-check', ir.sdwan.healthCheck.server,
+                        'fortigate-sdwan-single-health-check-manual', 'fortigate', CC_SEVERITY.MANUAL);
                     curSdwanHC = { name: idOrName, server: '', latency: '150', jitter: '30' };
                     ir.sdwan.healthCheck = curSdwanHC;
+                } else if (sdwStack.length === 1 && top === 'service') {
+                    ccDropField(ir, 'sdwan', idOrName, 'service', '', 'fortigate-sdwan-service-rule-not-converted-manual', 'fortigate', CC_SEVERITY.MANUAL);
                 }
             } else if (line === 'set status enable' || line === 'set status disable') {
                 // ignore (varsayılan enable üretiliyor)
-            } else if (curSdwanMember && line.startsWith('set interface ')) curSdwanMember.iface = line.slice(14).replace(/"/g, '').trim();
-            else if (curSdwanMember && line.startsWith('set gateway '))     curSdwanMember.gateway = line.slice(12).trim();
-            else if (curSdwanMember && line.startsWith('set cost '))        curSdwanMember.cost = line.slice(9).trim();
-            else if (curSdwanHC && line.startsWith('set server '))          curSdwanHC.server = line.slice(11).replace(/"/g, '').trim();
-            else if (curSdwanHC && line.startsWith('set latency-threshold ')) curSdwanHC.latency = line.slice(22).trim();
-            else if (curSdwanHC && line.startsWith('set jitter-threshold '))  curSdwanHC.jitter = line.slice(21).trim();
-            else if (line === 'next') { /* nested edit kapanışı — subDepth ile end zaten yönetiliyor */ }
+            } else if (top === 'members' && curSdwanMember) {
+                if (line.startsWith('set interface ')) curSdwanMember.iface = line.slice(14).replace(/"/g, '').trim();
+                else if (line.startsWith('set gateway ')) curSdwanMember.gateway = line.slice(12).trim();
+                else if (line.startsWith('set cost ')) curSdwanMember.cost = line.slice(9).trim();
+            } else if ((top === 'health-check' || top === 'sla') && curSdwanHC) {
+                if (line.startsWith('set server ')) curSdwanHC.server = line.slice(11).replace(/"/g, '').trim();
+                else if (line.startsWith('set latency-threshold ')) curSdwanHC.latency = line.slice(22).trim();
+                else if (line.startsWith('set jitter-threshold ')) curSdwanHC.jitter = line.slice(21).trim();
+                else if (top === 'health-check' && line.startsWith('set protocol ')) curSdwanHC.protocol = line.slice(13).trim();
+                else if (top === 'health-check' && line.startsWith('set members ')) {
+                    // seq-num → arayüz adı (IR yazıcıdan bağımsız); 0 FortiOS'ta özel değer, olduğu gibi taşınır
+                    curSdwanHC.members = parseQuotedTokens(line.slice(12)).map(id => id === '0' ? '0' : (sdwMemberById[id] ? sdwMemberById[id].iface : ''));
+                    if (curSdwanHC.members.some(m => !m)) {
+                        ccDropField(ir, 'sdwan', curSdwanHC.name, 'health-check members', line.slice(12), 'fortigate-sdwan-hc-member-unknown-manual', 'fortigate', CC_SEVERITY.MANUAL);
+                        curSdwanHC.members = curSdwanHC.members.filter(Boolean);
+                    }
+                }
+            }
         }
 
         // ── VDOM (nested config system settings / config global) ──────────────

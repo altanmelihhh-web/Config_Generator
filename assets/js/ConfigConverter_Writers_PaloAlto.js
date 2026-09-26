@@ -107,13 +107,31 @@ function ccWritePaloAlto(ir) {
     (ir.natRules || []).forEach((n, idx) => {
         const name = n.name || n._ruleName || ('NAT_' + (idx + 1));
         const base = 'set rulebase nat rules "' + name + '"';
+        // Port yönlendirme: servis nesnesi (özgün port) + translated-port (tek port). PAN-OS servis
+        // nesnesi tcp/udp; eşleme karşılanamazsa kural yazılmaz (tüm portları açan DNAT olurdu).
+        let pfSvc = '', pfPort = '';
+        if (n.portForward) {
+            const one = v => /^\d{1,5}$/.test(v || '') && +v >= 1 && +v <= 65535;
+            const rng = v => /^\d{1,5}(-\d{1,5})?$/.test(v || '');
+            const tp = n.transPort || n.origPort;
+            const okShape = ['tcp', 'udp'].includes(n.proto) && rng(n.origPort) && (tp === n.origPort || (one(n.origPort) && one(tp)));
+            if (!okShape || !(n.origDst && n.transDst)) {
+                ccDropField(ir, 'natRules', name, 'portForward', (n.proto || '') + ' ' + (n.origPort || '') + '->' + (n.transPort || ''),
+                    'paloalto-port-forward-shape-unsupported-manual', 'paloalto', CC_SEVERITY.MANUAL);
+                return;
+            }
+            pfSvc = name + '-svc';
+            c += 'set service "' + pfSvc + '" protocol ' + n.proto + ' port ' + n.origPort + '\n';
+            if (tp !== n.origPort) pfPort = tp;
+        }
         c += base + ' from any\n';
         c += base + ' to any\n';
         c += base + ' source [ ' + (n.origSrc || 'any') + ' ]\n';
         c += base + ' destination [ ' + (n.origDst || 'any') + ' ]\n';
-        c += base + ' service any\n';
+        c += base + ' service ' + (pfSvc ? '"' + pfSvc + '"' : 'any') + '\n';
         if (n.origDst && n.transDst) {
             c += base + ' destination-translation translated-address ' + n.transDst + '\n';
+            if (pfPort) c += base + ' destination-translation translated-port ' + pfPort + '\n';
         } else if (n.transSrc === 'interface') {
             c += base + ' source-translation dynamic-ip-and-port interface-address\n';
             if (n.iface) c += base + ' to-interface ' + n.iface + '\n';

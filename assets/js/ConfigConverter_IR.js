@@ -1405,6 +1405,26 @@ function _ccValRuleNatIncomplete(ir, output, dst) {
   });
 }
 
+// Rule: port yönlendirme (VIP portforward) yazıcısı olmayan hedef — NAT satırı üretilmez, kural el ile kurulmalı.
+// FortiGate / Palo Alto / ASA yazıcıları bu alanı kendileri işler (karşılanamayanı kendileri düşer).
+function _ccValRuleNatPortForward(ir, output, dst) {
+  if (['fortigate', 'paloalto', 'cisco-asa', 'cisco-ftd'].includes(dst)) return;
+  (ir.natRules || []).forEach(n => {
+    if (!n.portForward) return;
+    ccDropField(ir, 'natRules', n.name || n._ruleName || '', 'portForward',
+      (n.proto || '') + ' ' + (n.origDst || '') + ':' + (n.origPort || '') + '->' + (n.transDst || '') + ':' + (n.transPort || n.origPort || ''),
+      'nat-port-forward-not-written-manual', dst, CC_SEVERITY.MANUAL);
+  });
+}
+
+// Rule: FortiGate IP havuzu tipi (one-to-one vb.) FortiGate dışı hedefte karşılanmıyor — NAT anlamı değişir.
+function _ccValRuleNatPoolType(ir, output, dst) {
+  if (dst === 'fortigate') return;
+  (ir.natRules || []).forEach(n => {
+    if (n.poolType) ccDropField(ir, 'natRules', n.name || '', 'poolType', n.poolType, 'nat-pool-type-not-written-manual', dst, CC_SEVERITY.MANUAL);
+  });
+}
+
 // Rule: IPsec PSK boş veya çok kısa — tünel kurulmaz ya da zayıf paylaşılan anahtar.
 function _ccValRuleIpsecWeakPsk(ir, output, dst) {
   (ir.vpnTunnels || []).forEach(t => {
@@ -1452,6 +1472,8 @@ function ccValidateSemantic(ir, output, dstVendor) {
   const rules = [
     _ccValRuleKbRange,
     _ccValRuleNatIncomplete,
+    _ccValRuleNatPortForward,
+    _ccValRuleNatPoolType,
     _ccValRuleIpsecWeakPsk,
     _ccValRulePolicyIpsecActionDowngrade,
     _ccValRulePbrMissingTarget,

@@ -220,6 +220,21 @@ function ccWriteCiscoASA(ir) {
     });
     // NAT rules
     (ir.natRules || []).forEach((n, idx) => {
+        // Port yönlendirme: object NAT "static <mapped-ip> service <proto> <real-port> <mapped-port>".
+        // ASA bu biçimde yalnız tek port ve tcp/udp/sctp kabul eder; karşılanamayan kural için satır
+        // üretilmez (aksi halde tüm portları açan 1:1 statik NAT olur), el ile uyarısı düşülür.
+        if (n.portForward) {
+            const rp = n.transPort || n.origPort, mp = n.origPort, one = v => /^\d{1,5}$/.test(v || '') && +v >= 1 && +v <= 65535;
+            const ip1 = v => /^\d{1,3}(\.\d{1,3}){3}$/.test(v || '');
+            if (['tcp', 'udp', 'sctp'].includes(n.proto) && one(rp) && one(mp) && ip1(n.transDst) && ip1(n.origDst)) {
+                const on = 'PF_' + String(n.name || n._ruleName || (idx + 1)).replace(/[^\w.-]/g, '_');
+                c += 'object network ' + on + '\n host ' + n.transDst + '\n nat (inside,outside) static ' + n.origDst + ' service ' + n.proto + ' ' + rp + ' ' + mp + '\n';
+            } else {
+                ccDropField(ir, 'natRules', n.name || n._ruleName || '', 'portForward', (n.proto || '') + ' ' + (n.origPort || '') + '->' + (n.transPort || ''),
+                    'asa-port-forward-shape-unsupported-manual', 'cisco-asa', CC_SEVERITY.MANUAL);
+            }
+            return;
+        }
         if (n.type === 'static') c += 'nat (inside,outside) ' + (idx + 1) + ' source static ' + (n.origSrc || 'any') + ' ' + (n.transSrc || 'any') + ' destination static ' + (n.origDst || 'any') + ' ' + (n.transDst || 'any') + '\n';
         else c += 'nat (inside,outside) dynamic ' + (n.origSrc || 'any') + ' interface\n';
     });

@@ -34,7 +34,9 @@ const CgLabFgt = (() => {
     const P2PROP = ['aes128-sha1', 'aes128-sha256', 'aes256-sha1', 'aes256-sha256', 'aes256-sha384', 'aes256-sha512', 'aes128gcm', 'aes256gcm', 'chacha20poly1305'];
     const DHG = ['1', '2', '5', '14', '15', '16', '19', '20', '21', '31', '32'];
     const ACCESS = ['ping', 'https', 'ssh', 'http', 'snmp', 'fgfm', 'telnet', 'radius-acct', 'probe-response', 'fabric', 'ftm', 'speed-test'];
-    // FortiOS 7.6.6 CLI Ref (config system interface → allowaccess): yalnız 7.6'da eklenen değerler
+    // FortiOS 7.6.6 CLI Ref (config system interface, sayfa 317104469 → allowaccess): yalnız 7.6'da eklenen değerler.
+    // scim / dnp ("DNP access") / icond ("Industrial Connectivity service access") 7.6.6'da var, 7.4.8'de yok.
+    // Ansible fortios şeması dnp/icond'u içermiyor (REST şeması); CLI Ref esas alındı.
     const ACCESS76 = ['scim', 'dnp', 'icond'];
     const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'none'];
     const SCHEMA = {
@@ -95,9 +97,13 @@ const CgLabFgt = (() => {
         'firewall addrgrp': { key: 'name', req: ['member'], attrs: {
             member: { t: 'refs', ds: 'addrgrpMember', d: 'Üye adres nesneleri' }, comment: { t: 'str', max: 255, d: 'Açıklama' } } },
         'firewall service custom': { key: 'name', attrs: {
-            protocol: { t: 'enum', v: ['TCP/UDP/SCTP', 'ICMP', 'ICMP6', 'IP'], def: 'TCP/UDP/SCTP', d: 'Protokol ailesi' },
+            // FortiOS 7.6.6 CLI Ref config firewall service custom (198499981) + 7.6.0 New Features 927041:
+            // 7.6'da protokol ailesi TCP/UDP/UDP-Lite/SCTP oldu ve udplite-portrange eklendi.
+            protocol: { t: 'enum', vFos: { '7.4': ['TCP/UDP/SCTP', 'ICMP', 'ICMP6', 'IP'], '7.6': ['TCP/UDP/UDP-Lite/SCTP', 'ICMP', 'ICMP6', 'IP'] },
+                defFos: { '7.4': 'TCP/UDP/SCTP', '7.6': 'TCP/UDP/UDP-Lite/SCTP' }, d: 'Protokol ailesi' },
             'tcp-portrange': { t: 'ports', d: 'TCP hedef port(lar)ı, ör. 443 ya da 8000-8080' },
             'udp-portrange': { t: 'ports', d: 'UDP hedef port(lar)ı' },
+            'udplite-portrange': { t: 'ports', only76: true, d: 'UDP-Lite hedef port(lar)ı' },
             comment: { t: 'str', max: 255, d: 'Açıklama' } } },
         'firewall service group': { key: 'name', req: ['member'], attrs: {
             member: { t: 'refs', ds: 'svcgrpMember', d: 'Üye servisler' }, comment: { t: 'str', max: 255, d: 'Açıklama' } } },
@@ -448,7 +454,7 @@ const CgLabFgt = (() => {
         S.variant = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
         // Parti 9 (fgt-31): varyant da sürüm seçebilir (aynı yapılandırma 7.4 ve 7.6'da)
         const FOS = String((opts && opts.fos) || (S.variant && S.variant.fos) || lab.fos || '7.4'), IS76 = parseFloat(FOS) >= 7.6;
-        const attrOk = a => !(a.only74 && IS76);
+        const attrOk = a => !(a.only74 && IS76) && !(a.only76 && !IS76);
         // Teşhis simülasyonu verisi (lab.sim + varyant.sim): perf, procs, flows, hosts, ports, arp …
         const SIM = Object.assign({}, lab.sim || {}, (S.variant && S.variant.sim) || {});
         // ── model
@@ -1099,7 +1105,7 @@ const CgLabFgt = (() => {
             if (SVC[name]) return SVC[name].some(([pr, port]) => pr === 'any' || (pr === f.proto && (port === undefined || port === f.dport)));
             const c = M().t['firewall service custom'].v[name];
             if (c) {
-                if ((c.protocol || 'TCP/UDP/SCTP') === 'ICMP') return f.proto === 'icmp';
+                if (c.protocol === 'ICMP') return f.proto === 'icmp';
                 return (f.proto === 'tcp' && (c['tcp-portrange'] || []).some(sp => inRange(sp, f.dport))) || (f.proto === 'udp' && (c['udp-portrange'] || []).some(sp => inRange(sp, f.dport)));
             }
             const g = M().t['firewall service group'].v[name];
@@ -2780,7 +2786,7 @@ const CgLabFgt = (() => {
             warned: (w) => S.ev.some(e => e.warn === w)
         };
         // görev kontrolleri için okuma yardımcıları (kaydedilmiş = next/end sonrası durum)
-        const obj = (p, k) => { const sc = SCHEMA[p], o = sc.single ? M().t[p] : M().t[p].v[k]; if (!o) return null; const r = {}; for (const [an, a] of Object.entries(sc.attrs)) r[an] = o[an] !== undefined ? o[an] : a.def; return r; };
+        const obj = (p, k) => { const sc = SCHEMA[p], o = sc.single ? M().t[p] : M().t[p].v[k]; if (!o) return null; const r = {}; for (const [an, a] of Object.entries(sc.attrs)) r[an] = o[an] !== undefined ? o[an] : (a.defFos ? a.defFos[IS76 ? '7.6' : '7.4'] : a.def); return r; };
         return {
             vendor: 'fortigate',
             prompt, secret: () => !!(S.pending && S.pending.secret), input, help, complete,

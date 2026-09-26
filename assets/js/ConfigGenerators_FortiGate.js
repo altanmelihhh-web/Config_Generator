@@ -842,7 +842,7 @@ FortiGate.secprofile = {
                     info: 'Her profil ayrı oluşturulur ve belirtilen policy ID\'sine bağlanır.',
                     fields: [
                         { name: 'av_name', why: 'Antivirüs profili firewall kuralına <b>bağlanmalıdır</b>; oluşturmak tek başına korumaz. Ayrıca HTTPS trafiğinde tarama için SSL Inspection gerekir.',   label: 'AV Profil Adı',         type: 'text', required: true, placeholder: 'corp-av',        hint: 'Antivirus profil adı' },
-                        { name: 'ips_name', why: "IPS sensörü kurala bağlanmadan çalışmaz. Üretimde önce <code>monitor</code> ile izleyip sonra <code>block</code>'a geçmek kesintiyi önler.",  label: 'IPS Sensor Adı',        type: 'text', required: true, placeholder: 'corp-ips',       hint: 'IPS sensor adı' },
+                        { name: 'ips_name', why: "IPS sensörü kurala bağlanmadan çalışmaz. Üretimde önce <code>pass</code> + log ile izleyip sonra <code>block</code>'a geçmek kesintiyi önler.",  label: 'IPS Sensor Adı',        type: 'text', required: true, placeholder: 'corp-ips',       hint: 'IPS sensor adı' },
                         { name: 'wf_name', why: "Web Filter profili. HTTPS sitelerde kategori tespiti için SSL Inspection açık olmalı; aksi halde yalnızca SNI'ye bakılır.",   label: 'Web Filter Profil Adı', type: 'text', required: true, placeholder: 'corp-webfilter', hint: 'Web filtre profil adı' },
                         { name: 'app_name', why: 'Application Control, uygulamayı port/protokolden bağımsız tanır. Böylece 443 üzerinden geçen TeamViewer veya torrent yakalanabilir.',  label: 'App Control Liste Adı', type: 'text', required: true, placeholder: 'corp-appctrl',   hint: 'Uygulama denetim listesi adı' }
                     ]
@@ -1341,7 +1341,7 @@ function cgFgWebfilterGen(data) {
     if (badCats.length) c += '# UYARI: sayısal olmayan kategori atlandı: ' + badCats.join(', ') + ' — numarasını "get webfilter categories" ile bulun.\n';
     if (!blockCats.length) c += '# UYARI: engellenen kategori yok — bu profil hiçbir siteyi engellemez.\n';
     c += 'config webfilter profile\n    edit "' + pname + '"\n';
-    c += '        set web-content-log enable\n        set web-filter-command-log enable\n        set web-url-log enable\n';
+    c += '        set web-content-log enable\n        set web-filter-command-block-log enable\n        set web-url-log enable\n';
     if (blockCats.length > 0) {
         c += '        config ftgd-wf\n            config filters\n';
         blockCats.forEach((cat, i) => { c += '                edit ' + (i+1) + '\n                    set category ' + cat + '\n                    set action block\n                next\n'; });
@@ -1375,10 +1375,11 @@ FortiGate.ips = {
                             { value: 'medium',   label: 'Medium' },
                             { value: 'low',      label: 'Low' }
                         ], hint: 'Bu eşik ve üzerindeki imzalar etkilenir' },
-                        { name: 'action', why: '<code>accept</code> trafiği geçirir, <code>deny</code> sessizce düşürür. Deny kurallarında log açmazsan neyin engellendiğini asla göremezsin.',      label: 'Aksiyon',    type: 'select', options: [
+                        { name: 'action', why: '<code>block</code> eşleşen trafiği düşürür, <code>reset</code> oturumu sıfırlar, <code>pass</code> geçirir (log açıkken izleme kipi), <code>default</code> her imzanın kendi varsayılan eylemini uygular. FortiOS IPS\'te <code>monitor</code> diye bir eylem yoktur; izleme = <code>pass</code> + log.',      label: 'Aksiyon',    type: 'select', options: [
                             { value: 'block',   label: 'Block',   selected: true },
-                            { value: 'monitor', label: 'Monitor' },
-                            { value: 'reset',   label: 'Reset' }
+                            { value: 'pass',    label: 'Pass (log ile izleme)' },
+                            { value: 'reset',   label: 'Reset' },
+                            { value: 'default', label: 'Default (imza varsayılanı)' }
                         ]},
                         { name: 'log', why: "IPS olaylarının loglanması. Log kapalıyken sensör çalışır ama <b>neyi engellediğini göremezsin</b> — false positive tespiti imkânsız hale gelir.",         label: 'Log',        type: 'select', options: [
                             { value: 'enable',  label: 'Enable',  selected: true },
@@ -1395,8 +1396,15 @@ FortiGate.ips = {
 };
 function cgFgIpsGen(data) {
     const sname    = cgEsc(data.sensor_name || '');
-    const severity = cgEsc(data.severity || 'high');
-    const action   = cgEsc(data.action || 'block');
+    // FortiOS 7.4.8 / 7.6.6 CLI Ref config ips sensor: entries severity bir listedir (info low medium high critical);
+    // tek değer yalnız o seviyeyi seçer. Form "bu eşik ve üzeri" dediği için eşikten critical'a kadar yazılır.
+    // action: pass|block|reset|default ('monitor' geçersiz → eski kayıtlarda pass + log).
+    const _SEV = ['info', 'low', 'medium', 'high', 'critical'];
+    const sevIdx   = _SEV.indexOf(String(data.severity || 'high'));
+    const severity = _SEV.slice(sevIdx < 0 ? 3 : sevIdx).join(' ');
+    let action     = String(data.action || 'block');
+    if (action === 'monitor') action = 'pass';
+    if (!['pass', 'block', 'reset', 'default'].includes(action)) action = 'block';
     const log      = cgEsc(data.log || 'enable');
     let c = '# ========================================\n# FortiGate — IPS Sensor\n# ========================================\n\n';
     c += 'config ips sensor\n    edit "' + sname + '"\n        config entries\n            edit 1\n';
