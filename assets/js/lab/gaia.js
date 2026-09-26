@@ -18,6 +18,8 @@
 //    ntc-templates tests/checkpoint_gaia/* (github.com/networktocode/ntc-templates)
 //  - fw ctl zdebug drop başlığı ve "fw_log_drop_ex … dropped by fw_handle_first_packet Reason: Rulebase drop - rule N":
 //    https://yurisk.info/2016/05/21/fw-ctl-zdebug-drop-check-point-firewall-ultimate-debug-command/
+//    komutun resmi kaynağı: sk167457 (support.checkpoint.com, fw ctl zdebug ile düşmeleri görmek)
+//  - dhcp server / bonding group / /proc/net/bonding: R81.20 Gaia Administration Guide s. 143–156, 231–240
 //  - "dropped by handle_spoofed_susp, Reason: Address spoofing": sk106625 başlığı
 //  - cphaprob state / clusterXL_admin çıktıları:
 //    https://sc1.checkpoint.com/documents/R81.10/WebAdminGuides/EN/CP_R81.10_ClusterXL_AdminGuide/Topics-CXLG/Initiating-Manual-Cluster-Failover.htm
@@ -71,13 +73,20 @@ const CgLabGaia = (() => {
             const ifs = {};
             IFS.forEach(n => { ifs[n] = { ip: null, len: null, state: n === 'eth0' ? 'on' : 'off', comments: '', mtu: 1500 }; });
             return { hostname: lab.hostname || 'gw-a', ifs, routes: {}, dns: {}, ntp: { active: false, servers: {} }, users: { admin: { uid: 0, home: '/home/admin', pw: true } }, expertPw: lab.expertPw || 'Expert-Lab1',
-                allowed: ['any'], inact: 10, pwc: { min: 6, cx: 2 }, rba: { admin: ['adminRole'] }, syslog: [], tz: 'Etc / GMT' };
+                allowed: ['any'], inact: 10, pwc: { min: 6, cx: 2 }, rba: { admin: ['adminRole'] }, syslog: [], tz: 'Etc / GMT', dhcp: { on: false, subnets: {} }, bonds: {} };
         }
         const M = () => S.m;
         const log = o => { S.ev.push(Object.assign({ mode: S.mode }, o)); };
         const host = () => M().hostname;
         const parentOf = n => (n.match(/^(eth\d+)\.\d+$/) || [])[1];
-        const linkUp = n => n === 'lo' || (parentOf(n) ? (lab.up || []).includes(parentOf(n)) && (M().ifs[parentOf(n)] || {}).state === 'on' : (lab.up || []).includes(n));
+        const bondOf = n => Object.keys(M().bonds || {}).find(g => M().bonds[g].members.includes(n));
+        const memberUp = n => (lab.up || []).includes(n) && (M().ifs[n] || {}).state === 'on';
+        function bondUp(n) {
+            const b = (M().bonds || {})[n.slice(4)]; if (!b) return false;
+            const k = b.members.filter(memberUp).length;
+            return k > 0 && !(b.mode === '8023AD' && b.minl > 0 && k < b.minl);
+        }
+        const linkUp = n => n === 'lo' || (/^bond\d+$/.test(n) ? bondUp(n) : parentOf(n) ? (lab.up || []).includes(parentOf(n)) && (M().ifs[parentOf(n)] || {}).state === 'on' : (lab.up || []).includes(n));
         const ifList = () => Object.keys(M().ifs).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
         const ifUp = n => !!M().ifs[n] && M().ifs[n].state === 'on' && linkUp(n);
 
@@ -103,7 +112,7 @@ const CgLabGaia = (() => {
         const ifIp = n => (M().ifs[n] || {}).ip;
 
         // ═══ clish komut tanımları ═════════════════════════════════════════
-        const ctx = { ifNorm: s => (/^(eth\d+(\.\d{1,4})?|lo)$/.test(s) ? s : null), ifValid: n => !!M().ifs[n] };
+        const ctx = { ifNorm: s => (/^(eth\d+(\.\d{1,4})?|lo|bond\d{1,4})$/.test(s) ? s : null), ifValid: n => !!M().ifs[n] };
         const E = (o) => ({ err: 'value', msg: o });
         const CL = C.build([
             { p: 'show version all', run: showVersion },
@@ -156,7 +165,7 @@ const CgLabGaia = (() => {
             { p: 'set hostname WORD$h', run: a => { if (!/^[A-Za-z][A-Za-z0-9-]{0,62}$/.test(a.h)) return E('# [Simülatör] Geçersiz ad: harfle başlamalı; yalnız harf, rakam ve "-".'); M().hostname = a.h; } },
             { p: 'set interface IFNAME$if ipv4-address A.B.C.D$ip mask-length (1-32)$len', run: a => setIp(a.if, a.ip, a.len) },
             { p: 'set interface IFNAME$if ipv4-address A.B.C.D$ip subnet-mask MASK$mask', run: a => setIp(a.if, a.ip, C.maskLen(a.mask)) },
-            { p: 'set interface IFNAME$if state <on|off>$st', run: a => { if (a.if === 'lo') return E('# [Simülatör] lo arayüzü kapatılamaz.'); M().ifs[a.if].state = a.st; } },
+            { p: 'set interface IFNAME$if state <on|off>$st', run: a => { if (a.if === 'lo') return E('# [Simülatör] lo arayüzü kapatılamaz.'); if (/^bond/.test(a.if)) return E('# [Simülatör] Bond arayüzünün durumunu elle değiştirmeyin: bonding sürücüsü üyelerin durumuna göre belirler (Gaia Admin Guide).'); M().ifs[a.if].state = a.st; } },
             { p: 'set interface IFNAME$if comments LINE$c', run: a => { M().ifs[a.if].comments = a.c.replace(/^"(.*)"$/, '$1'); } },
             { p: 'set interface IFNAME$if mtu (68-16000)$mtu', run: a => { M().ifs[a.if].mtu = a.mtu; } },
             { p: 'delete interface IFNAME$if ipv4-address', run: a => { M().ifs[a.if].ip = null; M().ifs[a.if].len = null; } },
@@ -173,6 +182,44 @@ const CgLabGaia = (() => {
             { p: 'delete user WORD$u', run: a => { if (a.u === 'admin') return E('# [Simülatör] admin kullanıcısı silinemez.'); if (!M().users[a.u]) return E('# [Simülatör] "' + a.u + '" adlı kullanıcı yok.'); delete M().users[a.u]; } },
             { p: 'set expert-password', run: () => setExpertPw() },
             { p: 'set cluster member admin <down|up>$st', run: a => (SIM.cluster ? clAdmin(a.st, false) : E('# [Simülatör] Bu gateway bir ClusterXL üyesi değil.')) },
+            // DHCP sunucusu (Gaia Admin Guide R81.20 s. 231–240; show dhcp server all biçimi s. 240)
+            { p: 'add dhcp server subnet A.B.C.D$net netmask (1-32)$len', run: a => dhcpAdd(a.net, a.len) },
+            { p: 'add dhcp server subnet A.B.C.D$net include-ip-pool start A.B.C.D$s end A.B.C.D$e', run: a => dhcpPool(a.net, 'inc', a.s, a.e) },
+            { p: 'add dhcp server subnet A.B.C.D$net exclude-ip-pool start A.B.C.D$s end A.B.C.D$e', run: a => dhcpPool(a.net, 'exc', a.s, a.e) },
+            { p: 'set dhcp server subnet A.B.C.D$net <enable|disable>$st', run: a => dhcpSet(a.net, x => { x.on = a.st === 'enable'; }) },
+            { p: 'set dhcp server subnet A.B.C.D$net include-ip-pool WORD$r <enable|disable>$st', run: a => dhcpPoolSt(a.net, 'inc', a.r, a.st) },
+            { p: 'set dhcp server subnet A.B.C.D$net exclude-ip-pool WORD$r <enable|disable>$st', run: a => dhcpPoolSt(a.net, 'exc', a.r, a.st) },
+            { p: 'set dhcp server subnet A.B.C.D$net default-lease (1-4294967295)$n', run: a => dhcpSet(a.net, x => { x.dl = a.n; }) },
+            { p: 'set dhcp server subnet A.B.C.D$net max-lease (1-4294967295)$n', run: a => dhcpSet(a.net, x => { x.ml = a.n; }) },
+            { p: 'set dhcp server subnet A.B.C.D$net default-gateway A.B.C.D$gw', run: a => dhcpSet(a.net, x => (inNet(a.gw, a.net + '/' + x.len) ? void (x.gw = a.gw) : E('# [Simülatör] ' + a.gw + ', ' + a.net + '/' + x.len + ' alt ağında değil: istemciler bu ağ geçidine ulaşamaz.'))) },
+            { p: 'set dhcp server subnet A.B.C.D$net domain WORD$d', run: a => dhcpSet(a.net, x => { x.domain = a.d; }) },
+            { p: 'set dhcp server subnet A.B.C.D$net dns LINE$d', run: a => { const L = a.d.split(/[\s,]+/).filter(Boolean); if (!L.length || L.length > 3 || !L.every(isIp)) return E('# [Simülatör] dns: en çok üç IPv4 adresi, virgülle ayrılmış (ör. 10.64.10.53, 10.64.10.54).'); return dhcpSet(a.net, x => { x.dns = L; }); } },
+            { p: 'set dhcp server <enable|disable>$st', run: a => { M().dhcp.on = a.st === 'enable'; } },
+            { p: 'delete dhcp server subnet A.B.C.D$net', run: a => dhcpSet(a.net, () => { delete M().dhcp.subnets[a.net]; }) },
+            { p: 'delete dhcp server subnet A.B.C.D$net include-ip-pool WORD$r', run: a => dhcpPoolDel(a.net, 'inc', a.r) },
+            { p: 'delete dhcp server subnet A.B.C.D$net exclude-ip-pool WORD$r', run: a => dhcpPoolDel(a.net, 'exc', a.r) },
+            { p: 'show dhcp server all', run: () => { log({ dhcpshow: 'all' }); return dhcpShow(); } },
+            { p: 'show dhcp server status', run: () => 'DHCP Server ' + (M().dhcp.on ? 'Enabled' : 'Disabled') },
+            { p: 'show dhcp server subnets', run: () => (Object.keys(M().dhcp.subnets).map(n => pad(n + '/' + M().dhcp.subnets[n].len, 22) + (M().dhcp.subnets[n].on ? 'Enabled' : 'Disabled')).join('\n') || '(DHCP alt ağı yok)') + '\n# [Simülatör] Çıktı biçimi temsilidir.' },
+            { p: 'show dhcp server subnet A.B.C.D$net ip-pools', run: a => dhcpSet(a.net, x => dhcpPools(x).join('\n') + '\n# [Simülatör] Çıktı biçimi temsilidir.') },
+            // Bond (Gaia Admin Guide R81.20 s. 137–156; clish'te "bonding group")
+            { p: 'add bonding group (0-1024)$g', run: a => bondAdd(a.g) },
+            { p: 'add bonding group (0-1024)$g interface IFNAME$if', run: a => bondMember(a.g, a.if) },
+            { p: 'delete bonding group (0-1024)$g interface IFNAME$if', run: a => bondDelMember(a.g, a.if) },
+            { p: 'delete bonding group (0-1024)$g', run: a => bondDel(a.g) },
+            { p: 'set bonding group (0-1024)$g mode round-robin', run: a => bondSet(a.g, b => { b.mode = 'round-robin'; b.primary = null; b.lacp = null; b.xmit = null; }) },
+            { p: 'set bonding group (0-1024)$g mode active-backup', run: a => bondSet(a.g, b => { b.mode = 'active-backup'; b.lacp = null; b.xmit = null; }) },
+            { p: 'set bonding group (0-1024)$g mode active-backup primary IFNAME$if', run: a => bondSet(a.g, b => (b.members.includes(a.if) ? void Object.assign(b, { mode: 'active-backup', primary: a.if, lacp: null, xmit: null }) : E('# [Simülatör] ' + a.if + ' bu bonding group\'un üyesi değil.'))) },
+            { p: 'set bonding group (0-1024)$g mode xor xmit-hash-policy <layer2|layer3+4>$x', run: a => bondSet(a.g, b => { Object.assign(b, { mode: 'xor', xmit: a.x, lacp: null, primary: null }); }) },
+            { p: 'set bonding group (0-1024)$g mode 8023ad', run: a => bondSet(a.g, b => { Object.assign(b, { mode: '8023AD', lacp: b.lacp || 'slow', primary: null }); }) },
+            { p: 'set bonding group (0-1024)$g mode 8023ad lacp-rate <slow|fast>$r', run: a => bondSet(a.g, b => { Object.assign(b, { mode: '8023AD', lacp: a.r, primary: null }); }) },
+            { p: 'set bonding group (0-1024)$g mode abxor LINE$x', run: () => E('# [Simülatör] ABXOR modu bu lab sürümünde desteklenmiyor.') },
+            { p: 'set bonding group (0-1024)$g up-delay (0-5000)$n', run: a => bondSet(a.g, b => { b.up = a.n; }) },
+            { p: 'set bonding group (0-1024)$g down-delay (0-5000)$n', run: a => bondSet(a.g, b => { b.down = a.n; }) },
+            { p: 'set bonding group (0-1024)$g mii-interval (1-5000)$n', run: a => bondSet(a.g, b => { b.mii = a.n; }) },
+            { p: 'set bonding group (0-1024)$g min-links (0-8)$n', run: a => bondSet(a.g, b => { b.minl = a.n; }) },
+            { p: 'show bonding group (0-1024)$g', run: a => { log({ bondshow: String(a.g) }); return bondShow(a.g); } },
+            { p: 'show bonding groups', run: () => { log({ bondshow: 'all' }); return Object.keys(M().bonds).length ? Object.keys(M().bonds).map(g => 'Bond bond' + g + '\n' + bondShow(g)).join('\n\n') + '\n# [Simülatör] "groups" çıktısı her grubu "show bonding group" biçiminde sıralar.' : '# [Simülatör] Tanımlı bonding group yok.'; } },
             { p: 'save config', run: () => { S.saved = clone(M()); } },
             { p: 'expert', run: () => enterExpert() },
             { p: 'exit', run: () => leave() },
@@ -182,12 +229,12 @@ const CgLabGaia = (() => {
             { p: 'ping A.B.C.D$ip', run: a => ping(a.ip) },
         ]);
         // Gerçek Gaia'da var, bu lab sürümünde yok → dürüst mesaj
-        const CL_UNSUP = ['show asset', 'show sysenv', 'show uptime', 'show clock', 'show ntp active', 'show ntp current', 'show dns primary', 'show dns secondary', 'show arp', 'show bonding',
+        const CL_UNSUP = ['show asset', 'show sysenv', 'show uptime', 'show clock', 'show ntp active', 'show ntp current', 'show dns primary', 'show dns secondary', 'show arp',
             'show ospf', 'show route bgp', 'show route ospf', 'show route summary', 'show ssh', 'show snmp', 'show syslog',
             'show extended', 'show routed', 'show cluster members', 'show cluster failover', 'show user', 'show rba', 'show allowed-client',
-            'set user', 'add bonding', 'add arp', 'add backup', 'set bonding', 'set ospf', 'set snmp', 'set syslog', 'set ssh', 'set message',
-            'set allowed-client', 'set password-controls', 'lock database', 'unlock database', 'load configuration', 'installer', 'set dhcp', 'set router-id', 'set snapshot', 'delete snapshot', 'set backup', 'restore backup',
-            'set clienv', 'set format', 'set date', 'set time', 'set arp', 'set web', 'add allowed-client', 'set snapshot', 'add dhcp', 'set lom', 'show lom', 'show virtual-system'];
+            'set user', 'add arp', 'add backup', 'set ospf', 'set snmp', 'set syslog', 'set ssh', 'set message',
+            'set allowed-client', 'set password-controls', 'lock database', 'unlock database', 'load configuration', 'installer', 'set router-id', 'set snapshot', 'delete snapshot', 'set backup', 'restore backup',
+            'set clienv', 'set format', 'set date', 'set time', 'set arp', 'set web', 'add allowed-client', 'set snapshot', 'set lom', 'show lom', 'show virtual-system'];
         const EXPERT_ROOTS = ['fw', 'cpstat', 'cphaprob', 'clusterXL_admin', 'vpn', 'tcpdump', 'cpview', 'cpinfo', 'fwaccel', 'cplic', 'cpwd_admin', 'cpstop', 'cpstart', 'cprestart', 'cpconfig', 'ifconfig', 'ip', 'netstat', 'top', 'df', 'cat', 'grep', 'less', 'tail'];
 
         const ROLES = ['adminRole', 'monitorRole'];
@@ -260,16 +307,105 @@ const CgLabGaia = (() => {
         }
         function setIp(n, ip, len) {
             if (n === 'lo') return E('# [Simülatör] lo arayüzünün adresi değiştirilemez.');
+            if (bondOf(n)) return E('# [Simülatör] ' + n + ' bond' + bondOf(n) + ' üyesi: IP adresi bond arayüzüne verilir (set interface bond' + bondOf(n) + ' ipv4-address …).');
             if (len < 1 || len > 32) return { err: 'invalid' };
             if (len < 31 && (ip2n(ip) === C.netOf(ip, len) || ip2n(ip) === C.netOf(ip, len) + 2 ** (32 - len) - 1)) return E('# [Simülatör] ' + ip + '/' + len + ' bir ağ ya da yayın adresi; arayüze atanamaz.');
             for (const [k, i] of Object.entries(M().ifs)) if (k !== n && i.ip && (sameNet(ip, i.ip, Math.min(len, i.len)))) return E('# [Simülatör] ' + ip + '/' + len + ', ' + k + ' arayüzündeki ağ ile çakışıyor.');
             M().ifs[n].ip = ip; M().ifs[n].len = len;
         }
+        // ── DHCP sunucusu modeli: M().dhcp = { on, subnets: { '<ağ>': { len, on, pools: [{ t: 'inc'|'exc', r: 'a-b', on }], dl, ml, gw, domain, dns[] } } }
+        // Yeni alt ağ ve havuz için açık/kapalı varsayılanı belgede yazmıyor: alt ağ kapalı (Portal'daki "Enable DHCP" adımı), havuz açık kabul edildi.
+        function dhcpAdd(net, len) {
+            if (n2ip(C.netOf(net, len)) !== net) return E('# [Simülatör] ' + net + '/' + len + ' bir ağ adresi değil (ağ adresi: ' + n2ip(C.netOf(net, len)) + ').');
+            if (!Object.values(M().ifs).some(i => i.ip && i.len === len && sameNet(i.ip, net, len))) return E('# [Simülatör] ' + net + '/' + len + ' hiçbir Gaia arayüzünün alt ağı değil: DHCP alt ağı bir arayüzün ağıyla aynı olmalı.');
+            const x = M().dhcp.subnets[net];
+            if (x) x.len = len; else M().dhcp.subnets[net] = { len, on: false, pools: [], dl: 43200, ml: 86400, gw: null, domain: null, dns: [] };
+        }
+        function dhcpSet(net, fn) { const x = M().dhcp.subnets[net]; if (!x) return E('# [Simülatör] ' + net + ' için DHCP alt ağı yok; önce: add dhcp server subnet ' + net + ' netmask <önek>'); return fn(x); }
+        function dhcpPool(net, t, a, b) {
+            return dhcpSet(net, x => {
+                const c = net + '/' + x.len;
+                if (!inNet(a, c) || !inNet(b, c) || ip2n(a) > ip2n(b)) return E('# [Simülatör] Havuz ' + c + ' içinde olmalı ve başlangıç ≤ bitiş olmalı.');
+                const r = a + '-' + b;
+                if (!x.pools.some(p => p.t === t && p.r === r)) x.pools.push({ t, r, on: true });
+            });
+        }
+        function dhcpPoolSt(net, t, r, st) { return dhcpSet(net, x => { const p = x.pools.find(q => q.t === t && q.r === r); if (!p) return E('# [Simülatör] ' + r + ' bu alt ağın ' + (t === 'inc' ? 'include' : 'exclude') + ' havuzlarında yok (biçim: <ilk>-<son>).'); p.on = st === 'enable'; }); }
+        function dhcpPoolDel(net, t, r) { return dhcpSet(net, x => { const i = x.pools.findIndex(q => q.t === t && q.r === r); if (i < 0) return E('# [Simülatör] ' + r + ' havuzu yok.'); x.pools.splice(i, 1); }); }
+        function dhcpPools(x) {
+            const L = [], inc = x.pools.filter(p => p.t === 'inc'), exc = x.pools.filter(p => p.t === 'exc');
+            if (inc.length) L.push('Pools (Include List)', ...inc.map(p => p.r + ' : ' + (p.on ? 'enabled' : 'disabled')));
+            if (exc.length) L.push('Pools (Exclude List)', ...exc.map(p => p.r + ' : ' + (p.on ? 'enabled' : 'disabled')));
+            return L;
+        }
+        function dhcpShow() {
+            const d = M().dhcp, L = ['DHCP Server ' + (d.on ? 'Enabled' : 'Disabled')];
+            for (const [n, x] of Object.entries(d.subnets)) {
+                L.push('DHCP-Subnet ' + n, 'State ' + (x.on ? 'Enabled' : 'Disabled'), 'Net-Mask ' + x.len, 'Maximum-Lease ' + x.ml, 'Default-Lease ' + x.dl);
+                if (x.domain) L.push('Domain ' + x.domain);
+                if (x.gw) L.push('Default Gateway ' + x.gw);
+                if (x.dns.length) L.push('DNS ' + x.dns.join(', '));
+                L.push(...dhcpPools(x));
+            }
+            return L.join('\n');
+        }
+        // ── Bond (bonding group) modeli: M().bonds = { '<id>': { members, mode, primary, lacp, xmit, up, down, mii, minl } }; arayüz adı bond<id>
+        function bondAdd(g) {
+            if (M().bonds[g]) return E('# [Simülatör] bonding group ' + g + ' zaten var.');
+            M().bonds[g] = { members: [], mode: 'round-robin', primary: null, lacp: null, xmit: null, up: 200, down: 200, mii: 100, minl: 0 };
+            M().ifs['bond' + g] = { ip: null, len: null, state: 'on', comments: '', mtu: 1500 };
+        }
+        function bondSet(g, fn) { const b = M().bonds[g]; if (!b) return E('# [Simülatör] bonding group ' + g + ' yok; önce: add bonding group ' + g); return fn(b); }
+        function bondMember(g, n) {
+            return bondSet(g, b => {
+                if (!/^eth\d+$/.test(n) || n === 'eth0') return E('# [Simülatör] Bond üyesi fiziksel bir veri arayüzü olmalı (ör. eth4).');
+                if (b.members.includes(n)) return E('# [Simülatör] ' + n + ' zaten bond' + g + ' üyesi.');
+                const o = bondOf(n); if (o) return E('# [Simülatör] ' + n + ' zaten bond' + o + ' üyesi.');
+                if (M().ifs[n].ip) return E('# [Simülatör] ' + n + ' üzerinde IP adresi var (' + M().ifs[n].ip + '/' + M().ifs[n].len + '). Bond üyesinin IP adresi olmamalı: önce delete interface ' + n + ' ipv4-address');
+                if (Object.keys(M().ifs).some(k => parentOf(k) === n)) return E('# [Simülatör] ' + n + ' üzerinde VLAN alt arayüzü var; bond üyesi yapılamaz.');
+                if (b.members.length >= 8) return E('# [Simülatör] Bir bond en çok sekiz üye içerir.');
+                b.members.push(n);
+            });
+        }
+        function bondDelMember(g, n) {
+            return bondSet(g, b => {
+                const i = b.members.indexOf(n); if (i < 0) return E('# [Simülatör] ' + n + ' bond' + g + ' üyesi değil.');
+                const prim = b.primary || b.members[0];
+                if (n === prim && b.members.length > 1) return E('# [Simülatör] Önce birincil olmayan üyeleri silin; birincil üye (' + prim + ') en son silinir.');
+                b.members.splice(i, 1); if (b.primary === n) b.primary = null;
+            });
+        }
+        function bondDel(g) {
+            return bondSet(g, b => {
+                if (b.members.length) return E('# [Simülatör] Önce üyeleri silin (delete bonding group ' + g + ' interface <ad>), sonra grubu.');
+                delete M().bonds[g]; delete M().ifs['bond' + g];
+            });
+        }
+        function bondShow(g) {
+            const b = M().bonds[g]; if (!b) return E('# [Simülatör] bonding group ' + g + ' yok.');
+            return ['Bond Configuration', 'xmit-hash-policy ' + (b.xmit || 'Not configured'), 'down-delay ' + b.down, 'primary ' + (b.primary || 'Not configured'), 'lacp-rate ' + (b.lacp || 'Not configured'),
+                'mode ' + b.mode, 'up-delay ' + b.up, 'mii-interval ' + b.mii, 'Bond Interfaces', ...b.members].join('\n');
+        }
+        // cat /proc/net/bonding/bond<id> (Gaia Admin Guide R81.20 s. 154–156 örnek çıktıları)
+        function procBond(n) {
+            const b = M().bonds[n.slice(4)]; if (!b) return { err: 'invalid', msg: 'cat: /proc/net/bonding/' + n + ': No such file or directory' };
+            const MODE = { 'round-robin': 'load balancing (round-robin)', 'active-backup': 'fault-tolerance (active-backup)', xor: 'load balancing (xor)', '8023AD': 'IEEE 802.3ad Dynamic link aggregation' };
+            const up = b.members.filter(memberUp), L = ['Ethernet Channel Bonding Driver: v3.2.4 (January 28, 2008)', 'Bonding Mode: ' + MODE[b.mode]];
+            if (b.mode === 'xor' || b.mode === '8023AD') L.push('Transmit Hash Policy: ' + (b.xmit === 'layer3+4' ? 'layer3+4 (1)' : 'layer2 (0)'));
+            if (b.mode === 'active-backup') { const pr = b.primary || b.members[0]; L.push('Primary Slave: ' + (pr || 'None'), 'Currently Active Slave: ' + (memberUp(pr) ? pr : (up[0] || 'None'))); }
+            L.push('MII Status: ' + (bondUp(n) ? 'up' : 'down'), 'MII Polling Interval (ms): ' + b.mii, 'Up Delay (ms): ' + b.up, 'Down Delay (ms): ' + b.down);
+            if (b.mode === '8023AD') L.push('802.3ad info', 'LACP rate: ' + (b.lacp || 'slow'));
+            for (const m of b.members) {
+                L.push('Slave Interface: ' + m, 'MII Status: ' + (memberUp(m) ? 'up' : 'down'), 'Link Failure Count: ' + (memberUp(m) ? 0 : 1), 'Permanent HW addr: ' + mac(m));
+                if (b.mode === '8023AD') L.push('Aggregator ID: 1');
+            }
+            return { out: L.join('\n'), log: { procbond: n } };
+        }
         function setRoute(p, gw, st) {
             if (st === 'off') { const r = M().routes[p]; if (r && r.gw === gw) delete M().routes[p]; return; }
             M().routes[p] = { gw };
         }
-        const cfgKey = m => JSON.stringify({ h: m.hostname, i: m.ifs, r: m.routes, d: m.dns, n: m.ntp, u: m.users, e: m.expertPw, a: m.allowed, t: m.inact, p: m.pwc, b: m.rba, s: m.syslog, z: m.tz });
+        const cfgKey = m => JSON.stringify({ h: m.hostname, i: m.ifs, r: m.routes, d: m.dns, n: m.ntp, u: m.users, e: m.expertPw, a: m.allowed, t: m.inact, p: m.pwc, b: m.rba, s: m.syslog, z: m.tz, x: m.dhcp, y: m.bonds });
         const dirty = () => cfgKey(M()) !== cfgKey(S.saved);
 
         // ── show çıktıları (modelden)
@@ -279,7 +415,8 @@ const CgLabGaia = (() => {
         }
         function showIf(n) {
             const i = M().ifs[n], up = ifUp(n);
-            return ['Interface ' + n, '    state ' + i.state, '    mac-addr ' + mac(n), '    type ethernet', '    link-state ' + (up ? 'link up' : 'link down'), '    mtu ' + i.mtu,
+            const bd = /^bond\d+$/.test(n) ? M().bonds[n.slice(4)] : null;
+            return ['Interface ' + n, '    state ' + i.state, '    mac-addr ' + mac(bd && bd.members[0] ? bd.members[0] : n), '    type ' + (bd ? 'bond' : 'ethernet'), '    link-state ' + (up ? 'link up' : 'link down'), '    mtu ' + i.mtu,
                 '    auto-negotiation on', '    speed ' + (up ? '1000M' : 'N/A'), '    ipv6-autoconfig Not configured', '    duplex ' + (up ? 'full' : 'N/A'), '    monitor-mode Not configured',
                 '    link-speed ' + (up ? '1000M/full' : 'Not configured'), '    comments' + (i.comments ? ' ' + i.comments : ''), '    ipv4-address ' + (i.ip ? i.ip + '/' + i.len : 'Not Configured'),
                 '    ipv6-address Not Configured', '    ipv6-local-link-address Not Configured', '', 'Statistics:',
@@ -320,6 +457,14 @@ const CgLabGaia = (() => {
         function showConf(m) {
             m = m || M();
             const L = ['#', '# Configuration of ' + m.hostname, '# Exported by admin on ' + DATE, '#', '# [Simülatör] Varsayılan satırlar kısaltıldı.', 'set hostname ' + m.hostname];
+            for (const [g, b] of Object.entries(m.bonds || {})) {
+                L.push('add bonding group ' + g); b.members.forEach(x => L.push('add bonding group ' + g + ' interface ' + x));
+                L.push('set bonding group ' + g + ' mode ' + b.mode + (b.mode === 'active-backup' && b.primary ? ' primary ' + b.primary : b.mode === 'xor' ? ' xmit-hash-policy ' + b.xmit : b.mode === '8023AD' ? ' lacp-rate ' + (b.lacp || 'slow') : ''));
+                if (b.up !== 200) L.push('set bonding group ' + g + ' up-delay ' + b.up);
+                if (b.down !== 200) L.push('set bonding group ' + g + ' down-delay ' + b.down);
+                if (b.mii !== 100) L.push('set bonding group ' + g + ' mii-interval ' + b.mii);
+                if (b.minl) L.push('set bonding group ' + g + ' min-links ' + b.minl);
+            }
             for (const n of Object.keys(m.ifs).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))) {
                 const i = m.ifs[n];
                 if (i.vlan) L.push('add interface ' + n.replace('.', ' vlan '));
@@ -344,6 +489,17 @@ const CgLabGaia = (() => {
             if (m.pwc && m.pwc.cx !== 2) L.push('set password-controls complexity ' + m.pwc.cx);
             (m.syslog || []).forEach(y => L.push('add syslog log-remote-address ' + y.ip + ' level ' + y.lv));
             if (m.tz && m.tz !== 'Etc / GMT') L.push('set timezone ' + m.tz);
+            for (const [n, x] of Object.entries((m.dhcp || {}).subnets || {})) {
+                L.push('add dhcp server subnet ' + n + ' netmask ' + x.len);
+                x.pools.forEach(p => { const [a, b] = p.r.split('-'); L.push('add dhcp server subnet ' + n + ' ' + (p.t === 'inc' ? 'include' : 'exclude') + '-ip-pool start ' + a + ' end ' + b, 'set dhcp server subnet ' + n + ' ' + (p.t === 'inc' ? 'include' : 'exclude') + '-ip-pool ' + p.r + ' ' + (p.on ? 'enable' : 'disable')); });
+                if (x.dl !== 43200) L.push('set dhcp server subnet ' + n + ' default-lease ' + x.dl);
+                if (x.ml !== 86400) L.push('set dhcp server subnet ' + n + ' max-lease ' + x.ml);
+                if (x.gw) L.push('set dhcp server subnet ' + n + ' default-gateway ' + x.gw);
+                if (x.domain) L.push('set dhcp server subnet ' + n + ' domain ' + x.domain);
+                if (x.dns.length) L.push('set dhcp server subnet ' + n + ' dns ' + x.dns.join(', '));
+                L.push('set dhcp server subnet ' + n + ' ' + (x.on ? 'enable' : 'disable'));
+            }
+            if (m.dhcp && (m.dhcp.on || Object.keys(m.dhcp.subnets).length)) L.push('set dhcp server ' + (m.dhcp.on ? 'enable' : 'disable'));
             return L.join('\n');
         }
 
@@ -411,9 +567,11 @@ const CgLabGaia = (() => {
                 if (a0.inact !== b0.inact || JSON.stringify(a0.pwc) !== JSON.stringify(b0.pwc)) lost.push('password-controls/inactivity-timeout');
                 if (JSON.stringify(a0.syslog) !== JSON.stringify(b0.syslog)) lost.push('syslog');
                 if (a0.tz !== b0.tz) lost.push('timezone');
+                if (JSON.stringify(a0.dhcp) !== JSON.stringify(b0.dhcp)) lost.push('dhcp server');
+                if (JSON.stringify(a0.bonds) !== JSON.stringify(b0.bonds)) lost.push('bonding');
                 S.m = clone(S.saved); S.mode = 'clish'; S.stack = [];
                 if (!S.rt.clPerm) S.rt.clAdmin = false;
-                S.rt.vpnDebug = S.rt.ikeDebug = false; S.rt.kd = null;
+                S.rt.vpnDebug = S.rt.ikeDebug = false; S.rt.kd = null; S.rt.sxl = true;
                 log({ raw: 'y', canon: 'reboot', reboot: true, lost });
                 return ['# [Simülatör] Sistem yeniden başladı (açılış yapılandırması yüklendi).', lost.length ? '# [Simülatör] Kaydedilmediği için kaybolan değişiklikler: ' + lost.join(', ') : '# [Simülatör] Kaybolan değişiklik yok: her şey kaydedilmişti.'].join('\n');
             } };
@@ -558,7 +716,12 @@ const CgLabGaia = (() => {
             if (c === 'cpview') return cpview(a);
             if (c === 'cpinfo') return (a[1] === '-y' && a[2] === 'all' && a.length === 3) ? cpinfo() : U();
             if (c === 'ip') return ipCmd(a);
+            if (c === 'cat' && a.length === 2 && /^\/proc\/net\/bonding\/bond\d+$/.test(a[1])) return procBond(a[1].split('/').pop());
             if (['cat', 'less', 'more', 'tail', 'grep'].includes(c)) return fileCmd(a);
+            if (c === 'fwaccel' && a[1] === 'stat' && a.length === 2) return { out: fwaccelStat(), log: { box: 'fwaccel' } };
+            if (c === 'fwaccel' && ['on', 'off'].includes(a[1]) && a.length === 2) { S.rt.sxl = a[1] === 'on'; return { out: '# [Simülatör] SecureXL ' + (a[1] === 'on' ? 'başlatıldı' : 'durduruldu (yalnız geçici; cpstart ya da yeniden başlatmada yeniden açılır)') + '. Durumu fwaccel stat ile doğrulayın.', log: { sxl: a[1] } }; }
+            if (c === 'cpwd_admin' && a[1] === 'list' && a.length === 2) return { out: cpwdList(), log: { box: 'cpwd' } };
+            if (c === 'cplic' && a[1] === 'print' && a.length === 2) return { out: cplicPrint(), log: { box: 'cplic' } };
             if (EXPERT_ROOTS.includes(c) || ['cpstop', 'cprestart', 'fwaccel', 'cplic', 'cpwd_admin', 'ls', 'cd', 'pwd', 'uptime', 'date', 'free', 'ps', 'netstat', 'ifconfig', 'top', 'df', 'cp_conf', 'vi', 'find', 'ethtool', 'arp', 'traceroute', 'ssh', 'scp', 'curl_cli', 'dbedit', 'cpconfig', 'cpstart'].includes(c)) return U();
             return { err: 'invalid', msg: notFound(c) };
         }
@@ -580,9 +743,43 @@ const CgLabGaia = (() => {
             if (s === 'unloadlocal') return { out: '# [Simülatör] UYARI: "fw unloadlocal" gateway\'deki güvenlik politikasını tamamen kaldırır: tüm trafik denetimsiz kalır (ya da erişim kopar).\n# Sorun gidermede "önce politikayı kaldırıp bakayım" yanlış bir alışkanlıktır. Simülatörde engellendi.', log: { warn: 'unloadlocal' } };
             if (a[1] === 'monitor') return fwMonitor(a);
             if (a[1] === 'up_execute') return upExecute(a);
+            if (s === 'ctl multik stat') return { out: multikStat(), log: { box: 'multik' } };
             if (/^ctl (pstat|chain|multik|affinity|conntab)/.test(s) || /^(fetch|log|lslogs|logswitch|tab)\b/.test(s)) return U();
             if (!a[1]) return { err: 'incomplete', msg: '# [Simülatör] fw komutu alt komut ister (ör. fw stat, fw ctl zdebug drop, fw monitor -e "…").' };
             return { err: 'invalid', msg: '# [Simülatör] fw: "' + s + '" tanınmadı. Bu lab\'da: fw stat, fw ver, fw ctl zdebug [+] drop, fw ctl debug 0, fw ctl iflist, fw monitor, fw tab -t connections -s' };
+        }
+        // ── Kutuyu tanı: SecureXL / CoreXL / WatchDog / lisans
+        // Kaynak: R81.20 Performance Tuning Admin Guide s. 122–123 (fwaccel stat örneği); R81.20 CLI Reference Guide s. 976–977 (fw ctl multik stat örneği),
+        // s. 236–238 (cpwd_admin list sütunları ve Security Gateway örneği), s. 151–152 (cplic print örneği). PDF metninden alındı; sütun boşlukları yeniden kuruldu.
+        // SIM.sxl === false → SecureXL kapalı; SIM.corexl → CoreXL örnek sayısı; SIM.cpwd { APP: { stat, start, pid } }; SIM.lic { exp, host }
+        function fwaccelStat() {
+            const on = S.rt.sxl !== undefined ? S.rt.sxl : SIM.sxl !== false, ifs = ifList().filter(n => n !== 'lo' && n !== 'eth0' && !bondOf(n) && ifUp(n));
+            const row = (a, b, c, d, e) => '|' + pad(a, 3) + '|' + pad(b, 7) + '|' + pad(c, 10) + '|' + pad(d, 30) + '|' + pad(e, 31) + '|', bar = '+' + '-'.repeat(row('', '', '', '', '').length - 2) + '+';
+            return [bar, row('Id', 'Name', 'Status', 'Interfaces', 'Features'), bar, row('0', 'KPPAK', on ? 'enabled' : 'disabled', on ? ifs.join(',') : '', 'Acceleration,Cryptography'),
+                row('', '', '', '', ''), row('', '', '', '', 'Crypto: Tunnel,UDPEncap,MD5,'), row('', '', '', '', 'SHA1,3DES,DES,AES-128,AES-256,'), row('', '', '', '', 'ESP,LinkSelection,DynamicVPN,'),
+                row('', '', '', '', 'NatTraversal,AES-XCBC,SHA256,'), row('', '', '', '', 'SHA384,SHA512'), bar,
+                'Accept Templates : ' + (on ? 'enabled' : 'disabled'), 'Drop Templates   : disabled', 'NAT Templates    : ' + (on ? 'enabled' : 'disabled'), 'LightSpeed Accel : disabled'].join('\n');
+        }
+        function multikStat() {
+            const cpus = (SIM.cpu || {}).cpus || 4, n = SIM.corexl !== undefined ? SIM.corexl : Math.max(1, cpus - 1), c = flows().length;
+            const L = ['ID | Active  | CPU    | Connections | Peak', '----------------------------------------------'];
+            for (let i = 0; i < n; i++) L.push(pad(String(i), 3) + '| Yes     | ' + pad(String(cpus - 1 - i), 7) + '| ' + pad(String(i === 0 ? 7 + c : Math.max(0, 3 - i)), 12) + '| ' + (i === 0 ? 28 + c : 11 - i));
+            return L.join('\n');
+        }
+        const CPWD = [['FWK_FORKER', 'fwk_forker'], ['FWK_WD', 'fwk_wd -i 1 -i6 0'], ['CPSICDEMUX', 'cpsicdemux'], ['CPVIEWD', 'cpviewd'], ['HISTORYD', 'cpview_historyd'], ['SXL_STATD', 'sxl_statd'],
+            ['CPD', 'cpd', 'Y'], ['MPDAEMON', 'mpdaemon'], ['CI_CLEANUP', 'avi_del_tmp_files'], ['CIHS', 'ci_http_server -j -f'], ['FWD', 'fwd'], ['RAD', 'rad'], ['DASERVICE', 'DAService_script']];
+        function cpwdList() {
+            const o = SIM.cpwd || {}, L = [pad('APP', 16) + pad('CTX', 5) + pad('PID', 8) + pad('STAT', 6) + pad('#START', 8) + pad('START_TIME', 23) + pad('MON', 5) + 'COMMAND'];
+            CPWD.forEach(([app, cmd, mon], i) => {
+                const x = o[app] || {}, st = x.stat || 'E', t = x.time || '[09:0' + (i < 6 ? 1 : 2) + ':' + String(10 + i * 3).padStart(2, '0') + '] 24/9/2026';
+                L.push(pad(app, 16) + pad('0', 5) + pad(String(st === 'T' ? 0 : (x.pid || 4180 + i * 97)), 8) + pad(st, 6) + pad(String(x.start !== undefined ? x.start : 1), 8) + pad(t, 23) + pad(mon || 'N', 5) + cmd);
+            });
+            return L.join('\n');
+        }
+        function cplicPrint() {
+            const l = SIM.lic || {};
+            return [pad('Host', 17) + pad('Expiration', 12) + 'Features', pad(l.host || ifIp(SIM.wan || 'eth1') || '203.0.113.2', 17) + pad(l.exp || '31Dec2027', 12) + 'CPMP-XXX CK-XXXXXXXXXXXX',
+                '# [Simülatör] Lisans dizeleri belgedeki yer tutucularla gösterildi.'].join('\n');
         }
         // ── Kernel debug (fw ctl debug / kdebug / set simple_debug_filter_*), fw ctl pstat, fw tab -s
         // Kaynak: R81.20 Quantum Security Gateway Admin Guide s. 304–312 (sözdizimi), s. 326–329 (prosedür ve örnek çıktılar),

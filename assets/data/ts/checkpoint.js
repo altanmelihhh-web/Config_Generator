@@ -264,5 +264,44 @@
                   fix: [{ cause: 'Manuel NAT için Proxy ARP kaydı yok: local.arp\'e kaydı ekleyin (sk30197), SmartConsole\'da Global Properties → NAT → "Merge manual proxy ARP configuration"ı seçin ve politikayı kurun; ardından fw ctl arp ve tcpdump\'ta Reply ile doğrulayın' }] },
             ]
         },
+        {
+            title: 'İstemciler Adres Almıyor: Gaia DHCP Sunucusu', severity: 'err', topic: 'ops', lab: 'cp-21',
+            symptom: 'Gateway arkasındaki LAN istemcileri (ör. 10.64.10.0/24) DHCP\'den adres alamıyor ya da adres alıp internete çıkamıyor. Sözdizimi ve show dhcp server all biçimi: R81.20 Gaia Administration Guide s. 231, 235–240.',
+            steps: [
+                { code: 'show dhcp server all', desc: 'İlk satır süreç durumu (DHCP Server Enabled/Disabled); her DHCP-Subnet bloğunda State, kira süreleri, Default Gateway, DNS ve havuzların enabled/disabled durumu.',
+                  fix: [{ cause: 'DHCP Server Disabled: süreç kapalı, hiçbir alt ağ adres dağıtmaz', cmd: 'set dhcp server enable' },
+                        { cause: 'Alt ağın State\'i Disabled', cmd: 'set dhcp server subnet 10.64.10.0 enable' },
+                        { cause: 'Include havuzu disabled ya da hiç yok', cmd: 'set dhcp server subnet 10.64.10.0 include-ip-pool 10.64.10.100-10.64.10.199 enable' },
+                        { cause: 'DHCP alt ağı hiç yok ya da arayüzün ağıyla eşleşmiyor: alt ağ, istemcilerin bağlı olduğu Gaia arayüzünün ağı olmalı', cmd: 'add dhcp server subnet 10.64.10.0 netmask 24' }] },
+                { code: 'show dhcp server subnet 10.64.10.0 ip-pools', desc: 'Yalnız havuzlar. Statik adresli cihazların aralığı exclude havuzunda olmalı; aksi hâlde adres çakışır.' },
+                { code: 'set dhcp server subnet 10.64.10.0 default-gateway 10.64.10.1\nset dhcp server subnet 10.64.10.0 dns 10.64.10.53', desc: 'İstemci adres alıyor ama internete çıkamıyorsa: ağ geçidi ve DNS verilmemiştir. default-gateway alt ağ içinde olmalı; dns en çok üç adres.' },
+                { code: 'save config', desc: 'DHCP ayarları Gaia veritabanındadır; kaydedilmezse yeniden başlatmada kaybolur.' },
+            ]
+        },
+        {
+            title: 'Kutuda Bir Şey Ters: Lisans, WatchDog, SecureXL ve CoreXL Durumu', severity: 'warn', topic: 'perf', lab: 'cp-22',
+            symptom: 'Devralınan ya da beklenmedik davranan bir gateway\'de temel durumu hızla okumak: lisans süresi, süreçlerin yeniden başlaması, hızlandırmanın kapalı kalması. Kaynak: R81.20 CLI Reference Guide s. 151–152, 218, 236–238, 976–977; R81.20 Performance Tuning Administration Guide s. 105, 122–123, 299, 313.',
+            steps: [
+                { code: 'cplic print', desc: 'Expert modda. Host, Expiration, Features. Expiration bugünden önceyse lisans süresi geçmiştir.',
+                  fix: [{ cause: 'Lisans süresi geçmiş: User Center\'dan yeni lisans alıp kurun (cplic put ya da SmartUpdate)' }] },
+                { code: 'cpwd_admin list', desc: 'STAT E = çalışıyor, T = sonlandı; #START > 1 ise WatchDog süreci yeniden başlatmıştır; START_TIME son başlatma zamanıdır. MON Y etkin, N pasif izleme.',
+                  fix: [{ cause: 'Bir süreç (ör. FWD) tekrar tekrar yeniden başlıyor: $CPDIR/log/cpwd.elg ve sürecin kendi günlüğünü inceleyin, gerekirse destek kaydı açın' }] },
+                { code: 'fwaccel stat', desc: 'SecureXL Status enabled/disabled ve hızlandırılan arayüzler. fwaccel off geçicidir; yalnız destek isterse ve hata ayıklama için kullanılır.',
+                  fix: [{ cause: 'SecureXL hata ayıklamadan sonra kapalı unutulmuş', cmd: 'fwaccel on' }] },
+                { code: 'fw ctl multik stat', desc: 'CoreXL Firewall örnekleri (ID), CPU çekirdekleri ve bağlantı sayıları. 4 çekirdekte varsayılan 3 örnek + 1 SND; SND arayüz trafiğini alır ve dağıtır.' },
+            ]
+        },
+        {
+            title: 'Bond Kurulmuyor ya da Tek Bacakla Çalışıyor', severity: 'warn', topic: 'iface', lab: 'cp-23',
+            symptom: 'İki (ya da daha çok) fiziksel arayüz bond\'a eklenemiyor, bond ayakta ama bir üye trafik taşımıyor ya da anahtar port-channel\'ı kurmuyor. Kaynak: R81.20 Gaia Administration Guide s. 143–156.',
+            steps: [
+                { code: 'show interface eth4\nshow interface eth5', desc: 'Üyelerde ipv4-address olmamalı, state on olmalı.',
+                  fix: [{ cause: 'Üyede IP adresi var: bond\'a eklenemez', cmd: 'delete interface eth4 ipv4-address' }, { cause: 'Üye kapalı', cmd: 'set interface eth5 state on' }] },
+                { code: 'show bonding group 1', desc: 'mode, lacp-rate, xmit-hash-policy ve Bond Interfaces (üyeler). Anahtar LACP bekliyorsa mode 8023AD olmalı.',
+                  fix: [{ cause: 'Mod anahtarla uyumsuz (ör. round-robin kalmış)', cmd: 'set bonding group 1 mode 8023AD lacp-rate slow' }, { cause: 'Üye eksik', cmd: 'add bonding group 1 interface eth5' }] },
+                { code: 'cat /proc/net/bonding/bond1', desc: 'Expert modda. Bonding Mode, LACP rate ve her Slave Interface için MII Status. Bir üye down ise bond tek bacakla çalışıyordur; kablo, anahtar portu ve üyenin durumunu kontrol edin.' },
+                { code: 'save config', desc: 'Bond durumunu set interface bond1 state ile elle değiştirmeyin; bunu bonding sürücüsü yönetir. Değişiklikleri kaydedin.' },
+            ]
+        },
     ];
 })();
