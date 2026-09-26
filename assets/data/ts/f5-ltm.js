@@ -220,7 +220,7 @@
             ]
         },
         {
-            title: 'ASM: "The requested URL was rejected… Your support ID is" Sayfası: Engellenen İsteği Bul ve Yanlış Pozitifi Ayıkla', severity: 'warn', topic: 'adc',
+            title: 'ASM: "The requested URL was rejected… Your support ID is" Sayfası: Engellenen İsteği Bul ve Yanlış Pozitifi Ayıkla', severity: 'warn', topic: 'adc', lab: 'f5-65',
             symptom: 'Kullanıcı bir form gönderince ya da belirli bir sayfada "The requested URL was rejected. Please consult with your administrator. Your support ID is: …" sayfası görüyor.',
             steps: [
                 { code: 'Security ›› Event Logs : Application : Requests  (filtre: Support ID)', desc: 'Kullanıcının verdiği support ID ile isteği bulun. İstek detayında policy adı, ihlaller (violations), istek metni ve engellenip engellenmediği görünür.',
@@ -236,7 +236,7 @@
             ]
         },
         {
-            title: 'İzleme Sistemi "200 OK" Görüyor ama Kullanıcı Engellendiğini Söylüyor: ASM Blok Sayfası', severity: 'warn', topic: 'adc',
+            title: 'İzleme Sistemi "200 OK" Görüyor ama Kullanıcı Engellendiğini Söylüyor: ASM Blok Sayfası', severity: 'warn', topic: 'adc', lab: 'f5-65',
             symptom: 'Sentetik izleme ve erişim logları başarılı (200) gösteriyor; kullanıcılar ise işlem yapamadığını, bir "rejected" sayfası gördüğünü söylüyor.',
             steps: [
                 { code: 'curl -v "http://203.0.113.100/ara?q=%27%20OR%201%3D1"', desc: 'Yanıtın durum satırı ile gövdeyi birlikte okuyun: ASM varsayılan blok sayfası HTTP 200 ile döner (K41633422). Yalnız koda bakan izleme bunu başarı sayar.',
@@ -250,7 +250,7 @@
             ]
         },
         {
-            title: 'WAF (ASM) Policy Var ama Hiçbir Şey Engellenmiyor: Bağlama, Blocking Modu, Staging ve Yayın', severity: 'err', topic: 'adc',
+            title: 'WAF (ASM) Policy Var ama Hiçbir Şey Engellenmiyor: Bağlama, Blocking Modu, Staging ve Yayın', severity: 'err', topic: 'adc', lab: 'f5-64',
             symptom: 'Güvenlik testi bilinen saldırı kalıplarını (SQL enjeksiyonu, XSS) gönderiyor; istekler sunucuya ulaşıyor, blok sayfası hiç çıkmıyor.',
             steps: [
                 { code: 'tmsh list ltm virtual vs_web policies profiles', desc: 'ASM policy VS\'ye profil olarak değil, "asm enable policy" eylemli bir LTM policy ile bağlanır; VS\'de websecurity profili de olmalı (K16303347). Liste boşsa policy hiçbir trafiği görmüyor.',

@@ -93,7 +93,7 @@ const CgLabTmsh = (function () {
             return { hostname: lab.hostname || 'bigip-a.lab.example', guiSetup: 'enabled', mgmtIp: null, mgmtRoutes: {}, ifs, vlans: {}, selfs: {}, routes: {},
                 httpd: { allow: ['ALL'], idle: 1200 }, sshd: { allow: ['ALL'], idle: 0, banner: 'disabled', bannerText: '' }, dns: { servers: [], search: [] }, ntp: { servers: [], tz: 'America/Los_Angeles' },
                 prov, users: { admin: { role: 'admin', shell: 'tmsh', pw: true } }, pwpol: { enf: 'disabled', min: 6, up: 0, low: 0, num: 0, spec: 0, fail: 0, maxdur: 99999 },
-                nodes: {}, pools: {}, monitors: {}, virtuals: {}, snatpools: {}, persists: {}, httpProfiles: {}, cssl: {}, sssl: {}, rules: {}, dgroups: {},
+                nodes: {}, pools: {}, monitors: {}, virtuals: {}, snatpools: {}, persists: {}, httpProfiles: {}, cssl: {}, sssl: {}, rules: {}, dgroups: {}, asmPolicies: {}, ltmPolicies: {},
                 certs: { 'default.crt': { cn: 'localhost.localdomain', issuer: 'localhost.localdomain', self: true, san: [], pair: 'default', bits: 2048, nb: 'Jan 15 09:12:44 2024 GMT', na: 'Jan 12 09:12:44 2034 GMT' }, 'ca-bundle.crt': { bundle: true, cn: 'ca-bundle' } }, keys: { 'default.key': { bits: 2048, pair: 'default' } },
                 cm: { cs: null, uni: [], mirror: null, trusted: [], dgs: {}, tgMac: null },
                 db: { 'tm.rstcause.log': { value: 'disable' }, 'tm.rstcause.pkt': { value: 'disable' } } };
@@ -332,7 +332,7 @@ const CgLabTmsh = (function () {
         const LB_MODES = ['round-robin', 'ratio-member', 'ratio-node', 'least-connections-member', 'least-connections-node', 'fastest-node', 'fastest-app-response', 'observed-member', 'observed-node', 'predictive-member', 'predictive-node', 'dynamic-ratio-member', 'dynamic-ratio-node', 'ratio-least-connections-member', 'ratio-least-connections-node', 'weighted-least-connections-member', 'weighted-least-connections-node', 'ratio-session', 'least-sessions'];
         const BUILTIN_MON = { http: { type: 'http', send: 'GET /\\r\\n', recv: '' }, https: { type: 'https', send: 'GET /\\r\\n', recv: '' }, tcp: { type: 'tcp', send: '', recv: '' }, tcp_half_open: { type: 'tcp_half_open' }, gateway_icmp: { type: 'gateway-icmp' }, icmp: { type: 'icmp' }, http_head_f5: { type: 'http', send: 'HEAD / HTTP/1.0\\r\\n\\r\\n', recv: 'Server' } };
         const monOf = n => M().monitors[n] || BUILTIN_MON[n] || null;
-        const BUILTIN_PROF = { tcp: 'tcp', http: 'http', clientssl: 'client-ssl', serverssl: 'server-ssl', fastL4: 'fastl4', oneconnect: 'one-connect', 'f5-tcp-progressive': 'tcp', 'f5-tcp-wan': 'tcp', 'f5-tcp-lan': 'tcp' };
+        const BUILTIN_PROF = { websecurity: 'websecurity', tcp: 'tcp', http: 'http', clientssl: 'client-ssl', serverssl: 'server-ssl', fastL4: 'fastl4', oneconnect: 'one-connect', 'f5-tcp-progressive': 'tcp', 'f5-tcp-wan': 'tcp', 'f5-tcp-lan': 'tcp' };
         const profType = n => BUILTIN_PROF[n] || (M().httpProfiles[n] ? 'http' : (M().cssl || {})[n] ? 'client-ssl' : (M().sssl || {})[n] ? 'server-ssl' : null);
         const BUILTIN_PERSIST = { cookie: 'cookie', source_addr: 'source-addr', ssl: 'ssl', dest_addr: 'dest-addr', universal: 'universal', hash: 'hash' };
         const persistType = n => BUILTIN_PERSIST[n] || (M().persists[n] ? M().persists[n].type : null);
@@ -515,6 +515,66 @@ const CgLabTmsh = (function () {
                 L.push('}'); return L; },
             props: ['defaults-from', 'enforcement', 'fallback-host', 'hsts', 'insert-xforwarded-for', 'redirect-rewrite', 'server-agent-name'],
         };
+        // ── ASM politikası (tmsh-reference asm policy): active|inactive, blocking-mode, encoding, policy-builder, policy-template, policy-type, description
+        // Değişiklikler "publish asm policy" ile etkinleşir (pub: yayınlanmış anlık görüntü). Rapid Deployment varsayılanı transparent (blocking-mode disabled).
+        const ASM_TPL = ['POLICY_TEMPLATE_RAPID_DEPLOYMENT', 'POLICY_TEMPLATE_FUNDAMENTAL', 'POLICY_TEMPLATE_COMPREHENSIVE'], ASM_ENC = ['utf-8', 'windows-1254', 'iso-8859-9', 'iso-8859-1', 'windows-1252'];
+        const asmOn = () => ((M().prov || {}).asm || 'none') !== 'none';
+        T['asm policy'] = {
+            kind: 'asm policy', named: true, coll: () => M().asmPolicies, flags: ['active', 'inactive'],
+            fresh: () => ({ template: 'POLICY_TEMPLATE_FUNDAMENTAL', enc: 'utf-8', blocking: 'disabled', active: false, builder: 'disabled', type: 'security', desc: '', pub: null, dirty: true }),
+            set(o, P, name, isCreate) {
+                if (!asmOn()) return E('# [Simülatör] ASM modülü provision edilmemiş. Önce: modify sys provision asm level nominal', 'value');
+                for (const p of P) {
+                    if (p.flag) o.active = p.k === 'active';
+                    else if (p.k === 'policy-template') { if (!ASM_TPL.includes(p.v)) return SYNx('"' + p.v + '" policy template not found\n# [Simülatör] Bu lab\'daki şablonlar: ' + ASM_TPL.join(', ')); if (!isCreate) return E('# [Simülatör] Şablon yalnız oluştururken seçilir.', 'value'); o.template = p.v; }
+                    else if (p.k === 'encoding') { if (!ASM_ENC.includes(p.v)) return SYNx('"' + p.v + '" invalid encoding'); if (!isCreate) return E('# [Simülatör] Uygulama dili (encoding) politika oluşturulduktan sonra değiştirilemez.', 'value'); o.enc = p.v; }
+                    else if (p.k === 'blocking-mode' || p.k === 'policy-builder') { if (!['enabled', 'disabled'].includes(p.v)) return SYNx('"' + p.v + '" invalid value (enabled|disabled)'); o[p.k === 'blocking-mode' ? 'blocking' : 'builder'] = p.v; }
+                    else if (p.k === 'policy-type') { if (!['security', 'parent'].includes(p.v)) return SYNx('"' + p.v + '" invalid value'); o.type = p.v; }
+                    else if (p.k === 'description') o.desc = p.v;
+                    else return SYN(p.k);
+                }
+                o.dirty = true; return null;
+            },
+            del(name) { const u = Object.entries(M().ltmPolicies).find(([, x]) => x.asm === name); if (u) return E('# [Simülatör] ASM politikası /Common/' + u[0] + ' LTM policy\'sinde kullanılıyor.'); return null; },
+            list(n, o) { const L = ['asm policy /Common/' + n + ' {']; L.push('    ' + (o.active ? 'active' : 'inactive'), '    blocking-mode ' + o.blocking); if (o.desc) L.push('    description "' + o.desc + '"'); L.push('    encoding ' + o.enc, '    policy-builder ' + o.builder, '    policy-template ' + o.template, '    policy-type ' + o.type, '}'); if (o.dirty) L.push('# [Simülatör] Yayınlanmamış değişiklik var: publish asm policy /Common/' + n); return L; },
+            props: ['active', 'blocking-mode', 'description', 'encoding', 'policy-builder', 'policy-template', 'policy-type'],
+        };
+        // ── LTM policy (yalnız ASM için gereken alt küme): controls { asm }, requires { http }, kural eylemi "asm enable policy <ad>"
+        // v12.1+: taslak /Common/Drafts/<ad> olarak oluşturulur, "publish ltm policy" ile yayınlanır; VS'ye yayınlanmış ad bağlanır.
+        T['ltm policy'] = {
+            kind: 'ltm policy', named: true, coll: () => M().ltmPolicies,
+            fresh: () => ({ controls: [], requires: [], asm: null, draft: true, strategy: 'first-match' }),
+            set(o, P, name) {
+                if (!/^Drafts\//.test(name)) return E('# [Simülatör] LTM policy taslak olarak oluşturulur ve değiştirilir: /Common/Drafts/' + name.replace(/^Drafts\//, ''), 'value');
+                for (const p of P) {
+                    const words = []; const walk = its => (its || []).forEach(it => { if (it.k) words.push(it.k); walk(it.b); }); walk(p.items); if (p.v !== undefined) words.push(p.v);
+                    if (p.k === 'controls') { if (words.some(w => !['asm', 'forwarding', 'server-ssl', 'caching', 'compression'].includes(w))) return SYNx('"' + words.join(' ') + '" invalid control'); o.controls = [...new Set(o.controls.concat(words))]; }
+                    else if (p.k === 'requires') { if (words.some(w => !['http', 'tcp', 'client-ssl', 'ssl-persistence'].includes(w))) return SYNx('"' + words.join(' ') + '" invalid requires'); o.requires = [...new Set(o.requires.concat(words))]; }
+                    else if (p.k === 'strategy') { o.strategy = String(p.v).replace(/^\/Common\//, ''); }
+                    else if (p.k === 'rules') {
+                        const k = words.indexOf('asm');
+                        if (k >= 0 && words[k + 1] === 'enable' && words[k + 2] === 'policy') { const ap = String(words[k + 3] || '').replace(/^\/Common\//, ''); if (!M().asmPolicies[ap]) return NF('asm policy', ap); if (!o.controls.includes('asm')) return E('# [Simülatör] "asm" eylemi için politika "controls { asm }" içermeli.', 'value'); o.asm = ap; }
+                        else if (k >= 0 && words[k + 1] === 'disable') o.asm = null;
+                        else return E('# [Simülatör] Bu lab\'da LTM policy kuralı olarak yalnız "asm enable policy <ad>" desteklenir.', 'unsupported');
+                    }
+                    else return SYN(p.k);
+                }
+                return null;
+            },
+            del(name) { const u = Object.entries(M().virtuals).find(([, v]) => (v.policies || []).includes(name)); if (u) return E('# [Simülatör] Policy /Common/' + u[0] + ' tarafından kullanılıyor.'); return null; },
+            list(n, o) { const L = ['ltm policy /Common/' + n + ' {', '    controls { ' + o.controls.join(' ') + ' }', '    requires { ' + o.requires.join(' ') + ' }']; if (o.asm) L.push('    rules {', '        default {', '            actions {', '                0 {', '                    asm', '                    enable', '                    policy /Common/' + o.asm, '                }', '            }', '            ordinal 1', '        }', '    }'); L.push('    status ' + (o.draft ? 'draft' : 'published'), '    strategy /Common/' + o.strategy, '}'); return L; },
+            props: ['controls', 'requires', 'rules', 'strategy'],
+        };
+        function publishCmd(toks, line) {
+            const kind = toks.slice(0, 2).map(x => x.t).join(' '), name = String(toks[2] && toks[2].t || '').replace(/^\/Common\//, '');
+            if (!toks[2]) return E('Syntax Error: publish requires "asm policy <ad>" or "ltm policy <taslak>"', 'incomplete');
+            if (kind === 'asm policy') { const o = M().asmPolicies[name]; if (!o) return NF('asm policy', name); o.active = true; o.pub = { blocking: o.blocking, active: true, enc: o.enc, template: o.template }; o.dirty = false; auditLog(line); return { out: '', ok: true, touched: 'asm policy' }; }
+            if (kind === 'ltm policy') {
+                const o = M().ltmPolicies[name]; if (!o) return NF('ltm policy', name); if (!o.draft) return E('# [Simülatör] Yalnız taslak (Drafts) politikalar yayınlanır.', 'value');
+                const pub = name.replace(/^Drafts\//, ''); M().ltmPolicies[pub] = Object.assign(clone(o), { draft: false }); delete M().ltmPolicies[name]; auditLog(line); return { out: '', ok: true, touched: 'ltm policy' };
+            }
+            return E('Syntax Error: "' + kind + '" unexpected argument\n# [Simülatör] Bu lab\'da: publish asm policy <ad> | publish ltm policy /Common/Drafts/<ad>', 'invalid');
+        }
         T['ltm virtual'] = {
             kind: 'virtual server', named: true, coll: () => M().virtuals,
             fresh: () => ({ dest: null, proto: 'tcp', pool: null, profiles: ['tcp'], persist: [], fallback: null, sat: { type: 'none' }, tport: 'enabled', taddr: 'enabled', mask: '255.255.255.255', source: '0.0.0.0/0', enabled: true, desc: '', idx: 2 + Object.keys(M().virtuals).length }),
@@ -549,6 +609,7 @@ const CgLabTmsh = (function () {
                     else if (p.k === 'source') { const c = p.v === 'any' ? { ip: '0.0.0.0', len: 0 } : cidr(p.v || ''); if (!c || ip2n(c.ip) !== netOf(c.ip, c.len)) return SYNx('"' + p.v + '" invalid source (A.B.C.D/len)'); o.source = c.ip + '/' + c.len; }
                     else if (p.k === 'connection-limit') { if (!/^\d{1,9}$/.test(p.v || '')) return SYNx('"' + p.v + '" invalid connection-limit'); o.limit = +p.v; }
                     else if (p.k === 'description') o.desc = p.v;
+                    else if (p.k === 'policies') { const cur = (o.policies || []).slice(); const r = listOp(cur, { op: p.op, v: p.v, items: (p.items || []).map(x => ({ k: x.k.replace(/^\/Common\//, '') })) }, x => (M().ltmPolicies[x] && !M().ltmPolicies[x].draft ? x : null)); if (r.bad) return M().ltmPolicies['Drafts/' + r.bad] ? E('# [Simülatör] /Common/Drafts/' + r.bad + ' henüz yayınlanmamış: publish ltm policy /Common/Drafts/' + r.bad) : NF('ltm policy', r.bad); if (r.missing) return E('# [Simülatör] ' + r.missing + ' bu virtual server\'da yok.'); o.policies = r.list; }
                     else if (p.k === 'rules') { const cur = (o.rules || []).slice(); const r = listOp(cur, { op: p.op, v: p.v, items: (p.items || []).map(x => ({ k: x.k })) }, x => (M().rules[x] ? x : null)); if (r.bad) return NF('rule', r.bad); if (r.missing) return E('# [Simülatör] ' + r.missing + ' kuralı bu virtual server\'da yok.'); o.rules = r.list; }
                     else return SYN(p.k);
                 }
@@ -558,6 +619,10 @@ const CgLabTmsh = (function () {
                 if (dup) return E('01070333:3: Virtual Server /Common/' + name + ' illegally shares destination address, source address, service port, ip-protocol, and vlan with Virtual Server /Common/' + dup[0]);
                 { const cs = o.profiles.filter(x => profType(x) === 'client-ssl'); if (cs.length > 1 && !cs.some(x => (M().cssl[x] || {}).sniDefault === 'true')) return E('0107149c:3: Virtual server /Common/' + name + ' has more than one clientssl/serverssl profile but none of them is default for SNI'); }
                 const hasHttp = o.profiles.some(x => profType(x) === 'http');
+                if ((o.policies || []).some(x => (M().ltmPolicies[x] || {}).controls && M().ltmPolicies[x].controls.includes('asm'))) {
+                    if (!hasHttp) return E('# [Simülatör] ASM kontrollü LTM policy bir HTTP profili gerektirir.');
+                    if (!o.profiles.includes('websecurity')) return E('# [Simülatör] ASM kontrollü LTM policy için virtual server\'da websecurity profili gerekli (requires a profile of type websecurity): profiles add { websecurity }');
+                }
                 { const hr = (o.rules || []).find(x => M().rules[x] && ruleHttpEv(M().rules[x])); if (hr && !hasHttp) return E('01070394:3: ' + ruleHttpEv(M().rules[hr]).name + ' event in rule (/Common/' + hr + ') requires an associated HTTP or FASTHTTP profile on the virtual server (/Common/' + name + ').'); }
                 if (o.persist.some(x => persistType(x) === 'cookie') && !hasHttp) return E('Cookie persistence requires an HTTP or FastHTTP profile to be associated with the virtual server.\n# [Simülatör] Önce profiles add { http }.');
                 if (o.profiles.some(x => profType(x) === 'http') && !o.profiles.some(x => ['tcp', 'fastl4'].includes(profType(x)))) return E('# [Simülatör] HTTP profili bir TCP profili gerektirir.');
@@ -571,14 +636,14 @@ const CgLabTmsh = (function () {
                 L.push('    ip-protocol ' + o.proto, '    last-modified-time 2026-09-24:10:21:07', '    mask ' + (o.mask === '0.0.0.0' ? 'any' : o.mask));
                 if (o.persist.length) { L.push('    persist {'); o.persist.forEach(x => L.push('        ' + x + ' {', '            default yes', '        }')); L.push('    }'); }
                 if (o.pool) L.push('    pool ' + o.pool);
-                L.push('    profiles {'); o.profiles.forEach(x => L.push('        ' + x + ' { }')); L.push('    }'); if ((o.rules || []).length) { L.push('    rules {'); o.rules.forEach(x => L.push('        ' + x)); L.push('    }'); }
+                L.push('    profiles {'); o.profiles.forEach(x => L.push('        ' + x + ' { }')); L.push('    }'); if ((o.policies || []).length) { L.push('    policies {'); o.policies.forEach(x => L.push('        ' + x + ' { }')); L.push('    }'); } if ((o.rules || []).length) { L.push('    rules {'); o.rules.forEach(x => L.push('        ' + x)); L.push('    }'); }
                 L.push('    serverssl-use-sni disabled', '    source ' + (o.source || '0.0.0.0/0'));
                 L.push('    source-address-translation {', '        ' + (o.sat.type === 'snat' ? 'pool ' + o.sat.pool : '') + (o.sat.type === 'snat' ? '\n        ' : '') + 'type ' + o.sat.type, '    }');
                 if (o.taddr !== 'enabled') L.push('    translate-address ' + o.taddr); else L.push('    translate-address enabled');
                 L.push('    translate-port ' + o.tport, '    vs-index ' + o.idx, '}');
                 return L;
             },
-            props: ['destination', 'ip-protocol', 'pool', 'profiles', 'persist', 'connection-limit', 'fallback-persistence', 'source-address-translation', 'translate-port', 'translate-address', 'mask', 'source', 'rules', 'description', 'enabled', 'disabled'],
+            props: ['destination', 'ip-protocol', 'pool', 'profiles', 'policies', 'persist', 'connection-limit', 'fallback-persistence', 'source-address-translation', 'translate-port', 'translate-address', 'mask', 'source', 'rules', 'description', 'enabled', 'disabled'],
         };
         // ═══ HA: cihazlar, güven, device group, traffic group ════════════════
         // Eş cihaz lab.sim.peer: { name, mgmt, ha (HA/configsync self IP'si), timeSkew?, garpBlocked? } — eşin kendi taban ağı hazır kabul edilir.
@@ -882,7 +947,7 @@ const CgLabTmsh = (function () {
             if (TK.err) return E('Syntax Error: missing closing quote', 'invalid');
             if (!TK.length) return '';
             const verb = TK[0].t;
-            const V = ['list', 'show', 'create', 'modify', 'delete', 'save', 'load', 'run', 'install', 'reboot', 'quit', 'q', 'exit', 'help', 'cd', 'bash'];
+            const V = ['list', 'show', 'create', 'modify', 'delete', 'save', 'load', 'run', 'install', 'reboot', 'quit', 'q', 'exit', 'help', 'cd', 'bash', 'publish'];
             if (!V.includes(verb)) {
                 if (['net', 'sys', 'ltm', 'auth', 'cm'].includes(verb.replace(/^\//, ''))) return E('Syntax Error: "' + verb + '" unexpected argument\n# [Simülatör] tmsh komutu fiille başlar: list | show | create | modify | delete, ör. "list net vlan".', 'invalid');
                 if (['ifconfig', 'ping', 'cat', 'tail', 'ls', 'grep', 'qkview', 'tcpdump', 'df', 'bigstart', 'reboot', 'curl'].includes(verb)) return E('Syntax Error: "' + verb + '" unexpected argument\n# [Simülatör] "' + verb + '" bir bash komutudur. tmsh\'ten çıkmak için "quit", tek komut için "run util bash -c \'' + line + '\'".', 'wrongmode');
@@ -893,6 +958,7 @@ const CgLabTmsh = (function () {
             if (verb === 'cd') { const d = TK[1] && TK[1].t; if (!d || d === '/Common' || d === '/') return ''; return E('Syntax Error: "' + d + '" folder not found\n# [Simülatör] Bu lab\'da yalnız /Common klasörü var.', 'value'); }
             if (verb === 'help') return helpText('');
             if (verb === 'save' || verb === 'load') return saveLoad(verb, TK.slice(1));
+            if (verb === 'publish') return publishCmd(TK.slice(1), line);
             if (verb === 'run') return runCmd(TK.slice(1), line, viaBash);
             if (verb === 'install') return installCmd(TK.slice(1));
             if (verb === 'reboot') { if (TK[1] && TK[1].t === 'volume') { const v = TK[2] && TK[2].t; if (!v || !S.vols[v]) return E('Syntax Error: "' + (v || '') + '" volume not found\n# [Simülatör] Hacimler: ' + Object.keys(S.vols).join(', '), 'value'); if (!/complete/.test(S.vols[v].status)) return E('# [Simülatör] ' + v + ' kurulumu tamamlanmamış (' + S.vols[v].status + '); bu hacimden açılamaz.', 'value'); return doReboot(v); } if (TK.length > 1) return SYN(TK[1].t); return doReboot(); }
@@ -935,11 +1001,11 @@ const CgLabTmsh = (function () {
                 auditLog(line); const nt = S.allowNote || ''; S.allowNote = null; return { out: nt, ok: true, touched: key };
             }
             const nameT = rest[0]; if (!nameT) return E('Syntax Error: ' + key + ' requires a name', 'incomplete');
-            const name = nameT.t, coll = t.coll();
+            const name = nameT.t.replace(/^\/Common\//, ''), coll = t.coll();
             if (t.fixed && !(name in coll)) return NF(t.kind, name);
             if (verb === 'create') {
                 if (t.fixed) return E('Syntax Error: "create" is not supported for ' + key, 'invalid');
-                if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,62}$/.test(name)) return SYNx('"' + name + '" invalid name');
+                if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,62}$/.test(t.kind === 'ltm policy' ? name.replace(/^Drafts\//, '') : name)) return SYNx('"' + name + '" invalid name');
                 if (coll[name]) return EX(t.kind, name);
                 if (t.kind === 'monitor' && (M().monitors[name] || BUILTIN_MON[name])) return EX('monitor', name);
                 if (t.kind === 'persistence profile' && (M().persists[name] || BUILTIN_PERSIST[name])) return EX('persistence profile', name);
@@ -974,7 +1040,9 @@ const CgLabTmsh = (function () {
                 if (opts.length && !t.props.includes(opts[0]) && !(opts[0] in coll)) return NF(t.kind, opts[0]);
                 blocks = names.map(n => t.list(n, coll[n]));
                 const propF = opts.slice(names.length === 1 && opts[0] === names[0] ? 1 : 0).filter(x => t.props.includes(x));
-                if (propF.length) blocks = blocks.map(L => [L[0]].concat(L.slice(1, -1).filter(l => propF.some(p => l.trim().startsWith(p + ' ') || l.trim() === p)), [L[L.length - 1]]));
+                // özellik süzme: çok satırlı alt bloklar ("profiles {" … "}") bütün olarak alınır
+                const keep = L => { const out = []; let depth = 0, on = false; L.slice(1, -1).forEach(l => { const tr = l.trim(); if (depth === 0) on = propF.some(p => tr.startsWith(p + ' ') || tr === p); if (on) out.push(l); depth += (tr.match(/\{/g) || []).length - (tr.match(/\}/g) || []).length; if (depth < 0) depth = 0; }); return out; };
+                if (propF.length) blocks = blocks.map(L => [L[0]].concat(keep(L), [L[L.length - 1]]));
             }
             if (t.single && opts.length) { const pf = opts.filter(x => t.props.includes(x)); if (opts.some(x => !t.props.includes(x))) return SYN(opts.find(x => !t.props.includes(x))); blocks = blocks.map(L => [L[0]].concat(L.slice(1, -1).filter(l => pf.some(p => l.trim().startsWith(p + ' '))), [L[L.length - 1]])); }
             log({ list: key });
@@ -1321,9 +1389,21 @@ const CgLabTmsh = (function () {
         // istemcinin gönderdiği başlıklar (curl varsayılanları + -b çerezleri + -H); raw: -H ile yinelenenler ayıklanmadan
         function reqHeaders(o, raw) {
             const H = [['Host', o.host || o.ip + (o.port === 80 || o.port === 443 ? '' : ':' + o.port)], ['User-Agent', 'curl/7.81.0'], ['Accept', '*/*']].concat(o.cookie && Object.keys(o.cookie).length ? [['Cookie', Object.entries(o.cookie).map(([k, x]) => k + '=' + x).join('; ')]] : [], (o.hdrs || []).map(h => { const m = h.match(/^([^:]+):\s*(.*)$/); return m ? [m[1], m[2]] : null; }).filter(Boolean));
+            if (o.body && !H.some(h => /^content-type$/i.test(h[0]))) H.push(['Content-Type', 'application/x-www-form-urlencoded']);
             if (raw) return H;
             ['Host', 'User-Agent', 'Accept'].forEach(n => { const hh = H.filter(h => h[0].toLowerCase() === n.toLowerCase()); if (hh.length > 1) H.splice(H.indexOf(hh[0]), 1); });
             return H;
+        }
+        // ASM değerlendirmesi (assets/js/lab/asm.js; imzalar eğitim amaçlı). Yalnız yayınlanmış politika etkilidir; blok sayfası HTTP 200 (K41633422).
+        function asmCheck(v, o, X) {
+            const AS = typeof CgASM !== 'undefined' ? CgASM : (typeof require !== 'undefined' ? require('./asm.js') : null); if (!AS) return null;
+            const lp = (v.policies || []).map(x => M().ltmPolicies[x]).find(x => x && !x.draft && x.asm && x.controls.includes('asm')); if (!lp) return null;
+            const ap = M().asmPolicies[lp.asm]; if (!ap || !ap.pub || !ap.pub.active) return null;
+            const pol = AS.policy({ name: lp.asm, blocking: ap.pub.blocking === 'enabled' });
+            const r = AS.evaluate(pol, { method: o.method || 'GET', uri: X.req ? X.req.uri : (o.path || '/'), headers: X.req ? X.req.headers : reqHeaders(o), body: o.body || '', form: !!o.body, ip: o.src });
+            if (!o.test) (S.asmlog || (S.asmlog = [])).push({ policy: lp.asm, method: o.method || 'GET', uri: o.path || '/', ip: o.src, r });
+            if (!r.blocked) { o.asm = r; return null; }
+            return { kind: 'ok', byF5: true, asm: r, resp: { code: 200, headers: ['Content-Type: text/html; charset=utf-8', 'Cache-Control: no-cache', 'Pragma: no-cache', 'Connection: close'], body: AS.blockPage(r.supportId), noServerHdr: true, version: '1.1' } };
         }
         // HTTP profili yanıt ayarları: HSTS başlığı ve BIG-IP'nin kendi yanıtlarında Server (server-agent-name)
         function vipRequest(o) {
@@ -1367,6 +1447,8 @@ const CgLabTmsh = (function () {
                 ['Host', 'User-Agent', 'Accept'].forEach(n => { const hh = X.req.headers.filter(h => h[0].toLowerCase() === n.toLowerCase()); if (hh.length > 1) X.req.headers.splice(X.req.headers.indexOf(hh[0]), 1); });
                 const f = fire('HTTP_REQUEST'); if (f) return Object.assign(f, { vs: vn, tls });
             }
+            // ASM: VS'ye yayınlanmış "asm enable policy" eylemli LTM policy bağlıysa istek, yayınlanmış ASM politikasıyla değerlendirilir
+            if (hasHttp) { const ab = asmCheck(v, o, X); if (ab) return Object.assign(ab, { vs: vn, tls }); }
             const PN = X.act.pool || v.pool;
             if (X.act.node) { const [nip, npt] = X.act.node.split(':'); const srvN = srvOf(nip); const npo = +(npt || o.port); if (!srvN || !reach(nip).ok) return { kind: 'timeout', why: 'l2', vs: vn }; const rN = serverResp(srvN, npo, X.req ? X.req.uri : o.path, o.method, X.req ? X.req.headers : null); if (!rN) return { kind: 'reset', why: 'srvrefused', vs: vn }; return irResponse(X, fire, { kind: 'ok', resp: rN, tls, vs: vn, member: nip + ':' + npo, src: 'client' }); }
             if (!PN) return { kind: 'reset', why: 'nopool', vs: vn };
@@ -1474,7 +1556,7 @@ const CgLabTmsh = (function () {
         }
         // ═══ HA durumu, config sync, failover ═══════════════════════════════
         const HA = { st: 'active', syncKey: null, peerCfg: null };
-        const syncKey = m => JSON.stringify([m.nodes, m.pools, m.monitors, m.virtuals, m.snatpools, m.persists, m.httpProfiles, m.cssl, m.sssl, m.certs, m.keys, m.rules, m.dgroups]);
+        const syncKey = m => JSON.stringify([m.nodes, m.pools, m.monitors, m.virtuals, m.snatpools, m.persists, m.httpProfiles, m.cssl, m.sssl, m.certs, m.keys, m.rules, m.dgroups, m.asmPolicies, m.ltmPolicies]);
         const haDg = () => Object.entries(M().cm.dgs).find(([, g]) => g.type === 'sync-failover' && PEER && g.devices.includes(PEER.name) && g.devices.includes(M().hostname));
         const selfOfIp = ip => Object.entries(M().selfs).find(([, x]) => x.address && x.address.split('/')[0] === ip);
         const selfAllowsSvc = (sn, pr, port) => { const x = M().selfs[sn]; if (!x) return false; if (x.allow === 'all') return true; if (x.allow === 'none') return false; const L = x.allow === 'default' ? ALLOW_DEFAULT : x.allow; return L.some(y => { const [p2, t2] = y.split(':'); return p2 === pr && (t2 === 'any' || +t2 === port || SVC_PORT[t2] === port); }); };
@@ -1499,7 +1581,7 @@ const CgLabTmsh = (function () {
         function doSync(dir, dg) {
             const g = M().cm.dgs[dg]; if (!g) return NF('device group', dg);
             const l = haLink(); if (!l.ok) return E('# [Simülatör] Eşitleme yapılamadı: eşe bağlantı yok (' + { trust: 'güven kurulmamış', time: 'saatler uyuşmuyor', csip: 'configsync-ip tanımlı değil', lockdown: 'ConfigSync self IP\'sinde TCP 4353 kapalı (port lockdown)', reach: 'eşin HA adresine ulaşılamıyor' }[l.why] + ').', 'value');
-            if (dir === 'from' && HA.peerCfg) { ['nodes', 'pools', 'monitors', 'virtuals', 'snatpools', 'persists', 'httpProfiles', 'cssl', 'sssl', 'certs', 'keys', 'rules', 'dgroups'].forEach(k => { M()[k] = clone(HA.peerCfg[k]); }); }
+            if (dir === 'from' && HA.peerCfg) { ['nodes', 'pools', 'monitors', 'virtuals', 'snatpools', 'persists', 'httpProfiles', 'cssl', 'sssl', 'certs', 'keys', 'rules', 'dgroups', 'asmPolicies', 'ltmPolicies'].forEach(k => { M()[k] = clone(HA.peerCfg[k]); }); }
             HA.syncKey = syncKey(M()); HA.peerCfg = clone(M()); log({ haSync: dir });
             return { out: '', ok: true };
         }
@@ -1669,24 +1751,25 @@ const CgLabTmsh = (function () {
                 const shown = out.length > 6 ? out.slice(0, 3).concat(['# [Simülatör] … ' + (out.length - 5) + ' yönlendirme daha …'], out.slice(-2)) : out;
                 return { out: shown.join('\n') };
             }
-            let url = null, verbose = false, head = false, incl = false, silent = false, out = null, wfmt = null, method = null, jarR = null, jarW = null, iface = null, insecure = false; const hdr = [], resolve = {};
+            let url = null, data = null, verbose = false, head = false, incl = false, silent = false, out = null, wfmt = null, method = null, jarR = null, jarW = null, iface = null, insecure = false; const hdr = [], resolve = {};
             for (let i = 1; i < a.length; i++) {
                 const t = a[i];
                 if (/^-[vkIsSLi]+$/.test(t)) { if (t.includes('v')) verbose = true; if (t.includes('I')) head = true; if (t.includes('i')) incl = true; if (t.includes('s')) silent = true; if (t.includes('k')) insecure = true; continue; }
                 if (t === '--insecure') { insecure = true; continue; }
                 if (t === '--resolve') { const r = String(a[++i] || '').match(/^([^:]+):(\d+):(\d{1,3}(?:\.\d{1,3}){3})$/); if (!r) return E('curl: option --resolve: error encountered when reading a file\n# [Simülatör] Biçim: --resolve <ad>:<port>:<ip>', 'invalid'); resolve[r[1] + ':' + r[2]] = r[3]; continue; }
                 if (t === '-o') { out = a[++i]; continue; } if (t === '-w') { wfmt = a[++i]; continue; } if (t === '-X') { method = (a[++i] || '').toUpperCase(); continue; }
+                if (t === '-d' || t === '--data') { data = a[++i] || ''; continue; }
                 if (t === '-H') { hdr.push(a[++i]); continue; } if (t === '-b') { jarR = a[++i]; continue; } if (t === '-c') { jarW = a[++i]; continue; }
                 if (t === '--interface') { iface = a[++i]; continue; } if (t === '-m' || t === '--max-time' || t === '--connect-timeout') { i++; continue; }
                 if (/^https?:\/\//.test(t)) { url = t; continue; }
-                return E('curl: option ' + t + ': is unknown\n# [Simülatör] Desteklenen: -v -i -I -k -s -o -w -X -H -b -c --interface -m --resolve', 'invalid');
+                return E('curl: option ' + t + ': is unknown\n# [Simülatör] Desteklenen: -v -i -I -k -s -o -w -X -H -d -b -c --interface -m --resolve', 'invalid');
             }
             if (!url) return E('curl: no URL specified!', 'incomplete');
             const u = url.match(/^(https?):\/\/([^/:]+)(?::(\d+))?(\/[^\s]*)?$/);
             const https = !!u && u[1] === 'https', port = u ? +(u[3] || (https ? 443 : 80)) : 0, hostN = u ? u[2] : url;
             const ip = u && (isIp(u[2]) ? u[2] : resolve[u[2] + ':' + port]);
             if (!u || !ip) return E('curl: (6) Could not resolve host: ' + hostN + '\n# [Simülatör] Bu lab\'da DNS yok: URL\'de IP adresi ya da --resolve ' + hostN + ':' + port + ':<ip> kullanın.', 'value');
-            const path = u[4] || '/'; method = method || (head ? 'HEAD' : 'GET');
+            const path = u[4] || '/'; method = method || (head ? 'HEAD' : data !== null ? 'POST' : 'GET');
             const sni = isIp(hostN) ? null : hostN;
             const isVip = vipOwned(ip);
             const cookie = {}; if (jarR && JARS[jarR]) Object.assign(cookie, JARS[jarR]); hdr.forEach(h => { const m = h.match(/^Cookie:\s*([^=]+)=(\S+)/i); if (m) cookie[m[1]] = m[2]; });
@@ -1695,7 +1778,7 @@ const CgLabTmsh = (function () {
             let tlsI = null, ver = null;
             if (isVip && https) { const t = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni, tlsOnly: true, test: true })); if (t.kind === 'tls') { tlsI = t.tls; ver = tlsVerify(tlsI, sni || ip); } }
             if (isVip && tlsI && !ver.ok && !insecure) { res = { kind: 'tlsfail', vs: null }; if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi.'); }
-            else if (isVip) { res = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni, host: hostN + (port === 80 || port === 443 ? '' : ':' + port), hdrs: hdr.filter(h => !/^Cookie:/i.test(h)) })); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi' + (res.vs ? '; karşılayan virtual server: /Common/' + res.vs : '') + '.'); }
+            else if (isVip) { res = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni, host: hostN + (port === 80 || port === 443 ? '' : ':' + port), hdrs: hdr.filter(h => !/^Cookie:/i.test(h)), body: data })); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi' + (res.vs ? '; karşılayan virtual server: /Common/' + res.vs : '') + '.'); }
             else {
                 const r = reach(ip), srv = srvOf(ip);
                 if (iface && !Object.values(M().selfs).some(s => s.address && s.address.split('/')[0] === iface) && !(M().mgmtIp && M().mgmtIp.split('/')[0] === iface)) return E('curl: (45) bind failed with errno 99: Cannot assign requested address', 'value');
@@ -1707,7 +1790,7 @@ const CgLabTmsh = (function () {
             }
             if (res.notes && !silent) res.notes.forEach(n => L.push('# ' + n));
             if (isVip) { const rc = rstCauseOf(res); if (rc) rstSent(ip + ':' + port, (SIM.client || '198.51.100.20') + ':' + (52100 + S.ev.length), rc.cause, rc.peer); }
-            log({ curl: { vs: res.vs || null, ip, host: hostN, https, port, path, method, vip: isVip, byF5: !!res.byF5, why: res.why || null, loc: ((res.resp && (res.resp.headers || []).find(h => /^Location:/i.test(h))) || '').replace(/^Location:\s*/i, '') || null, rhdrs: res.resp ? (res.resp.headers || []).slice() : null, body: res.resp ? String(res.resp.body || '').slice(0, 400) : null, kind: res.kind, code: res.resp ? res.resp.code : null, member: res.member || null, persisted: !!res.persisted, tlsErr: ver && !ver.ok ? ver.code : null, insecure, prof: tlsI ? tlsI.prof : null } });
+            log({ curl: { vs: res.vs || null, ip, host: hostN, https, port, path, method, vip: isVip, byF5: !!res.byF5, why: res.why || null, loc: ((res.resp && (res.resp.headers || []).find(h => /^Location:/i.test(h))) || '').replace(/^Location:\s*/i, '') || null, rhdrs: res.resp ? (res.resp.headers || []).slice() : null, body: res.resp ? String(res.resp.body || '').slice(0, 400) : null, kind: res.kind, code: res.resp ? res.resp.code : null, asm: res.asm ? { blocked: true, supportId: res.asm.supportId, violations: res.asm.violations.map(v => v.name) } : null, member: res.member || null, persisted: !!res.persisted, tlsErr: ver && !ver.ok ? ver.code : null, insecure, prof: tlsI ? tlsI.prof : null } });
             // curl 7.81 biçimi (notes/f5-tmsh-cikti-ornekleri.md §9)
             const T12 = ['* ALPN, offering h2', '* ALPN, offering http/1.1', '*  CAfile: /etc/ssl/certs/ca-certificates.crt', '*  CApath: /etc/ssl/certs', '* TLSv1.0 (OUT), TLS header, Certificate Status (22):', '* TLSv1.3 (OUT), TLS handshake, Client hello (1):', '* TLSv1.2 (IN), TLS header, Certificate Status (22):', '* TLSv1.2 (IN), TLS handshake, Server hello (2):', '* TLSv1.2 (IN), TLS handshake, Certificate (11):'];
             const T12b = ['* TLSv1.2 (IN), TLS handshake, Server key exchange (12):', '* TLSv1.2 (IN), TLS handshake, Server finished (14):', '* TLSv1.2 (OUT), TLS handshake, Client key exchange (16):', '* TLSv1.2 (OUT), TLS change cipher, Change cipher spec (1):', '* TLSv1.2 (OUT), TLS handshake, Finished (20):', '* TLSv1.2 (IN), TLS handshake, Finished (20):', '* SSL connection using TLSv1.2 / ECDHE-RSA-AES128-GCM-SHA256', '* ALPN, server accepted to use http/1.1'];
