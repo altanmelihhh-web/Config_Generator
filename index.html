@@ -24,15 +24,19 @@
   <link rel="stylesheet" href="assets/css/config-generator.css">
   <link rel="stylesheet" href="assets/css/cg-nobet.css">
   <link rel="stylesheet" href="assets/css/shell.css">
+  <link rel="stylesheet" href="assets/css/hub.css">
 </head>
 <body>
   <button type="button" class="cg-skip" onclick="var m=document.getElementById('cg-content');m.focus();m.scrollIntoView();">İçeriğe geç</button>
   <header class="app-topbar">
-    <a class="app-brand" href="#" aria-label="Config Generator — ana sayfa" onclick="ConfigGenerator.goHome();return false">
+    <a class="app-brand" href="#/" aria-label="Config Generator — ana sayfa">
       <span class="app-brand-logo"><i class="fas fa-terminal"></i></span>
       <span class="app-brand-txt">Config Generator<small>Network konfigürasyon üretici &amp; dönüştürücü</small></span>
     </a>
     <nav class="app-nav" id="app-nav" aria-label="Ana menü">
+      <button class="app-nav-tab" data-nav="vendors" title="Vendorlar" aria-label="Vendorlar" onclick="location.hash='#/v'">
+        <i class="fas fa-building"></i> <span class="app-nav-l">Vendorlar</span>
+      </button>
       <button class="app-nav-tab active" data-nav="tools" title="Araçlar" aria-label="Araçlar" onclick="ConfigGenerator.goHome()">
         <i class="fas fa-th-large"></i> <span class="app-nav-l">Araçlar</span>
       </button>
@@ -71,7 +75,7 @@
 
   <div class="cg-drawer" id="cg-drawer" role="dialog" aria-modal="true" aria-label="Menü" hidden>
     <div class="cg-drawer-scrim" data-close></div>
-    <div class="cg-drawer-panel">
+    <div class="cg-drawer-panel" tabindex="-1">
       <div class="cg-drawer-hd"><b>Menü</b><button type="button" class="app-icon-btn cg-drawer-close" data-close aria-label="Menüyü kapat"><i class="fas fa-times" aria-hidden="true"></i></button></div>
       <nav class="cg-drawer-nav" aria-label="Bölümler"></nav>
       <nav class="cg-drawer-tree" aria-label="Vendor ağacı"></nav>
@@ -122,12 +126,14 @@
   <script src="assets/js/ConfigConverter_Readers_Other.js"></script>
   <script src="assets/js/ConfigConverter.js"></script>
   <script src="assets/js/cg-brands.js"></script>
+  <script src="assets/js/cg-logos-extra.js"></script>
   <script src="assets/js/cg-families.js"></script>
   <script src="assets/js/CgShell.js"></script>
   <script src="assets/js/CgCli.js"></script>
   <script src="assets/js/CgTroubleshoot.js"></script>
   <script src="assets/js/CgLab.js"></script>
   <script src="assets/js/CgArena.js"></script>
+  <script src="assets/js/CgHub.js"></script>
   <script src="assets/js/ConfigGeneratorManagement.js"></script>
   <script src="assets/js/app.js"></script>
 </body>

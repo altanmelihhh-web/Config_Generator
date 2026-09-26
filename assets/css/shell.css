@@ -42,7 +42,7 @@
     body.cg-has-side .cg-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 28px; align-items: start; }
     body.cg-has-side .cg-side { grid-column: 1; grid-row: 1; }
     body.cg-has-side .cg-shell-main { grid-column: 2; grid-row: 1; }
-    body.cg-has-side .cg-side { position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; padding: 4px 8px 16px 0; border-right: 1px solid var(--border); }
+    body.cg-has-side .cg-side { position: sticky; top: 76px; max-height: calc(100vh - 152px); /* 76 üst + ~76 alt (dolgu + altbilgi): sayfa sonunda üst çubuğun altına girmesin */ overflow: auto; padding: 4px 8px 16px 0; border-right: 1px solid var(--border); }
 }
 @media (max-width: 1279.98px) { .cg-side { display: none !important; } }
 
@@ -82,6 +82,8 @@ body.cg-drawer-open { overflow: hidden; }
 @media (max-width: 600px) {
     #config-generator-root .cg-home .cg-chips { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; margin-bottom: 14px; padding-bottom: 6px; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
     #config-generator-root .cg-home .cg-chip { flex: 0 0 auto; min-height: 40px; }
+    /* Öğrenme yolundaki lab çipleri kaydırma şeridinde değil, sarılan listede: uzun başlık satıra sığsın */
+    #config-generator-root .cg-home .cg-lab-plabs .cg-chip { flex: 0 1 auto; max-width: 100%; white-space: normal; }
     .cg-bc [aria-current] { max-width: 100%; white-space: normal; }
 }
 

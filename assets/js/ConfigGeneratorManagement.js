@@ -1839,6 +1839,7 @@ const ConfigGenerator = {
         const m = h.match(/^#\/([^/]+)\/([^/]+)$/);
         if (m && CG_REGISTRY[m[1]]) this._renderWork(m[1], m[2]);
         else if (h === '#/converter') this._renderConverter();
+        else if ((h === '' || h === '#' || h === '#/') && typeof CgHub !== 'undefined') this._renderVendorHub(null);   // ana sayfa: vendor kartları (tanıtım sayfası A7'de)
         else this._renderHome({ fam: null });
     },
 
@@ -1847,11 +1848,19 @@ const ConfigGenerator = {
         // Yönlendirme; note verilirse kullanıcıya kısa bilgi şeridi gösterilir (sessiz yönlendirme yok)
         const redirect = (hash, note) => { history.replaceState(null, '', hash); this._route(); if (note) this._toast(note); };
         const qs = P.toString() ? '?' + P.toString() : '';
-        // A4'e kadar: vendor kartları yok → tüm araçlar; aile kökü → kanonik ızgara adresi /araclar
-        if (!slug) { redirect('#/araclar' + qs); return; }
+        // #/v → vendor kartları; #/v/<aile> → vendor hub; sorgulu eski bağlantılar (?p=&k=&q=) araç ızgarasına
+        if (!slug) {
+            if (qs || typeof CgHub === 'undefined') { redirect('#/araclar' + qs); return; }
+            this._renderVendorHub(null);
+            return;
+        }
         const f = typeof CG_FAMILY_BY_SLUG !== 'undefined' && CG_FAMILY_BY_SLUG[slug];
-        if (!f) { redirect('#/araclar', '“' + slug + '” adlı bir vendor ailesi yok; tüm araçlar gösteriliyor.'); return; }
-        if (!sec) { redirect('#/v/' + slug + '/araclar' + qs); return; }
+        if (!f) { redirect('#/v', '“' + slug + '” adlı bir vendor ailesi yok; vendorlar gösteriliyor.'); return; }
+        if (!sec) {
+            if (qs || typeof CgHub === 'undefined') { redirect('#/v/' + slug + '/araclar' + qs); return; }
+            this._renderVendorHub(slug);
+            return;
+        }
         if (sec === 'araclar') {
             if (sub) { redirect('#/v/' + slug + '/araclar'); return; }
             this._renderHome({ fam: slug, p: P.get('p'), k: P.get('k'), q: P.get('q') });
@@ -1910,9 +1919,11 @@ const ConfigGenerator = {
 
     // ── Üst çubuktaki aktif sekmeyi işaretle ────────────────────────────
     _setNav(which) {
-        document.querySelectorAll('.app-nav-tab').forEach(b =>
-            b.classList.toggle('active', b.dataset.nav === which));
-        const T = { tools: 'Config araçları', cli: 'Komut kütüphanesi', lab: 'CLI Laboratuvarı', arena: 'iRule Arenası', ts: 'Sorun giderme', conv: 'Dönüştürücü' };
+        document.querySelectorAll('.app-nav-tab').forEach(b => {
+            b.classList.toggle('active', b.dataset.nav === which);
+            if (b.dataset.nav === which) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+        });
+        const T = { vendors: 'Vendorlar', tools: 'Config araçları', cli: 'Komut kütüphanesi', lab: 'CLI Laboratuvarı', arena: 'iRule Arenası', ts: 'Sorun giderme', conv: 'Dönüştürücü' };
         document.title = (T[which] ? T[which] + ' · ' : '') + 'Config Generator';
     },
 
@@ -2055,7 +2066,7 @@ const ConfigGenerator = {
                 if (el) { e.preventDefault(); el.focus(); el.select(); }
             }
             // Esc yalnız araç çalışma sayfasında listeye döner; form alanında, lab terminalinde ve diğer bölümlerde gezinmez
-            if (e.key === 'Escape' && this._type && location.hash === '#/' + this._vendor + '/' + this._type && !e.target.closest?.('input,textarea,select,[contenteditable]')) this.backToList();
+            if (e.key === 'Escape' && this._type && !document.body.classList.contains('cg-drawer-open') && location.hash === '#/' + this._vendor + '/' + this._type && !e.target.closest?.('input,textarea,select,[contenteditable]')) this.backToList();
         });
     },
 
@@ -2191,6 +2202,14 @@ const ConfigGenerator = {
             this._root.querySelector('.cg-split')?.classList.add('is-single');
         }
         this._bindSlash();
+    },
+
+    // ── VENDOR KARTLARI / HUB (A4) ───────────────────────────────────────
+    _renderVendorHub(slug) {
+        this._setNav('vendors');
+        this._vendor = this._type = null;
+        if (slug) CgHub.renderHub(this._root, slug); else CgHub.renderVendors(this._root);   // document.title'ı CgHub yazar
+        window.scrollTo(0, 0);
     },
 
     // ── DÖNÜŞTÜRÜCÜ ──────────────────────────────────────────────────────

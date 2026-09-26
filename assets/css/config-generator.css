@@ -406,8 +406,8 @@
 #config-generator-root .cg-split-out {
     min-width: 0;
     position: sticky;
-    top: 16px;
-    max-height: calc(100vh - 32px);
+    top: 76px; /* sticky üst çubuk (60px) + 16px */
+    max-height: calc(100vh - 92px);
     display: flex;
     flex-direction: column;
 }
@@ -499,7 +499,7 @@
 }
 
 /* Sözdizimi renklendirme */
-#config-generator-root .cg-term-body .t-cmt  { color: #6e7781; font-style: italic; }
+#config-generator-root .cg-term-body .t-cmt  { color: #8b949e; font-style: italic; }
 #config-generator-root .cg-term-body .t-kw   { color: #ff7b72; font-weight: 600; }
 #config-generator-root .cg-term-body .t-set  { color: #79c0ff; }
 #config-generator-root .cg-term-body .t-str  { color: #a5d6ff; }

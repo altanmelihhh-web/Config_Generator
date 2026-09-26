@@ -1,0 +1,123 @@
+/* ─── Vendor kartları (#/v) ve vendor hub (#/v/<aile>) — UI A4, Tema 1 "Kılavuz" ───
+   Yalnız tokens.css adları; sabit hex yok. Koyu tema tokenlarla kendiliğinden gelir.
+   Tek istisna rozetteki marka rengi (--bc): cg-brands.js'ten satır içi gelir, burada yalnız tokenlarla karıştırılır. */
+
+#config-generator-root .cg-hub { max-width: 1120px; margin: 0 auto; padding: 4px 0 56px; color: var(--text); font-family: var(--font-sans); }
+#config-generator-root .cg-hub *, #config-generator-root .cg-hub *::before, #config-generator-root .cg-hub *::after { box-sizing: border-box; }
+#config-generator-root .cg-hub :where(ul, ol) { list-style: none; margin: 0; padding: 0; }
+#config-generator-root .cg-hub :where(a) { text-decoration: none; }
+#config-generator-root .cg-hub-i { width: 20px; height: 20px; flex: none; }
+
+/* Başlık */
+#config-generator-root .cg-hub-head { margin: 0 0 var(--space-2); }
+#config-generator-root .cg-hub-head-v { display: flex; align-items: center; gap: var(--space-4); }
+#config-generator-root .cg-hub-hv { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; }
+#config-generator-root .cg-hub-h1 { margin: 0; font-size: 2rem; line-height: 1.2; letter-spacing: -.01em; font-weight: 700; color: var(--text); overflow-wrap: anywhere; }
+#config-generator-root .cg-hub-lead { margin: var(--space-3) 0 var(--space-6); max-width: 68ch; font-size: 1.06rem; line-height: 1.6; color: var(--muted); }
+#config-generator-root .cg-hub-h2 { margin: var(--space-8) 0 var(--space-3); font-size: 1.25rem; line-height: 1.3; font-weight: 650; color: var(--text); }
+#config-generator-root .cg-hub-sec:first-of-type .cg-hub-h2 { margin-top: var(--space-4); }
+#config-generator-root .cg-hub-vh { margin-top: var(--space-6); }
+#config-generator-root .cg-hub-pill { display: inline-flex; align-items: center; min-height: 26px; padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: .8rem; }
+#config-generator-root .cg-hub-note { margin: var(--space-8) 0 0; padding: var(--space-3) var(--space-4); border-left: 3px solid var(--accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--surface); color: var(--muted); font-size: .88rem; }
+
+/* Vendor rozeti: marka renginde logo (simple-icons, CC0) ya da logo yoksa marka renkli monogram.
+   --bc satır içi gelir (cg-brands.js); renk tokenlarla karıştırılır: açıkta koyulaşır, koyuda açılır (iki temada okunur). */
+#config-generator-root .cg-vbadge {
+    display: inline-grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 8px;
+    font: 700 15px/1 var(--font-mono); letter-spacing: .02em;
+    color: color-mix(in srgb, var(--bc, var(--muted)) 60%, var(--text));
+    background: color-mix(in srgb, var(--bc, var(--muted)) 10%, var(--bg));
+    border: 1px solid color-mix(in srgb, var(--bc, var(--muted)) 28%, var(--border));
+}
+#config-generator-root .cg-vbadge-logo { color: color-mix(in srgb, var(--bc, var(--muted)) 80%, var(--text)); }
+#config-generator-root .cg-vbadge svg { display: block; }
+#config-generator-root .cg-vbadge-lg { width: 56px; height: 56px; border-radius: 10px; font-size: 19px; }
+:root[data-theme="dark"] #config-generator-root .cg-vbadge {
+    color: color-mix(in srgb, var(--bc, var(--muted)) 45%, var(--text));
+    background: color-mix(in srgb, var(--bc, var(--muted)) 16%, var(--bg));
+    border-color: color-mix(in srgb, var(--bc, var(--muted)) 35%, var(--border));
+}
+:root[data-theme="dark"] #config-generator-root .cg-vbadge-logo { color: color-mix(in srgb, var(--bc, var(--muted)) 55%, var(--text)); }
+
+/* Vendor kartları ızgarası */
+#config-generator-root .cg-vgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-3); }
+#config-generator-root .cg-vgrid > li { min-width: 0; display: flex; }
+#config-generator-root .cg-vcard {
+    display: flex; align-items: flex-start; gap: var(--space-3); width: 100%; min-height: 44px; padding: 14px;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text);
+    box-shadow: var(--shadow); transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+#config-generator-root .cg-vcard:hover { border-color: var(--primary); background: var(--surface); }
+#config-generator-root .cg-vcard:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-color: var(--primary); }
+#config-generator-root .cg-vcard-b { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+#config-generator-root .cg-vcard-t { font-size: 1.02rem; font-weight: 650; line-height: 1.3; color: var(--text); }
+#config-generator-root .cg-vcard-k { font-size: .82rem; color: var(--muted); }
+#config-generator-root .cg-vcard-p { font-size: .8rem; color: var(--subtle); line-height: 1.4; overflow-wrap: anywhere; }
+#config-generator-root .cg-vcard-c { display: flex; flex-direction: column; align-items: flex-end; flex: none; gap: 2px; text-align: right; font: 500 .76rem/1.45 var(--font-mono); color: var(--muted); white-space: nowrap; }
+
+/* Hub: platform bağlantıları */
+#config-generator-root .cg-hub-plats { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-2); }
+#config-generator-root .cg-hub-plat {
+    display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 14px; max-width: 100%;
+    border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: .9rem; font-weight: 500;
+    transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+#config-generator-root .cg-hub-plat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#config-generator-root .cg-hub-plat small { font: 500 .76rem var(--font-mono); color: var(--muted); }
+#config-generator-root .cg-hub-plat:hover { border-color: var(--primary); background: var(--surface); }
+
+/* Bölüm kartları (hub) ve vendor bağımsız kartlar */
+#config-generator-root .cg-hub-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 14px; }
+#config-generator-root .cg-hub-cards > li { min-width: 0; display: flex; }
+#config-generator-root .cg-hub-card {
+    display: flex; gap: 14px; width: 100%; min-height: 44px; padding: 18px;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text);
+    box-shadow: var(--shadow); transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+#config-generator-root a.cg-hub-card:hover { border-color: var(--primary); background: var(--surface); }
+#config-generator-root a.cg-hub-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-color: var(--primary); }
+#config-generator-root .cg-hub-ci { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 8px; background: var(--surface-2); color: var(--primary); }
+#config-generator-root .cg-hub-cb { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#config-generator-root .cg-hub-ct { font-size: 1.05rem; font-weight: 650; line-height: 1.3; color: var(--text); }
+#config-generator-root .cg-hub-cd { font-size: .9rem; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+#config-generator-root .cg-hub-cm { margin-top: 4px; font: 500 .8rem var(--font-mono); color: var(--muted); }
+/* İçerik yok: soluk görünüm opaklıkla değil, kesik çizgi + zemin ile (metin kontrastı korunur) */
+#config-generator-root .cg-hub-card.is-off { border-style: dashed; background: var(--surface); box-shadow: none; cursor: default; }
+#config-generator-root .cg-hub-card.is-off .cg-hub-ci { background: var(--bg); color: var(--subtle); }
+#config-generator-root .cg-hub-card.is-off .cg-hub-ct { color: var(--muted); }
+#config-generator-root .cg-hub-card.is-off .cg-hub-cm { font-style: italic; }
+
+/* Nereden başlamalı? */
+#config-generator-root .cg-hub-start { margin-top: var(--space-8); padding: var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+#config-generator-root .cg-hub-start .cg-hub-h2 { margin-top: 0; }
+#config-generator-root .cg-hub-sp { margin: 0 0 var(--space-4); max-width: 68ch; color: var(--muted); line-height: 1.6; }
+#config-generator-root .cg-hub-steps { display: grid; gap: var(--space-2); margin: 0 0 var(--space-4); counter-reset: cghs; }
+#config-generator-root .cg-hub-steps li { counter-increment: cghs; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px var(--space-3); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
+#config-generator-root .cg-hub-steps li::before { content: counter(cghs); min-width: 24px; text-align: center; padding: 1px 6px; border-radius: 4px; background: var(--primary-soft); color: var(--primary); font: 600 .76rem var(--font-mono); }
+#config-generator-root .cg-hub-steps span { flex: 1; min-width: 0; font-weight: 600; color: var(--text); }
+#config-generator-root .cg-hub-steps small { font: 500 .76rem var(--font-mono); color: var(--muted); }
+#config-generator-root .cg-hub-tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: var(--space-2); margin: 0 0 var(--space-4); }
+#config-generator-root .cg-hub-tool { display: flex; align-items: center; min-height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: .9rem; }
+#config-generator-root .cg-hub-tool:hover { border-color: var(--primary); }
+#config-generator-root .cg-hub-btn {
+    display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 18px; border-radius: var(--radius-sm);
+    background: var(--primary); color: var(--on-primary); font-weight: 600; font-size: .95rem; transition: background-color var(--dur-fast) ease;
+}
+#config-generator-root .cg-hub-btn:hover { background: var(--primary-hover); color: var(--on-primary); }
+#config-generator-root .cg-hub-btn .cg-hub-i { width: 18px; height: 18px; }
+#config-generator-root .cg-hub a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+@media (max-width: 600px) {
+    #config-generator-root .cg-hub { padding-bottom: 40px; }
+    #config-generator-root .cg-hub-h1 { font-size: 1.6rem; }
+    #config-generator-root .cg-hub-lead { font-size: 1rem; margin-bottom: var(--space-4); }
+    #config-generator-root .cg-hub-h2 { margin-top: var(--space-6); }
+    #config-generator-root .cg-vgrid, #config-generator-root .cg-hub-cards, #config-generator-root .cg-hub-tools { grid-template-columns: minmax(0, 1fr); }
+    #config-generator-root .cg-hub-card { padding: 14px; }
+    #config-generator-root .cg-hub-start { padding: var(--space-4); }
+    #config-generator-root .cg-hub-btn { width: 100%; justify-content: center; }
+    #config-generator-root .cg-hub-plat { flex: 1 1 auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #config-generator-root .cg-vcard, #config-generator-root .cg-hub-card, #config-generator-root .cg-hub-plat, #config-generator-root .cg-hub-btn { transition: none; }
+}
