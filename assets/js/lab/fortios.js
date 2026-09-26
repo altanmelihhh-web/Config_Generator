@@ -49,6 +49,8 @@ const CgLabFgt = (() => {
             'admin-lockout-threshold': { t: 'int', min: 1, max: 10, def: 3, d: 'Kilitlenmeden önceki hatalı giriş sayısı' },
             'admin-lockout-duration': { t: 'int', min: 1, max: 2147483647, def: 60, d: 'Kilit süresi (sn)' },
             'pre-login-banner': { t: 'enum', v: ED, def: 'disable', d: 'Giriş öncesi uyarı afişi' },
+            // Parti 9 — CLI Ref system global snat-route-change (varsayılan disable): rota değişince SNAT'lı oturumlar yeniden rota seçsin mi
+            'snat-route-change': { t: 'enum', v: ED, def: 'disable', quietDef: true, d: 'Rota değişince SNAT oturumlarının rotasını yenile' },
             // M12 — CLI Ref 7.4.8 config system global (339914554): vdom-mode [no-vdom | multi-vdom]
             'vdom-mode': { t: 'enum', v: ['no-vdom', 'multi-vdom'], def: 'no-vdom', quietDef: true, d: 'VDOM kipi (multi-vdom: config global / config vdom bağlamları)' } } },
         'system ha': { single: true, attrs: {
@@ -131,6 +133,8 @@ const CgLabFgt = (() => {
             ippool: { t: 'enum', v: ED, def: 'disable', when: o => o.nat === 'enable', d: 'IP havuzu kullan' },
             poolname: { t: 'refs', ds: 'ippool', when: o => o.nat === 'enable' && o.ippool === 'enable', d: 'IP havuzu' },
             status: { t: 'enum', v: ED, def: 'enable', d: 'Kural durumu' },
+            // Parti 9 — CLI Ref 7.4.8/7.6.6 firewall policy: firewall-session-dirty (system settings check-policy-option iken geçerli)
+            'firewall-session-dirty': { t: 'enum', v: ['check-all', 'check-new'], def: 'check-all', quietDef: true, d: 'Kural değişince mevcut oturumlar: check-all sil, check-new sürdür' },
             comments: { t: 'str', max: 1023, d: 'Açıklama' } } },
         'vpn ipsec phase1-interface': { key: 'name', req: ['interface', 'remote-gw', 'psksecret'], attrs: {
             interface: { t: 'ref', ds: 'physIntf', d: 'Tünelin çıktığı (WAN) arayüz' },
@@ -155,7 +159,8 @@ const CgLabFgt = (() => {
             authusrgrp: { t: 'ref', ds: 'ugroups', d: 'Kullanıcı doğrulama grubu' },
             transport: { t: 'enum', vFos: { '7.4': ['udp', 'udp-fallback-tcp', 'tcp'], '7.6': ['udp', 'auto', 'tcp'] }, defFos: { '7.4': 'udp', '7.6': 'auto' }, quietDef: true, d: 'IKE taşıma protokolü (TCP yalnız IKEv2)' },
             proposal: { t: 'menum', v: P1PROP, d: 'Faz 1 şifreleme-özet önerileri' },
-            dhgrp: { t: 'menum', v: DHG, d: 'Diffie-Hellman grupları' },
+            // Parti 9 (fgt-31) — CLI Ref: dhgrp varsayılanı 7.4.8'de 14, 7.6.6'da 20 21 (7.6.5 RN). 7.4 çıktısı değişmesin diye yalnız 7.6 varsayılanı yazılı.
+            dhgrp: { t: 'menum', v: DHG, defFos: { '7.6': ['20', '21'] }, d: 'Diffie-Hellman grupları' },
             psksecret: { t: 'secret', d: 'Ön paylaşımlı anahtar' },
             dpd: { t: 'enum', v: ['disable', 'on-idle', 'on-demand'], d: 'Ölü uç tespiti' },
             nattraversal: { t: 'enum', v: ['enable', 'disable', 'forced'], d: 'NAT-T' },
@@ -164,7 +169,7 @@ const CgLabFgt = (() => {
             phase1name: { t: 'ref', ds: 'p1', d: 'Bağlı olduğu faz 1' },
             proposal: { t: 'menum', v: P2PROP, d: 'Faz 2 önerileri' },
             pfs: { t: 'enum', v: ED, def: 'enable', d: 'Perfect forward secrecy' },
-            dhgrp: { t: 'menum', v: DHG, when: o => (o.pfs || 'enable') === 'enable', d: 'PFS DH grupları' },
+            dhgrp: { t: 'menum', v: DHG, defFos: { '7.6': ['20', '21'] }, when: o => (o.pfs || 'enable') === 'enable', d: 'PFS DH grupları' },
             'auto-negotiate': { t: 'enum', v: ED, def: 'disable', d: 'Trafik beklemeden SA kur' },
             'src-subnet': { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Yerel seçici (bizim ağ)' },
             'dst-subnet': { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Uzak seçici (karşı ağ)' },
@@ -306,6 +311,8 @@ const CgLabFgt = (() => {
         'system settings': { single: true, attrs: {
             'central-nat': { t: 'enum', v: ED, def: 'disable', d: 'Merkezi NAT (SNAT kurallardan değil central-snat-map\'ten)' },
             'allow-subnet-overlap': { t: 'enum', v: ED, def: 'disable', d: 'Arayüz alt ağlarının çakışmasına izin ver' },
+            // Parti 9 — CLI Ref 7.4.8/7.6.6 system settings firewall-session-dirty (varsayılan check-all)
+            'firewall-session-dirty': { t: 'enum', v: ['check-all', 'check-new', 'check-policy-option'], def: 'check-all', quietDef: true, d: 'Kural değişikliğinden etkilenen oturumlar' },
             // L11 — CLI Ref system settings: ike-tcp-port varsayılanı 7.4.8'de 4500, 7.6.6'da 443
             'ike-tcp-port': { t: 'int', min: 1, max: 65535, defFos: { '7.4': '4500', '7.6': '443' }, quietDef: true, d: 'IKE/IPsec için TCP portu' } } },
         'log setting': { single: true, attrs: {
@@ -404,7 +411,9 @@ const CgLabFgt = (() => {
         'router bgp neighbor': { key: 'ip', parent: 'router bgp', sub: 'neighbor', req: ['remote-as'], attrs: {
             'remote-as': { t: 'str', max: 11, d: 'Komşu AS' }, description: { t: 'str', max: 63, d: 'Açıklama' },
             password: { t: 'secret', d: 'MD5 parolası (iki uçta aynı)' }, 'ebgp-enforce-multihop': { t: 'enum', v: ED, def: 'disable', d: 'Doğrudan bağlı olmayan eBGP komşusu' },
-            shutdown: { t: 'enum', v: ED, def: 'disable', d: 'Komşuyu yönetsel kapat' }, bfd: { t: 'enum', v: ED, def: 'disable', d: 'BFD' } } },
+            shutdown: { t: 'enum', v: ED, def: 'disable', d: 'Komşuyu yönetsel kapat' }, bfd: { t: 'enum', v: ED, def: 'disable', d: 'BFD' },
+            // Parti 9 — CLI Ref router bgp neighbor soft-reconfiguration (varsayılan disable): received-routes için gerekir
+            'soft-reconfiguration': { t: 'enum', v: ED, def: 'disable', quietDef: true, d: 'Gelen güncellemeleri sakla (received-routes)' } } },
         'router bgp network': { key: 'id', num: true, parent: 'router bgp', sub: 'network', attrs: { prefix: { t: 'ipmask', def: '0.0.0.0 0.0.0.0', d: 'Duyurulan ağ' } } },
         'router bgp redistribute': { key: 'name', parent: 'router bgp', sub: 'redistribute', attrs: { status: { t: 'enum', v: ED, def: 'disable', d: 'Yeniden dağıt' } } },
         // M18 — CLI Ref 7.4.8 config antivirus profile (110338989): protokol bloklarında av-scan disable|block|monitor, quarantine
@@ -436,9 +445,10 @@ const CgLabFgt = (() => {
     function session(lab, opts) {
         const S = { lab, ctx: null, ev: [], hist: [], pending: null, loggedOut: false, answers: {} };
         // F76-L0b: FortiOS sürümü (oturum seçeneği > lab alanı > 7.4). 7.4 lab'larının davranışı değişmez.
-        const FOS = String((opts && opts.fos) || lab.fos || '7.4'), IS76 = parseFloat(FOS) >= 7.6;
-        const attrOk = a => !(a.only74 && IS76);
         S.variant = lab.variants ? lab.variants[((opts && opts.variant) || 0) % lab.variants.length] : null;
+        // Parti 9 (fgt-31): varyant da sürüm seçebilir (aynı yapılandırma 7.4 ve 7.6'da)
+        const FOS = String((opts && opts.fos) || (S.variant && S.variant.fos) || lab.fos || '7.4'), IS76 = parseFloat(FOS) >= 7.6;
+        const attrOk = a => !(a.only74 && IS76);
         // Teşhis simülasyonu verisi (lab.sim + varyant.sim): perf, procs, flows, hosts, ports, arp …
         const SIM = Object.assign({}, lab.sim || {}, (S.variant && S.variant.sim) || {});
         // ── model
@@ -608,9 +618,9 @@ const CgLabFgt = (() => {
                 if (a.when && !a.when(o)) continue;
                 if (!attrOk(a)) continue;
                 if (a.quietDef && o[k] === undefined) continue;   // yalnız açıkça ayarlanınca gösterilir (mevcut lab çıktıları aynen)
-                let v = o[k];
-                if (v === undefined || v === null) { if (!full || a.def === undefined) { if (full && (a.t === 'str') && !a.when) L.push(ind + 'set ' + k + ' ' + qt('')); continue; } v = a.def; }
-                if (!full && a.def !== undefined && String(v) === String(a.def) && k !== 'vdom' && (k !== 'type' || p === 'firewall ssl-ssh-profile ssl-exempt')) continue;
+                let v = o[k]; const dv = a.defFos ? a.defFos[IS76 ? '7.6' : '7.4'] : a.def;
+                if (v === undefined || v === null) { if (!full || dv === undefined) { if (full && (a.t === 'str') && !a.when) L.push(ind + 'set ' + k + ' ' + qt('')); continue; } v = dv; }
+                if (!full && dv !== undefined && String(v) === String(dv) && k !== 'vdom' && (k !== 'type' || p === 'firewall ssl-ssh-profile ssl-exempt')) continue;
                 if (k === 'type' && v === 'vlan') continue;
                 if (Array.isArray(v) && !v.length) continue;
                 L.push(ind + 'set ' + k + ' ' + fmtVal(a, v));
@@ -1242,6 +1252,8 @@ const CgLabFgt = (() => {
                 // Parti 8 — durum geçişleri (sadeleştirilmiş): karşı uç bizi görmüyorsa Init; iki taraf da DROther ise 2-Way; MTU → ExStart
                 if (pr.oneWay) { R.push({ pr, state: 'Init', why: 'oneway' }); continue; }
                 if (pr.mtuMismatch && (oi['mtu-ignore'] || 'disable') !== 'enable') { R.push({ pr, state: 'ExStart', why: 'mtu' }); continue; }
+                // Parti 9 — Exchange / Loading takılması (sim.ospfPeers[].stuck): DBD takası ya da LSA isteği yanıtsız
+                if (pr.stuck === 'Exchange' || pr.stuck === 'Loading') { R.push({ pr, state: pr.stuck, why: 'stuck' }); continue; }
                 const bcast = (oi['network-type'] || 'broadcast') === 'broadcast';
                 if (bcast && (pr.role || 'DR') === 'DROther' && +(oi.priority === undefined ? 1 : oi.priority) === 0) { R.push({ pr, state: '2-Way', why: 'drother' }); continue; }
                 R.push({ pr, state: 'Full', cost: +(oi.cost || 10), p2p: !bcast });
@@ -1349,7 +1361,37 @@ const CgLabFgt = (() => {
             return null;
         }
         // M17: çoklu VDOM'da karar, giriş arayüzünün VDOM'unun tablolarıyla verilir (kural, rota, NAT o VDOM'a aittir)
+        // Parti 9 (fgt-32) — bayat oturum (yalnız lab.sim.sessionSticky): lab başında izlenen akışların oturumu kurulu sayılır.
+        // Kaynaklar: CLI Ref system settings / firewall policy firewall-session-dirty (check-all: kural değişince oturum silinir,
+        // check-new: mevcut oturum sürer); system global snat-route-change (disable: SNAT'lı oturum eski çıkışta kalır);
+        // Fortinet KB "Traffic continues to match firewall policy after Virtual IP removal" (VIP/NAT nesnesi değişince oturum eski
+        // çeviriyle sürer; diagnose sys session clear gerekir). Sadeleştirme: tek VDOM; oturum zaman aşımı yok.
+        const skey = f => [f.proto, f.src, f.sport, f.dst, f.dport, f.in].join('|');
+        // Kural tablosu (sıra + içerik) değişince oturumlar "dirty" olur; check-all'da yeniden değerlendirilir
+        const polFp = () => JSON.stringify([M().t['firewall policy'].o, M().t['firewall policy'].v]);
         function decide(f, depth) {
+            const cur = decideRaw(f, depth);
+            if (depth || !S.pins || M().vdt || !S.pinKeys.has(skey(f))) return cur;
+            const k = skey(f), pin = S.pins[k];
+            const fresh = () => { if (cur.stage === 'allowed') S.pins[k] = { d: cur, fp: polFp(cur), f }; else delete S.pins[k]; return cur; };
+            if (!pin) return fresh();
+            const old = pin.d, P = M().t['firewall policy'].v[old.policy];
+            if (!P) return fresh();                                       // kural silindi: oturumları da gider
+            if (polFp(old) !== pin.fp) {
+                let mode = settingOf('system settings', 'firewall-session-dirty');
+                if (mode === 'check-policy-option') mode = P['firewall-session-dirty'] || 'check-all';
+                if (mode === 'check-all') return fresh();
+            }
+            if (!ifUp(old.out)) return fresh();
+            const r = Object.assign({}, old, { f, sticky: true, now: cur });
+            if (cur.out && cur.out !== old.out && cur.stage !== 'noroute') {
+                if (!old.snat) { r.out = cur.out; r.gw = cur.gw; }        // SNAT'sız oturum yeni rotayı izler
+                else if (settingOf('system global', 'snat-route-change') === 'enable') { if (cur.snat !== old.snat) return fresh(); r.out = cur.out; r.gw = cur.gw; }
+            }
+            S.pins[k] = Object.assign({}, pin, { d: Object.assign({}, r, { sticky: undefined, now: undefined }) });
+            return r;
+        }
+        function decideRaw(f, depth) {
             const I = M().vdt && M().t['system interface'].v[f.in];
             const want = I ? (I.vdom || 'root') : null, cur = M().curVd || 'root';
             let r;
@@ -1466,6 +1508,15 @@ const CgLabFgt = (() => {
             const fn = (name, line) => S.dbg.fn ? 'func=' + name + ' line=' + line + ' ' : '';
             const pn = { tcp: 6, udp: 17, icmp: 1 }[f.proto];
             L.push(pre + fn('print_pkt_detail', 5895) + 'msg="vd-' + ((d.hops ? d.hops[0].vdom : d.vdom) || (M().vdt ? (M().t['system interface'].v[f.in] || {}).vdom || 'root' : 'root')) + ':0 received a packet(proto=' + pn + ', ' + hostPort(f.src, f.sport, f) + '->' + hostPort(f.dst, f.dport, f) + ') tun_id=0.0.0.0 from ' + f.in + '.' + (f.proto === 'tcp' ? ' flag [S], seq 1' + String(tid).padStart(9, '0') + ', ack 0, win 64240"' : f.proto === 'icmp' ? ' type=8, code=0, id=1, seq=' + tid + '."' : '"'));
+            if (d.sticky) {   // Parti 9: kurulu oturum — kural/rota araması yapılmaz, oturumdaki çeviri uygulanır
+                L[0] = L[0].replace(' flag [S], seq 1', ' flag [.], seq 2').replace(', ack 0,', ', ack 3' + String(tid).padStart(9, '0') + ',');
+                L.push(pre + fn('resolve_ip_tuple_fast', 5985) + 'msg="Find an existing session, id-000' + (4096 + tid).toString(16) + ', original direction"');
+                if (d.vip) L.push(pre + fn('__ip_session_run_tuple', 3474) + 'msg="DNAT ' + f.dst + ':' + f.dport + '->' + d.dst + ':' + d.dport + '"');
+                if (d.snat) L.push(pre + fn('__ip_session_run_tuple', 3460) + 'msg="SNAT ' + f.src + '->' + d.snat + ':' + d.sport2 + '"');
+                const n = d.now || {}, diff = n.stage !== 'allowed' || n.policy !== d.policy || n.snat !== d.snat || n.dst !== d.dst || n.out !== d.out;
+                if (diff) L.push('# [Simülatör] Kurulu oturum eski kararla sürüyor (Policy-' + d.policy + (d.snat ? ', SNAT ' + d.snat : '') + ', çıkış ' + d.out + '). Güncel yapılandırma: ' + (n.stage === 'allowed' ? 'Policy-' + n.policy + (n.snat ? ', SNAT ' + n.snat : '') + ', çıkış ' + n.out : n.stage) + '. Yeni karar için oturumu temizleyin: diagnose sys session filter … / diagnose sys session clear.');
+                return { d, text: L.join('\n') };
+            }
             L.push(pre + fn('init_ip_session_common', 6076) + 'msg="allocate a new session-000' + (4096 + tid).toString(16) + ', tun_id=0.0.0.0"');
             if (d.vip) L.push(pre + fn('get_new_addr', 1219) + 'msg="find DNAT: IP-' + d.dst + ', port-' + d.dport + '"');
             if (d.stage === 'blackhole') { L.push(pre + fn('vf_ip_route_input_common', 2605) + 'msg="find a route: flag=04000000 gw-0.0.0.0 via Null (blackhole), drop"'); return { d, text: L.join('\n') }; }
@@ -2026,10 +2077,10 @@ const CgLabFgt = (() => {
         function ospfNbrOut() {
             const L = ['OSPF process 0:', 'Neighbor ID     Pri   State           Dead Time   Address         Interface'];
             const N = ospfNbrs(); log({ ospfnbr: N.map(x => x.state || x.why) });
-            N.filter(x => x.state).forEach(x => L.push(pad(x.pr.rid, 16) + pad(String(x.pr.pri === undefined ? 1 : x.pr.pri), 6) + pad(x.state + '/' + (x.p2p ? ' -' : x.state === 'Init' ? ' -' : x.state === 'Full' ? (x.pr.role || 'DR') : 'DROther'), 16) + pad('00:00:3' + (x.pr.pri || 1) % 10, 12) + pad(x.pr.ip, 16) + x.pr.intf));
+            N.filter(x => x.state).forEach(x => L.push(pad(x.pr.rid, 16) + pad(String(x.pr.pri === undefined ? 1 : x.pr.pri), 6) + pad(x.state + '/' + (x.p2p ? ' -' : x.state === 'Init' ? ' -' : x.state === 'Full' || x.why === 'stuck' ? (x.pr.role || 'DR') : 'DROther'), 16) + pad('00:00:3' + (x.pr.pri || 1) % 10, 12) + pad(x.pr.ip, 16) + x.pr.intf));
             const hid = N.filter(x => !x.state);
             // Açıklama yalnız yeni durumlar için (Init/2-Way); ExStart çıktısı önceki sürümle aynı kalır
-            if (N.some(x => x.why === 'oneway' || x.why === 'drother')) L.push('# [Simülatör] ' + N.filter(x => x.why === 'oneway' || x.why === 'drother').map(x => x.pr.ip + ' ' + x.state + ': ' + ({ oneway: 'karşı uç hello\'larımızı almıyor (tek yönlü)', drother: 'iki uç da DROther: broadcast ağda DROther\'lar arasında Full kurulmaz, bu normaldir' })[x.why]).join('; '));
+            if (N.some(x => x.why === 'oneway' || x.why === 'drother' || x.why === 'stuck')) L.push('# [Simülatör] ' + N.filter(x => x.why === 'oneway' || x.why === 'drother' || x.why === 'stuck').map(x => x.pr.ip + ' ' + x.state + ': ' + ({ oneway: 'karşı uç hello\'larımızı almıyor (tek yönlü)', stuck: x.state === 'Exchange' ? 'veritabanı özetleri (DBD) takası tamamlanmıyor' : 'istenen LSA\'lar (LS Request) gelmiyor', drother: 'iki uç da DROther: broadcast ağda DROther\'lar arasında Full kurulmaz, bu normaldir' })[x.why]).join('; '));
             if (hid.length) L.push('# [Simülatör] Komşuluk kurulamayan uçlar listede görünmez: ' + hid.map(x => x.pr.ip + ' (' + ({ area: 'alan kimliği uyuşmuyor', hello: 'hello/dead aralıkları uyuşmuyor' })[x.why] + ')').join(', '));
             return L.join('\n');
         }
@@ -2063,6 +2114,22 @@ const CgLabFgt = (() => {
             L.push('', 'Total number of prefixes ' + (nb.st === 'Established' ? adv.length : 0));
             return L.join('\n');
         }
+        // Parti 9 — get router info bgp neighbors <ip> received-routes | routes (Fortinet KB "Difference between BGP 'received-routes'
+        // and 'routes' commands"): received-routes soft-reconfiguration ister; giriş filtresi benzetilmediğinden ikisi aynı listeyi verir.
+        function bgpReceived(ip, kind) {
+            const B = M().t['router bgp'], nb = bgpNbrs().find(x => x.ip === ip);
+            if (!B.as || B.as === '0') return '# [Simülatör] BGP yapılandırılmamış.';
+            if (!nb) return '% No such neighbor or address family';
+            if (kind === 'received-routes' && (nb.n['soft-reconfiguration'] || 'disable') !== 'enable') { log({ bgprcv: { ip, err: 'softreconf' } }); return '% Inbound soft reconfiguration not enabled'; }
+            const rts = nb.st === 'Established' ? (nb.pr.routes || []) : [];
+            log({ bgprcv: { ip, kind, n: rts.length } });
+            const L = ['VRF 0 BGP table version is ' + (1 + rts.length) + ', local router ID is ' + (B['router-id'] || '0.0.0.0'), 'Status codes: s suppressed, d damped, h history, * valid, > best, i - internal', 'Origin codes: i - IGP, e - EGP, ? - incomplete', '',
+                '   Network          Next Hop            Metric LocPrf Weight RouteTag Path'];
+            if (nb.st !== 'Established') L.push('# [Simülatör] Komşu ' + nb.st + ': oturum kurulmadan önek alınmaz.');
+            else rts.forEach(rt => L.push('*>' + (nb.ebgp ? ' ' : 'i') + pad(rt.net, 17) + pad(ip, 20) + pad('0', 7) + pad(nb.ebgp ? '' : '100', 7) + pad('0', 7) + pad('0', 9) + (nb.ebgp ? (rt.path || nb.pr.as) + ' ' : '') + 'i <-/1>'));
+            L.push('', 'Total number of prefixes ' + rts.length);
+            return L.join('\n');
+        }
         function diagCmd(t, line) {
             let node = DIAG, i = 1, words = ['diagnose'];
             while (node && typeof node === 'object') {
@@ -2088,6 +2155,7 @@ const CgLabFgt = (() => {
                 case 'sclear': {
                     if (!Object.keys(S.sessFilter).length) { log({ raw: line, canon, warn: 'sclear-all' }); return '# [Simülatör] UYARI: filtre yokken bu komut TÜM oturumları siler (tüm kullanıcılar kopar). Simülatörde engellendi; önce "diagnose sys session filter …".'; }
                     log({ raw: line, canon, cleared: Object.assign({}, S.sessFilter) });
+                    if (S.pins) Object.keys(S.pins).forEach(k => { const p = S.pins[k], d = p.d; if (sessMatch({ proto: p.f.proto, src: p.f.src, sport: p.f.sport, dst: d.dst, odst: p.f.dst, dport: d.dport, policy: d.policy })) delete S.pins[k]; });
                     return '';
                 }
                 case 'tradius': return ok(authTest('radius', a, line));
@@ -2319,6 +2387,12 @@ const CgLabFgt = (() => {
                     if (!isIp(rest[4])) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + t[5].t + '\''; }
                     log({ raw: line, canon: 'get router info bgp neighbors ' + rest[4] + ' advertised-routes' });
                     return bgpAdvertised(rest[4]);
+                }
+                if (rest.length === 6 && ['router', 'info', 'bgp', 'neighbors'].every((w, k) => w.startsWith(rest[k])) && rest[2].length > 1 && rest[5].length > 2 && ['received-routes', 'routes'].some(w => w.startsWith(rest[5]))) {
+                    const kind = 'received-routes'.startsWith(rest[5]) ? 'received-routes' : 'routes';
+                    if (!isIp(rest[4])) { log({ raw: line, err: 'value' }); return 'value parse error before \'' + t[5].t + '\''; }
+                    log({ raw: line, canon: 'get router info bgp neighbors ' + rest[4] + ' ' + kind });
+                    return bgpReceived(rest[4], kind);
                 }
                 // get router info routing-table details [<ip>]
                 if (rest.length === 5 && ['router', 'info', 'routing-table', 'details'].every((w, k) => w.startsWith(rest[k])) && rest[3].length > 1) {
@@ -2689,6 +2763,7 @@ const CgLabFgt = (() => {
         // başlangıç yapılandırması
         const startCmds = (lab.start || []).concat((S.variant && S.variant.start) || []);
         if (startCmds.length) { startCmds.forEach(l => { input(l); }); S.ctx = null; S.ev = []; S.hist = []; }
+        if (SIM.sessionSticky) { S.pins = {}; S.pinKeys = new Set(); flows().forEach(f => { S.pinKeys.add(skey(f)); decide(f); }); }
 
         const E = {
             ran: re => S.ev.some(e => e.canon && re.test(e.canon)),
