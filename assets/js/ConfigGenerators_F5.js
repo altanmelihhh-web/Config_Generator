@@ -701,6 +701,44 @@ F5LTM.httpprofile = {
                     ]
                 },
                 {
+                    title: 'Metotlar ve Başlık Sınırları (enforcement)',
+                    icon: 'fas fa-filter',
+                    fields: [
+                        { name: 'method_preset', why: "Varsayılan <code>http</code> profili TRACE, CONNECT ve WebDAV metotlarını da tanır ve bilinmeyen metotlara izin verir (<code>unknown-method allow</code>). Listeden çıkarılan metot unknown-method kuralına düşer; <code>reject</code> ile bağlantı sıfırlanır (K85840901). Varsayılan <code>http</code> profilini değil, ondan türetilmiş profili değiştirin: varsayılanı kullanan tüm VS'ler etkilenir.", label: 'Metot politikası', type: 'select', options: [
+                            { value: 'keep', label: 'Değiştirme (miras: tüm bilinen metotlar, bilinmeyenlere izin)' },
+                            { value: 'web', label: 'Web sitesi: GET HEAD POST' },
+                            { value: 'api', label: 'REST API: GET HEAD POST PUT DELETE OPTIONS' },
+                            { value: 'webdav', label: 'WebDAV: + PROPFIND LOCK UNLOCK (TRACE/CONNECT kapalı)' },
+                            { value: 'custom', label: 'Özel liste' }
+                        ]},
+                        { name: 'methods_custom', why: "Yalnız 'Özel liste' seçiliyse kullanılır. Metot adları büyük harfe duyarlıdır (HTTP standardı); listede olmayan her metot aşağıdaki unknown-method kuralına düşer.", label: 'Özel metot listesi (boşlukla)', type: 'text', optional: true, placeholder: 'GET HEAD POST', hint: 'Yalnız "Özel liste" için; ör. GET HEAD POST PUT' },
+                        { name: 'unknown_method', why: "<b>reject</b>: listede olmayan metotta bağlantı sıfırlanır. <b>allow</b>: geçer (TRACE gibi riskli metotlar da). <b>pass-through</b>: istek geçer ama BIG-IP o bağlantıda HTTP işlemeyi bırakır; iRule HTTP olayları, cookie persistence ve başlık ekleme çalışmaz.", label: 'Bilinmeyen metot (unknown-method)', type: 'select', options: [
+                            { value: 'reject', label: 'reject (önerilen, ön ayarlarla birlikte)' },
+                            { value: 'allow', label: 'allow (varsayılan)' },
+                            { value: 'pass-through', label: 'pass-through' }
+                        ]},
+                        { name: 'max_header_size', why: "İstek satırı dahil tüm başlıkların toplam boyutu (varsayılan 32768 bayt). Aşılırsa BIG-IP bağlantıyı TCP RST ile keser ve /var/log/ltm'e <code>011f0005 … HTTP header (N) exceeded maximum allowed size</code> yazar (K8482). SSO / büyük çerezli uygulamalarda artırmak gerekebilir; sınırsız büyütmek bellek tüketimi ve saldırı yüzeyi demektir.", label: 'max-header-size (bayt)', type: 'text', optional: true, min: 1024, max: 131072, placeholder: '32768', hint: 'Boşsa miras (32768)' },
+                        { name: 'max_header_count', why: "Başlık satırı sayısı sınırı (varsayılan 64). Çok sayıda çerez/başlık gönderen tarayıcı eklentileri ya da proxy zincirleri bu sınırı aşabilir (K000161470).", label: 'max-header-count', type: 'text', optional: true, min: 16, max: 256, placeholder: '64', hint: 'Boşsa miras (64)' }
+                    ]
+                },
+                {
+                    title: 'Yanıt Güvenliği',
+                    icon: 'fas fa-shield-alt',
+                    fields: [
+                        { name: 'hsts', why: "HSTS, tarayıcıya bu alan adına belirtilen süre boyunca yalnız HTTPS ile gelmesini söyler; SSL strip saldırısını önler. Tarayıcılar HSTS başlığını yalnız HTTPS yanıtında dikkate alır. Profil ile verildiğinde iRule ile ayrıca eklemeyin: çift başlık oluşur.", label: 'HSTS', type: 'select', options: [
+                            { value: 'disabled', label: 'Kapalı (varsayılan)' },
+                            { value: 'enabled', label: 'Açık' }
+                        ]},
+                        { name: 'hsts_age', why: "Saniye cinsinden süre (31536000 = 1 yıl; BIG-IP varsayılanı 16070400 ≈ 186 gün). Yanlışlıkla açılan uzun HSTS geri alınamaz: tarayıcılar süre dolana kadar HTTP'ye dönmez.", label: 'HSTS maximum-age (sn)', type: 'text', optional: true, min: 0, max: 63072000, placeholder: '31536000', hint: 'Yalnız HSTS açıksa' },
+                        { name: 'hsts_sub', why: "includeSubDomains tüm alt alan adlarını da HTTPS'e zorlar; HTTPS'i olmayan bir alt alan adı (ör. eski bir iç uygulama) erişilemez hale gelir.", label: 'HSTS include-subdomains', type: 'select', options: [
+                            { value: 'enabled', label: 'enabled (varsayılan)' },
+                            { value: 'disabled', label: 'disabled' }
+                        ]},
+                        { name: 'server_agent', why: "BIG-IP'nin kendi ürettiği yanıtlardaki (yönlendirme, iRule yanıtı, fallback) Server başlığı; varsayılan <code>BigIP</code> cihaz türünü açığa çıkarır. <code>none</code> başlığı kaldırır. Sunucudan gelen Server başlığını etkilemez; onu Header Erase ile silin.", label: 'server-agent-name', type: 'text', optional: true, placeholder: 'none', hint: 'Boşsa miras (BigIP); "none" kaldırır' },
+                        { name: 'fallback_host', why: "Pool'da kullanılabilir üye kalmadığında istemci bağlantı hatası yerine bu adrese 302 ile yönlendirilir. Bakım sayfası başka bir sunucuda olmalı; aynı VS'ye yönlendirmek döngü oluşturur.", label: 'fallback-host', type: 'text', optional: true, placeholder: 'https://bakim.example.com/', hint: 'Boşsa kapalı' }
+                    ]
+                },
+                {
                     title: 'Başlık İşlemleri',
                     icon: 'fas fa-tags',
                     fields: [
@@ -711,20 +749,130 @@ F5LTM.httpprofile = {
             ],
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
-            const { profile_name, insert_xforwarded_for, oneconnect, redirect_rewrite, header_erase, header_insert } = data;
+            const { profile_name, insert_xforwarded_for, oneconnect, redirect_rewrite, header_erase, header_insert, method_preset, methods_custom, unknown_method, max_header_size, max_header_count, hsts, hsts_age, hsts_sub, server_agent, fallback_host } = data;
+            const PRE = { web: 'GET HEAD POST', api: 'GET HEAD POST PUT DELETE OPTIONS', webdav: 'GET HEAD POST PUT DELETE OPTIONS PROPFIND LOCK UNLOCK' };
+            const methods = method_preset === 'custom' ? String(methods_custom || '').trim().split(/[\s,]+/).filter(Boolean) : PRE[method_preset] ? PRE[method_preset].split(' ') : null;
+            const w = [];
+            if (method_preset === 'custom' && (!methods || !methods.length)) w.push('⛔ Özel liste seçildi ama metot girilmedi.');
+            if (methods && methods.some(m => !/^[A-Z][A-Z-]*$/.test(m))) w.push('⛔ Metot adları büyük harfle yazılır (HTTP metotları büyük/küçük harfe duyarlıdır).');
+            if (methods && methods.includes('TRACE')) w.push('⚠ TRACE açık: çapraz site izleme (XST) riski; K85840901.');
+            if (method_preset === 'keep' && unknown_method === 'allow') w.push('ℹ Metot politikası değiştirilmedi: TRACE ve bilinmeyen metotlar geçer. Güvenlik taraması için "Web sitesi" ön ayarını düşünün.');
+            if (method_preset === 'webdav') w.push('ℹ MKCOL, COPY, MOVE, PROPPATCH gibi diğer WebDAV metotları bilinen listede yoksa unknown-method kuralına düşer; istemcinizin kullandığı metotları test edin.');
+            if (method_preset === 'api') w.push('ℹ PATCH kullanan API\'ler için PATCH\'i listeye eklemek gerekir; sürümünüzün özel metot adı kabul ettiğini doğrulayın, kabul etmiyorsa unknown-method allow gerekir.');
+            if (unknown_method === 'pass-through') w.push('⚠ pass-through: bilinmeyen metotlu bağlantılarda iRule HTTP olayları, persistence ve başlık işlemleri devre dışı kalır.');
+            if (hsts === 'enabled' && +hsts_age > 0 && +hsts_age < 86400) w.push('ℹ HSTS süresi 1 günden kısa; test için uygun, kalıcı kullanımda 31536000 önerilir.');
+            if (fallback_host && !/^https?:\/\//.test(fallback_host)) w.push('⛔ fallback-host tam URL olmalı (http:// veya https:// ile).');
             let c = '# ========================================\n# F5 BIG-IP LTM — HTTP Profile\n# ========================================\n\n';
-            c += 'tmsh create ltm profile http ' + profile_name;
+            c += '# Varsayılan "http" profilini değil, ondan türetilmiş profili kullanın (varsayılanı paylaşan tüm VS\'ler etkilenir)\n';
+            c += 'tmsh create ltm profile http ' + profile_name + ' defaults-from http';
             c += ' insert-xforwarded-for ' + insert_xforwarded_for;
             c += ' oneconnect-transformations ' + oneconnect;
             c += ' redirect-rewrite ' + redirect_rewrite;
             if (header_erase) c += ' header-erase "' + header_erase + '"';
             if (header_insert) c += ' header-insert "' + header_insert + '"';
-            c += ' defaults-from http\n\n';
+            c += '\n';
+            const enf = [];
+            const hasM = methods && methods.length;
+            if (hasM) enf.push('known-methods replace-all-with { ' + methods.join(' ') + ' }');
+            if (hasM || unknown_method !== 'allow') enf.push('unknown-method ' + unknown_method);
+            if (max_header_size) enf.push('max-header-size ' + max_header_size);
+            if (max_header_count) enf.push('max-header-count ' + max_header_count);
+            if (enf.length) c += 'tmsh modify ltm profile http ' + profile_name + ' enforcement { ' + enf.join(' ') + ' }\n';
+            if (hsts === 'enabled') c += 'tmsh modify ltm profile http ' + profile_name + ' hsts { mode enabled maximum-age ' + (hsts_age || '31536000') + ' include-subdomains ' + hsts_sub + ' }\n';
+            if (server_agent) c += 'tmsh modify ltm profile http ' + profile_name + ' server-agent-name ' + server_agent + '\n';
+            if (fallback_host) c += 'tmsh modify ltm profile http ' + profile_name + ' fallback-host ' + fallback_host + '\n';
+            c += '\n# VS\'ye bağlama (mevcut http profilinin yerine):\n# tmsh modify ltm virtual <vs> profiles delete { http } profiles add { ' + profile_name + ' }\n\n';
             c += '# Doğrulama:\n# tmsh list ltm profile http ' + profile_name + '\n';
-            return c;
+            if (hasM) c += '# curl -X TRACE -v http://<vip>/     # listede yoksa: Connection reset by peer\n';
+            if (max_header_size) c += '# grep 011f0005 /var/log/ltm          # başlık boyutu aşımları\n';
+            if (hsts === 'enabled') c += '# curl -kI https://<vip>/ | grep -i strict-transport-security\n';
+            return { config: c, warnings: w };
         });
     }
 };
+
+// ── F5 LTM: HTTP Profil Denetle (list … all-properties yapıştır → risk ve sapma listesi; tarayıcıda işlenir) ──
+// Varsayılanlar: clouddocs tmsh-reference ltm profile http (v16). Kaynaklar: K85840901 (metot), K8482 (başlık boyutu), K000161470 (başlık sayısı).
+function cgF5ParseTmsh(txt) {
+    // tmsh list çıktısı → { başlık, alanlar: iç içe nesne }; "{ a b c }" satır içi listeler dizi olur
+    const lines = String(txt || '').replace(/\r/g, '').split('\n'), root = {}, stack = [root]; let head = null;
+    for (const raw of lines) {
+        const l = raw.trim(); if (!l || l.startsWith('#')) continue;
+        if (l === '}') { if (stack.length > 1) stack.pop(); continue; }
+        const inl = l.match(/^(\S+)\s+\{\s*(.*?)\s*\}$/);
+        if (inl) { stack[stack.length - 1][inl[1]] = inl[2] ? inl[2].split(/\s+/) : []; continue; }
+        const blk = l.match(/^(.*?)\s*\{$/);
+        if (blk) { if (!head && stack.length === 1) { head = blk[1]; continue; } const o = {}; stack[stack.length - 1][blk[1]] = o; stack.push(o); continue; }
+        const kv = l.match(/^(\S+)\s+(.*)$/); if (kv) stack[stack.length - 1][kv[1]] = kv[2].replace(/^"|"$/g, ''); else stack[stack.length - 1][l] = true;
+    }
+    return { head, f: root };
+}
+F5LTM.httpaudit = {
+    label: 'HTTP Profil Denetle',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: {
+                icon: 'fas fa-clipboard-check',
+                title: 'HTTP Profil Denetle',
+                desc: 'tmsh list ltm profile http <ad> all-properties çıktısını yapıştırın: riskli metot ayarları, başlık sınırları, HSTS, Server sızıntısı ve varsayılandan sapmalar listelenir. Metin tarayıcınızda işlenir, hiçbir yere gönderilmez.',
+                badge: { text: 'Denetim', cls: 'info' }
+            },
+            sections: [
+                {
+                    title: 'Profil çıktısı',
+                    icon: 'fas fa-paste',
+                    fields: [
+                        { name: 'dump', why: "all-properties miras alınan değerleri de gösterir; yalnız <code>list</code> çıktısı sadece değiştirilen alanları verir ve denetim eksik kalır. Canlı cihaz çıktısında alan adı ve IP'ler bulunabilir: yalnız bu sayfada işlenir.", label: 'tmsh list ltm profile http <ad> all-properties', type: 'textarea', required: true, placeholder: 'ltm profile http http_ornek {\n    defaults-from /Common/http\n    enforcement {\n        known-methods { CONNECT DELETE GET HEAD LOCK OPTIONS POST PROPFIND PUT TRACE UNLOCK }\n        max-header-count 64\n        max-header-size 32768\n        unknown-method allow\n    }\n    hsts {\n        mode disabled\n    }\n    insert-xforwarded-for disabled\n    server-agent-name BigIP\n}', hint: 'Komut çıktısını olduğu gibi yapıştırın' },
+                        { name: 'vs_kind', why: "HSTS ve redirect-rewrite yalnız HTTPS sonlandıran (client-ssl'li) VS'lerde anlamlıdır; SNAT kullanılıyorsa XFF olmadan sunucu gerçek istemciyi göremez.", label: 'Profilin kullanıldığı VS', type: 'select', options: [
+                            { value: 'https', label: 'HTTPS (client-ssl ile sonlandırılıyor)' },
+                            { value: 'http', label: 'Yalnız HTTP' }
+                        ]}
+                    ]
+                }
+            ],
+            submit: 'Denetle'
+        }, (data) => cgF5HttpAudit(data));
+    }
+};
+function cgF5HttpAudit(data) {
+    const P = cgF5ParseTmsh(data.dump), f = P.f, e = (typeof f.enforcement === 'object' && !Array.isArray(f.enforcement)) ? f.enforcement : {}, h = (typeof f.hsts === 'object' && !Array.isArray(f.hsts)) ? f.hsts : {};
+    const name = (P.head || '').replace(/^ltm profile http\s+/, '').trim() || '(adsız)';
+    const R = [], add = (lvl, msg, fix) => R.push({ lvl, msg, fix });
+    if (!/^ltm profile http\b/.test(P.head || '')) add('⛔', 'Bu bir "ltm profile http" çıktısı gibi görünmüyor.', 'tmsh list ltm profile http <ad> all-properties çıktısını yapıştırın.');
+    if (/^(\/Common\/)?http$/.test(name)) add('⚠', 'Varsayılan "http" profili denetleniyor: bunu değiştirmek onu kullanan TÜM virtual server\'ları etkiler.', 'defaults-from http ile yeni profil oluşturup onu değiştirin.');
+    const km = Array.isArray(e['known-methods']) ? e['known-methods'] : null, um = e['unknown-method'];
+    if (!km && !um) add('ℹ', 'enforcement bloğu yok: çıktı all-properties ile alınmamış olabilir; metot ve başlık denetimi yapılamadı.', 'Komutu all-properties ile tekrar çalıştırın.');
+    if (km && km.includes('TRACE')) add('⚠', 'TRACE bilinen metotlar listesinde: çapraz site izleme (XST) riski, güvenlik taramalarında bulgu olarak çıkar.', 'enforcement { known-methods delete { TRACE } unknown-method reject } (K85840901)');
+    if (km && km.includes('CONNECT')) add('ℹ', 'CONNECT listede: yalnız ileri proxy (forward proxy) VS\'lerinde gerekir.', 'Ters proxy (normal web VS) için listeden çıkarın.');
+    if (um === 'allow') add('⚠', 'unknown-method allow: listede olmayan her metot (ör. uydurma "FOO", WebDAV metotları) sunucuya ulaşır.', 'Gerekli metotları known-methods\'a yazıp unknown-method reject yapın.');
+    if (um === 'pass-through') add('⚠', 'unknown-method pass-through: bu isteklerde BIG-IP HTTP işlemeyi bırakır; iRule HTTP olayları, cookie persistence, başlık ekleme ve WAF denetimi atlanabilir.', 'reject ya da metodu known-methods\'a ekleyin.');
+    if (um === 'reject' && km && !km.includes('GET')) add('⛔', 'GET bilinen metotlarda yok ve bilinmeyenler reddediliyor: sitenin hiçbir sayfası açılmaz.', 'known-methods add { GET HEAD }');
+    const mhs = +e['max-header-size'], mhc = +e['max-header-count'];
+    if (mhs && mhs < 16384) add('⚠', 'max-header-size ' + mhs + ': büyük çerezli (SSO, çok sayıda analitik çerezi) kullanıcılar bağlantı sıfırlaması alır; /var/log/ltm\'de 011f0005 görünür (K8482).', 'Varsayılan 32768; gerçek istek boyutlarına göre ayarlayın.');
+    if (mhs && mhs > 65536) add('ℹ', 'max-header-size ' + mhs + ': varsayılanın çok üstünde; her bağlantı için daha fazla bellek ayrılır ve büyük başlıklı saldırılara alan açılır.', 'Gerekçesi yoksa 32768–65536 aralığına çekin.');
+    if (mhc && mhc < 32) add('⚠', 'max-header-count ' + mhc + ': bazı tarayıcı/proxy zincirleri bu sınırı aşar (K000161470).', 'Varsayılan 64.');
+    if (e['oversize-client-headers'] === 'pass-through' || e['excess-client-headers'] === 'pass-through') add('⚠', 'Sınırı aşan başlıklar pass-through: sınır aşımında bağlantı kesilmez ama HTTP işleme bırakılır; boyut sınırı fiilen koruma sağlamaz.', 'reject (varsayılan)');
+    if (data.vs_kind === 'https') {
+        if (h.mode !== 'enabled') add('⚠', 'HSTS kapalı: HTTPS sitesinde tarayıcı ilk isteği HTTP ile yapabilir (SSL strip).', 'hsts { mode enabled maximum-age 31536000 }');
+        else if (+h['maximum-age'] && +h['maximum-age'] < 15552000) add('ℹ', 'HSTS maximum-age ' + h['maximum-age'] + ' sn: 180 günden kısa; tarama araçları genellikle en az 6 ay ister.', 'maximum-age 31536000');
+        if (f['redirect-rewrite'] === 'none') add('ℹ', 'redirect-rewrite none: sunucu http:// Location dönerse istemci şifresiz adrese düşer.', 'redirect-rewrite matching');
+    } else if (h.mode === 'enabled') add('ℹ', 'HSTS açık ama VS yalnız HTTP: tarayıcılar HTTP yanıtındaki HSTS başlığını yok sayar.', 'HSTS\'i HTTPS VS\'nin profilinde açın.');
+    if (!f['server-agent-name'] || f['server-agent-name'] === 'BigIP') add('ℹ', 'server-agent-name BigIP: BIG-IP\'nin kendi yanıtları (yönlendirme, fallback, iRule yanıtı) cihaz türünü açığa çıkarır.', 'server-agent-name none');
+    if (f['insert-xforwarded-for'] !== 'enabled') add('ℹ', 'insert-xforwarded-for kapalı: SNAT kullanılıyorsa sunucu tüm istekleri BIG-IP adresinden görür.', 'insert-xforwarded-for enabled (sunucu yalnız BIG-IP\'den gelen XFF\'e güvenmeli)');
+    if (f['accept-xff'] === 'enabled') add('⚠', 'accept-xff enabled: istemcinin gönderdiği X-Forwarded-For\'a güveniliyor; yalnız önünde güvenilir bir proxy varsa doğru.', 'accept-xff disabled');
+    if (f['fallback-host'] && f['fallback-host'] !== 'none') add('ℹ', 'fallback-host ' + f['fallback-host'] + ': pool boşken istemci 302 ile buraya gider; adresin aynı VS olmadığından emin olun (döngü).', '');
+    const order = { '⛔': 0, '⚠': 1, 'ℹ': 2 }; R.sort((a, b) => order[a.lvl] - order[b.lvl]);
+    let c = '# ========================================\n# HTTP Profil Denetimi — ' + name + '\n# ========================================\n';
+    c += '# ' + R.filter(x => x.lvl === '⛔').length + ' kritik · ' + R.filter(x => x.lvl === '⚠').length + ' uyarı · ' + R.filter(x => x.lvl === 'ℹ').length + ' bilgi\n\n';
+    if (!R.length) c += '# Belirgin risk bulunamadı.\n';
+    R.forEach((x, k) => { c += '# ' + (k + 1) + ') ' + x.lvl + ' ' + x.msg + '\n' + (x.fix ? '#    Öneri: ' + x.fix + '\n' : '') + '\n'; });
+    const fixes = [];
+    if (km && km.includes('TRACE') || um === 'allow') fixes.push('enforcement { known-methods delete { ' + ['TRACE', 'CONNECT'].filter(x => km && km.includes(x)).join(' ') + ' } unknown-method reject }'.replace('known-methods delete {  } ', ''));
+    if (data.vs_kind === 'https' && h.mode !== 'enabled') fixes.push('hsts { mode enabled maximum-age 31536000 }');
+    if (!f['server-agent-name'] || f['server-agent-name'] === 'BigIP') fixes.push('server-agent-name none');
+    if (fixes.length && !/^(\/Common\/)?http$/.test(name)) c += '# Önerilen düzeltme (test ortamında deneyin):\ntmsh modify ltm profile http ' + name + ' ' + fixes.join(' ') + '\n';
+    return { config: c, warnings: R.filter(x => x.lvl !== 'ℹ').map(x => x.lvl + ' ' + x.msg) };
+}
 
 // ── F5 LTM: TCP Profile ───────────────────────────────────────────────────────
 F5LTM.tcpprofile = {
