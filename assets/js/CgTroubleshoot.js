@@ -180,11 +180,12 @@ const CgTroubleshoot = {
         }
     },
 
+    _shuf(arr, key) { return arr.map(c => { let h = 2166136261; const t = key + '|' + c[0]; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return [h, c]; }).sort((a, b) => a[0] - b[0]).map(c => c[1]); },
     _quizHtml(x, st) {
         const Q = x.s.quiz, q = st.qz || { ans: {}, shown: false }, n = Q.length, all = Q.every((y, k) => q.ans[k] !== undefined);
         const score = Q.filter((y, k) => q.ans[k] === y.correct).length;
         return `<div class="cg-ts-quiz"><h3><i class="fas fa-clipboard-check"></i> Kendini sına</h3>
-            ${Q.map((y, k) => `<div class="cg-ts-qq"><div class="cg-ts-qt"><b>${k + 1}.</b> ${cgEsc(y.q)}</div><div class="cg-ts-qc">${y.choices.map(([v, l]) => {
+            ${Q.map((y, k) => `<div class="cg-ts-qq"><div class="cg-ts-qt"><b>${k + 1}.</b> ${cgEsc(y.q)}</div><div class="cg-ts-qc">${this._shuf(y.choices, x.vendor + '/' + x.n + ':' + k).map(([v, l]) => {
                 const pick = q.ans[k] === v, cls = q.shown && pick ? (v === y.correct ? ' ok' : ' bad') : pick ? ' pick' : '';
                 return `<button class="cg-ts-qb${cls}" data-tsq="${k}" data-v="${cgEsc(v)}">${cgEsc(l)}</button>`; }).join('')}</div>
                 ${q.shown && y.why ? `<div class="cg-ts-qwhy${q.ans[k] === y.correct ? '' : ' bad'}">${q.ans[k] === y.correct ? '✓' : '✗'} ${cgEsc(y.why)}</div>` : ''}</div>`).join('')}

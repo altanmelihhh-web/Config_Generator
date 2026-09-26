@@ -3,6 +3,7 @@
 // ─── CLI Laboratuvarı (#/lab, #/lab/<id>) ───────────────────────────────────
 // Motorlar: assets/js/lab/*.js · İçerik: assets/data/labs/*.js (ihtiyaç anında yüklenir)
 // İlerleme bu tarayıcıda (localStorage) tutulur; dışa/içe aktarılabilir.
+const cgShuf = (arr, key) => arr.map(x => { let h = 2166136261; const t = key + '|' + x[0]; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return [h, x]; }).sort((a, b) => a[0] - b[0]).map(x => x[1]);   // kararlı karıştırma: doğru cevap hep ilk sırada olmasın
 const CgLab = {
     LEVELS: ['CLI temelleri', 'Temel yapılandırma', 'L2 anahtarlama', 'L3 / yönlendirme', 'Güvenlik ve servisler', 'Sorun giderme', 'Sınav tarzı'],
     VENDORS: {
@@ -340,7 +341,7 @@ const CgLab = {
     },
     _quizHtml(t, i, done) {
         const st = this._stt, saved = (st.answers || {})[this._lab.id + ':' + i] || {}, d = done ? saved : Object.assign({}, saved, (this._qzDraft || {})[i]), shown = done || (this._qzShown || {})[i];
-        const qs = t.quiz.qs.map((q, k) => `<div class="cg-lab-qq"><div class="cg-lab-qt"><b>${k + 1}.</b> ${q.q}</div><div class="cg-lab-ask">${q.choices.map(([cv, cl]) => {
+        const qs = t.quiz.qs.map((q, k) => `<div class="cg-lab-qq"><div class="cg-lab-qt"><b>${k + 1}.</b> ${q.q}</div><div class="cg-lab-ask">${cgShuf(q.choices, this._lab.id + ':' + i + ':' + k).map(([cv, cl]) => {
             const pick = d[k] === cv, cls = shown && pick ? (cv === q.correct ? ' ok' : ' bad') : pick ? ' pick' : shown && cv === q.correct && done ? ' ok' : '';
             return `<button class="cg-lab-choice${cls}" data-qz="${i}:${k}" data-v="${cgEsc(cv)}"${done ? ' disabled' : ''}>${cgEsc(cl)}</button>`; }).join('')}</div>
             ${shown && q.why ? `<div class="cg-lab-qwhy${d[k] === q.correct ? '' : ' bad'}">${d[k] === q.correct ? '✓' : '✗'} ${q.why}</div>` : ''}</div>`).join('');
@@ -377,7 +378,7 @@ const CgLab = {
                 <span class="cg-lab-task-i">${done ? '<i class="fas fa-check"></i>' : locked ? '<i class="fas fa-lock"></i>' : i + 1}</span>
                 <div class="cg-lab-task-b">
                     <div class="cg-lab-task-t">${t.t}</div>
-                    ${t.ask && !locked ? `<div class="cg-lab-ask" role="group" aria-label="Cevap seçenekleri">${t.ask.choices.map(([v, l]) => {
+                    ${t.ask && !locked ? `<div class="cg-lab-ask" role="group" aria-label="Cevap seçenekleri">${cgShuf(t.ask.choices, lab.id + ':' + i).map(([v, l]) => {
                         const key = lab.id + ':' + i, picked = (st.answers || {})[key] === v;
                         return `<button class="cg-lab-choice${picked ? (done ? ' ok' : ' bad') : ''}" data-ask="${i}" data-v="${cgEsc(v)}"${done ? ' disabled' : ''}>${cgEsc(l)}</button>`; }).join('')}</div>` : ''}
                     ${t.fill && !locked ? this._fillHtml(t, i, done) : ''}

@@ -110,6 +110,8 @@ const CgArena = {
         if (t.panel.includes('persist')) cmds.push(P.persist === 'none' ? 'modify ltm virtual ' + t.vs.name + ' persist none' : 'modify ltm virtual ' + t.vs.name + ' persist replace-all-with { ' + P.persist + ' }');
         return cmds;
     },
+    // kararlı karıştırma (doğru seçenek hep ilk sırada olmasın)
+    _shuf(arr, key) { return arr.map(c => { let h = 2166136261; const x = key + '|' + c[0]; for (let i = 0; i < x.length; i++) { h ^= x.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return [h, c]; }).sort((a, b) => a[0] - b[0]).map(c => c[1]); },
     // koşu süresince panel ve sıfırlama kilitli (değişiklik sessizce yok sayılmasın)
     _lock(on) {
         const box = this._$ && this._$('.cg-ar-panel'), rs = this._$ && this._$('[data-a="reset"]');
@@ -489,8 +491,8 @@ const CgArena = {
                         <div class="cg-nb-con" aria-live="polite"><p class="cg-nb-empty">Henüz komut çalıştırılmadı. Kanıt toplamadan karar vermek "tahmin" sayılır.</p></div></section>
                     <section class="cg-nb-card cg-nb-plan"><h3><i class="fas fa-clipboard-list"></i> Müdahale planı</h3>
                         ${v.issues.map(is => `<fieldset class="cg-nb-issue" data-i="${is.id}"><legend>${E(is.title)}</legend>
-                            <p class="cg-nb-q">${E(is.q)}</p><div class="cg-nb-opts">${is.causes.map(([k, t]) => `<label><input type="radio" name="c_${is.id}" value="${k}"> ${E(t)}</label>`).join('')}</div>
-                            <p class="cg-nb-q">Düzeltme</p><div class="cg-nb-opts">${is.fixes.map(f => `<label><input type="radio" name="f_${is.id}" value="${f.id}"> ${E(f.label)} <small>${f.min} dk</small>${f.cmds.length ? `<code class="cg-nb-cmdp">${f.cmds.map(E).join('<br>')}</code>` : '<small class="cg-nb-nocmd">(BIG-IP\'de komut yok)</small>'}</label>`).join('')}</div></fieldset>`).join('')}
+                            <p class="cg-nb-q">${E(is.q)}</p><div class="cg-nb-opts">${this._shuf(is.causes, v.id + ':' + is.id).map(([k, t]) => `<label><input type="radio" name="c_${is.id}" value="${k}"> ${E(t)}</label>`).join('')}</div>
+                            <p class="cg-nb-q">Düzeltme</p><div class="cg-nb-opts">${this._shuf(is.fixes.map(f => [f.id, f]), v.id + ':f:' + is.id).map(([, f]) => f).map(f => `<label><input type="radio" name="f_${is.id}" value="${f.id}"> ${E(f.label)} <small>${f.min} dk</small>${f.cmds.length ? `<code class="cg-nb-cmdp">${f.cmds.map(E).join('<br>')}</code>` : '<small class="cg-nb-nocmd">(BIG-IP\'de komut yok)</small>'}</label>`).join('')}</div></fieldset>`).join('')}
                         <div class="cg-ar-ctl"><button type="button" class="cg-ar-go" data-a="apply" disabled><i class="fas fa-play"></i> Planı uygula ve doğrula</button><button type="button" class="cg-ar-lnk" data-a="restart"><i class="fas fa-undo"></i> Vakayı baştan başlat</button></div></section>
                     <section class="cg-nb-card cg-nb-res" hidden></section>
                 </main>

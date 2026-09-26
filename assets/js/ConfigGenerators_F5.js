@@ -395,7 +395,7 @@ F5LTM.persistence = {
                     { name: 'prof_name', label: 'Profil adı', type: 'text', required: true, placeholder: 'p_cookie', why: 'Profil VS\'ye persist ile bağlanır; aynı VS\'de tek birincil persistence profili olur.' },
                     { name: 'persist_type', label: 'Tür', type: 'select', options: [{ value: 'cookie', label: 'cookie (insert)' }, { value: 'source-addr', label: 'source-addr' }], why: '<b>cookie</b> her tarayıcıya ayrı BIGipServer çerezi verir (HTTP profili gerekir). <b>source-addr</b> istemci IP\'sine göre yapışır: aynı NAT arkasındaki herkes tek sunucuya yığılır.' },
                     { name: 'cookie_enc', label: 'Çerez şifreleme (cookie-encryption)', type: 'select', options: [{ value: 'preferred', label: 'preferred (geçiş: şifreli ve düz kabul)' }, { value: 'required', label: 'required (yalnız şifreli)' }, { value: 'disabled', label: 'disabled (değer iç IP/port\'u açık eder)' }], why: 'Şifresiz BIGipServer değeri iç IP ve portu kodlar; güvenlik taramalarında bulgu olur. Yeni kurulumda required; mevcut sistemde önce preferred, çerezler yenilendikten sonra required (doğrudan required açık oturumları koparır).' },
-                    { name: 'cookie_pass', label: 'Şifreleme parolası', type: 'text', optional: true, placeholder: 'GizliAnahtar2026', hint: 'Şifreleme açıksa zorunlu; HA eşinde aynı olmalı', why: 'Parola config sync ile eşitlenmeli; farklı parola failover\'da kalıcılığı bozar.' },
+                    { name: 'cookie_pass', label: 'Şifreleme parolası', type: 'text', optional: true, placeholder: 'kendi-uzun-parolaniz', hint: 'Şifreleme açıksa zorunlu; en az 16 karakter; HA eşinde aynı olmalı', why: 'Parola config sync ile eşitlenmeli; farklı parola failover\'da kalıcılığı bozar.' },
                     { name: 'cookie_exp', label: 'Çerez ömrü (expiration)', type: 'text', optional: true, placeholder: '0', hint: '0 = oturum çerezi; ya da gün:sa:dk:sn', why: 'Oturum çerezi tarayıcı kapanınca silinir; uzun ömür, sunucu değişse de eski üyeye bağlılık demektir.' },
                     { name: 'timeout', label: 'source-addr zaman aşımı (sn)', type: 'text', optional: true, min: 1, max: 86400, placeholder: '180', hint: 'Yalnız source-addr', why: 'Kayıt, son bağlantıdan bu kadar süre sonra silinir.' },
                     { name: 'vs_name', label: 'Bağlanacak virtual server', type: 'text', optional: true, placeholder: 'vs_web', why: 'Cookie persistence için VS\'de HTTP profili olmalı.' }
@@ -495,8 +495,8 @@ function cgF5AsmCreate(pol, template, enc, enforcement) {
     c += 'tmsh publish asm policy /Common/' + pol + '\n\n';
     return c;
 }
-function cgF5AsmAttach(pol, vs) {
-    let c = '# 2) Virtual server\'a bağla: ASM eylemli LTM policy (taslak → yayın) + websecurity profili\n';
+function cgF5AsmAttach(pol, vs, n) {
+    let c = '# ' + (n || 2) + ') Virtual server\'a bağla: ASM eylemli LTM policy (taslak → yayın) + websecurity profili\n';
     c += '#    VS\'de HTTP profili olmalı; HTTPS\'te client-ssl ile şifre çözülmüş olmalı (yoksa WAF içeriği göremez)\n';
     c += 'tmsh create ltm policy /Common/Drafts/asm_' + pol + ' controls add { asm } requires add { http } rules add { default { ordinal 1 actions add { 1 { asm enable policy /Common/' + pol + ' } } } }\n';
     c += 'tmsh publish ltm policy /Common/Drafts/asm_' + pol + '\n';
@@ -553,8 +553,11 @@ F5LTM.asm = {
             c += cgF5AsmAttach(pol_name, vs_name);
             c += 'tmsh save sys config\n\n';
             c += '# Doğrulama:\n# tmsh list asm policy /Common/' + pol_name + '\n# tmsh list ltm virtual /Common/' + vs_name + ' policies profiles\n';
-            c += '# Rapid Deployment şablonu varsayılan olarak transparent başlar; burada blocking-mode açıkça ayarlandı.\n';
-            return c;
+            c += enforcement === 'blocking' ? '# Rapid Deployment şablonu transparent başlar; burada blocking-mode enabled olarak açıkça ayarlandı.\n' : '# Transparent: ihlaller loglanır, istek engellenmez. Yanlış pozitifler ayıklanınca blocking-mode enabled + publish.\n';
+            const w = [];
+            if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(pol_name)) w.push('⛔ Politika adı harfle başlamalı; harf, rakam, _ . - kullanın (boşluk olamaz).');
+            if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(vs_name)) w.push('⛔ Virtual server adı harfle başlamalı; harf, rakam, _ . - kullanın (boşluk olamaz).');
+            return { config: c, warnings: w };
         });
     }
 };
@@ -611,7 +614,7 @@ function cgF5WafJsonGen(d) {
     c += '# 1) İki işaret satırı arasındaki JSON\'u ' + f + ' olarak kaydedin\n# ---- ' + name + '.json başlangıç ----\n' + JSON.stringify({ policy: pol }, null, 2) + '\n# ---- ' + name + '.json bitiş ----\n\n';
     c += '# 2) Yükleyin ve yayınlayın (JSON içe aktarma sürüme bağlıdır; desteklenmiyorsa GUI: Security > Application Security > Security Policies > Import)\n';
     c += 'tmsh load asm policy /Common/' + name + ' file ' + f + '\ntmsh publish asm policy /Common/' + name + '\n\n';
-    if (String(d.vs_name || '').trim()) c += cgF5AsmAttach(name, String(d.vs_name).trim());
+    if (String(d.vs_name || '').trim()) c += cgF5AsmAttach(name, String(d.vs_name).trim(), 3);
     c += 'tmsh save sys config\n\n# Doğrulama:\n# tmsh list asm policy /Common/' + name + '\n# tmsh save asm policy /Common/' + name + ' json-file /var/tmp/' + name + '-kontrol.json   # yüklenen hali dışa aktarıp karşılaştırın\n';
     return { config: c, warnings: w };
 }
@@ -640,14 +643,17 @@ function cgF5WafExcGen(d) {
     const w = [], name = String(d.pol_name || '').trim(), tg = String(d.target || '').trim(), sid = String(d.sig_id || '').trim();
     if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) w.push('⛔ Politika adı harfle başlamalı; harf, rakam, _ ve - kullanın.');
     let frag = {}, gui = '';
+    if (!tg) w.push('⛔ Hedef boş: istisna hangi varlığa uygulanacak?');
+    if (['*', '/*', '*.*'].includes(tg)) w.push('⚠ "' + tg + '" geniş bir istisnadır (tüm parametreler/URL\'ler/dosya türleri): bu, dar istisna değildir.');
+    if ((d.kind === 'sig_param' || d.kind === 'meta_param') && tg.startsWith('/')) w.push('⚠ Parametre adı "/" ile başlıyor: URL mi yazdınız? Parametre için yalnız adını yazın (ör. yorum).');
     if (d.kind === 'sig_param' || d.kind === 'sig_url') {
         if (!/^\d{9}$/.test(sid)) w.push('⛔ İmza ID 9 haneli bir sayı olmalı (request log detayından alın).');
-        const ov = [{ signatureId: +sid || 0, enabled: false }];
+        const ov = [{ signatureId: /^\d{9}$/.test(sid) ? +sid : '<imza-id>', enabled: false }];
         if (d.kind === 'sig_param') { frag = { parameters: [{ name: tg, type: 'explicit', attackSignaturesCheck: true, signatureOverrides: ov }] }; gui = 'Security > Application Security > Parameters > ' + tg + ' > Attack Signatures: imzayı bu parametre için devre dışı bırakın'; }
         else { if (!tg.startsWith('/')) w.push('⛔ URL "/" ile başlamalı.'); frag = { urls: [{ name: tg, protocol: 'http', type: 'explicit', signatureOverrides: ov }] }; gui = 'Security > Application Security > URLs > ' + tg + ' > Attack Signatures: imzayı bu URL için devre dışı bırakın'; w.push('ℹ HTTPS sitesinde "protocol": "https" kullanın.'); }
     } else if (d.kind === 'meta_param') { frag = { parameters: [{ name: tg, type: 'explicit', metacharsOnParameterValueCheck: false, attackSignaturesCheck: true }] }; gui = 'Security > Application Security > Parameters > ' + tg + ': meta karakter denetimi; imza denetimi açık kalsın'; if (tg === '*') w.push('⛔ "*" tüm parametreler demektir: bu dar bir istisna değildir.'); }
     else if (d.kind === 'method') { const m = tg.toUpperCase(); frag = { methods: [{ name: m }] }; gui = 'Security > Application Security > Headers > Methods: ' + m + ' ekleyin'; if (['TRACE', 'CONNECT', 'TRACK'].includes(m)) w.push('⚠ ' + m + ' izni güvenlik taramalarında bulgu olur (K85840901).'); }
-    else { const f = tg.replace(/^\./, '').toLowerCase(); frag = { filetypes: [{ name: f, type: 'explicit', allowed: true }] }; gui = 'Security > Application Security > File Types: ' + f + ' ekleyin'; if (['bak', 'sql', 'old', 'log', 'config', 'env'].includes(f)) w.push('⚠ .' + f + ' genellikle yedek/iç dosyadır; izin vermeden önce gerçekten yayınlanması gerektiğini doğrulayın.'); }
+    else { const f = tg.replace(/^\./, '').toLowerCase(); frag = { filetypes: [{ name: f, type: f.includes('*') ? 'wildcard' : 'explicit', allowed: true }] }; gui = 'Security > Application Security > File Types: ' + f + ' ekleyin'; if (['bak', 'sql', 'old', 'log', 'config', 'env'].includes(f)) w.push('⚠ .' + f + ' genellikle yedek/iç dosyadır; izin vermeden önce gerçekten yayınlanması gerektiğini doğrulayın.'); }
     w.push('ℹ İstisnadan sonra aynı isteği tekrarlayıp request log\'da "Legal"/geçti durumunu, ayrıca gerçek bir saldırı örneğinin hâlâ engellendiğini doğrulayın.');
     const f = '/var/tmp/' + name + '.json';
     let c = '# ========================================\n# WAF yanlış pozitif istisnası — ' + name + '\n# ========================================\n';
@@ -676,7 +682,7 @@ F5LTM.awaf = {
                         { name: 'pol_name', why: "AWAF policy adı bot defense ve imza ayarlarının yönetildiği referanstır; aynı VS'ye ikinci bir policy bağlanamaz ve deneme mevcut korumayı değiştirir.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'AWAF_APP1', hint: 'AWAF policy için benzersiz bir isim.' },
                         { name: 'enforcement', why: "Blocking moda geçmeden önce transparent ve staging aşaması tamamlanmalı; aksi halde uygulamanın normal davranışı saldırı olarak engellenir ve kesinti yaşanır. Mod değişikliği <b>apply policy</b> yapılmadan aktif olmaz.", label: 'Enforcement Modu', type: 'select', options: [
                             { value: 'blocking', label: 'Blocking' },
-                            { value: 'transparent', label: 'Transparent (Learning)' }
+                            { value: 'transparent', label: 'Transparent' }
                         ]},
                         { name: 'bot_defense', why: "Bot defense agresif ayarlandığında meşru izleme sistemleri ve API istemcileri de bot sanılıp engellenir; health check kaynakları mutlaka istisna listesine alınmalıdır. Kapalı bırakılırsa credential stuffing ve scraping trafiği klasik imzalarla yakalanamaz.", label: 'Bot Defense', type: 'select', options: [
                             { value: 'yes', label: 'Etkin' },
@@ -699,6 +705,7 @@ F5LTM.awaf = {
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
             const { pol_name, enforcement, bot_defense, staging, vs_name } = data;
+            const wA = []; if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(pol_name)) wA.push('⛔ Politika adı harfle başlamalı; harf, rakam, _ . - kullanın (boşluk olamaz).'); if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(vs_name)) wA.push('⛔ Virtual server adı harfle başlamalı; boşluk olamaz.');
             let c = '# ========================================\n# F5 BIG-IP — Advanced WAF (AWAF)\n# ========================================\n\n';
             c += cgF5AsmCreate(pol_name, 'POLICY_TEMPLATE_RAPID_DEPLOYMENT', 'utf-8', enforcement);
             c += '# Signature staging tmsh ile ayarlanmaz: GUI (Policy Building > Learning and Blocking Settings > Attack Signatures)\n';
@@ -711,7 +718,7 @@ F5LTM.awaf = {
             }
             c += 'tmsh save sys config\n\n';
             c += '# Doğrulama:\n# tmsh list asm policy /Common/' + pol_name + '\n# tmsh list ltm virtual /Common/' + vs_name + ' policies profiles\n' + (bot_defense === 'yes' ? '# tmsh list security bot-defense profile /Common/BD_' + pol_name + '\n' : '');
-            return c;
+            return { config: c, warnings: wA };
         });
     }
 };
@@ -852,8 +859,8 @@ F5LTM.httpprofile = {
                         ]},
                         { name: 'methods_custom', why: "Yalnız 'Özel liste' seçiliyse kullanılır. Metot adları büyük harfe duyarlıdır (HTTP standardı); listede olmayan her metot aşağıdaki unknown-method kuralına düşer.", label: 'Özel metot listesi (boşlukla)', type: 'text', optional: true, placeholder: 'GET HEAD POST', hint: 'Yalnız "Özel liste" için; ör. GET HEAD POST PUT' },
                         { name: 'unknown_method', why: "<b>reject</b>: listede olmayan metotta bağlantı sıfırlanır. <b>allow</b>: geçer (TRACE gibi riskli metotlar da). <b>pass-through</b>: istek geçer ama BIG-IP o bağlantıda HTTP işlemeyi bırakır; iRule HTTP olayları, cookie persistence ve başlık ekleme çalışmaz.", label: 'Bilinmeyen metot (unknown-method)', type: 'select', options: [
-                            { value: 'reject', label: 'reject (önerilen, ön ayarlarla birlikte)' },
-                            { value: 'allow', label: 'allow (varsayılan)' },
+                            { value: 'allow', label: 'allow (varsayılan: davranış değişmez)' },
+                            { value: 'reject', label: 'reject (ön ayarlarla birlikte önerilir)' },
                             { value: 'pass-through', label: 'pass-through' }
                         ]},
                         { name: 'max_header_size', why: "İstek satırı dahil tüm başlıkların toplam boyutu (varsayılan 32768 bayt). Aşılırsa BIG-IP bağlantıyı TCP RST ile keser ve /var/log/ltm'e <code>011f0005 … HTTP header (N) exceeded maximum allowed size</code> yazar (K8482). SSO / büyük çerezli uygulamalarda artırmak gerekebilir; sınırsız büyütmek bellek tüketimi ve saldırı yüzeyi demektir.", label: 'max-header-size (bayt)', type: 'text', optional: true, min: 1024, max: 131072, placeholder: '32768', hint: 'Boşsa miras (32768)' },
@@ -893,14 +900,22 @@ F5LTM.httpprofile = {
             const methods = method_preset === 'custom' ? String(methods_custom || '').trim().split(/[\s,]+/).filter(Boolean) : PRE[method_preset] ? PRE[method_preset].split(' ') : null;
             const w = [];
             if (method_preset === 'custom' && (!methods || !methods.length)) w.push('⛔ Özel liste seçildi ama metot girilmedi.');
-            if (methods && methods.some(m => !/^[A-Z][A-Z-]*$/.test(m))) w.push('⛔ Metot adları büyük harfle yazılır (HTTP metotları büyük/küçük harfe duyarlıdır).');
+            const badM = methods ? methods.filter(m => !/^[A-Z][A-Z-]*$/.test(m)) : [];
+            if (badM.length) w.push('⛔ Metot adları büyük harfle yazılır (HTTP metotları büyük/küçük harfe duyarlıdır): ' + badM.join(', ') + ' config\'e yazılmadı.');
+            const KNOWNM = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'TRACE', 'CONNECT', 'PROPFIND', 'PROPPATCH', 'MKCOL', 'COPY', 'MOVE', 'LOCK', 'UNLOCK'];
+            if (methods && methods.some(m => /^[A-Z][A-Z-]*$/.test(m) && !KNOWNM.includes(m))) w.push('⚠ Standart olmayan metot: ' + methods.filter(m => /^[A-Z][A-Z-]*$/.test(m) && !KNOWNM.includes(m)).join(', ') + ' (yazım hatası olabilir).');
+            if (methods) methods.splice(0, methods.length, ...methods.filter(m => /^[A-Z][A-Z-]*$/.test(m)));
             if (methods && methods.includes('TRACE')) w.push('⚠ TRACE açık: çapraz site izleme (XST) riski; K85840901.');
+            if (method_preset === 'keep' && unknown_method === 'reject') w.push('⚠ Liste değişmedi ama unknown-method reject: varsayılan listede olmayan her metot (PATCH dahil) bağlantı sıfırlamasıyla kesilir. PATCH kullanan API varsa "REST API" ön ayarını seçip PATCH ekleyin.');
+            if (method_preset !== 'keep' && method_preset !== 'custom' && unknown_method === 'allow') w.push('⚠ Metot listesi daraltıldı ama unknown-method allow: listeden çıkan metotlar yine geçer. Engellemek için reject seçin.');
             if (method_preset === 'keep' && unknown_method === 'allow') w.push('ℹ Metot politikası değiştirilmedi: TRACE ve bilinmeyen metotlar geçer. Güvenlik taraması için "Web sitesi" ön ayarını düşünün.');
             if (method_preset === 'webdav') w.push('ℹ MKCOL, COPY, MOVE, PROPPATCH gibi diğer WebDAV metotları bilinen listede yoksa unknown-method kuralına düşer; istemcinizin kullandığı metotları test edin.');
             if (method_preset === 'api') w.push('ℹ PATCH kullanan API\'ler için PATCH\'i listeye eklemek gerekir; sürümünüzün özel metot adı kabul ettiğini doğrulayın, kabul etmiyorsa unknown-method allow gerekir.');
             if (unknown_method === 'pass-through') w.push('⚠ pass-through: bilinmeyen metotlu bağlantılarda iRule HTTP olayları, persistence ve başlık işlemleri devre dışı kalır.');
             if (hsts === 'enabled' && +hsts_age > 0 && +hsts_age < 86400) w.push('ℹ HSTS süresi 1 günden kısa; test için uygun, kalıcı kullanımda 31536000 önerilir.');
-            if (fallback_host && !/^https?:\/\//.test(fallback_host)) w.push('⛔ fallback-host tam URL olmalı (http:// veya https:// ile).');
+            const fbOk = !fallback_host || /^https?:\/\//.test(fallback_host);
+            if (!fbOk) w.push('⛔ fallback-host tam URL olmalı (http:// veya https:// ile); config\'e yazılmadı.');
+            if (header_insert && !/^[A-Za-z0-9-]+:\s*\S/.test(header_insert)) w.push('⛔ Header Insert "Ad: değer" biçiminde olmalı (iki nokta üst üste eksik).');
             let c = '# ========================================\n# F5 BIG-IP LTM — HTTP Profile\n# ========================================\n\n';
             c += '# Varsayılan "http" profilini değil, ondan türetilmiş profili kullanın (varsayılanı paylaşan tüm VS\'ler etkilenir)\n';
             c += 'tmsh create ltm profile http ' + profile_name + ' defaults-from http';
@@ -919,7 +934,7 @@ F5LTM.httpprofile = {
             if (enf.length) c += 'tmsh modify ltm profile http ' + profile_name + ' enforcement { ' + enf.join(' ') + ' }\n';
             if (hsts === 'enabled') c += 'tmsh modify ltm profile http ' + profile_name + ' hsts { mode enabled maximum-age ' + (hsts_age || '31536000') + ' include-subdomains ' + hsts_sub + ' }\n';
             if (server_agent) c += 'tmsh modify ltm profile http ' + profile_name + ' server-agent-name ' + server_agent + '\n';
-            if (fallback_host) c += 'tmsh modify ltm profile http ' + profile_name + ' fallback-host ' + fallback_host + '\n';
+            if (fallback_host && fbOk) c += 'tmsh modify ltm profile http ' + profile_name + ' fallback-host ' + fallback_host + '\n';
             c += '\n# VS\'ye bağlama (mevcut http profilinin yerine):\n# tmsh modify ltm virtual <vs> profiles delete { http } profiles add { ' + profile_name + ' }\n\n';
             c += '# Doğrulama:\n# tmsh list ltm profile http ' + profile_name + '\n';
             if (hasM) c += '# curl -X TRACE -v http://<vip>/     # listede yoksa: Connection reset by peer\n';
@@ -977,7 +992,7 @@ function cgF5HttpAudit(data) {
     const P = cgF5ParseTmsh(data.dump), f = P.f, e = (typeof f.enforcement === 'object' && !Array.isArray(f.enforcement)) ? f.enforcement : {}, h = (typeof f.hsts === 'object' && !Array.isArray(f.hsts)) ? f.hsts : {};
     const name = (P.head || '').replace(/^ltm profile http\s+/, '').trim() || '(adsız)';
     const R = [], add = (lvl, msg, fix) => R.push({ lvl, msg, fix });
-    if (!/^ltm profile http\b/.test(P.head || '')) add('⛔', 'Bu bir "ltm profile http" çıktısı gibi görünmüyor.', 'tmsh list ltm profile http <ad> all-properties çıktısını yapıştırın.');
+    if (!/^ltm profile http\b/.test(P.head || '')) return { config: '# ========================================\n# HTTP Profil Denetimi\n# ========================================\n# ⛔ Bu bir "ltm profile http" çıktısı gibi görünmüyor.\n#    tmsh list ltm profile http <ad> all-properties çıktısını olduğu gibi yapıştırın.\n', warnings: ['⛔ Bu bir "ltm profile http" çıktısı gibi görünmüyor.'] };
     if (/^(\/Common\/)?http$/.test(name)) add('⚠', 'Varsayılan "http" profili denetleniyor: bunu değiştirmek onu kullanan TÜM virtual server\'ları etkiler.', 'defaults-from http ile yeni profil oluşturup onu değiştirin.');
     const km = Array.isArray(e['known-methods']) ? e['known-methods'] : null, um = e['unknown-method'];
     if (!km && !um) add('ℹ', 'enforcement bloğu yok: çıktı all-properties ile alınmamış olabilir; metot ve başlık denetimi yapılamadı.', 'Komutu all-properties ile tekrar çalıştırın.');
