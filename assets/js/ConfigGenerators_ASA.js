@@ -18,8 +18,8 @@ CiscoASA.interface = {
                     icon: 'fas fa-globe',
                     fields: [
                         { name: 'out_iface', why: "Buraya fiziksel arayüz adı birebir doğru yazılmalı; yanlış slot/port girilirse komut başka bir arayüzü yapılandırır ve WAN sessizce kopar. Switch tarafı trunk ise <code>GigabitEthernet0/0.100</code> gibi alt arayüz + <code>vlan</code> tanımı gerekir.", label: 'Interface Adı', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/0', hint: 'Fiziksel interface adı' },
-                        { name: 'out_nameif', why: "<code>nameif</code> atanmayan arayüz ASA için <b>yok hükmündedir</b>: ne route, ne ACL, ne NAT ona referans verebilir. Sonradan nameif değiştirmek ise o ada bağlı tüm ACL, NAT ve route satırlarını sessizce siler.", label: 'Nameif', type: 'text', required: true, placeholder: 'outside', hint: 'Mantıksal interface adı (nameif)' },
-                        { name: 'out_sec', why: "Outside için <b>0</b> standarttır. ASA yüksek seviyeden düşüğe trafiğe varsayılan olarak izin verir, düşükten yükseğe ise engeller; bu yüzden dışarıdan içeriye her akış için ayrıca ACL yazmanız gerekir.", label: 'Security Level', type: 'text', required: true, placeholder: '0', hint: '0 = en az güvenilir (dış ağ)' },
+                        { name: 'out_nameif', why: "<code>nameif</code> atanmayan arayüz ASA için <b>yok hükmündedir</b>: ne route, ne ACL, ne NAT ona referans verebilir. Sonradan nameif değiştirmek ise o ada bağlı tüm ACL, NAT ve route satırlarını sessizce siler.", label: 'Nameif', type: 'text', validate: 'nameif', required: true, placeholder: 'outside', hint: 'Mantıksal interface adı (nameif)' },
+                        { name: 'out_sec', why: "Outside için <b>0</b> standarttır. ASA yüksek seviyeden düşüğe trafiğe varsayılan olarak izin verir, düşükten yükseğe ise engeller; bu yüzden dışarıdan içeriye her akış için ayrıca ACL yazmanız gerekir.", label: 'Security Level', type: 'text', min: 0, max: 100, required: true, placeholder: '0', hint: '0 = en az güvenilir (dış ağ)' },
                         { name: 'out_ip', why: "WAN IP yanlışsa default route ve VPN peer eşleşmesi birlikte bozulur. ISP adresi DHCP/PPPoE veriyorsa statik IP yerine <code>ip address dhcp setroute</code> kullanılmalı, yoksa ASA hiç çıkış yapamaz.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.1', hint: 'WAN IP adresi' },
                         { name: 'out_mask', why: "Maske ISP bloğundan farklıysa next-hop aynı subnette görünmez ve statik default route <b>invalid</b> kalarak route tablosuna hiç girmez. Point-to-point WAN linklerinde genelde <code>255.255.255.252</code> kullanılır.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.252', hint: 'Subnet maskesi' }
                     ]
@@ -29,8 +29,8 @@ CiscoASA.interface = {
                     icon: 'fas fa-network-wired',
                     fields: [
                         { name: 'in_iface', why: "İç arayüzün fiziksel adı yanlışsa LAN gateway hiç ayağa kalkmaz ve tüm kullanıcılar internete çıkamaz. Trunk bağlantılarda alt arayüz ve VLAN etiketi şarttır.", label: 'Interface Adı', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/1', hint: 'Fiziksel interface adı' },
-                        { name: 'in_nameif', why: "Pek çok ASA varsayılanı <code>inside</code> adını referans alır (örn. <code>management-access inside</code>). Farklı bir ad verirseniz NAT, ACL ve route satırlarının tamamında bu yeni adı tutarlı kullanmak zorundasınız.", label: 'Nameif', type: 'text', required: true, placeholder: 'inside', hint: 'Mantıksal interface adı (nameif)' },
-                        { name: 'in_sec', why: "Inside için <b>100</b> verilir; böylece içeriden dışarıya trafik ACL olmadan geçer. İki arayüz aynı seviyedeyse aralarındaki trafik <code>same-security-traffic permit inter-interface</code> yazılmadan <b>hiç</b> geçmez.", label: 'Security Level', type: 'text', required: true, placeholder: '100', hint: '100 = en güvenilir (iç ağ)' },
+                        { name: 'in_nameif', why: "Pek çok ASA varsayılanı <code>inside</code> adını referans alır (örn. <code>management-access inside</code>). Farklı bir ad verirseniz NAT, ACL ve route satırlarının tamamında bu yeni adı tutarlı kullanmak zorundasınız.", label: 'Nameif', type: 'text', validate: 'nameif', required: true, placeholder: 'inside', hint: 'Mantıksal interface adı (nameif)' },
+                        { name: 'in_sec', why: "Inside için <b>100</b> verilir; böylece içeriden dışarıya trafik ACL olmadan geçer. İki arayüz aynı seviyedeyse aralarındaki trafik <code>same-security-traffic permit inter-interface</code> yazılmadan <b>hiç</b> geçmez.", label: 'Security Level', type: 'text', min: 0, max: 100, required: true, placeholder: '100', hint: '100 = en güvenilir (iç ağ)' },
                         { name: 'in_ip', why: "Bu adres LAN istemcilerinin default gateway değeridir ve DHCP kapsamındaki gateway ile birebir aynı olmalıdır. Uyuşmazlık tüm iç ağın internete çıkamamasına yol açar.", label: 'IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.1', hint: 'LAN gateway IP adresi' },
                         { name: 'in_mask', why: "Maske dar verilirse LAN’ın bir bölümü gateway’e ulaşamaz; geniş verilirse başka bir VLAN ile çakışıp asimetrik yönlendirme ve kopan oturumlar oluşur.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi' }
                     ]
@@ -81,7 +81,7 @@ CiscoASA.nat = {
                     title: 'Object Ayarları',
                     icon: 'fas fa-cube',
                     fields: [
-                        { name: 'obj_name', why: "Object adı NAT, ACL ve route-map satırlarında referans olarak kullanılır; sonradan değiştirmek bu satırların tamamını kırar. <code>show run object</code> çıktısında ayırt edilebilir, anlamlı bir ad seçin.", label: 'Object Adı', type: 'text', required: true, placeholder: 'LAN_NET', hint: 'NAT nesnesi için isim' }
+                        { name: 'obj_name', why: "Object adı NAT, ACL ve route-map satırlarında referans olarak kullanılır; sonradan değiştirmek bu satırların tamamını kırar. <code>show run object</code> çıktısında ayırt edilebilir, anlamlı bir ad seçin.", label: 'Object Adı', type: 'text', validate: 'asa_objname', required: true, placeholder: 'LAN_NET', hint: 'NAT nesnesi için isim' }
                     ]
                 },
                 {
@@ -89,9 +89,9 @@ CiscoASA.nat = {
                     icon: 'fas fa-random',
                     showFor: ['pat'],
                     fields: [
-                        { name: 'pat_subnet', why: "PAT kapsamı gereğinden geniş verilirse VPN veya DMZ trafiği de NAT’lanır ve site-to-site tünel içindeki trafik tamamen bozulur. VPN varsa NAT-exempt (identity NAT) kuralı bu kuraldan <b>önce</b> gelmelidir.", label: 'İç Subnet', type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'NAT edilecek iç ağ (IP + mask)' },
-                        { name: 'pat_inside', why: "Burada fiziksel ad değil <code>nameif</code> değeri kullanılır. Arayüz çifti yanlışsa kural hiç eşleşmez; <code>packet-tracer input inside tcp 192.168.1.10 1025 8.8.8.8 53</code> ile hangi NAT kuralına düştüğünü doğrulayın.", label: 'Inside Interface', type: 'text', required: true, placeholder: 'inside', hint: 'İç taraf nameif' },
-                        { name: 'pat_outside', why: "PAT, bu arayüzün IP adresi üzerinden overload yapar. Çift ISP senaryosunda yanlış arayüz seçilirse dönüş trafiği asimetrik olur ve stateful denetim oturumları düşürür.", label: 'Outside Interface', type: 'text', required: true, placeholder: 'outside', hint: 'Dış taraf nameif' }
+                        { name: 'pat_subnet', why: "PAT kapsamı gereğinden geniş verilirse VPN veya DMZ trafiği de NAT’lanır ve site-to-site tünel içindeki trafik tamamen bozulur. VPN varsa NAT-exempt (identity NAT) kuralı bu kuraldan <b>önce</b> gelmelidir.", label: 'İç Subnet', type: 'text', validate: 'ip_mask', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'NAT edilecek iç ağ (IP + mask)' },
+                        { name: 'pat_inside', why: "Burada fiziksel ad değil <code>nameif</code> değeri kullanılır. Arayüz çifti yanlışsa kural hiç eşleşmez; <code>packet-tracer input inside tcp 192.168.1.10 1025 8.8.8.8 53</code> ile hangi NAT kuralına düştüğünü doğrulayın.", label: 'Inside Interface', type: 'text', validate: 'nameif', required: true, placeholder: 'inside', hint: 'İç taraf nameif' },
+                        { name: 'pat_outside', why: "PAT, bu arayüzün IP adresi üzerinden overload yapar. Çift ISP senaryosunda yanlış arayüz seçilirse dönüş trafiği asimetrik olur ve stateful denetim oturumları düşürür.", label: 'Outside Interface', type: 'text', validate: 'nameif', required: true, placeholder: 'outside', hint: 'Dış taraf nameif' }
                     ]
                 },
                 {
@@ -101,8 +101,8 @@ CiscoASA.nat = {
                     fields: [
                         { name: 'static_host', why: "Static NAT <b>çift yönlüdür</b>: bu host artık dışarıdan da erişilebilir hale gelir. Outside arayüze sınırlayıcı bir ACL bağlanmazsa sunucu tüm internete açılmış olur.", label: 'İç Host', type: 'text', required: true, validate: 'ip', placeholder: '192.168.1.10', hint: 'NAT edilecek iç IP adresi' },
                         { name: 'static_mapped', why: "Dışarıya görünecek adres; ASA bu IP için otomatik proxy-ARP yapar. Adres outside subnetinin dışındaysa ISP’nin bu bloğu size route etmesi gerekir, aksi halde trafik hiç gelmez.", label: 'Dış (Mapped) IP', type: 'text', required: true, validate: 'ip', placeholder: '203.0.113.10', hint: 'Dışarıya görünen IP adresi' },
-                        { name: 'static_inside', why: "Gerçek (real) adresin bulunduğu arayüzün nameif değeri. Object NAT <b>section 2</b>’de değerlendirilir; aynı hostu kapsayan bir manual/twice NAT (section 1) varsa o öncelikli olur ve bu kural hiç çalışmaz.", label: 'Inside Interface', type: 'text', required: true, placeholder: 'inside', hint: 'İç taraf nameif' },
-                        { name: 'static_outside', why: "Çevrilmiş adresin göründüğü arayüz. Yanlış seçilirse kural <code>show nat</code> çıktısında görünür ama hiç hit almaz — NAT sorunlarının en sık sebebi budur.", label: 'Outside Interface', type: 'text', required: true, placeholder: 'outside', hint: 'Dış taraf nameif' }
+                        { name: 'static_inside', why: "Gerçek (real) adresin bulunduğu arayüzün nameif değeri. Object NAT <b>section 2</b>’de değerlendirilir; aynı hostu kapsayan bir manual/twice NAT (section 1) varsa o öncelikli olur ve bu kural hiç çalışmaz.", label: 'Inside Interface', type: 'text', validate: 'nameif', required: true, placeholder: 'inside', hint: 'İç taraf nameif' },
+                        { name: 'static_outside', why: "Çevrilmiş adresin göründüğü arayüz. Yanlış seçilirse kural <code>show nat</code> çıktısında görünür ama hiç hit almaz — NAT sorunlarının en sık sebebi budur.", label: 'Outside Interface', type: 'text', validate: 'nameif', required: true, placeholder: 'outside', hint: 'Dış taraf nameif' }
                     ]
                 }
             ],
@@ -142,7 +142,7 @@ CiscoASA.acl = {
                     title: 'ACL Tanımı',
                     icon: 'fas fa-list',
                     fields: [
-                        { name: 'acl_name', why: "ACL adı, ACL’in hangi arayüze bağlı olduğundan bağımsızdır; bağlama işini <code>access-group</code> yapar. Var olan bir ada satır eklediğinizde kural listenin <b>sonuna</b> eklenir ve üstteki bir deny yüzünden hiç çalışmayabilir.", label: 'ACL Adı', type: 'text', required: true, placeholder: 'OUTSIDE_IN', hint: 'Access-list ismi' },
+                        { name: 'acl_name', why: "ACL adı, ACL’in hangi arayüze bağlı olduğundan bağımsızdır; bağlama işini <code>access-group</code> yapar. Var olan bir ada satır eklediğinizde kural listenin <b>sonuna</b> eklenir ve üstteki bir deny yüzünden hiç çalışmayabilir.", label: 'ACL Adı', type: 'text', validate: 'asa_acl_name', required: true, placeholder: 'OUTSIDE_IN', hint: 'Access-list ismi' },
                         { name: 'action', why: "ASA’da her ACL’in sonunda gizli bir <b>deny ip any any</b> vardır ve ilk eşleşen satır kazanır. Bu yüzden permit satırları daha genel deny satırlarından önce gelmelidir.", label: 'Aksiyon', type: 'select', options: [
                             { value: 'permit', label: 'Permit', selected: true },
                             { value: 'deny', label: 'Deny' }
@@ -159,8 +159,8 @@ CiscoASA.acl = {
                     title: 'Kaynak / Hedef',
                     icon: 'fas fa-exchange-alt',
                     fields: [
-                        { name: 'src', why: "8.3 ve sonrasında ACL, NAT’lanmış değil <b>gerçek (real)</b> IP adresine göre yazılır. Eski alışkanlıkla mapped adres yazmak kuralın hiç eşleşmemesine yol açar.", label: 'Kaynak', type: 'text', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'Kaynak IP adresi veya any — any veya host 10.0.0.1 de yazılabilir' },
-                        { name: 'dst', why: "Dışarıdan bir DMZ sunucusuna erişim yazarken hedef, NAT’lı dış IP değil sunucunun <b>gerçek iç IP</b> adresidir. Bu ayrımı kaçırmak port-forward çalışmamasının bir numaralı nedenidir.", label: 'Hedef', type: 'text', required: true, placeholder: 'host 203.0.113.10', hint: 'Hedef IP adresi veya host — any veya ağ + maske de yazılabilir' },
+                        { name: 'src', why: "8.3 ve sonrasında ACL, NAT’lanmış değil <b>gerçek (real)</b> IP adresine göre yazılır. Eski alışkanlıkla mapped adres yazmak kuralın hiç eşleşmemesine yol açar.", label: 'Kaynak', type: 'text', validate: 'asa_acl_addr', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'Kaynak IP adresi veya any — any veya host 10.0.0.1 de yazılabilir' },
+                        { name: 'dst', why: "Dışarıdan bir DMZ sunucusuna erişim yazarken hedef, NAT’lı dış IP değil sunucunun <b>gerçek iç IP</b> adresidir. Bu ayrımı kaçırmak port-forward çalışmamasının bir numaralı nedenidir.", label: 'Hedef', type: 'text', validate: 'asa_acl_addr', required: true, placeholder: 'host 203.0.113.10', hint: 'Hedef IP adresi veya host — any veya ağ + maske de yazılabilir' },
                         { name: 'dst_port', why: "Port yazımı <code>eq 443</code> ya da <code>range 8000 8100</code> biçimindedir; yalnızca sayı girmek satırı geçersiz kılar. FTP, SIP, TFTP gibi dinamik port açan protokollerde ayrıca inspect gerekir.", label: 'Hedef Port', type: 'text', validate: 'port_match', optional: true, placeholder: 'eq 80', hint: 'TCP/UDP için port belirtimi — veya range 80 443' }
                     ]
                 },
@@ -215,7 +215,7 @@ CiscoASA.vpn = {
                     fields: [
                         { name: 'outside_iface', why: "Crypto map <code>crypto map MAP interface outside</code> ile bu arayüze bağlanmazsa tünel hiç kurulmaz. Ayrıca IKE bu arayüzde açık olmalıdır (<code>crypto ikev2 enable outside</code>).", label: 'Outside Interface', type: 'text', validate: 'nameif', required: true, placeholder: 'outside', hint: 'VPN bitişinin bağlı olduğu nameif' },
                         { name: 'peer_ip', why: "Peer, karşı tarafın gerçek dış IP adresi olmalıdır; NAT arkasındaysa NAT-T ve <b>UDP/4500</b> trafiğinin açık olması gerekir. Yanlış peer IP’sinde Phase-1 hiç başlamaz.", label: 'Peer IP', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.2', hint: 'Uzak VPN endpoint IP adresi' },
-                        { name: 'psk', why: "PSK iki tarafta birebir aynı olmalı; en ufak fark Phase-1’in <b>MM_WAIT_MSG</b> durumunda takılmasına yol açar. Zayıf PSK yakalanan IKE paketlerinden çevrimdışı kırılabildiği için uzun ve rastgele seçilmelidir.", label: 'Pre-Shared Key', type: 'text', required: true, placeholder: 'MyS3cr3tKey!', hint: 'Paylaşılan gizli anahtar' }
+                        { name: 'psk', why: "PSK iki tarafta birebir aynı olmalı; en ufak fark Phase-1’in <b>MM_WAIT_MSG</b> durumunda takılmasına yol açar. Zayıf PSK yakalanan IKE paketlerinden çevrimdışı kırılabildiği için uzun ve rastgele seçilmelidir.", label: 'Pre-Shared Key', type: 'text', validate: 'asa_psk', required: true, placeholder: 'MyS3cr3tKey!', hint: 'Paylaşılan gizli anahtar' }
                     ]
                 },
                 {
@@ -301,7 +301,7 @@ CiscoASA.aaa = {
                     showFor: ['ldap'],
                     fields: [
                         { name: 'ldap_server', why: "LDAP sorgusu <code>aaa-server</code> altında belirtilen arayüz üzerinden çıkar; yanlış arayüz seçilirse istek zaman aşımına düşer ve her giriş denemesi saniyelerce takılır.", label: 'LDAP Sunucu IP', type: 'text', required: true, validate: 'ip', placeholder: '10.0.0.100', hint: 'Active Directory / LDAP sunucu IP' },
-                        { name: 'ldap_base', why: "Base DN çok dar seçilirse kullanıcılar hiç bulunamaz, çok geniş seçilirse sorgu yavaşlar ve timeout üretir. <code>debug ldap 255</code> ile aramanın gerçekte hangi DN altında yapıldığını doğrulayın.", label: 'Base DN', type: 'text', required: true, placeholder: 'DC=corp,DC=local', hint: 'LDAP arama başlangıç noktası' },
+                        { name: 'ldap_base', why: "Base DN çok dar seçilirse kullanıcılar hiç bulunamaz, çok geniş seçilirse sorgu yavaşlar ve timeout üretir. <code>debug ldap 255</code> ile aramanın gerçekte hangi DN altında yapıldığını doğrulayın.", label: 'Base DN', type: 'text', validate: 'asa_ldap_dn', required: true, placeholder: 'DC=corp,DC=local', hint: 'LDAP arama başlangıç noktası' },
                         { name: 'ldap_bind', why: "Bind için yetkisi kısıtlı bir servis hesabı kullanın; bu hesap kilitlenirse <b>tüm</b> kullanıcı girişleri aynı anda başarısız olur.", label: 'Bind DN', type: 'text', optional: true, placeholder: 'CN=svc-asa,OU=ServiceAccounts,DC=corp,DC=local', hint: 'Bağlantı için kullanıcı DN' },
                         { name: 'ldap_pass', why: "Şifre AD tarafında değiştiğinde ASA sessizce doğrulama yapamaz hale gelir ve hata kullanıcı hatası gibi görünür. Servis hesabını süresiz şifre politikasıyla yönetmek bu tuzağı önler.", label: 'Bind Password', type: 'text', optional: true, placeholder: 'P@ssw0rd', hint: 'Bind kullanıcı şifresi' },
                         { name: 'ldap_grp', why: "Server-group adı, AAA’yı kullanan tüm satırlarda (<code>aaa authentication</code>, tunnel-group) aynı yazılmalıdır. İsim uyuşmazlığında ASA doğrulamayı hiç denemez veya sessizce LOCAL’a düşer.", label: 'Server Group Adı', type: 'text', optional: true, placeholder: 'LDAP-AD', hint: 'AAA server-group ismi' }
@@ -313,7 +313,7 @@ CiscoASA.aaa = {
                     showFor: ['radius'],
                     fields: [
                         { name: 'rad_server', why: "RADIUS sunucusu tarafında ASA’nın IP adresi <b>NAS client</b> olarak tanımlı değilse istekler cevapsız kalır ve ASA yalnızca timeout görür. Sunucuya giden yolun hangi arayüzden geçtiği de kritiktir.", label: 'RADIUS Sunucu IP', type: 'text', required: true, validate: 'ip', placeholder: '10.0.0.200', hint: 'RADIUS sunucu IP adresi' },
-                        { name: 'rad_key', why: "Shared secret uyuşmazsa RADIUS sunucusu isteği <b>sessizce yok sayar</b>; ASA tarafında bu timeout gibi görünür, yani hata mesajı yanıltıcıdır. İki tarafta birebir aynı olmalıdır.", label: 'Shared Secret', type: 'text', required: true, placeholder: 'radius_secret', hint: 'RADIUS paylaşılan gizli anahtar' },
+                        { name: 'rad_key', why: "Shared secret uyuşmazsa RADIUS sunucusu isteği <b>sessizce yok sayar</b>; ASA tarafında bu timeout gibi görünür, yani hata mesajı yanıltıcıdır. İki tarafta birebir aynı olmalıdır.", label: 'Shared Secret', type: 'text', validate: 'asa_radius_key', required: true, placeholder: 'radius_secret', hint: 'RADIUS paylaşılan gizli anahtar' },
                         { name: 'rad_grp', why: "Grup adı VPN tunnel-group ve yönetim erişimi satırlarında referans verilir. Yanlış ad, kimlik doğrulamanın hiç denenmeden atlanmasına yol açar.", label: 'Server Group Adı', type: 'text', optional: true, placeholder: 'RADIUS-SRV', hint: 'AAA server-group ismi' }
                     ]
                 }
@@ -384,8 +384,8 @@ CiscoASA.routeMap = {
                     icon: 'fas fa-map-signs',
                     showFor: ['static'],
                     fields: [
-                        { name: 'nameif', why: "Statik route’ta fiziksel ad değil <code>nameif</code> değeri kullanılır. Yanlış arayüz yazılırsa route tabloda görünür ama trafik o yoldan hiç çıkmaz.", label: 'Interface (Nameif)', type: 'text', required: true, placeholder: 'outside', hint: 'Çıkış interface nameif değeri' },
-                        { name: 'network', why: "<code>0.0.0.0</code> girmek default route anlamına gelir ve var olan bir default route ile administrative distance üzerinden yarışır. Yanlış hedef ağ, tüm internet trafiğinin yanlış arayüze yönelmesine neden olur.", label: 'Hedef Network', type: 'text', required: true, placeholder: '0.0.0.0', hint: 'Hedef ağ adresi (0.0.0.0 = default route)' },
+                        { name: 'nameif', why: "Statik route’ta fiziksel ad değil <code>nameif</code> değeri kullanılır. Yanlış arayüz yazılırsa route tabloda görünür ama trafik o yoldan hiç çıkmaz.", label: 'Interface (Nameif)', type: 'text', validate: 'nameif', required: true, placeholder: 'outside', hint: 'Çıkış interface nameif değeri' },
+                        { name: 'network', why: "<code>0.0.0.0</code> girmek default route anlamına gelir ve var olan bir default route ile administrative distance üzerinden yarışır. Yanlış hedef ağ, tüm internet trafiğinin yanlış arayüze yönelmesine neden olur.", label: 'Hedef Network', type: 'text', validate: 'ip', required: true, placeholder: '0.0.0.0', hint: 'Hedef ağ adresi (0.0.0.0 = default route)' },
                         { name: 'mask', why: "Maske ile hedef ağ tutarsızsa (örn. 10.0.0.0 için 255.255.255.0) route beklenenden çok daha dar kapsar ve longest-prefix eşleşmesi tamamen değişir.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '0.0.0.0', hint: 'Hedef ağ maskesi' },
                         { name: 'nexthop', why: "Next-hop, çıkış arayüzü ile aynı subnette olmalıdır; değilse ASA route’u <b>invalid</b> sayıp tabloya hiç koymaz. <code>show route</code> ile gerçekten yüklendiğini doğrulayın.", label: 'Next-Hop (Gateway)', type: 'text', validate: 'ip', required: true, placeholder: '203.0.113.2', hint: 'Bir sonraki atlamanın IP adresi' },
                         { name: 'metric', why: "ASA’da bu değer pratikte administrative distance’tır; yedek ISP için floating static yazarken daha <b>yüksek</b> değer verilmelidir. Aynı AD ile iki route yazmak ECMP üretir ve asimetrik trafikle oturumları düşürebilir.", label: 'Metric', type: 'text', optional: true, placeholder: '1', hint: 'Route metrik değeri (default: 1)' }
@@ -454,10 +454,10 @@ CiscoASA.mpfServicePolicy = {
                     title: 'Class-Map (Trafik Sınıfı)',
                     icon: 'fas fa-tag',
                     fields: [
-                        { name: 'class_name', why: "MPF zinciri class-map → policy-map → service-policy şeklindedir; class tanımlı ama policy-map’e eklenmemişse hiçbir inspect ya da QoS uygulanmaz. Adları zincir boyunca birebir aynı tutun.", label: 'Class-Map Adı', type: 'text', required: true, placeholder: 'INSPECT_HTTP', hint: 'Trafik sınıfı için isim' },
-                        { name: 'class_acl', why: "Sınıf bu ACL ile eşleşir; ACL’de deny olan trafik sınıfa <b>girmez</b> ve varsayılan global politikaya düşer. Yani deny burada engelleme değil kapsam dışı bırakma anlamına gelir.", label: 'Match ACL Adı', type: 'text', required: true, placeholder: 'HTTP_ACL', hint: 'Eşleşme kriteri ACL adı' },
-                        { name: 'match_src', why: "Kaynak fazla geniş (<code>any</code>) bırakılırsa inspect/QoS tüm trafiğe uygulanır ve CPU beklenmedik şekilde yükselir. Kapsamı daraltmak hem performans hem öngörülebilirlik sağlar.", label: 'Kaynak Network', type: 'text', required: true, placeholder: 'any', hint: 'Kaynak IP (any veya subnet mask formatı)' },
-                        { name: 'match_dst', why: "Hedef tanımı NAT sonrası değil <b>gerçek</b> adrese göre yazılmalıdır. Yanlış yazılırsa sınıf hiç hit almaz ve <code>show service-policy</code> çıktısında sayaçlar sıfır kalır.", label: 'Hedef Network', type: 'text', required: true, placeholder: 'any', hint: 'Hedef IP (any veya subnet mask formatı)' },
+                        { name: 'class_name', why: "MPF zinciri class-map → policy-map → service-policy şeklindedir; class tanımlı ama policy-map’e eklenmemişse hiçbir inspect ya da QoS uygulanmaz. Adları zincir boyunca birebir aynı tutun.", label: 'Class-Map Adı', type: 'text', validate: 'asa_mpf_name', required: true, placeholder: 'INSPECT_HTTP', hint: 'Trafik sınıfı için isim' },
+                        { name: 'class_acl', why: "Sınıf bu ACL ile eşleşir; ACL’de deny olan trafik sınıfa <b>girmez</b> ve varsayılan global politikaya düşer. Yani deny burada engelleme değil kapsam dışı bırakma anlamına gelir.", label: 'Match ACL Adı', type: 'text', validate: 'asa_acl_name', required: true, placeholder: 'HTTP_ACL', hint: 'Eşleşme kriteri ACL adı' },
+                        { name: 'match_src', why: "Kaynak fazla geniş (<code>any</code>) bırakılırsa inspect/QoS tüm trafiğe uygulanır ve CPU beklenmedik şekilde yükselir. Kapsamı daraltmak hem performans hem öngörülebilirlik sağlar.", label: 'Kaynak Network', type: 'text', validate: 'asa_acl_addr', required: true, placeholder: 'any', hint: 'Kaynak IP (any veya subnet mask formatı)' },
+                        { name: 'match_dst', why: "Hedef tanımı NAT sonrası değil <b>gerçek</b> adrese göre yazılmalıdır. Yanlış yazılırsa sınıf hiç hit almaz ve <code>show service-policy</code> çıktısında sayaçlar sıfır kalır.", label: 'Hedef Network', type: 'text', validate: 'asa_acl_addr', required: true, placeholder: 'any', hint: 'Hedef IP (any veya subnet mask formatı)' },
                         { name: 'match_port', why: "Port <code>eq 80</code> biçiminde yazılır. Uygulama standart dışı bir portta çalışıyorsa inspect devreye girmez; bu durumda protokolü o porta açıkça eşlemeniz gerekir.", label: 'Hedef Port', type: 'text', validate: 'port_match', optional: true, placeholder: 'eq 80', hint: 'Eşleştirilecek port (ör: eq 80)' }
                     ]
                 },
@@ -465,7 +465,7 @@ CiscoASA.mpfServicePolicy = {
                     title: 'Policy-Map (Aksiyon)',
                     icon: 'fas fa-tasks',
                     fields: [
-                        { name: 'policy_name', why: "Birden çok policy-map tanımlanabilir ama bir arayüze aynı anda yalnızca biri uygulanabilir; yeni uygulama eskisini sessizce değiştirir. Global policy de tek olabilir.", label: 'Policy-Map Adı', type: 'text', required: true, placeholder: 'INSPECT_POLICY', hint: 'Politika için isim' },
+                        { name: 'policy_name', why: "Birden çok policy-map tanımlanabilir ama bir arayüze aynı anda yalnızca biri uygulanabilir; yeni uygulama eskisini sessizce değiştirir. Global policy de tek olabilir.", label: 'Policy-Map Adı', type: 'text', validate: 'asa_mpf_name', required: true, placeholder: 'INSPECT_POLICY', hint: 'Politika için isim' },
                         { name: 'inspect_proto', why: "Inspection kapatılırsa FTP, SIP, TFTP gibi dinamik port açan protokoller çalışmaz. Açık bırakmak ise bazı ortamlarda SIP ALG’nin çağrıları bozmasına yol açar — ihtiyaca göre seçilmelidir.", label: 'Inspect Protokolü', type: 'select', options: [
                             { value: 'http', label: 'HTTP', selected: true },
                             { value: 'ftp', label: 'FTP' },
@@ -481,12 +481,12 @@ CiscoASA.mpfServicePolicy = {
                     title: 'Service Policy Uygulama',
                     icon: 'fas fa-play',
                     fields: [
-                        { name: 'sp_name', why: "Service-policy adı policy-map adıyla eşleşmezse komut reddedilir ya da yanlış politikayı devreye alır. <code>show service-policy</code> ile hangi politikanın gerçekte aktif olduğunu kontrol edin.", label: 'Service Policy Adı', type: 'text', required: true, placeholder: 'GLOBAL_POLICY', hint: 'service-policy komutunda kullanılacak isim' },
+                        { name: 'sp_name', why: "Service-policy adı policy-map adıyla eşleşmezse komut reddedilir ya da yanlış politikayı devreye alır. <code>show service-policy</code> ile hangi politikanın gerçekte aktif olduğunu kontrol edin.", label: 'Service Policy Adı', type: 'text', validate: 'asa_mpf_name', required: true, placeholder: 'GLOBAL_POLICY', hint: 'service-policy komutunda kullanılacak isim' },
                         { name: 'sp_scope', why: "<b>global</b> seçilirse politika tüm arayüzlere uygulanır ama arayüz bazlı bir service-policy varsa <b>o</b> önceliklidir ve global olan o arayüzde çalışmaz. Bu öncelik sırası sık gözden kaçar.", label: 'Kapsam', type: 'select', options: [
                             { value: 'global', label: 'Global (tüm interface)', selected: true },
                             { value: 'interface', label: 'Belirli Interface' }
                         ]},
-                        { name: 'sp_iface', why: "Arayüz bazlı uygulama global politikayı o arayüzde tamamen devre dışı bırakır; yani mevcut varsayılan inspect’leri de kaybedersiniz. Gerekli inspect satırlarını yeni politikaya elle eklemelisiniz.", label: 'Interface (Nameif)', type: 'text', requiredIf: { field: 'sp_scope', in: ['interface'] }, placeholder: 'outside', hint: 'Belirli interface seçiliyse nameif girin' }
+                        { name: 'sp_iface', why: "Arayüz bazlı uygulama global politikayı o arayüzde tamamen devre dışı bırakır; yani mevcut varsayılan inspect’leri de kaybedersiniz. Gerekli inspect satırlarını yeni politikaya elle eklemelisiniz.", label: 'Interface (Nameif)', type: 'text', validate: 'nameif', requiredIf: { field: 'sp_scope', in: ['interface'] }, placeholder: 'outside', hint: 'Belirli interface seçiliyse nameif girin' }
                     ]
                 }
             ],
@@ -541,9 +541,9 @@ CiscoASA.failoverHA = {
                     title: 'Failover Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'fo_key', why: "Failover anahtarı iki cihazda aynı olmalıdır; yoksa eşleşme kurulmaz ve her iki ASA da kendini <b>active</b> sanarak ağda IP/MAC çakışması yaratır. Anahtar ayrıca config senkronizasyonunu şifreler.", label: 'Failover Key', type: 'text', required: true, placeholder: 'FoSecretKey123', hint: 'Failover iletişim şifreleme anahtarı' },
+                        { name: 'fo_key', why: "Failover anahtarı iki cihazda aynı olmalıdır; yoksa eşleşme kurulmaz ve her iki ASA da kendini <b>active</b> sanarak ağda IP/MAC çakışması yaratır. Anahtar ayrıca config senkronizasyonunu şifreler.", label: 'Failover Key', type: 'text', validate: 'asa_failover_key', required: true, placeholder: 'FoSecretKey123', hint: 'Failover iletişim şifreleme anahtarı' },
                         { name: 'fo_iface', why: "Failover link ayrı ve adanmış bir arayüz olmalı, veri trafiği ile paylaşılmamalıdır. Link koparsa split-brain oluşur ve her iki cihaz aynı anda aktif olur.", label: 'Failover Link Interface', type: 'text', validate: 'iface', required: true, placeholder: 'GigabitEthernet0/3', hint: 'Failover kontrolü için kullanılan interface' },
-                        { name: 'fo_iface_nameif', why: "Failover arayüzüne verilen ad yalnızca failover için kullanılır; bu arayüze ACL veya NAT bağlamayın. Ad iki cihazda tutarlı olmalıdır.", label: 'Failover Link Nameif', type: 'text', required: true, placeholder: 'failover', hint: 'Failover interface mantıksal adı' }
+                        { name: 'fo_iface_nameif', why: "Failover arayüzüne verilen ad yalnızca failover için kullanılır; bu arayüze ACL veya NAT bağlamayın. Ad iki cihazda tutarlı olmalıdır.", label: 'Failover Link Nameif', type: 'text', validate: 'nameif', required: true, placeholder: 'failover', hint: 'Failover interface mantıksal adı' }
                     ]
                 },
                 {
@@ -635,7 +635,7 @@ CiscoASA.aaaRadius = {
                     title: 'RADIUS Sunucu Grubu',
                     icon: 'fas fa-server',
                     fields: [
-                        { name: 'grp_name', why: "Server-group adı SSH, ASDM ve VPN satırlarının tamamında referans verilir; ad değişikliği bu satırların hepsini birden kırar ve kimlik doğrulama sessizce atlanabilir.", label: 'Server Group Adı', type: 'text', required: true, placeholder: 'RADIUS-SERVERS', hint: 'AAA server-group tanımı için isim' },
+                        { name: 'grp_name', why: "Server-group adı SSH, ASDM ve VPN satırlarının tamamında referans verilir; ad değişikliği bu satırların hepsini birden kırar ve kimlik doğrulama sessizce atlanabilir.", label: 'Server Group Adı', type: 'text', validate: 'asa_token', required: true, placeholder: 'RADIUS-SERVERS', hint: 'AAA server-group tanımı için isim' },
                         { name: 'rad_iface', why: "RADIUS trafiği bu arayüzden çıkar; yanlış arayüz seçilirse paketler sunucuya hiç ulaşmaz ve her giriş timeout’a düşer. Sunucu tarafında da ASA’nın bu arayüz IP’si NAS client olarak tanımlı olmalıdır.", label: 'Bağlantı Interface (Nameif)', type: 'text', validate: 'nameif', required: true, placeholder: 'inside', hint: 'RADIUS sunucusuna erişim interface' }
                     ]
                 },
@@ -644,7 +644,7 @@ CiscoASA.aaaRadius = {
                     icon: 'fas fa-star',
                     fields: [
                         { name: 'rad1_ip', why: "Birincil RADIUS sunucusu erişilemezse ASA sıradaki sunucuya geçer; tek sunucu tanımlıysa yönetim erişimi tamamen durur. Yerel fallback hesabı mutlaka bulunmalıdır.", label: 'Sunucu IP', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.100', hint: 'Birincil RADIUS sunucu IP adresi' },
-                        { name: 'rad1_key', why: "Yanlış secret’ta sunucu paketi <b>sessizce düşürür</b>; ASA bunu timeout olarak raporlar. Bu yüzden semptom ağ sorunu gibi görünür ama sebep anahtar uyuşmazlığıdır.", label: 'Shared Secret', type: 'text', required: true, placeholder: 'radius_secret_key', hint: 'ASA ve sunucu arasında paylaşılan gizli anahtar' },
+                        { name: 'rad1_key', why: "Yanlış secret’ta sunucu paketi <b>sessizce düşürür</b>; ASA bunu timeout olarak raporlar. Bu yüzden semptom ağ sorunu gibi görünür ama sebep anahtar uyuşmazlığıdır.", label: 'Shared Secret', type: 'text', validate: 'asa_radius_key', required: true, placeholder: 'radius_secret_key', hint: 'ASA ve sunucu arasında paylaşılan gizli anahtar' },
                         { name: 'rad1_auth_port', why: "Modern sunucular <b>1812</b> kullanır, ASA varsayılanı ise eski <b>1645</b>’tir. Portu açıkça yazmazsanız istekler yanlış porta gidip cevapsız kalır.", label: 'Auth Port', type: 'text', validate: 'port', optional: true, placeholder: '1812', hint: 'RADIUS authentication portu (default: 1645)' },
                         { name: 'rad1_acct_port', why: "Accounting portu varsayılan olarak 1646’dır, standart ise 1813’tür. Yanlış port oturum kayıtlarının hiç tutulmamasına yol açar; kimlik doğrulama çalışsa bile loglar boş kalır.", label: 'Accounting Port', type: 'text', validate: 'port', optional: true, placeholder: '1813', hint: 'RADIUS accounting portu (default: 1646)' }
                     ]
@@ -731,11 +731,11 @@ CiscoASA.ospf = {
                     title: 'OSPF Temel Ayarlar',
                     icon: 'fas fa-cog',
                     fields: [
-                        { name: 'pid', why: "Process ID yalnızca yereldir, komşuyla aynı olması gerekmez; ancak ASA’da aynı anda sınırlı sayıda OSPF süreci çalışabilir. Var olan bir ID’yi tekrar kullanmak mevcut yapılandırmayı değiştirir.", label: 'Process ID', type: 'text', required: true, placeholder: '1', hint: 'OSPF süreç numarası' },
+                        { name: 'pid', why: "Process ID yalnızca yereldir, komşuyla aynı olması gerekmez; ancak ASA’da aynı anda sınırlı sayıda OSPF süreci çalışabilir. Var olan bir ID’yi tekrar kullanmak mevcut yapılandırmayı değiştirir.", label: 'Process ID', type: 'text', validate: 'posint', required: true, placeholder: '1', hint: 'OSPF süreç numarası' },
                         { name: 'router_id', why: "Router-ID elle verilmezse ASA en yüksek arayüz IP’sini seçer; o arayüz kapandığında ID değişir ve <b>tüm komşuluklar sıfırlanır</b>. Sabit bir loopback/ID vermek bu kesintiyi önler.", label: 'Router ID', type: 'text', validate: 'ip', optional: true, placeholder: '1.1.1.1', hint: 'OSPF Router-ID (opsiyonel)' },
-                        { name: 'network', why: "ASA’da OSPF <code>network</code> satırı wildcard maske ile eşleşen arayüzlerde OSPF’i açar. Kapsamı geniş tutmak istemeden WAN arayüzünde de komşuluk kurmaya ve iç topolojinin dışarı sızmasına yol açar.", label: 'Network', type: 'text', required: true, placeholder: '192.168.1.0', hint: 'OSPF duyurulacak ağ' },
-                        { name: 'wildcard', why: "OSPF wildcard maskesi normal subnet maskesinin tersidir (255.255.255.0 → 0.0.0.255). Subnet maskesi yazmak komşuluk kurulmamasının klasik nedenidir.", label: 'Wildcard Mask', type: 'text', required: true, placeholder: '0.0.0.255', hint: 'Ters subnet maskesi' },
-                        { name: 'area', why: "Komşu arayüzler aynı area’da olmalıdır; area uyuşmazlığında hello paketleri gelir ama komşuluk <b>ExStart</b>’ta takılır. Backbone dışı area’lar area 0’a bağlanmak zorundadır.", label: 'Area', type: 'text', required: true, placeholder: '0', hint: 'OSPF area numarası' }
+                        { name: 'network', why: "ASA’da OSPF <code>network</code> satırı wildcard maske ile eşleşen arayüzlerde OSPF’i açar. Kapsamı geniş tutmak istemeden WAN arayüzünde de komşuluk kurmaya ve iç topolojinin dışarı sızmasına yol açar.", label: 'Network', type: 'text', validate: 'ip', required: true, placeholder: '192.168.1.0', hint: 'OSPF duyurulacak ağ' },
+                        { name: 'wildcard', why: "OSPF wildcard maskesi normal subnet maskesinin tersidir (255.255.255.0 → 0.0.0.255). Subnet maskesi yazmak komşuluk kurulmamasının klasik nedenidir.", label: 'Wildcard Mask', type: 'text', validate: 'wildcard', required: true, placeholder: '0.0.0.255', hint: 'Ters subnet maskesi' },
+                        { name: 'area', why: "Komşu arayüzler aynı area’da olmalıdır; area uyuşmazlığında hello paketleri gelir ama komşuluk <b>ExStart</b>’ta takılır. Backbone dışı area’lar area 0’a bağlanmak zorundadır.", label: 'Area', type: 'text', validate: 'ospf_area', required: true, placeholder: '0', hint: 'OSPF area numarası' }
                     ]
                 },
                 {
@@ -784,15 +784,15 @@ CiscoASA.anyconnect = {
                     title: 'WebVPN ve Image',
                     icon: 'fas fa-globe',
                     fields: [
-                        { name: 'outside', why: "WebVPN bu arayüzde <code>enable</code> edilmezse istemciler bağlanamaz. Aynı arayüzde ASDM için HTTPS dinliyorsa port çakışması yaşanır; ASDM portunu değiştirmek gerekir.", label: 'Outside Interface (Nameif)', type: 'text', required: true, placeholder: 'outside', hint: 'VPN bitiş interface nameif değeri' },
-                        { name: 'ac_image', why: "Paket dosyası gerçekten <code>disk0:</code> üzerinde olmalı ve dosya adı birebir eşleşmelidir; eksik veya yanlış adlı paket bağlantıyı istemci indirme aşamasında düşürür. İşletim sistemi başına ayrı paket gerekir.", label: 'AnyConnect Image Adı', type: 'text', required: true, placeholder: 'anyconnect-win-4.10.pkg', hint: 'disk0:/ sonrasındaki dosya adı' }
+                        { name: 'outside', why: "WebVPN bu arayüzde <code>enable</code> edilmezse istemciler bağlanamaz. Aynı arayüzde ASDM için HTTPS dinliyorsa port çakışması yaşanır; ASDM portunu değiştirmek gerekir.", label: 'Outside Interface (Nameif)', type: 'text', validate: 'nameif', required: true, placeholder: 'outside', hint: 'VPN bitiş interface nameif değeri' },
+                        { name: 'ac_image', why: "Paket dosyası gerçekten <code>disk0:</code> üzerinde olmalı ve dosya adı birebir eşleşmelidir; eksik veya yanlış adlı paket bağlantıyı istemci indirme aşamasında düşürür. İşletim sistemi başına ayrı paket gerekir.", label: 'AnyConnect Image Adı', type: 'text', validate: 'asa_token', required: true, placeholder: 'anyconnect-win-4.10.pkg', hint: 'disk0:/ sonrasındaki dosya adı' }
                     ]
                 },
                 {
                     title: 'IP Pool',
                     icon: 'fas fa-list-ol',
                     fields: [
-                        { name: 'pool_name', why: "Havuz adı group-policy ve tunnel-group içinde referans edilir; ad uyuşmazlığında kullanıcı doğrulanır ama <b>IP alamaz</b> ve bağlantı yarıda kalır.", label: 'Pool Adı', type: 'text', required: true, placeholder: 'VPN-POOL', hint: 'IP havuzu tanımı için isim' },
+                        { name: 'pool_name', why: "Havuz adı group-policy ve tunnel-group içinde referans edilir; ad uyuşmazlığında kullanıcı doğrulanır ama <b>IP alamaz</b> ve bağlantı yarıda kalır.", label: 'Pool Adı', type: 'text', validate: 'asa_name64', required: true, placeholder: 'VPN-POOL', hint: 'IP havuzu tanımı için isim' },
                         { name: 'pool_start', why: "Havuz aralığı iç ağ ile çakışmamalıdır; çakışırsa yönlendirme belirsizleşir ve VPN istemcileri iç kaynaklara ulaşamaz. Ayrıca bu subnet iç yönlendirmede ASA’ya işaret etmelidir.", label: 'Pool Başlangıç IP', type: 'text', validate: 'ip', required: true, placeholder: '10.128.0.1', hint: 'Havuz başlangıç adresi' },
                         { name: 'pool_end', why: "Havuz boyutu eşzamanlı kullanıcı sayısından küçükse fazladan kullanıcılar <b>adres yok</b> hatasıyla reddedilir. Büyüme payı bırakın.", label: 'Pool Bitiş IP', type: 'text', validate: 'ip', required: true, placeholder: '10.128.0.254', hint: 'Havuz bitiş adresi' },
                         { name: 'pool_mask', why: "Maske, havuzun bulunduğu mantıksal subnet ile tutarlı olmalıdır. Yanlış maske istemcinin iç ağa giden trafiğini yanlış yönlendirir.", label: 'Pool Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Havuz subnet maskesi' }
@@ -802,9 +802,9 @@ CiscoASA.anyconnect = {
                     title: 'Group Policy ve Tunnel Group',
                     icon: 'fas fa-users',
                     fields: [
-                        { name: 'gp_name', why: "Group-policy, DNS, split-tunnel ve protokol ayarlarını taşır; tunnel-group’a bağlanmazsa kullanıcılar <code>DfltGrpPolicy</code> ayarlarını alır ve beklediğiniz politika hiç uygulanmaz.", label: 'Group Policy Adı', type: 'text', required: true, placeholder: 'GP-REMOTE', hint: 'VPN grup politikası ismi' },
-                        { name: 'tg_name', why: "Tunnel-group (connection profile) adı, istemcinin seçtiği profile karşılık gelir. Yanlış profile düşen kullanıcı farklı bir havuz ve farklı yetkilerle bağlanabilir.", label: 'Tunnel Group Adı', type: 'text', required: true, placeholder: 'REMOTE-VPN', hint: 'Bağlantı profili ismi' },
-                        { name: 'tg_alias', why: "Alias yalnızca giriş ekranında görünen addır ama <code>tunnel-group-list enable</code> yapılmazsa kullanıcı listede hiçbir profil göremez ve varsayılana düşer.", label: 'Tunnel Group Alias', type: 'text', required: true, placeholder: 'Corporate VPN', hint: 'Login ekranında görünecek bağlantı adı' },
+                        { name: 'gp_name', why: "Group-policy, DNS, split-tunnel ve protokol ayarlarını taşır; tunnel-group’a bağlanmazsa kullanıcılar <code>DfltGrpPolicy</code> ayarlarını alır ve beklediğiniz politika hiç uygulanmaz.", label: 'Group Policy Adı', type: 'text', validate: 'asa_name64', required: true, placeholder: 'GP-REMOTE', hint: 'VPN grup politikası ismi' },
+                        { name: 'tg_name', why: "Tunnel-group (connection profile) adı, istemcinin seçtiği profile karşılık gelir. Yanlış profile düşen kullanıcı farklı bir havuz ve farklı yetkilerle bağlanabilir.", label: 'Tunnel Group Adı', type: 'text', validate: 'asa_token', required: true, placeholder: 'REMOTE-VPN', hint: 'Bağlantı profili ismi' },
+                        { name: 'tg_alias', why: "Alias yalnızca giriş ekranında görünen addır ama <code>tunnel-group-list enable</code> yapılmazsa kullanıcı listede hiçbir profil göremez ve varsayılana düşer.", label: 'Tunnel Group Alias', type: 'text', validate: 'asa_token', required: true, placeholder: 'Corporate-VPN', hint: 'Login ekranında görünecek bağlantı adı' },
                         { name: 'dns', why: "VPN istemcisine DNS verilmezse iç kaynaklara isimle erişilemez, yalnızca IP ile ulaşılır. Split-tunnel ile birlikte split-dns de ayarlanmazsa iç alan adları dış DNS’e sorulur.", label: 'DNS Server', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.53', hint: 'VPN bağlantısı için DNS sunucusu' },
                         { name: 'split_acl', why: "Boş bırakılırsa <b>full tunnel</b> uygulanır ve kullanıcının tüm internet trafiği ASA üzerinden geçer; bu, hem bant genişliği hem NAT/hairpin ayarı gerektirir. Split tunnel ise güvenlik denetimini azaltır.", label: 'Split Tunnel ACL Adı', type: 'text', optional: true, placeholder: 'SPLIT-ACL', hint: 'Boş bırakılırsa full tunnel' },
                         { name: 'split_net', why: "Split ACL’de yalnızca tünelden geçmesi istenen ağlar listelenmelidir; fazla geniş yazmak tüm trafiği tünele sokar, eksik yazmak bazı iç kaynakları erişilemez kılar.", label: 'Split Tunnel Network', type: 'text', optional: true, placeholder: '10.0.0.0 255.0.0.0', hint: 'Split ACL varsa tünel içi ağ' }
@@ -865,9 +865,9 @@ CiscoASA.objectgroup = {
                     icon: 'fas fa-network-wired',
                     showFor: ['network'],
                     fields: [
-                        { name: 'net_obj_name', why: "Object adları ACL ve NAT satırlarında kullanıldığında yapılandırma okunabilir hale gelir; ancak kullanılan bir nesneyi silmek ona bağlı tüm satırları da kaldırır.", label: 'Network Object Adı', type: 'text', required: true, placeholder: 'OBJ-WEB-SERVERS', hint: 'Tekil network nesnesi için isim' },
-                        { name: 'net_subnet', why: "Nesnenin subnet değeri değiştirildiğinde ona referans veren <b>tüm</b> ACL ve NAT kuralları anında etkilenir. Tek satırlık bir düzenleme beklenmedik erişim açabilir.", label: 'Subnet (IP + Mask)', type: 'text', required: true, placeholder: '10.1.2.0 255.255.255.0', hint: 'Nesne subnet değeri' },
-                        { name: 'net_grp_name', why: "Object-group kullanmak ACL satır sayısını azaltır ama ASA bunları arka planda tek tek genişletir; aşırı büyük gruplar kural sayısını ve bellek kullanımını hızla artırır.", label: 'Object Group Adı', type: 'text', required: true, placeholder: 'GRP-SERVERS', hint: 'Object group için isim' },
+                        { name: 'net_obj_name', why: "Object adları ACL ve NAT satırlarında kullanıldığında yapılandırma okunabilir hale gelir; ancak kullanılan bir nesneyi silmek ona bağlı tüm satırları da kaldırır.", label: 'Network Object Adı', type: 'text', validate: 'asa_objname', required: true, placeholder: 'OBJ-WEB-SERVERS', hint: 'Tekil network nesnesi için isim' },
+                        { name: 'net_subnet', why: "Nesnenin subnet değeri değiştirildiğinde ona referans veren <b>tüm</b> ACL ve NAT kuralları anında etkilenir. Tek satırlık bir düzenleme beklenmedik erişim açabilir.", label: 'Subnet (IP + Mask)', type: 'text', validate: 'ip_mask', required: true, placeholder: '10.1.2.0 255.255.255.0', hint: 'Nesne subnet değeri' },
+                        { name: 'net_grp_name', why: "Object-group kullanmak ACL satır sayısını azaltır ama ASA bunları arka planda tek tek genişletir; aşırı büyük gruplar kural sayısını ve bellek kullanımını hızla artırır.", label: 'Object Group Adı', type: 'text', validate: 'asa_objname', required: true, placeholder: 'GRP-SERVERS', hint: 'Object group için isim' },
                         { name: 'net_grp_desc', why: "Açıklama <code>show run object-group</code> çıktısında görünür ve grubun neden var olduğunu belgeler. Açıklamasız gruplar zamanla kimsenin silmeye cesaret edemediği ölü kurallara dönüşür.", label: 'Açıklama', type: 'text', optional: true, placeholder: 'Sunucu grubu', hint: 'Object group açıklaması' },
                         { name: 'net_extra', why: "Gruba eklenen her üye, o grubu kullanan tüm ACL satırlarına anında yansır. Yanlışlıkla geniş bir subnet eklemek tek hamlede istenmeyen erişim açabilir.", label: 'Ek Üye', type: 'text', optional: true, placeholder: 'host 10.1.2.50', hint: 'Gruba eklenecek ek eleman' }
                     ]
@@ -877,13 +877,13 @@ CiscoASA.objectgroup = {
                     icon: 'fas fa-plug',
                     showFor: ['service'],
                     fields: [
-                        { name: 'svc_grp_name', why: "Servis grubu, aynı port kümesini birden çok kuralda tekrar yazmayı önler. Gruptan bir port çıkarmak ise o portu kullanan tüm kuralları aynı anda etkiler.", label: 'Service Group Adı', type: 'text', required: true, placeholder: 'GRP-WEB-PORTS', hint: 'Port grubu için isim' },
+                        { name: 'svc_grp_name', why: "Servis grubu, aynı port kümesini birden çok kuralda tekrar yazmayı önler. Gruptan bir port çıkarmak ise o portu kullanan tüm kuralları aynı anda etkiler.", label: 'Service Group Adı', type: 'text', validate: 'asa_objname', required: true, placeholder: 'GRP-WEB-PORTS', hint: 'Port grubu için isim' },
                         { name: 'svc_proto', why: "TCP ve UDP için ayrı gruplar gerekir; tek grupta karıştırmak yerine <code>service-group tcp-udp</code> kullanılmalıdır. Yanlış protokol seçimi kuralın hiç eşleşmemesine yol açar.", label: 'Protokol', type: 'select', options: [
                             { value: 'tcp', label: 'TCP', selected: true },
                             { value: 'udp', label: 'UDP' },
                             { value: 'tcp-udp', label: 'TCP-UDP' }
                         ]},
-                        { name: 'svc_ports', why: "Portlar boşlukla ayrılır ve <code>www</code> gibi isimler kullanılabilir. Gereğinden fazla port eklemek saldırı yüzeyini sessizce genişletir; listeyi düzenli gözden geçirin.", label: 'Port Listesi', type: 'text', required: true, placeholder: 'www https 8080', hint: 'Boşlukla ayrılmış port adı/numaraları' }
+                        { name: 'svc_ports', why: "Portlar boşlukla ayrılır ve <code>www</code> gibi isimler kullanılabilir. Gereğinden fazla port eklemek saldırı yüzeyini sessizce genişletir; listeyi düzenli gözden geçirin.", label: 'Port Listesi', type: 'text', validate: 'asa_port_list', required: true, placeholder: 'www https 8080', hint: 'Boşlukla ayrılmış port adı/numaraları' }
                     ]
                 }
             ],
@@ -1037,10 +1037,10 @@ CiscoASA.ntpClock = {
                             { value: 'offset', label: 'Ad + UTC farkı (ASA 5500-X, ASAv)', selected: true },
                             { value: 'named', label: 'Bölge adı (Firepower / Secure Firewall donanımı)' }
                         ], hint: 'Cisco kılavuzu iki farklı sözdizimi tanımlar', why: "Firepower/Secure Firewall donanımında <code>clock timezone</code> yalnızca bölge adı alır (örn. Europe/Istanbul); ASA 5500-X ve ASAv'de ise kısaltma + saat farkı yazılır. Yanlış biçim komutun reddedilmesine yol açar." },
-                        { name: 'tz_abbr', label: 'Dilim Kısaltması', type: 'text', requiredIf: { field: 'tz_mode', in: ['offset'] }, placeholder: 'CET', hint: 'Loglarda görünecek kısaltma', why: "Kısaltma yalnızca görüntü amaçlıdır; asıl etkiyi saat farkı belirler. Yine de loglarda tutarlılık için gerçek dilim adını yazın." },
+                        { name: 'tz_abbr', label: 'Dilim Kısaltması', type: 'text', validate: 'asa_token', requiredIf: { field: 'tz_mode', in: ['offset'] }, placeholder: 'CET', hint: 'Loglarda görünecek kısaltma', why: "Kısaltma yalnızca görüntü amaçlıdır; asıl etkiyi saat farkı belirler. Yine de loglarda tutarlılık için gerçek dilim adını yazın." },
                         { name: 'tz_hours', label: 'UTC Farkı (saat)', type: 'text', min: -23, max: 23, requiredIf: { field: 'tz_mode', in: ['offset'] }, placeholder: '1', hint: 'Örn. Türkiye için 3 (TRT), UTC-5 için -5', why: "Yanlış fark tüm log zaman damgalarını kaydırır; saatler doğru görünse bile olay korelasyonu diğer cihazlarla tutmaz." },
                         { name: 'tz_minutes', label: 'UTC Farkı (dakika)', type: 'text', min: 0, max: 59, placeholder: '0', hint: 'Yalnızca yarım saatlik dilimlerde (örn. UTC+5:30)', why: "Çoğu dilim tam saattir; bu alan yalnızca Hindistan gibi kesirli farklarda gerekir." },
-                        { name: 'tz_region', label: 'Bölge Adı', type: 'text', requiredIf: { field: 'tz_mode', in: ['named'] }, placeholder: 'Europe/Istanbul', hint: 'Firepower donanımında kullanılan bölge adı', why: "Bölge adı yaz saati kurallarını da içerir; bu yüzden ayrıca <code>clock summer-time</code> gerekmez." },
+                        { name: 'tz_region', label: 'Bölge Adı', type: 'text', validate: 'asa_token', requiredIf: { field: 'tz_mode', in: ['named'] }, placeholder: 'Europe/Istanbul', hint: 'Firepower donanımında kullanılan bölge adı', why: "Bölge adı yaz saati kurallarını da içerir; bu yüzden ayrıca <code>clock summer-time</code> gerekmez." },
                         { name: 'dst_zone', label: 'Yaz Saati Kısaltması', type: 'text', placeholder: 'CEST', hint: 'Yalnızca UTC farkı biçiminde ve yaz saati uygulanan ülkelerde', why: "Türkiye 2016'dan beri yaz saati uygulamaz; gereksiz <code>clock summer-time</code> yılda iki kez saati 1 saat kaydırır." },
                         { name: 'dst_rule', label: 'Yaz Saati Kuralı', type: 'text', placeholder: 'last Sun Mar 2:00 last Sun Oct 3:00', hint: 'hafta gün ay ss:dd hafta gün ay ss:dd — boşsa ABD kuralı uygulanır', why: "Kural yazılmazsa ASA <code>recurring</code> için ABD tarihlerini kullanır; Avrupa'da saat birkaç hafta boyunca yanlış olur." }
                     ]
@@ -1068,7 +1068,7 @@ CiscoASA.ntpClock = {
                             { value: 'md5', label: 'MD5 (eski sürümler)' },
                             { value: 'cmac', label: 'CMAC' }
                         ], hint: 'Sunucu ile aynı algoritma', why: "SHA-256/512 ve CMAC yeni sürümlerde gelir; eski ASA sürümleri yalnızca MD5 destekler. Sürümünüzü <code>ntp authentication-key ?</code> ile kontrol edin." },
-                        { name: 'ntp_key', label: 'Anahtar', type: 'text', requiredIf: { field: 'ntp_auth', checked: true }, placeholder: 'NtpKey2026', hint: 'Sunucudaki anahtar değeri', why: "Anahtar yanlışsa hiçbir hata mesajı görmezsiniz; ASA sadece senkronize olmaz." }
+                        { name: 'ntp_key', label: 'Anahtar', type: 'text', validate: 'asa_ntp_key', requiredIf: { field: 'ntp_auth', checked: true }, placeholder: 'NtpKey2026', hint: 'Sunucudaki anahtar değeri', why: "Anahtar yanlışsa hiçbir hata mesajı görmezsiniz; ASA sadece senkronize olmaz." }
                     ]
                 }
             ],
@@ -1139,22 +1139,22 @@ CiscoASA.snmp = {
                     icon: 'fas fa-user-lock',
                     showFor: ['v3'],
                     fields: [
-                        { name: 'snmp_group', label: 'Grup Adı', type: 'text', required: true, placeholder: 'SNMP-V3-GRP', hint: 'priv seviyesinde grup', why: "Kullanıcı yalnızca bağlı olduğu grubun güvenlik seviyesiyle erişebilir; grup <code>priv</code> değilse şifreleme devreye girmez." },
-                        { name: 'snmp_user', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'snmpmon', hint: 'NMS tarafında aynı kullanıcı', why: "NMS'teki kullanıcı adı, algoritma ve parolalar birebir aynı olmalıdır; aksi halde sorgular sessizce reddedilir." },
+                        { name: 'snmp_group', label: 'Grup Adı', type: 'text', validate: 'asa_token', required: true, placeholder: 'SNMP-V3-GRP', hint: 'priv seviyesinde grup', why: "Kullanıcı yalnızca bağlı olduğu grubun güvenlik seviyesiyle erişebilir; grup <code>priv</code> değilse şifreleme devreye girmez." },
+                        { name: 'snmp_user', label: 'Kullanıcı Adı', type: 'text', validate: 'asa_snmp_user', required: true, placeholder: 'snmpmon', hint: 'NMS tarafında aynı kullanıcı', why: "NMS'teki kullanıcı adı, algoritma ve parolalar birebir aynı olmalıdır; aksi halde sorgular sessizce reddedilir." },
                         { name: 'snmp_auth', label: 'Kimlik Doğrulama Algoritması', type: 'select', options: [
                             { value: 'sha256', label: 'SHA-256', selected: true },
                             { value: 'sha384', label: 'SHA-384' },
                             { value: 'sha224', label: 'SHA-224' },
                             { value: 'sha', label: 'SHA-1 (eski NMS uyumu)' }
                         ], hint: '9.20\'de MD5 desteklenmez', why: "Eski ASA sürümleri yalnızca MD5/SHA destekler; SHA-2 ailesi yeni sürümlerde gelir. NMS de aynı algoritmayı desteklemelidir." },
-                        { name: 'snmp_auth_pw', label: 'Auth Parolası', type: 'text', required: true, placeholder: 'AuthPass2026', hint: 'En az 8 karakter', why: "Parola NMS ile birebir aynı olmalıdır; farklıysa ASA <i>authentication failure</i> sayar ve trap üretir." },
+                        { name: 'snmp_auth_pw', label: 'Auth Parolası', type: 'text', validate: 'asa_token', required: true, placeholder: 'AuthPass2026', hint: 'En az 8 karakter', why: "Parola NMS ile birebir aynı olmalıdır; farklıysa ASA <i>authentication failure</i> sayar ve trap üretir." },
                         { name: 'snmp_priv', label: 'Şifreleme', type: 'select', options: [
                             { value: 'aes 256', label: 'AES-256', selected: true },
                             { value: 'aes 192', label: 'AES-192' },
                             { value: 'aes 128', label: 'AES-128' },
                             { value: '3des', label: '3DES (eski)' }
                         ], hint: '9.20\'de DES desteklenmez', why: "AES-256 bazı eski NMS yazılımlarında desteklenmez; bağlantı kurulamazsa AES-128 deneyin." },
-                        { name: 'snmp_priv_pw', label: 'Priv Parolası', type: 'text', required: true, placeholder: 'PrivPass2026', hint: 'Auth parolasından farklı olmalı', why: "Aynı parolayı iki amaçla kullanmak, birinin sızmasıyla her iki korumayı da kaybettirir." }
+                        { name: 'snmp_priv_pw', label: 'Priv Parolası', type: 'text', validate: 'asa_token', required: true, placeholder: 'PrivPass2026', hint: 'Auth parolasından farklı olmalı', why: "Aynı parolayı iki amaçla kullanmak, birinin sızmasıyla her iki korumayı da kaybettirir." }
                     ]
                 },
                 {
@@ -1162,7 +1162,7 @@ CiscoASA.snmp = {
                     icon: 'fas fa-users',
                     showFor: ['v2c'],
                     fields: [
-                        { name: 'snmp_comm', label: 'Community String', type: 'text', required: true, placeholder: 'Ro-Str0ng-C0mm', hint: 'Tahmin edilemez bir değer', why: "v2c community ağda <b>düz metin</b> taşınır. <code>public</code> gibi varsayılanlar taramalarla anında bulunur; mümkünse v3 kullanın." }
+                        { name: 'snmp_comm', label: 'Community String', type: 'text', validate: 'asa_snmp_community', required: true, placeholder: 'Ro-Str0ng-C0mm', hint: 'Tahmin edilemez bir değer', why: "v2c community ağda <b>düz metin</b> taşınır. <code>public</code> gibi varsayılanlar taramalarla anında bulunur; mümkünse v3 kullanın." }
                     ]
                 }
             ],
@@ -1332,8 +1332,8 @@ CiscoASA.localUsers = {
                     title: 'Yönetici Kullanıcı',
                     icon: 'fas fa-user-tie',
                     fields: [
-                        { name: 'u1_name', label: 'Kullanıcı Adı', type: 'text', required: true, placeholder: 'netadmin', hint: 'Yerel yönetici hesabı', why: "AAA sunucusu erişilemediğinde cihaza girebilmenin tek yolu bu yerel hesaptır (LOCAL yedek). <code>admin</code> gibi tahmin edilebilir adlardan kaçının." },
-                        { name: 'u1_pw', label: 'Parola', type: 'text', required: true, placeholder: 'Str0ngPassw0rd2026', hint: '8-127 karakter; ASA parolayı PBKDF2 ile saklar', why: "Yerel hesap parolası, AAA'dan bağımsız 'son kapı' olduğu için güçlü ve kasada saklanmış olmalıdır." },
+                        { name: 'u1_name', label: 'Kullanıcı Adı', type: 'text', validate: 'asa_name64', required: true, placeholder: 'netadmin', hint: 'Yerel yönetici hesabı', why: "AAA sunucusu erişilemediğinde cihaza girebilmenin tek yolu bu yerel hesaptır (LOCAL yedek). <code>admin</code> gibi tahmin edilebilir adlardan kaçının." },
+                        { name: 'u1_pw', label: 'Parola', type: 'text', validate: 'asa_user_pw', required: true, placeholder: 'Str0ngPassw0rd2026', hint: '8-127 karakter; ASA parolayı PBKDF2 ile saklar', why: "Yerel hesap parolası, AAA'dan bağımsız 'son kapı' olduğu için güçlü ve kasada saklanmış olmalıdır." },
                         { name: 'u1_priv', label: 'Privilege Seviyesi', type: 'text', min: 0, max: 15, required: true, placeholder: '15', hint: '15 = tam yetki', why: "Seviye 15 tüm komutlara erişir. Komut yetkilendirmesi açıldığında seviyeler komut listesini doğrudan belirler." }
                     ]
                 },
@@ -1500,9 +1500,9 @@ CiscoASA.twiceNat = {
                     title: 'Kaynak ve Hedef Ağlar',
                     icon: 'fas fa-network-wired',
                     fields: [
-                        { name: 'tn_src_obj', label: 'Kaynak Object Adı', type: 'text', required: true, placeholder: 'LAN-NET', hint: 'object network adı', why: "Aynı adla bir object zaten varsa <code>subnet</code> satırı onu değiştirir ve ona bağlı tüm ACL/NAT kuralları etkilenir." },
+                        { name: 'tn_src_obj', label: 'Kaynak Object Adı', type: 'text', validate: 'asa_objname', required: true, placeholder: 'LAN-NET', hint: 'object network adı', why: "Aynı adla bir object zaten varsa <code>subnet</code> satırı onu değiştirir ve ona bağlı tüm ACL/NAT kuralları etkilenir." },
                         { name: 'tn_src_net', label: 'Kaynak Ağ (IP Maske)', type: 'text', validate: 'ip_mask', required: true, placeholder: '192.168.1.0 255.255.255.0', hint: 'Gerçek kaynak ağ', why: "Kapsam, crypto ACL'deki yerel ağ ile birebir aynı olmalıdır; aksi halde bazı hostlar NAT'lanıp tünele girmez." },
-                        { name: 'tn_dst_obj', label: 'Hedef Object Adı', type: 'text', required: true, placeholder: 'REMOTE-NET', hint: 'object network adı', why: "Hedef object, kuralın yalnızca bu hedefe giden trafikte çalışmasını sağlar; genel internet trafiği etkilenmez." },
+                        { name: 'tn_dst_obj', label: 'Hedef Object Adı', type: 'text', validate: 'asa_objname', required: true, placeholder: 'REMOTE-NET', hint: 'object network adı', why: "Hedef object, kuralın yalnızca bu hedefe giden trafikte çalışmasını sağlar; genel internet trafiği etkilenmez." },
                         { name: 'tn_dst_net', label: 'Hedef Ağ (IP Maske)', type: 'text', validate: 'ip_mask', required: true, placeholder: '10.64.0.0 255.255.0.0', hint: 'Karşı taraf ağı', why: "Karşı site ağı ile çakışan geniş bir maske, başka hedeflere giden trafiği de bu kurala sokar." }
                     ]
                 },
@@ -1519,7 +1519,7 @@ CiscoASA.twiceNat = {
                     icon: 'fas fa-arrows-alt-h',
                     showFor: ['static'],
                     fields: [
-                        { name: 'tn_map_obj', label: 'Çevrilmiş Object Adı', type: 'text', required: true, placeholder: 'LAN-NET-MAPPED', hint: 'Karşı tarafın göreceği adres bloğu', why: "Çakışan iç ağlarda (iki tarafta da 192.168.1.0/24) karşı tarafa benzersiz bir blok göstermek tek çözümdür." },
+                        { name: 'tn_map_obj', label: 'Çevrilmiş Object Adı', type: 'text', validate: 'asa_objname', required: true, placeholder: 'LAN-NET-MAPPED', hint: 'Karşı tarafın göreceği adres bloğu', why: "Çakışan iç ağlarda (iki tarafta da 192.168.1.0/24) karşı tarafa benzersiz bir blok göstermek tek çözümdür." },
                         { name: 'tn_map_net', label: 'Çevrilmiş Ağ (IP Maske)', type: 'text', validate: 'ip_mask', required: true, placeholder: '172.24.1.0 255.255.255.0', hint: 'Kaynak ağ ile aynı boyutta', why: "Statik NAT birebir eşleme yapar; çevrilmiş blok kaynak bloktan küçükse bazı hostlar çevrilemez." }
                     ]
                 }

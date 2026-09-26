@@ -61,7 +61,7 @@ Bu çalışma sonunda yerel envanter 114 araca ulaştı:
 | IOS | 38 | 45 | Interface, IPv4 Prefix-List, OSPF Interface, OSPFv3, BFD Template, BGP Address-Family, VRF Address-Family |
 | FTD | 14 | 14 | Henüz yeni bağımsız araç yok; mevcut alan denetimi bekliyor |
 | NX-OS | 28 | 44 | IPv4/IPv6 Prefix-List, BFD Global/Interface, OSPFv3, Route-Map, Model-Driven Telemetry, NX-API, BGP AF, BGP Neighbor AF, BGP Peer Template, IGMP, IGMP Snooping, PIM, UDLD, VRRP, VRRPv3, VTP (parti 3'ün yedisi kayıt bekliyor) |
-| ASA | 21 | 21 | Henüz yeni bağımsız araç yok; mevcut alan denetimi bekliyor |
+| ASA | 21 | 21 | Yeni araç yok; parti 4'te mevcut 21 aracın 57 zorunlu/koşullu alanına doğrulayıcı bağlandı |
 
 Tamamlanan altyapı:
 
@@ -145,6 +145,33 @@ NX-OS 10.4(x) Multicast Routing / Interfaces / Unicast Routing / Layer 2 CG.
 
 Kapsam dışı: PIM hello-authentication (gizli veri), VRRP track (belgede sınır yok).
 
+### 26 Eylül 2026 — Cisco parti 4 (ASA mevcut araç doğrulaması)
+
+Yeni araç yok; üretilen CLI değişmedi. 21 ASA aracındaki doğrulayıcısız zorunlu ve
+koşullu-zorunlu 57 metin alanı doğrulayıcıya bağlandı. Kaynak: `cisco.asa` @c467f33
+argspec (`asa_acls` kaynak/hedef biçimleri, `asa_objects`/`asa_ogs` ad ve
+`port_object`, service protokol choices) + Cisco ASA 9.x CLI yapılandırma kılavuzları
+ve komut başvurusu.
+
+| Alan grubu | Doğrulayıcı | Cisco sınırı |
+|---|---|---|
+| nameif (arayüz, NAT, route, failover link, AnyConnect, service-policy) | `nameif` (mevcut) | en fazla 48 karakter |
+| security-level | min/max 0-100 | "integer between 0 and 100" |
+| object / object-group adları | `asa_objname` | 64 karakter; harf, rakam, `.!@#$%^&()-_{}` |
+| ACL adı / ACL kaynak-hedef | `asa_acl_name` / `asa_acl_addr` | 241 karakter; any/any4/any6, host, adres+maske, IPv6 önek, object, object-group, interface |
+| class-map / policy-map | `asa_mpf_name` | 40 karakter |
+| PSK / RADIUS key / failover key / NTP key | `asa_psk` / `asa_radius_key` / `asa_failover_key` / `asa_ntp_key` | 1-128 / 64 / 1-63 veya hex 32 / 32 |
+| group-policy, IP pool, username / parola | `asa_name64` / `asa_user_pw` | 64 / 64 yazdırılabilir ASCII |
+| SNMP kullanıcı / community | `asa_snmp_user` / `asa_snmp_community` | harfle başlar ≤32 / ≤32 |
+| LDAP base DN / service port listesi | `asa_ldap_dn` / `asa_port_list` | öznitelik=değer / port adı veya 0-65535 |
+| tunnel-group, group-alias, aaa-server grubu, image, SNMP grup ve parolaları, saat dilimi | `asa_token` | belgede sınır yok → yalnız tek sözcük |
+| OSPF pid / area / network; route network | `posint` / `ospf_area` / `ip` (mevcut) | "any positive integer" / 0-4294967295 |
+
+Tek placeholder düzeltmesi: `anyconnect.tg_alias` "Corporate VPN" → "Corporate-VPN"
+(Cisco: group-alias boşluk içeremez). Bulgu, dokunulmadı: ASA OSPF `network` komutu
+subnet maskesi ister; mevcut araç wildcard (`0.0.0.255`) yazıyor, bu yüzden alana
+yalnız `wildcard` (noktalı dörtlü) bağlandı. Test: `tests/cisco-asa-validation.test.js`.
+
 Kalan Config Generator işleri, öncelik sırasıyla:
 
 1. ~~IOS EVPN global/EVI/Ethernet ve VXLAN VTEP.~~ (parti 1; kayıt bekliyor)
@@ -155,8 +182,9 @@ Kalan Config Generator işleri, öncelik sırasıyla:
 4. ~~NX-OS IGMP/PIM, UDLD, VRRP, VTP~~ (parti 3; kayıt bekliyor) — FC/VSAN/zoning kaldı.
 5. NX-OS mevcut 28 başlıktaki doğrulayıcısız zorunlu alanları argspec ve Cisco
    ürün belgeleriyle kapatma.
-6. ASA `asa_acls`, `asa_objects` ve `asa_ogs` kapsamını mevcut araçlara aktarma;
-   interface/nameif/security-level ve koşullu NAT/VPN alanlarını doğrulama.
+6. ~~ASA mevcut araçlarında interface/nameif/security-level ve koşullu NAT/VPN
+   alanlarını doğrulama.~~ (parti 4; CGM yaması bekliyor) — `asa_objects`/`asa_ogs`
+   alt türleri için yeni bağımsız araçlar kaldı.
 7. FTD/FMC network/port object, physical/subinterface, DNS server group,
    access-rule seçenekleri, deployment ve device registration araçları.
 8. Her aile için boş, geçerli, geçersiz ve koşullu alan testlerini tamamlama;

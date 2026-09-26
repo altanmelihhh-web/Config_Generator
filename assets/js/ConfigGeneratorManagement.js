@@ -687,6 +687,119 @@ Object.assign(CG_RULES, {
     ios_iface_lines: 'Her satıra (veya virgülle) bir Cisco IOS arayüzü: GigabitEthernet0/0, Loopback0.',
 });
 
+// ─── Cisco ASA doğrulayıcıları (Cisco parti 4) ─────────────────────────────
+// Kaynak: ansible-collections/cisco.asa @c467f33 argspec (asa_acls kaynak/hedef
+// biçimleri, asa_objects/asa_ogs ad ve port alanları) + Cisco ASA 9.x CLI
+// yapılandırma kılavuzları ve komut başvurusu. Sınır belgede yoksa yalnız
+// "tek sözcük" (boşluk ve çift tırnak yok) kuralı uygulanır: üretilen CLI bu
+// değerleri tırnaksız tek argüman olarak yazar. Yalnız ASA araçları kullanır.
+function _asaTok(v, max) { const s = String(v).trim(); return s.length >= 1 && s.length <= max && !/[\s"]/.test(s); }
+function _asaTokWhy(t, max) {
+    if (!t) return '';
+    if (/\s/.test(t)) return 'boşluk içeremez; CLI\'de tek sözcük olarak yazılır';
+    if (t.indexOf('"') >= 0) return 'çift tırnak içeremez';
+    return t.length > max ? t.length + ' karakter girdiniz, en fazla ' + max : '';
+}
+const _ASA_OBJ_RE = /^[A-Za-z0-9.!@#$%^&()_{}-]{1,64}$/;
+function _asaObjWhy(t) {
+    if (!t || _ASA_OBJ_RE.test(t)) return '';
+    if (/\s/.test(t)) return 'ad boşluk içeremez';
+    if (t.length > 64) return t.length + ' karakter girdiniz, en fazla 64';
+    const c = t.replace(/[A-Za-z0-9.!@#$%^&()_{}-]/g, '');
+    return _cgQ(c.charAt(0)) + ' karakteri nesne adında kullanılamaz';
+}
+const _ASA_PORT_NAMES = ['aol','bgp','biff','bootpc','bootps','chargen','cifs','citrix-ica','cmd','ctiqbe','daytime','discard','dnsix',
+    'domain','echo','exec','finger','ftp','ftp-data','gopher','h323','hostname','http','https','ident','imap4','irc','isakmp','kerberos',
+    'klogin','kshell','ldap','ldaps','login','lotusnotes','lpd','mobile-ip','nameserver','netbios-dgm','netbios-ns','netbios-ssn','nfs',
+    'nntp','ntp','pcanywhere-data','pcanywhere-status','pim-auto-rp','pop2','pop3','pptp','radius','radius-acct','rip','rsh','rtsp',
+    'secureid-udp','sip','smtp','snmp','snmptrap','sqlnet','ssh','sunrpc','syslog','tacacs','talk','telnet','tftp','time','uucp','vxlan',
+    'who','whois','www','xdmcp'];
+function _asaPort(p) { return /^\d+$/.test(p) ? _cgInt(p, 0, 65535) : _ASA_PORT_NAMES.includes(p.toLowerCase()); }
+function _asaAclAddr(v) {
+    const p = String(v).trim().split(/\s+/);
+    if (p.length === 1) {
+        if (['any', 'any4', 'any6'].includes(p[0].toLowerCase())) return true;
+        const i = p[0].indexOf('/');
+        return i > 0 && _cgIpv6(p[0].slice(0, i)) && _cgInt(p[0].slice(i + 1), 0, 128);
+    }
+    if (p.length !== 2) return false;
+    const k = p[0].toLowerCase();
+    if (k === 'host') return _CG_IPRE.test(p[1]);
+    if (k === 'interface') return CG_VALIDATORS.nameif.re.test(p[1]);
+    if (k === 'object' || k === 'object-group') return _ASA_OBJ_RE.test(p[1]);
+    return _CG_IPRE.test(p[0]) && _CG_IPRE.test(p[1]);
+}
+function _asaAclAddrWhy(t) {
+    if (!t || _asaAclAddr(t)) return '';
+    const p = t.split(/\s+/), k = p[0].toLowerCase();
+    if (p.length > 2) return p.length + ' sözcük girdiniz; biçim tek anahtar sözcük veya iki parçadır';
+    if (p.length === 1) {
+        if (_CG_IPRE.test(p[0])) return 'maske eksik: "' + p[0] + ' 255.255.255.0" veya "host ' + p[0] + '" yazın';
+        if (p[0].indexOf('/') > 0) return /^[\d.]+\//.test(p[0]) ? 'IPv4 önek (/24) ASA ACL\'de yazılmaz; adres + maske kullanın' : _cgIpv6CidrWhy(p[0]);
+        return _cgQ(p[0]) + ' tanınmadı (any, any4, any6, host, object, object-group, interface)';
+    }
+    if (k === 'host') return _cgIpWhy(p[1]) || 'host yalnız IPv4 adresi alır';
+    if (k === 'interface') return CG_WHY.nameif(p[1]) || 'geçersiz nameif';
+    if (k === 'object' || k === 'object-group') return _asaObjWhy(p[1]);
+    return _cgIpWhy(p[0]) ? 'adres: ' + _cgIpWhy(p[0]) : _cgIpWhy(p[1]) ? 'maske: ' + _cgIpWhy(p[1]) : 'geçersiz adres/maske';
+}
+
+Object.assign(CG_VALIDATORS, {
+    asa_objname:       { re: _ASA_OBJ_RE, msg: 'ASA nesne adı girin: en fazla 64 karakter; harf, rakam ve . ! @ # $ % ^ & ( ) - _ { }' },
+    asa_acl_name:      { fn: v => _asaTok(v, 241), msg: 'ASA ACL adı girin: tek sözcük, en fazla 241 karakter' },
+    asa_acl_addr:      { fn: _asaAclAddr, msg: 'ASA ACL adresi girin: any/any4/any6, host 192.0.2.1, 192.0.2.0 255.255.255.0, 2001:db8::/32, object AD, object-group AD veya interface NAMEIF' },
+    asa_mpf_name:      { fn: v => _asaTok(v, 40), msg: 'class-map/policy-map adı: tek sözcük, en fazla 40 karakter' },
+    asa_psk:           { fn: v => _asaTok(v, 128), msg: 'IKEv1 pre-shared key: boşluksuz, 1-128 karakter' },
+    asa_radius_key:    { fn: v => _asaTok(v, 64), msg: 'RADIUS paylaşılan anahtarı: boşluksuz, en fazla 64 karakter' },
+    asa_failover_key:  { fn: v => /^hex [0-9a-fA-F]{32}$/.test(String(v).trim()) || _asaTok(v, 63), msg: 'Failover anahtarı: boşluksuz 1-63 karakter veya "hex" + 32 onaltılık hane' },
+    asa_name64:        { fn: v => _asaTok(v, 64), msg: 'Tek sözcük, en fazla 64 karakter girin' },
+    asa_token:         { fn: v => _asaTok(v, Infinity), msg: 'Boşluk ve çift tırnak içermeyen tek sözcük girin' },
+    asa_ldap_dn:       { re: /^[A-Za-z][A-Za-z0-9-]*=[^,=]+(,\s*[A-Za-z][A-Za-z0-9-]*=[^,=]+)*$/, msg: 'LDAP DN girin (örn: DC=example,DC=com)' },
+    asa_snmp_user:     { re: /^[A-Za-z][^\s"]{0,31}$/, msg: 'SNMP kullanıcı adı: harfle başlar, boşluksuz, en fazla 32 karakter' },
+    asa_snmp_community:{ fn: v => _asaTok(v, 32), msg: 'SNMP community: boşluksuz, en fazla 32 karakter' },
+    asa_user_pw:       { re: /^[\x21-\x7E]{1,64}$/, msg: 'Parola: boşluksuz yazdırılabilir ASCII, en fazla 64 karakter' },
+    asa_port_list:     { fn: v => { const p = String(v).trim().split(/\s+/).filter(Boolean); return p.length > 0 && p.every(_asaPort); },
+                         msg: 'Boşlukla ayrılmış port numaraları (0-65535) veya ASA port adları (www https domain …)' },
+    asa_ntp_key:       { fn: v => _asaTok(v, 32), msg: 'NTP anahtarı: boşluksuz, en fazla 32 karakter' },
+});
+Object.assign(CG_WHY, {
+    asa_objname:        _asaObjWhy,
+    asa_acl_name:       t => _asaTokWhy(t, 241),
+    asa_acl_addr:       _asaAclAddrWhy,
+    asa_mpf_name:       t => _asaTokWhy(t, 40),
+    asa_psk:            t => _asaTokWhy(t, 128),
+    asa_radius_key:     t => _asaTokWhy(t, 64),
+    asa_failover_key:   t => (/^hex\s/i.test(t) ? (/^hex [0-9a-fA-F]{32}$/.test(t) ? '' : 'hex anahtar tam 32 onaltılık hane (0-9, a-f) olmalı') : _asaTokWhy(t, 63)),
+    asa_name64:         t => _asaTokWhy(t, 64),
+    asa_token:          t => _asaTokWhy(t, Infinity),
+    asa_ldap_dn:        t => (!t || CG_VALIDATORS.asa_ldap_dn.re.test(t) ? '' : t.indexOf('=') < 0 ? 'öznitelik=değer biçimi yok (örn: DC=example)'
+                             : /,\s*,|,\s*$|^,/.test(t) ? 'boş DN bileşeni var' : 'her bileşen öznitelik=değer olmalı, virgülle ayrılır'),
+    asa_snmp_user:      t => (!t || CG_VALIDATORS.asa_snmp_user.re.test(t) ? '' : !/^[A-Za-z]/.test(t) ? 'ad harfle başlamalı' : _asaTokWhy(t, 32)),
+    asa_snmp_community: t => _asaTokWhy(t, 32),
+    asa_user_pw:        t => (!t || CG_VALIDATORS.asa_user_pw.re.test(t) ? '' : /\s/.test(t) ? 'parola boşluk içeremez; CLI\'de sözcüğü böler'
+                             : t.length > 64 ? t.length + ' karakter girdiniz, en fazla 64' : 'yalnızca yazdırılabilir ASCII karakterler kullanılır'),
+    asa_port_list:      t => { if (!t) return ''; const x = t.split(/\s+/).find(p => !_asaPort(p)); if (x === undefined) return '';
+                               return /^\d+$/.test(x) ? 'port ' + x + ' geçersiz (0-65535)' : /[,;]/.test(x) ? 'portları virgülle değil boşlukla ayırın' : _cgQ(x) + ' ASA port adı değil'; },
+    asa_ntp_key:        t => _asaTokWhy(t, 32),
+});
+Object.assign(CG_RULES, {
+    asa_objname:        'ASA object / object-group adı: en fazla 64 karakter; harf, rakam ve . ! @ # $ % ^ & ( ) - _ { }; büyük-küçük harf duyarlı, boşluk olmaz.',
+    asa_acl_name:       'ACL adı: tek sözcük (boşluk yok), en fazla 241 karakter. Büyük harf kullanmak running-config\'te bulmayı kolaylaştırır.',
+    asa_acl_addr:       'any, any4, any6; host 192.0.2.1; adres + maske (192.0.2.0 255.255.255.0); IPv6 önek (2001:db8::/32); object AD; object-group AD; interface NAMEIF. Wildcard ve IPv4 /önek yazılmaz.',
+    asa_mpf_name:       'class-map / policy-map adı: tek sözcük, en fazla 40 karakter.',
+    asa_psk:            'IKEv1 pre-shared key: 1–128 karakter, boşluk içermez; iki uçta birebir aynı olmalı.',
+    asa_radius_key:     'RADIUS paylaşılan anahtarı: en fazla 64 karakter, boşluk içermez, büyük-küçük harf duyarlı.',
+    asa_failover_key:   'Paylaşılan sır 1–63 karakter (harf, rakam, noktalama; boşluk yok) veya "hex" + 32 onaltılık hane.',
+    asa_name64:         'Tek sözcük (boşluk ve çift tırnak yok), en fazla 64 karakter.',
+    asa_token:          'Tek sözcük: boşluk ve çift tırnak içermez. Cisco belgesi ayrıca uzunluk sınırı vermez.',
+    asa_ldap_dn:        'LDAP DN: öznitelik=değer bileşenleri virgülle ayrılır. Örn: DC=example,DC=com veya OU=Users,DC=example,DC=com.',
+    asa_snmp_user:      'SNMP kullanıcı adı: harfle başlar, boşluk içermez, en fazla 32 karakter.',
+    asa_snmp_community: 'Community: büyük-küçük harf duyarlı, boşluk içermez, en fazla 32 karakter.',
+    asa_user_pw:        'Yazdırılabilir ASCII, en fazla 64 karakter; boşluk olmaz (CLI\'de sözcüğü böler).',
+    asa_port_list:      'Boşlukla ayrılmış port listesi: numara (0–65535) veya ASA port adı (www, https, domain, ssh, ntp …).',
+    asa_ntp_key:        'NTP kimlik doğrulama anahtarı: boşluk içermez, en fazla 32 karakter.',
+});
+
 // min/max tasiyan ama dogrulayicisi olmayan alanlar icin dinamik aralik
 // dogrulayicisi: 'range:1:4094'. Kural metni, hata mesaji ve sebebi otomatik.
 function cgRangeValidator(min, max) {
