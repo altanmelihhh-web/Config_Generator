@@ -8,7 +8,10 @@ const CgLab = {
     LEVELS: ['CLI temelleri', 'Temel yapılandırma', 'L2 anahtarlama', 'L3 / yönlendirme', 'Güvenlik ve servisler', 'Sorun giderme', 'Sınav tarzı'],
     VENDORS: {
         'cisco-ios': { name: 'Cisco IOS', look: 'IOS 15.x', engine: () => (typeof CgLabIos !== 'undefined' ? CgLabIos : null), files: ['assets/js/lab/core.js', 'assets/js/lab/ios.js', 'assets/data/labs/ios.js'] },
-        fortigate: { name: 'FortiGate', look: 'FortiOS 7.4', levels: ['CLI temelleri', 'Kurulum, yönetim ve servisler', 'Arayüzler, nesneler ve kurallar', 'Yönlendirme, NAT, log ve yedekleme', 'VPN, kimlik, profiller ve HA', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabFgt !== 'undefined' ? CgLabFgt : null), files: ['assets/js/lab/core.js', 'assets/js/lab/fortios.js', 'assets/data/labs/fortigate.js', 'assets/data/labs/fortigate-yol.js'] },
+        fortigate: { name: 'FortiGate', look: 'FortiOS 7.4', levels: ['Giriş: FortiOS CLI', 'Ağ temelleri', 'FortiGate temelleri', 'Güvenlik ve UTM', 'VPN ve ileri ağ', 'Yüksek erişilebilirlik ve kurumsal', 'FortiManager ve FortiAnalyzer', 'Sorun gidermede ustalık', 'Sınav tarzı'],
+            // 7 seviyeli müfredat: eski lab'ların level: sayıları dondurulmuş (içerik aynen); seviyeleri bu harita verir. Yeni lab'lar level: alanına doğrudan yeni numarayı yazar.
+            levelOf: { 'fgt-00': 0, 'fgt-20': 1, 'fgt-26': 1, 'fgt-01': 2, 'fgt-17': 2, 'fgt-09': 2, 'fgt-02': 2, 'fgt-13': 2, 'fgt-03': 2, 'fgt-04': 2, 'fgt-05': 2, 'fgt-06': 2, 'fgt-07': 2, 'fgt-08': 2, 'fgt-18': 2,
+                'fgt-10': 3, 'fgt-14': 3, 'fgt-11': 4, 'fgt-12': 4, 'fgt-25': 5, 'fgt-15': 7, 'fgt-16': 7, 'fgt-21': 7, 'fgt-22': 7, 'fgt-23': 7, 'fgt-24': 7, 'fgt-27': 7 }, engine: () => (typeof CgLabFgt !== 'undefined' ? CgLabFgt : null), files: ['assets/js/lab/core.js', 'assets/js/lab/fortios.js', 'assets/data/labs/fortigate.js', 'assets/data/labs/fortigate-yol.js'] },
         huawei: { name: 'Huawei VRP', look: 'VRP V200R (S5700 / AR)', levels: ['CLI temelleri (görünümler)', 'Kurulum ve yönetim erişimi', 'L2 temelleri ve yönetim sıkılaştırma', 'Servisler, L2 güvenlik ve yönlendirme', 'ACL ve yedeklilik', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabVrp !== 'undefined' ? CgLabVrp : null), files: ['assets/js/lab/core.js', 'assets/js/lab/vrp.js', 'assets/data/labs/huawei.js'] },
         dell: { name: 'Dell OS10', look: 'SmartFabric OS10 10.5', levels: ['CLI temelleri', 'Kurulum ve yönetim', 'L2 temelleri ve yönetim yüzeyi', 'Servisler, L2 güvenlik ve yönlendirme', 'ACL ve yedeklilik', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabOs10 !== 'undefined' ? CgLabOs10 : null), files: ['assets/js/lab/core.js', 'assets/js/lab/os10.js', 'assets/data/labs/dell.js'] },
         juniper: { name: 'Juniper Junos', look: 'Junos 23.4 (EX / MX)', levels: ['CLI temelleri', 'Temel sistem ve uzaktan yönetim', 'Arayüz, anahtarlama ve servisler', 'Güvenlik ve yönlendirme', 'Filtre ve yedeklilik', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabSetCli !== 'undefined' ? CgLabSetCli.junos : null), files: ['assets/js/lab/core.js', 'assets/js/lab/setcli.js', 'assets/data/labs/juniper.js'] },
@@ -16,7 +19,10 @@ const CgLab = {
         'f5-ltm': { name: 'F5 BIG-IP', look: 'TMOS 17.1 (BIG-IP VE)', levels: ['CLI temelleri (bash ve tmsh)', 'Kurulum ve yönetim erişimi', 'Trafik: virtual server, pool, monitor', 'Persistence, SNAT ve profiller', 'Operasyon: log, yedek, yükseltme ve HA', 'Sorun giderme', 'Sınav tarzı', 'iRule: programlanabilir trafik', 'iRule Arenası: bulmaca ve oyunlar', 'Advanced WAF (ASM)'], engine: () => (typeof CgLabTmsh !== 'undefined' ? CgLabTmsh : null), files: ['assets/js/lab/core.js', 'assets/js/lab/irule.js', 'assets/js/lab/asm.js', 'assets/js/lab/tmsh.js', 'assets/data/labs/f5.js'] },
         checkpoint: { name: 'Check Point', look: 'Gaia R81.20', levels: ['Gaia clish temelleri', 'Kurulum, arayüzler ve sağlık', 'Yönetim, log ve yedekleme', 'Politika, nesneler ve NAT', 'ClusterXL ve VPN', 'Sorun giderme', 'Sınav tarzı'], engine: () => (typeof CgLabGaia !== 'undefined' ? CgLabGaia : null), files: ['assets/js/lab/core.js', 'assets/js/lab/gaia-mgmt.js', 'assets/js/lab/gaia.js', 'assets/data/labs/checkpoint.js', 'assets/data/labs/checkpoint-yol.js'] },
     },
-    lvName(vendor, lv) { const v = this.VENDORS[vendor]; return ((v && v.levels) || this.LEVELS)[lv] || ''; },
+    // lab'ın görünen seviyesi: vendor levelOf haritası varsa oradan, yoksa lab.level
+    lv(l) { const v = l && this.VENDORS[l.vendor], m = v && v.levelOf; return m && l.id in m ? m[l.id] : l && l.level; },
+    // levelOf'lu vendor'da lab verilmezse ad boş döner (ham level eski numaradır; yanlış ad göstermektense hiç göstermemek)
+    lvName(vendor, lv, lab) { const v = this.VENDORS[vendor]; if (v && v.levelOf && !lab) return ''; return ((v && v.levels) || this.LEVELS)[lv] || ''; },
     KIND: { switch: 'Switch', router: 'Router', firewall: 'Firewall', adc: 'ADC / Yük dengeleyici' },
     _vf: 'all',
     KEY: 'cg-lab-v1',
@@ -78,7 +84,7 @@ const CgLab = {
         }).join('');
         const doneN = real.filter(l => this._st(l.id).tDone).length;
         const stars = real.reduce((a, l) => a + (this._st(l.id).stars || 0), 0);
-        const levels = [...new Set(real.map(l => l.level))].sort((a, b) => a - b);
+        const levels = [...new Set(real.map(l => this.lv(l)))].sort((a, b) => a - b);
         const card = l => {
             const st = this._st(l.id), done = !!st.tDone, started = st.log.length > 0;
             const pre = (l.pre || []).filter(p => !this._st(p).tDone);
@@ -107,8 +113,8 @@ const CgLab = {
             <div class="cg-chips cg-lab-vf">${vchips}</div>
             <div class="cg-lab-simnote"><i class="fas fa-info-circle"></i> Bu bir <b>eğitim simülatörüdür</b>; ${Object.values(this.VENDORS).map(v => v.name + ' (' + v.look + ')').join(', ')} davranışının bir alt kümesini taklit eder. Desteklenmeyen bir komut yazarsanız bunu açıkça söyler.</div>
             ${levels.map(lv => `<section class="cg-lab-level">
-                <h3><span class="cg-lab-lvn">Seviye ${lv}</span> ${cgEsc([...new Set(real.filter(l => l.level === lv).map(l => this.lvName(l.vendor, lv)))].join(' · '))}</h3>
-                <div class="cg-lab-cards">${real.filter(l => l.level === lv).map(card).join('')}</div>
+                <h3><span class="cg-lab-lvn">Seviye ${lv}</span> ${cgEsc([...new Set(real.filter(l => this.lv(l) === lv).map(l => this.lvName(l.vendor, lv, l)))].join(' · '))}</h3>
+                <div class="cg-lab-cards">${real.filter(l => this.lv(l) === lv).map(card).join('')}</div>
             </section>`).join('')}
             ${sandboxes.length ? `<section class="cg-lab-level"><h3><span class="cg-lab-lvn"><i class="fas fa-terminal"></i></span> Serbest terminal</h3>
                 <div class="cg-lab-cards">${sandboxes.map(l => `<a class="cg-lab-card" href="#/lab/${l.id}"><span class="cg-lab-card-top">${this._mark(l.vendor)}<span class="cg-lab-id">SANDBOX</span></span>
@@ -188,7 +194,7 @@ const CgLab = {
             if (!sec && e.i.trim()) this._hist.push(e.i);
         }
         this._hi = this._hist.length;
-        const lvl = lab.level === null || lab.level === undefined ? 'Serbest terminal' : 'Seviye ' + lab.level + ' · ' + this.lvName(lab.vendor, lab.level);
+        const lvl = lab.level === null || lab.level === undefined ? 'Serbest terminal' : 'Seviye ' + this.lv(lab) + ' · ' + this.lvName(lab.vendor, this.lv(lab), lab);
         this._root.innerHTML = `
         <div class="cg-home cg-lab cg-lab-run">
             <nav class="cg-ts-crumbs"><a href="#/lab"><i class="fas fa-flask"></i> Laboratuvar</a><i class="fas fa-chevron-right"></i><span>${cgEsc(lvl)}</span><i class="fas fa-chevron-right"></i><span>${cgEsc(lab.title)}</span></nav>
@@ -462,7 +468,7 @@ const CgLab = {
         const lab = this._lab, st = this._stt;
         const secs = st.t0 && st.tDone ? Math.max(1, Math.round((st.tDone - st.t0) / 1000)) : null;
         const hints = Object.values(st.hints || {}).reduce((a, b) => a + b, 0);
-        const real = (window.CG_LABS || []).filter(l => !l.sandbox && l.vendor === lab.vendor).sort((a, b) => a.level - b.level || a.id.localeCompare(b.id));
+        const real = (window.CG_LABS || []).filter(l => !l.sandbox && l.vendor === lab.vendor).sort((a, b) => this.lv(a) - this.lv(b) || a.id.localeCompare(b.id));
         const path = this._paths().find(p => p.all.includes(lab.id));
         const nextId = path ? path.all[path.all.indexOf(lab.id) + 1] : null;
         const next = nextId ? (window.CG_LABS || []).find(l => l.id === nextId) : real[real.findIndex(l => l.id === lab.id) + 1];

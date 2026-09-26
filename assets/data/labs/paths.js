@@ -45,6 +45,37 @@
         M(16, 'Yüksek erişilebilirlik (HA)', (d && d[16]) || 'Aktif-pasif küme, kontrollü failover ve sorun giderme.', ids[16]),
         M(17, 'Teşhis ve arıza', (d && d[17]) || 'debug flow, sniffer, performans, crashlog.', ids[17]),
     ];
+    // FortiGate 7 seviyeli müfredat (notes/fortigate-mufredat-seviyeleri.md): modül = seviyenin alt başlığı.
+    // Yalnız FortiGate yolları kullanır (FW() Palo Alto ve Check Point ile ortak kalır). d: modül açıklaması üzerine yazma (ör. 7.6 yolu).
+    // Planlanmış ama henüz yazılmamış lab kimlikleri (fgt-28…57) arayüzde gizlenir; yazıldıkları gün kendi modüllerinde görünür.
+    const FGT = (ids, d) => [
+        [1, 'Giriş: FortiOS CLI', 'config/edit/set/next/end akışı; get, show, execute ve diagnose fiilleri.'],
+        [2, 'Seviye 1 · Alt ağ ve yönlendirme temeli', 'Alt ağ hesabı, bağlı ve statik rotalar, en uzun önek eşleşmesi ve yönetsel mesafe.'],
+        [3, 'Seviye 1 · ICMP, TCP ve UDP davranışı', 'Sniffer ile echo request/reply, TCP el sıkışması, RST ve UDP; NAT\'ın pakete etkisi.'],
+        [4, 'Seviye 1 · Temel sorun giderme araçları', 'Sağlık turu, ping, ARP tablosu, telnet ile port testi ve kaynak adres seçimi.'],
+        [5, 'Seviye 2 · Arayüzler, yönetim erişimi ve kimlik', 'Arayüz ve allowaccess, yönetimi sıkılaştırma, RADIUS/LDAP ile yönetici doğrulama.'],
+        [6, 'Seviye 2 · Sistem servisleri', 'DNS, NTP ve DHCP sunucusu.'],
+        [7, 'Seviye 2 · VLAN ve zone', 'Tek porttan çok segment; arayüzleri kural için gruplamak.'],
+        [8, 'Seviye 2 · Adres ve servis nesneleri', 'Kuralların yapı taşları: adres, servis, gruplar.'],
+        [9, 'Seviye 2 · Politikalar ve kural sırası', 'İlk kural, kaynak NAT, örtük deny, gölgelenen kural ve move.'],
+        [10, 'Seviye 2 · Statik rota ve yedek hat', 'Mesafe/öncelik ve yük devri.'],
+        [11, 'Seviye 2 · NAT: IP havuzu, VIP ve central NAT', 'Sabit çıkış adresi, sunucu yayınlama ve merkezi SNAT tablosu.'],
+        [12, 'Seviye 2 · Yedekleme ve geri yükleme', 'TFTP yedeği, revizyon ve restore.'],
+        [13, 'Seviye 3 · Güvenlik duvarı politikaları: denetim ve log', 'Kural eşleşmesini sınamak (iprope lookup), örtük deny, engellenen trafiği loglamak.'],
+        [14, 'Seviye 3 · Güvenlik profilleri ve SSL denetimi', 'Antivirüs, web ve DNS filtre, uygulama kontrolü, IPS; certificate ve deep inspection.'],
+        [15, 'Seviye 3 · Loglama ve izleme', 'Trafik logu, syslog/SIEM, log okuma ve SNMP.'],
+        [16, 'Seviye 4 · Site-to-site IPsec', 'Route-based tünel kurulumu, faz 1 ve faz 2.'],
+        [17, 'Seviye 4 · SSL-VPN ve uzaktan erişim', 'Uzaktan erişim kurulumu, portal, havuz ve kural.'],
+        [18, 'Seviye 4 · SD-WAN, policy route ve dinamik yönlendirme', 'SD-WAN üyeleri ve Performance SLA, PBR, OSPF ve BGP.'],
+        [19, 'Seviye 5 · Yüksek erişilebilirlik (FGCP)', 'Aktif-pasif küme, kontrollü failover, split-brain.'],
+        [20, 'Seviye 5 · FortiLink, FortiAP ve VDOM', 'Güvenlik yapısına bağlı switch ve AP; sanal alanlar.'],
+        [21, 'Seviye 6 · FortiManager ve FortiAnalyzer', 'Merkezi yönetim bağlantısı (FGFM), revizyonlar ve FortiAnalyzer\'a log.'],
+        [22, 'Seviye 7 · debug flow, sniffer ve oturumlar', 'Paketin neden düştüğünü ve nerede kaybolduğunu kanıtla bulmak.'],
+        [23, 'Seviye 7 · Performans ve sistem kayıtları', 'CPU/bellek, süreçler, crashlog ve config-error-log.'],
+        [24, 'Seviye 7 · VPN tanılama', 'IPsec faz 1/faz 2 ve SSL-VPN bağlantı sorunları.'],
+        [25, 'Seviye 7 · HA tanılama', 'Küme neden sağlıksız: checksum, heartbeat, öncelik.'],
+        [26, 'Sınav: karma arıza kayıtları', 'Öğrendiklerinizi birden çok arızayı birleştiren senaryolarda sınayın.'],
+    ].map(([n, t, x]) => M(n, t, (d && d[n]) || x, ids[n]));
     // ADC (F5 BIG-IP) şablonu: F5-CAB blueprint sırasına yakın
     const ADC = ids => [
         M(1, 'bash ve tmsh temelleri', 'İki kabuk, list / show, save sys config.', ids[1]),
@@ -69,9 +100,11 @@
         { id: 'cisco-swrt', vendor: 'cisco-ios', title: 'Cisco Switch & Router: sıfırdan üretime', desc: 'Kurulumdan yedekliliğe, bir kampüs switch\'i ve şube router\'ını adım adım üretime hazırlayın.',
           modules: SWRT('cisco-ios', { 1: ['ios-00', 'ios-01', 'ios-02'], 2: ['ios-35a'], 3: ['ios-03'], 4: ['ios-35b'], 5: ['ios-35c'], 6: ['ios-31'], 7: ['ios-30'], 8: ['ios-10'], 9: ['ios-04'],
               10: ['ios-34'], 11: ['ios-11m'], 12: ['ios-14', 'ios-13'], 13: ['ios-16', 'ios-17', 'ios-18'], 14: ['ios-32', 'ios-33'], 15: ['ios-05'], 16: ['ios-15', 'ios-22'], 17: ['ios-40', 'ios-43', 'ios-47', 'ios-45', 'ios-46', 'ios-44'] }) },
-        { id: 'fortigate-fw', vendor: 'fortigate', title: 'FortiGate: sıfırdan üretime', desc: 'Yeni bir FortiGate\'i kurulumdan HA\'ya ve arıza teşhisine adım adım üretime hazırlayın.',
-          modules: FW({ 1: ['fgt-00', 'fgt-01'], 2: ['fgt-17'], 3: ['fgt-02'], 4: ['fgt-13'], 5: ['fgt-03'], 6: ['fgt-04', 'fgt-05'], 7: ['fgt-26'], 8: ['fgt-06'], 9: ['fgt-07', 'fgt-08'],
-              10: ['fgt-09'], 11: ['fgt-10'], 12: ['fgt-14', 'fgt-20'], 13: ['fgt-11', 'fgt-23'], 14: ['fgt-12', 'fgt-24'], 15: ['fgt-18'], 16: ['fgt-25', 'fgt-27'], 17: ['fgt-15', 'fgt-16', 'fgt-21', 'fgt-22'] }) },
+        { id: 'fortigate-fw', vendor: 'fortigate', title: 'FortiGate: sıfırdan üretime', desc: 'Yedi seviyede ağ temellerinden FortiGate temellerine, güvenlik profillerine, VPN\'e, HA\'ya ve sorun gidermede ustalığa adım adım ilerleyin.',
+          modules: FGT({ 1: ['fgt-00'], 2: ['fgt-40'], 3: ['fgt-41'], 4: ['fgt-20', 'fgt-26'], 5: ['fgt-01', 'fgt-17', 'fgt-09'], 6: ['fgt-02'], 7: ['fgt-13'], 8: ['fgt-03'], 9: ['fgt-04', 'fgt-05'],
+              10: ['fgt-06'], 11: ['fgt-07', 'fgt-08', 'fgt-42'], 12: ['fgt-18'], 13: ['fgt-58'], 14: ['fgt-10', 'fgt-43', 'fgt-44', 'fgt-45'], 15: ['fgt-14', 'fgt-46'],
+              16: ['fgt-11', 'fgt-31'], 17: ['fgt-12'], 18: ['fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-52', 'fgt-53'], 21: ['fgt-56', 'fgt-57'],
+              22: ['fgt-15', 'fgt-16', 'fgt-32'], 23: ['fgt-21', 'fgt-22'], 24: ['fgt-23', 'fgt-24'], 25: ['fgt-27'], 26: ['fgt-55'] }) },
         { id: 'paloalto-fw', vendor: 'paloalto', title: 'Palo Alto: sıfırdan üretime', desc: 'PAN-OS güvenlik duvarını kurulumdan güvenlik profillerine ve arıza teşhisine adım adım üretime hazırlayın.',
           modules: FW({ 1: ['pan-01'], 2: ['pan-07'], 3: ['pan-08'], 4: ['pan-02', 'pan-09'], 5: ['pan-03'], 6: ['pan-05'], 8: ['pan-14'], 9: ['pan-04'], 11: ['pan-10'], 12: ['pan-11'], 15: ['pan-12'], 16: ['pan-15'], 17: ['pan-06', 'pan-13'] },
               { 1: 'configure/set/commit akışı, arayüzler ve yönetim erişimi.', 2: 'Yönetim profili, izinli IP\'ler, güçlü şifreleme, giriş kilidi.', 15: 'Yapılandırma dışa aktarma, sürüm ve geri yükleme.' }) },
