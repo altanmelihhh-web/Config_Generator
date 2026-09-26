@@ -945,6 +945,8 @@
     {
         id: 'fgt-58', vendor: 'fortigate', level: 3, title: 'Kural denetimi: eşleşen kural, örtük deny ve engellenen trafiğin logu', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-05'],
         up: ['port1', 'port2'], hosts: ['203.0.113.1'],
+        // Log görevleri için akışlar: internetten WAN adresine RDP denemesi (hiçbir kurala uymaz → policy 0) ve LAN\'dan telnet
+        sim: { flows: [{ src: '198.51.100.7', dst: '203.0.113.2', dport: 3389, in: 'port1' }, { src: '10.64.10.20', dst: '198.51.100.80', dport: 23, in: 'port2' }] },
         start: BASE().concat(POL(['HTTP', 'HTTPS', 'DNS']), ['config firewall policy', 'edit 2', 'set name OLD-FTP', 'set srcintf port2', 'set dstintf port1', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action accept', 'set schedule always', 'set service FTP', 'set nat enable', 'end']),
         story: '<b>Denetim talebi:</b> "LAN\'dan internete hangi trafiğin hangi kuralla geçtiğini gösterin. FTP artık yasak; eski FTP kuralı kapatılsın ama silinmesin (değişiklik kaydı için). Engellenen bağlantılar da loglansın; şu an kimse neyin engellendiğini göremiyor." Trafik üretmeden kural eşleşmesini sınayın ve kural tablosunu düzenleyin.',
         lesson: L('FortiGate kuralları yukarıdan aşağı okur; kaynak arayüz, hedef arayüz, kaynak ve hedef adres, servis ve zamanlama eşleşen <b>ilk</b> kural uygulanır. Hiçbiri eşleşmezse en alttaki görünmez <b>örtük deny</b> (policy ID 0) paketi düşürür ve varsayılan olarak loglamaz. <code>diagnose firewall iprope lookup &lt;kaynak&gt; &lt;kaynak port&gt; &lt;hedef&gt; &lt;hedef port&gt; &lt;protokol&gt; &lt;giriş arayüzü&gt;</code> gerçek trafik beklemeden bir akışın hangi kurala düşeceğini söyler. <code>set status disable</code> kuralı silmeden devre dışı bırakır. Engellenen trafiği görmek için en alta <code>action deny</code> ve <code>logtraffic all</code> olan açık bir deny kuralı eklenir.',
@@ -983,9 +985,17 @@
             { t: 'LAN-DENY-LOG kuralını neden en üste değil en alta koyduk?', ask: { choices: [['first', 'İlk eşleşen kural uygulanır; en üstte olsaydı izinli trafik dahil tüm LAN trafiğini keserdi'], ['perf', 'En altta daha hızlı çalışır'], ['log', 'Log yalnız en alttaki kuralda çalışır']], correct: 'first' },
               why: 'Kural tablosu yukarıdan aşağı değerlendirilir ve ilk eşleşmede durur. "Her şeyi reddet" kuralı, izin kurallarının altında kalmalıdır; üstte olursa onları gölgeler.',
               hints: ['Kuralların okunma sırası.', 'fgt-05: gölgelenen kural.'] },
+            { t: 'LAN-DENY-LOG yalnız LAN → WAN trafiğini kapsar. İnternetten WAN adresine gelen engellenen denemeleri de görmek için <b>örtük deny logunu</b> açın ve trafik logunda <code>policyid 0</code> satırlarını görüntüleyin.',
+              why: 'Hiçbir kurala uymayan trafik örtük deny (policy 0) ile düşer ve varsayılan olarak loglanmaz. <code>config log setting</code> → <code>set fwpolicy-implicit-log enable</code> bu düşüşleri trafik loguna yazar; <code>execute log filter field policyid 0</code> yalnız onları gösterir.',
+              hints: ['config log setting → set fwpolicy-implicit-log enable → end; sonra execute log filter …', '<code>execute log filter category 0</code> → <code>execute log filter field policyid 0</code> → <code>execute log display</code>'],
+              steps: ['config log setting', 'set fwpolicy-implicit-log enable', 'end', 'execute log filter category 0', 'execute log filter field policyid 0', 'execute log display'],
+              check: s => s.obj('log setting')['fwpolicy-implicit-log'] === 'enable' && s.ev.list().some(e => e.logshown && e.logshown.cat === 'traffic' && (e.logshown.fields || []).includes('policyid') && e.logshown.n > 0) },
+            { t: 'Açık deny kuralıyla (LAN-DENY-LOG) örtük deny logu arasındaki fark ne?', ask: { choices: [['scope', 'Açık kural yalnız eşleştiği trafiği kendi kimliğiyle loglar; örtük deny logu hiçbir kurala uymayan tüm trafiği policyid=0 ile loglar, log hacmi artabilir'], ['same', 'Aynı şeydir'], ['nolog', 'Örtük deny logu yalnız izin verilen trafiği loglar']], correct: 'scope' },
+              why: 'Açık kural kapsamı ve logu kural bazında denetler (hangi arayüz çifti, hangi adresler). Örtük deny logu cihaz geneli bir anahtardır: internetten gelen tarama trafiği de dahil her eşleşmeyen paket loglanır; disk ve SIEM kapasitesi buna göre planlanır.',
+              hints: ['Kapsam: bir kural mı, eşleşmeyen her şey mi?', 'policyid değeri.'] },
         ],
         verify: ['diagnose firewall iprope lookup 10.64.10.20 50000 198.51.100.80 21 tcp port2', 'show firewall policy'],
-        learn: ['iprope lookup: trafik beklemeden kural eşleşmesi.', 'Policy 0 = örtük deny; varsayılan olarak loglanmaz.', 'status disable: sil değil, kapat.', 'En altta deny + logtraffic all = engellenen trafiğin izi.', 'Değişiklikten sonra aynı lookup ile doğrula.'],
+        learn: ['iprope lookup: trafik beklemeden kural eşleşmesi.', 'Policy 0 = örtük deny; varsayılan olarak loglanmaz.', 'status disable: sil değil, kapat.', 'En altta deny + logtraffic all = engellenen trafiğin izi.', 'Değişiklikten sonra aynı lookup ile doğrula.', 'fwpolicy-implicit-log enable: eşleşmeyen tüm trafik policyid=0 ile loglanır.'],
         links: { tool: '#/fortigate/policy', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/114' }, cert: 'NSE 4 · M2'
     },
     // ═══ Müfredat Seviye 5: HA tasarımı (fgt-51), VDOM / FortiLink / FortiAP kavramları (fgt-60) · Seviye 6: FMG/FAZ hazırlığı (fgt-59) ═══
@@ -1136,27 +1146,35 @@
     },
     // ═══ Müfredat Seviye 8: sınav (fgt-55) — her turda iki arıza, farklı katmanlardan ═══
     (() => {
-        const FLOW = { src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'port2' };
+        const FLOW = { src: '10.64.10.50', dst: '198.51.100.80', dport: 443, in: 'port2', host: 'www.example.com' };
         const BREAK = { route: ['config router static', 'edit 1', 'set status disable', 'end'], nat: ['config firewall policy', 'edit 1', 'set nat disable', 'end'],
             svc: ['config firewall policy', 'edit 1', 'set service HTTP DNS', 'end'], down: ['config system interface', 'edit port2', 'set status down', 'end'],
+            // utm: bakımda test için eklenen joker URL kaydı tüm example.com alan adlarını engelliyor (certificate-inspection SNI\'yi görür)
+            utm: ['config webfilter urlfilter', 'edit 1', 'set name BAKIM-TEST', 'config entries', 'edit 1', 'set url *.example.com', 'set type wildcard', 'set action block', 'next', 'end', 'next', 'end',
+                'config webfilter profile', 'edit WF-BAKIM', 'config web', 'set urlfilter-table 1', 'end', 'next', 'end',
+                'config firewall policy', 'edit 1', 'set utm-status enable', 'set webfilter-profile WF-BAKIM', 'set ssl-ssh-profile certificate-inspection', 'end'],
             order: ['config firewall policy', 'edit 2', 'set name TMP-BLOCK', 'set srcintf port2', 'set dstintf port1', 'set srcaddr LAN-NET', 'set dstaddr all', 'set action deny', 'set schedule always', 'set service ALL', 'end', 'config firewall policy', 'move 2 before 1', 'end'] };
         const FIX = { route: ['config router static', 'edit 1', 'set status enable', 'end'], nat: ['config firewall policy', 'edit 1', 'set nat enable', 'end'],
             svc: ['config firewall policy', 'edit 1', 'append service HTTPS', 'end'], down: ['config system interface', 'edit port2', 'set status up', 'end'],
+            utm: ['config webfilter urlfilter', 'edit 1', 'config entries', 'edit 1', 'set status disable', 'next', 'end', 'next', 'end'],
             order: ['config firewall policy', 'move 1 before 2', 'end'] };
         const OK = { route: s => !!def0(s.rib()) && def0(s.rib()).gw === '203.0.113.1', nat: s => s.obj('firewall policy', '1').nat === 'enable',
-            svc: s => (s.obj('firewall policy', '1').service || []).some(x => x === 'HTTPS' || x === 'ALL'), down: s => s.obj('system interface', 'port2').status === 'up',
+            svc: s => (s.obj('firewall policy', '1').service || []).some(x => x === 'HTTPS' || x === 'ALL'), utm: s => { const p = s.obj('firewall policy', '1'); if (p['utm-status'] !== 'enable' || p['webfilter-profile'] !== 'WF-BAKIM') return true; const c = s.subObj('webfilter urlfilter', '1', 'entries'), e = c && c.v['1']; return !e || e.status === 'disable' || e.action !== 'block'; }, down: s => s.obj('system interface', 'port2').status === 'up',
             order: s => { const o = s.order('firewall policy'), t = pol(s, 'TMP-BLOCK'), k = s.keys('firewall policy').find(x => s.obj('firewall policy', x).name === 'TMP-BLOCK'); return !t || t.status === 'disable' || o.indexOf('1') < o.indexOf(k); } };
-        const CH = [['down', 'LAN arayüzü (port2) kapalı: paket FortiGate\'e hiç girmiyor'], ['route', 'Varsayılan rota yok ya da pasif: hedefe rota bulunamıyor'], ['order', 'Üstteki bir deny kuralı önce eşleşiyor'], ['svc', 'Kuralın servis listesinde HTTPS yok: örtük deny (policy 0)'], ['nat', 'Kural eşleşiyor ama kaynak NAT kapalı: özel adres internete çıkıyor']];
-        const HOW = 'Tanılama sırası paketin yolunu izler: arayüz (paket giriyor mu) → rota → kural → NAT. debug flow\'da "find a route" satırı yoksa rota, "Denied by forward policy check (policy N)" kural, "Allowed by Policy-1" var ama SNAT yoksa NAT sorunudur; hiç satır yoksa paket FortiGate\'e girmiyordur.';
-        const V = (key, a, b, c) => ({ key, a, b, c, start: BREAK[a].concat(BREAK[b], c ? BREAK[c] : []) });   // c: zor turda üçüncü arıza
+        const CH = [['down', 'LAN arayüzü (port2) kapalı: paket FortiGate\'e hiç girmiyor'], ['route', 'Varsayılan rota yok ya da pasif: hedefe rota bulunamıyor'], ['order', 'Üstteki bir deny kuralı önce eşleşiyor'], ['svc', 'Kuralın servis listesinde HTTPS yok: örtük deny (policy 0)'], ['nat', 'Kural eşleşiyor ama kaynak NAT kapalı: özel adres internete çıkıyor'], ['utm', 'Kural ve NAT sağlam ama güvenlik profili (web filtre) engelliyor']];
+        const HOW = 'Tanılama sırası paketin yolunu izler: arayüz (paket giriyor mu) → rota → kural → NAT. debug flow\'da "find a route" satırı yoksa rota, "Denied by forward policy check (policy N)" kural, "Allowed by Policy-1" var ama SNAT yoksa NAT sorunudur; hiç satır yoksa paket FortiGate\'e girmiyordur. Kural ve NAT sağlam görünüp sayfa yine açılmıyorsa güvenlik profiline bakılır: web filtre logu (execute log filter category 3 → execute log display). Cihaz çoklu VDOM kipindeyse (get system status) tüm tanılama ve düzeltmeler config vdom → edit root içinde yapılır.';
+        const V = (key, a, b, c, vd) => ({ key, a, b, c, vd, start: BREAK[a].concat(BREAK[b], c ? BREAK[c] : [], vd ? ['config system global', 'set vdom-mode multi-vdom', 'end'] : []) });   // c: zor turda üçüncü arıza; vd: cihaz çoklu VDOM kipinde
+        const IN = (v, cmds) => v.vd ? ['config vdom', 'edit root'].concat(cmds, ['next', 'end']) : cmds;   // çoklu VDOM kipinde komutlar root VDOM bağlamında
+        const TRACE = v => ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable'];
+        const LOOK = (v, k) => k === 'utm' ? ['execute log filter category 3', 'execute log display'] : TRACE(v);
         const lastCfg = s => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (L[i].canon && /^(set |append |move |unset )/.test(L[i].canon)) return i; return -1; };
         return {
             id: 'fgt-55', vendor: 'fortigate', level: 8, title: 'Sınav: karma arıza kaydı — LAN internete çıkamıyor', minutes: 30, timed: 1200, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-15', 'fgt-58'],
             up: ['port1', 'port2'], hosts: ['203.0.113.1'],
             start: BASE().concat(POL(['HTTP', 'HTTPS', 'DNS'])),
             sim: { flows: [FLOW] },
-            variants: [V('route-nat', 'route', 'nat'), V('order-svc', 'order', 'svc'), V('down-svc', 'down', 'svc'), V('route-order', 'route', 'order'), V('zor-down-route-nat', 'down', 'route', 'nat')],
-            story: '<b>Arıza kaydı (öncelik: yüksek):</b> "Gece yapılan bakımdan sonra LAN\'daki kullanıcılar internete çıkamıyor. Örnek: 10.64.10.50, 198.51.100.80:443." Bakımda <b>en az iki ayrı</b> hata yapılmış (zor turda üç); hangileri olduğunu bilmiyorsunuz. Beklenen durum: LAN-TO-WAN kuralı (port2 → port1) HTTP, HTTPS ve DNS\'e izin verir ve kaynak NAT yapar; varsayılan rota 203.0.113.1. Kanıtla bulun, yalnız bozulan ayarları düzeltin ve düzeltmeyi kanıtla doğrulayın. <small>Hedef süre 20 dk. Her turda farklı arızalar — "Yeni tur".</small>',
+            variants: [V('route-nat', 'route', 'nat'), V('order-svc', 'order', 'svc'), V('down-svc', 'down', 'svc'), V('route-order', 'route', 'order'), V('zor-down-route-nat', 'down', 'route', 'nat'), V('zor-vdom-route-utm', 'route', 'utm', null, true)],
+            story: '<b>Arıza kaydı (öncelik: yüksek):</b> "Gece yapılan bakımdan sonra LAN\'daki kullanıcılar internete çıkamıyor. Örnek: 10.64.10.50, 198.51.100.80:443." Bakımda <b>en az iki ayrı</b> hata yapılmış (zor turda üç); hangileri olduğunu bilmiyorsunuz. Bakım sırasında cihazın VDOM kipi de değişmiş olabilir: önce <code>get system status</code>. Beklenen durum: LAN-TO-WAN kuralı (port2 → port1) HTTP, HTTPS ve DNS\'e izin verir ve kaynak NAT yapar; varsayılan rota 203.0.113.1. Kanıtla bulun, yalnız bozulan ayarları düzeltin ve düzeltmeyi kanıtla doğrulayın. <small>Hedef süre 20 dk. Her turda farklı arızalar — "Yeni tur".</small>',
             lesson: L('Sınav labı yeni bir konu öğretmez; önceki seviyelerin araçlarını birlikte kullandırır: <code>show</code> ile yapılandırma, <code>get router info routing-table all</code> ile rota, <code>diagnose debug flow</code> ve <code>diagnose firewall iprope lookup</code> ile kural kararı, <code>diagnose sniffer packet</code> ile paketin yolu. ' + HOW,
                 'Gerçek arıza kayıtlarında çoğu zaman tek bir neden yoktur: ilk hatayı düzelttiğinizde ikincisi ortaya çıkar. Her düzeltmeden sonra aynı testi yeniden yapmak, "düzelttim" ile "çalışıyor" arasındaki farkı kapatır.',
                 'diagnose debug reset\ndiagnose debug flow filter addr 10.64.10.50\ndiagnose debug flow trace start 5\ndiagnose debug enable\n# çıktıyı okuyun, sonra:\ndiagnose debug disable\ndiagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2\nget router info routing-table all\nshow firewall policy',
@@ -1165,29 +1183,29 @@
             tasks: [
                 { t: 'Sorunlu akışı bir tanılama aracıyla sınayın. <b>İlk</b> arıza hangisi?', ask: { choices: CH, correct: v => v.a },
                   why: HOW, hints: ['debug flow ya da iprope lookup ile başlayın; sonuç yoksa arayüz ve rota tablosuna bakın.', '<code>diagnose debug flow trace start 5</code> → <code>diagnose debug enable</code>; <code>show system interface port2</code>; <code>get router info routing-table all</code>'],
-                  steps: v => ['diagnose debug reset', 'diagnose debug flow filter addr 10.64.10.50', 'diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable', { answer: 0, v: v.a }] },
+                  steps: v => IN(v, LOOK(v, v.a)).concat([{ answer: 0, v: v.a }]) },
                 { t: 'İlk arızayı düzeltin: yalnız bozulan ayar.',
                   why: 'Arızaya karşılık gelen tek değişiklik: arayüzü açmak, rotayı etkinleştirmek, kuralı taşımak, servisi eklemek ya da NAT\'ı açmak. Kuralı genişletmek (ALL, any) arızayı gizler.',
                   hints: ['Bulduğunuz nedene karşılık gelen tek ayar.', 'down → set status up · route → set status enable (router static 1) · order → move 1 before 2 · svc → append service HTTPS · nat → set nat enable'],
-                  steps: v => FIX[v.a], check: s => OK[s.variant().a](s) },
+                  steps: v => IN(v, FIX[v.a]), check: s => OK[s.variant().a](s) },
                 { t: 'Testi tekrarlayın. <b>İkinci</b> arıza hangisi?', ask: { choices: CH, correct: v => v.b },
                   why: 'İlk engel kalkınca paket bir sonraki aşamaya ilerler ve orada takılır. Aynı test yeniden yapılmadan ikinci arıza görünmez.',
                   hints: ['Aynı debug flow ya da lookup.', 'Bu kez paket hangi aşamaya kadar ilerliyor?'],
-                  steps: v => ['diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable', { answer: 2, v: v.b }], needs: [1] },
+                  steps: v => IN(v, LOOK(v, v.b)).concat([{ answer: 2, v: v.b }]), needs: [1] },
                 { t: 'İkinci arızayı düzeltin.',
                   why: 'Yine yalnız bozulan ayar. Düzeltmelerin sonunda akış LAN-TO-WAN\'dan geçmeli ve WAN adresine (203.0.113.2) çevrilmeli.',
                   hints: ['İkinci nedene karşılık gelen tek ayar.', 'Aynı eşleme: down / route / order / svc / nat'],
-                  steps: v => FIX[v.b], check: s => OK[s.variant().b](s) },
+                  steps: v => IN(v, FIX[v.b]), check: s => OK[s.variant().b](s) },
                 { t: 'Testi yeniden yapın. Başka arıza kaldı mı?', ask: { choices: CH.concat([['none', 'Kalmadı: akış kural 1\'den geçiyor ve NAT yapılıyor']]), correct: v => v.c || 'none' },
                   why: 'İki düzeltmeden sonra da test tekrarlanır: gerçek kayıtlarda arıza sayısı önceden bilinmez. "Allowed by Policy-1" ve SNAT satırı görünüyorsa arıza kalmamıştır.',
                   hints: ['Aynı debug flow ya da lookup.', 'Paket bu kez nereye kadar ilerliyor; SNAT satırı var mı?'],
-                  steps: v => ['diagnose debug flow trace start 5', 'diagnose debug enable', 'diagnose debug disable', { answer: 4, v: v.c || 'none' }], needs: [1, 3] },
+                  steps: v => IN(v, LOOK(v, v.c)).concat([{ answer: 4, v: v.c || 'none' }]), needs: [1, 3] },
                 { t: 'Kalan arıza varsa düzeltin; sonra düzeltmeyi kanıtlayın: son değişiklikten sonra akışı <code>iprope lookup</code> ile yeniden sınayın, LAN-TO-WAN (kural 1) eşleşmeli.',
                   why: 'Kayıt kanıtla kapanır: son değişiklikten sonra alınmış bir test çıktısı. Kural 1 eşleşiyor ve kural NAT yapıyorsa kullanıcı trafiği geçer.',
                   hints: ['Varsa kalan arızanın tek ayarı; ardından diagnose firewall iprope lookup <kaynak> <kaynak port> <hedef> <hedef port> <protokol> <arayüz>', '<code>diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2</code>'],
-                  steps: v => (v.c ? FIX[v.c] : []).concat(['diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2']), needs: [1, 3],
-                  check: s => { const d = s.decide(FLOW), i = lastCfg(s); return d.stage === 'allowed' && d.snat === '203.0.113.2' && s.ev.list().slice(i + 1).some(e => e.lookup === '1'); },
-                  fb: s => { const d = s.decide(FLOW); return d.stage !== 'allowed' ? 'Akış hâlâ geçmiyor: testi tekrarlayıp kalan arızayı bulun.' : d.snat !== '203.0.113.2' ? 'Akış geçiyor ama kaynak NAT yok.' : null; } },
+                  steps: v => IN(v, (v.c ? FIX[v.c] : []).concat(['diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2'])), needs: [1, 3],
+                  check: s => { const d = s.decide(FLOW), i = lastCfg(s); return d.stage === 'allowed' && d.snat === '203.0.113.2' && !(d.utm || {}).blocked && s.ev.list().slice(i + 1).some(e => e.lookup === '1'); },
+                  fb: s => { const d = s.decide(FLOW); return d.stage !== 'allowed' ? 'Akış hâlâ geçmiyor: testi tekrarlayıp kalan arızayı bulun.' : d.snat !== '203.0.113.2' ? 'Akış geçiyor ama kaynak NAT yok.' : (d.utm || {}).blocked ? 'Akış geçiyor ama web filtre engelliyor.' : null; } },
             ],
             verify: ['diagnose firewall iprope lookup 10.64.10.50 50000 198.51.100.80 443 tcp port2', 'get router info routing-table all', 'show firewall policy', 'show system interface port2'],
             learn: ['Sıra: arayüz → rota → kural → NAT.', 'Her düzeltmeden sonra aynı testi tekrarlayın; sonraki arıza ancak böyle görünür.', 'Yalnız bozulan ayarı düzeltin; kuralı genişletmeyin.', 'Kaydı son değişiklikten sonra alınmış kanıtla kapatın.'],
@@ -1254,24 +1272,34 @@
         const BET = { src: '10.64.10.51', dst: '198.51.100.90', dport: 443, in: 'port2', host: 'bahis.example.com', cat: 11 };
         const DNS = { src: '10.64.10.52', dst: '198.51.100.53', proto: 'udp', dport: 53, in: 'port2', dns: 'www.kumar.example.com' };
         const ent = (s, p, k) => { const c = s.subObj(p, k, 'entries'); return c ? c.o.map(x => c.v[x]) : []; };
+        // Liste 1'de www.example.com/oyun/1 için ilk eşleşen etkin kayıt (motorun sırayla denetimini izler: simple yol öneki, wildcard ana bilgisayar)
+        const wild = (pat, str) => new RegExp('^' + String(pat).replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i').test(str);
+        const firstHit = s => ent(s, 'webfilter urlfilter', '1').find(e => (e.status || 'enable') === 'enable' && ((e.type || 'simple') === 'wildcard' ? wild(e.url, 'www.example.com') || wild(e.url, 'www.example.com/oyun/1') : ('www.example.com/oyun/1').startsWith(String(e.url).replace(/\/$/, ''))));
         return {
             id: 'fgt-43', vendor: 'fortigate', level: 3, title: 'Web ve DNS filtre profili yazmak', minutes: 30, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-10'],
             up: ['port1', 'port2'], hosts: ['203.0.113.1'],
             start: BASE().concat(POL(['HTTP', 'HTTPS', 'DNS'])),
             sim: { flows: [WEB, WEBS, BET, DNS] },
-            story: 'İnsan kaynakları iki kural istiyor: <b>www.example.com/oyun</b> sayfaları ve <b>kumar</b> (FortiGuard kategori 11, Gambling) siteleri çalışma ağından açılmasın; <b>kumar.example.com</b> alan adı DNS düzeyinde de çözülmesin. Hazır profiller yetmiyor; kendi URL listenizi, web filtre ve DNS filtre profillerinizi yazıp LAN-TO-WAN kuralına bağlayın.',
+            // İki tur: 'yeni' boş cihaz; 'istisna' listede eski bir joker exempt kaydı var (exempt eşleşince sonraki kayıtlar denetlenmez)
+            variants: [
+                { key: 'yeni' },
+                { key: 'istisna', start: ['config webfilter urlfilter', 'edit 1', 'set name KURUM-URL', 'config entries', 'edit 1', 'set url *.example.com', 'set type wildcard', 'set action exempt', 'next', 'end', 'next', 'end'] },
+            ],
+            story: 'İnsan kaynakları iki kural istiyor: <b>www.example.com/oyun</b> sayfaları ve <b>kumar</b> (FortiGuard kategori 11, Gambling) siteleri çalışma ağından açılmasın; <b>kumar.example.com</b> alan adı DNS düzeyinde de çözülmesin. Cihazda daha önce yazılmış bir URL listesi olabilir: önce okuyun. Hazır profiller yetmiyor; kendi URL listenizi, web filtre ve DNS filtre profillerinizi yazıp LAN-TO-WAN kuralına bağlayın.',
             lesson: L('<b>Statik URL filtresi</b> <code>config webfilter urlfilter</code> altında kimlik numaralı bir listedir; her kayıt (<code>config entries</code>) bir <code>url</code>, eşleşme tipi (<code>simple</code>, <code>wildcard</code>, <code>regex</code>) ve eylem (<code>block</code>, <code>allow</code>, <code>monitor</code>, <code>exempt</code>) taşır. <b>Web filtre profili</b> (<code>config webfilter profile</code>) bu listeye <code>config web</code> → <code>set urlfilter-table &lt;id&gt;</code> ile bağlanır; FortiGuard kategorileri <code>config ftgd-wf</code> → <code>config filters</code> altında kategori numarası ve eylemle yazılır. <b>DNS filtresi</b> aynı mantıkla <code>config dnsfilter domain-filter</code> listesi ve <code>config dnsfilter profile</code> ile çalışır; sorguyu yanıtlamadan engeller. Profiller ancak kuralda <code>set utm-status enable</code> ile ve profil adıyla bağlanınca etkilidir. HTTPS\'te web filtre, SSL incelemesine bağlıdır: <code>no-inspection</code> ile hiçbir şey görmez, <code>certificate-inspection</code> ile yalnız ana bilgisayar adını (SNI) görür, yolu (/oyun) göremez.',
                 'Yazılan ama kurala bağlanmayan profil hiçbir şey yapmaz; bağlanan ama SSL incelemesi olmayan profil HTTPS\'te kör kalır. İkisini bilmek, "filtre yazdım ama site açılıyor" şikâyetlerinin çoğunu çözer. DNS filtresi, uygulama hangi protokolü kullanırsa kullansın ad çözümünü keser.',
                 'config webfilter urlfilter\n    edit 1\n        set name KURUM-URL\n        config entries\n            edit 1\n                set url "www.example.com/oyun"\n                set action block\n            next\n        end\n    next\nend\nconfig webfilter profile\n    edit WF-KURUM\n        config web\n            set urlfilter-table 1\n        end\n        config ftgd-wf\n            config filters\n                edit 1\n                    set category 11\n                    set action block\n                next\n            end\n        end\n    next\nend',
                 ['Profili yazıp kuralda <code>utm-status enable</code> ve profil adını vermemek.', 'URL kaydında varsayılan eylemi (exempt) bırakmak: exempt engellemez, sonraki denetimleri atlatır.', 'HTTPS sitelerde yol tabanlı engeli certificate-inspection ile beklemek.', 'İç içe <code>config</code> bloklarından <code>end</code> ile çıkmayı unutup kaydı yarım bırakmak.']),
             goals: ['Statik URL listesi', 'Web filtre profili: urlfilter-table ve FortiGuard kategori', 'DNS filtre listesi ve profili', 'Profilleri kurala bağlamak', 'SSL incelemesinin web filtreye etkisi'],
             tasks: [
-                { t: 'URL listesi yazın: kimlik 1, adı <code>KURUM-URL</code>, kayıt <code>www.example.com/oyun</code>, eylem <b>block</b>.',
-                  why: 'Liste kimlik numarasıyla tutulur ve profile numarasıyla bağlanır. Kaydın varsayılan eylemi <b>exempt</b>\'tir: engellemek için <code>set action block</code> açıkça yazılmalı.',
+                { t: 'URL listesi 1 (<code>KURUM-URL</code>) <code>www.example.com/oyun</code> için <b>block</b> kararı vermeli. Önce <code>show webfilter urlfilter</code>: liste yoksa oluşturun; engeli boşa çıkaran eski bir kayıt varsa etkisizleştirin.',
+                  why: 'Liste kimlik numarasıyla tutulur ve profile numarasıyla bağlanır. Kayıtlar sırayla denetlenir: ilk eşleşen karar verir. Kaydın varsayılan eylemi <b>exempt</b>\'tir ve exempt eşleşince sonraki kayıtlar da denetlenmez; üstte duran joker bir exempt kaydı (ör. <code>*.example.com</code>) alttaki block kaydını boşa çıkarır.',
                   hints: ['config webfilter urlfilter → edit 1 → set name → config entries → edit 1', '<code>set url www.example.com/oyun</code> → <code>set action block</code> → <code>next</code> → <code>end</code> → <code>next</code> → <code>end</code>'],
-                  steps: ['config webfilter urlfilter', 'edit 1', 'set name KURUM-URL', 'config entries', 'edit 1', 'set url www.example.com/oyun', 'set action block', 'next', 'end', 'next', 'end'],
-                  check: s => ent(s, 'webfilter urlfilter', '1').some(e => e.url === 'www.example.com/oyun' && e.action === 'block'),
-                  fb: s => ent(s, 'webfilter urlfilter', '1').some(e => e.url === 'www.example.com/oyun' && (e.action || 'exempt') !== 'block') ? 'Kayıt var ama eylem block değil (varsayılan exempt).' : null },
+                  steps: v => v.key === 'istisna'
+                      ? ['show webfilter urlfilter', 'config webfilter urlfilter', 'edit 1', 'config entries', 'edit 1', 'set status disable', 'next', 'edit 2', 'set url www.example.com/oyun', 'set action block', 'next', 'end', 'next', 'end']
+                      : ['show webfilter urlfilter', 'config webfilter urlfilter', 'edit 1', 'set name KURUM-URL', 'config entries', 'edit 1', 'set url www.example.com/oyun', 'set action block', 'next', 'end', 'next', 'end'],
+                  check: s => { const e = firstHit(s); return !!e && e.action === 'block'; },
+                  fb: s => { const e = firstHit(s); return !e ? null : (e.action || 'exempt') === 'exempt' ? 'İlk eşleşen kayıt exempt (' + e.url + '): sonraki kayıtlar denetlenmez. O kaydı devre dışı bırakın (set status disable) ya da silin.' : e.action !== 'block' ? 'İlk eşleşen kaydın eylemi block değil.' : null; } },
                 { t: 'Web filtre profili <code>WF-KURUM</code>: URL listesi 1 ve FortiGuard kategori 11 (Gambling) için <b>block</b>.',
                   why: 'Profil iki katmanı birleştirir: önce statik liste, sonra FortiGuard kategori filtresi.',
                   hints: ['config webfilter profile → edit WF-KURUM → config web → set urlfilter-table 1 → end', 'config ftgd-wf → config filters → edit 1 → <code>set category 11</code> → <code>set action block</code> → next → end → end → next → end'],
@@ -1301,7 +1329,7 @@
                   check: s => s.ev.list().some(e => e.logshown && e.logshown.cat === 'utm-webfilter' && e.logshown.n > 0) },
             ],
             verify: ['show webfilter urlfilter', 'show webfilter profile WF-KURUM', 'show dnsfilter profile DNS-KURUM', 'show firewall policy 1'],
-            learn: ['urlfilter: liste + entries; varsayılan eylem exempt.', 'webfilter profile: config web (urlfilter-table) + config ftgd-wf (filters).', 'dnsfilter: domain-filter listesi + profil.', 'Kurala bağla: utm-status enable + profil adı.', 'HTTPS: certificate-inspection yalnız ana bilgisayar adını görür.'],
+            learn: ['urlfilter: liste + entries; varsayılan eylem exempt; ilk eşleşen kayıt karar verir, exempt sonrakileri atlatır.', 'webfilter profile: config web (urlfilter-table) + config ftgd-wf (filters).', 'dnsfilter: domain-filter listesi + profil.', 'Kurala bağla: utm-status enable + profil adı.', 'HTTPS: certificate-inspection yalnız ana bilgisayar adını görür.'],
             links: { tool: '#/fortigate/webfilter', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/121' }, cert: 'NSE 4 · M8'
         };
     })(),
@@ -1413,7 +1441,10 @@
             id: 'fgt-46', vendor: 'fortigate', level: 3, title: 'Log okumak: execute log filter ve display', minutes: 20, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-14'],
             up: ['port1', 'port2'], hosts: ['203.0.113.1'],
             start: BASE().concat(POL(['HTTP', 'HTTPS', 'DNS']), ['config firewall policy', 'edit 1', 'set logtraffic all', 'end']),
-            sim: { flows: F },
+            // Olay logu: başarısız yönetici girişleri (logid 0100032002 LOG_ID_ADMIN_LOGIN_FAIL; reason alanı FortiOS Log Message Reference ve Fortinet Community örneğine göre)
+            sim: { flows: F, eventLogs: [
+                'date=2026-09-26 time=09:41:07 eventtime=1758868867000000000 tz="+0300" logid="0100032002" type="event" subtype="system" level="alert" vd="root" logdesc="Admin login failed" user="root" ui="ssh(198.51.100.9)" method="ssh" srcip=198.51.100.9 dstip=203.0.113.2 action="login" status="failed" reason="name_invalid"',
+                'date=2026-09-26 time=09:41:19 eventtime=1758868879000000000 tz="+0300" logid="0100032002" type="event" subtype="system" level="alert" vd="root" logdesc="Admin login failed" user="administrator" ui="ssh(198.51.100.9)" method="ssh" srcip=198.51.100.9 dstip=203.0.113.2 action="login" status="failed" reason="name_invalid"'] },
             story: 'Güvenlik ekibi soruyor: "Dışarıdan WAN adresimize uzak masaüstü (RDP, 3389) denemesi var mı? Varsa kimden?" SIEM henüz bağlı değil; cevabı cihazın kendi logundan, CLI\'dan bulun.',
             lesson: L('<code>execute log filter category &lt;n&gt;</code> hangi log türünün gösterileceğini seçer (0 traffic, 1 event, 3 utm-webfilter, 4 utm-ips, 10 utm-app-ctrl, 15 utm-dns; parametresiz yazılırsa liste gelir). <code>execute log filter field &lt;alan&gt; &lt;değer&gt;</code> alan bazında süzer (<code>srcip</code>, <code>dstport</code>…; sona <code>not</code> eklenirse tersini), <code>execute log filter reset</code> filtreleri temizler, <code>execute log display</code> gösterir ("N logs found. / N logs returned."). Örtük deny (policy 0) trafiği varsayılan olarak loglanmaz: <code>config log setting</code> → <code>set fwpolicy-implicit-log enable</code> gerekir.',
                 'Olay anında ilk soru "log var mı?"dır. Engellenen saldırı denemeleri çoğu zaman örtük deny\'a düşer ve varsayılan ayarda iz bırakmaz. Filtreyle doğru satıra hızlı inmek, binlerce satırı gözle taramaktan daha güvenilirdir.',
@@ -1447,9 +1478,17 @@
                   hints: ['execute log filter reset', '<code>execute log filter reset</code>'],
                   steps: ['execute log filter reset'], needs: [3],
                   check: s => s.ev.after(/^execute log filter field dstport/, /^execute log filter reset/) },
+                { t: 'Olay loglarına da bakın (kategori 1): yönetim erişiminde şüpheli bir şey var mı?',
+                  why: 'Kategori 1 olay logudur: yönetici girişleri, yapılandırma değişiklikleri, sistem olayları. Trafik logu yalnız geçen ya da düşen oturumları gösterir; cihazın kendisine yapılan giriş denemeleri buradadır.',
+                  hints: ['execute log filter category 1 → execute log display', '<code>execute log filter category 1</code> → <code>execute log display</code>'],
+                  steps: ['execute log filter category 1', 'execute log display'],
+                  check: s => s.ev.list().some(e => e.logshown && e.logshown.cat === 'event' && e.logshown.n > 0) },
+                { t: 'Olay logundaki "Admin login failed" satırları neyi gösteriyor?', ask: { choices: [['brute', '198.51.100.9 adresinden, var olmayan kullanıcı adlarıyla (reason="name_invalid") SSH üzerinden yönetici girişi deneniyor'], ['ok', 'Yöneticinin kendi başarılı girişleri'], ['vpn', 'VPN kullanıcılarının parola hataları']], correct: 'brute' },
+                  why: 'logid 0100032002 (LOG_ID_ADMIN_LOGIN_FAIL) başarısız yönetici girişidir; ui alanı yöntem ve kaynağı, reason nedeni verir. İnternetten gelen yönetim denemesi, WAN\'da yönetim erişiminin (allowaccess ssh) açık olduğunu da gösterir: fgt-17\'deki sıkılaştırma adımları uygulanmalıdır.',
+                  hints: ['srcip, ui ve reason alanları.', 'name_invalid = kullanıcı adı yok.'] },
             ],
             verify: ['execute log filter dump', 'execute log display', 'show log setting'],
-            learn: ['execute log filter category <n> → execute log display.', 'Örtük deny varsayılan olarak loglanmaz: fwpolicy-implicit-log enable.', 'field <ad> <değer> [not] ile süz; reset ile temizle.'],
+            learn: ['execute log filter category <n> → execute log display.', 'Örtük deny varsayılan olarak loglanmaz: fwpolicy-implicit-log enable.', 'Kategori 1 olay logu: yönetici girişleri (32001 başarılı, 32002 başarısız).', 'field <ad> <değer> [not] ile süz; reset ile temizle.'],
             links: { tool: '#/fortigate/logging', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/124' }, cert: 'NSE 4 · M13'
         };
     })(),
@@ -1678,6 +1717,160 @@
             links: { tool: '#/fortigate/logging', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/128' }, cert: 'NSE 4 · M13'
         };
     })(),
+    // ═══ Parti 8: 7.6 uzaktan erişim (f76-30 IPsec dial-up TCP 443, f76-54 dial-up arızaları) · Seviye 2: RADIUS Message-Authenticator (fgt-61) ═══
+    // f76- lab'ları yalnız 7.6'ya özgüdür (fortigate-76.js klonlayıcısı elle yazılan f76 lab'larını korur). Motor: F76-L11 (sim.dialup, s.dialup()).
+    // Kaynak: FortiOS 7.6.5 Administration Guide "Dialup IPsec VPN using custom TCP port"; 7.6.3 RN "SSL VPN tunnel mode replaced with IPsec VPN".
+    (() => {
+        const CL = o => Object.assign({ user: 'ayse', pass: 'Ayse-Pw-1', src: '198.51.100.77', psk: 'Lab-Dial-2026', ike: '2', proposal: 'aes256-sha256', dh: '20', transport: 'auto', tcpPort: 443, udpBlocked: true }, o);
+        const ST = BASE().concat(['config system interface', 'edit port1', 'set allowaccess ping https ssh', 'end',
+            'config user local', 'edit ayse', 'set passwd Ayse-Pw-1', 'end', 'config user group', 'edit VPN-USERS', 'set member ayse', 'end']);
+        const P1 = ['config vpn ipsec phase1-interface', 'edit DIAL', 'set type dynamic', 'set interface port1', 'set ike-version 2', 'set peertype any', 'set net-device disable', 'set mode-cfg enable',
+            'set ipv4-start-ip 10.64.200.10', 'set ipv4-end-ip 10.64.200.50', 'set proposal aes256-sha256', 'set dhgrp 20 21', 'set eap enable', 'set eap-identity send-request', 'set authusrgrp VPN-USERS',
+            'set transport auto', 'set psksecret Lab-Dial-2026', 'end'];
+        const P2 = ['config vpn ipsec phase2-interface', 'edit DIAL', 'set phase1name DIAL', 'end', 'config firewall address', 'edit DIAL-RANGE', 'set type iprange', 'set start-ip 10.64.200.10', 'set end-ip 10.64.200.50', 'end'];
+        const PL = ['config firewall policy', 'edit 0', 'set name VPN-LAN', 'set srcintf DIAL', 'set dstintf port2', 'set srcaddr DIAL-RANGE', 'set dstaddr LAN-NET', 'set action accept', 'set schedule always', 'set service ALL', 'end'];
+        return {
+            id: 'f76-30', vendor: 'fortigate-76', fos: '7.6', level: 4, title: '7.6 uzaktan erişim: FortiClient ile IPsec dial-up (TCP 443)', minutes: 35, kind: 'firewall', hostname: 'FGT-A', pre: [],   // f76-11 önerilir; linkcheck klonları kurmadığı için önkoşul yazılmadı (bkz. parti 8 raporu)
+            up: ['port1', 'port2'], hosts: ['203.0.113.1'],
+            start: ST,
+            sim: { dialup: [CL()] },
+            story: 'Cihaz FortiOS 7.6\'da: SSL-VPN tünel modu yok. Uzaktan çalışanlar FortiClient ile <b>IPsec dial-up</b> üzerinden bağlanacak. Kullanıcılar çoğunlukla otel ve misafir ağlarından geliyor; bu ağlarda UDP 500/4500 çoğu zaman kapalı, bu yüzden bağlantının TCP 443\'e düşebilmesi gerekiyor. Kullanıcı <b>ayse</b> (grup VPN-USERS), istemci havuzu 10.64.200.10–50, erişim LAN-NET. WAN arayüzünde HTTPS yönetim açık. <small>[Simülatör] FortiClient istemcisi benzetilir; tanılama çıktıları sadeleştirilmiştir.</small>',
+            lesson: L('IPsec dial-up\'ta karşı uç sabit değildir: faz 1 <code>set type dynamic</code> ile yazılır ve <code>remote-gw</code> yoktur. <code>mode-cfg</code> istemciye havuzdan adres verir (<code>ipv4-start-ip</code>/<code>ipv4-end-ip</code>); <code>eap enable</code> + <code>authusrgrp</code> kullanıcıyı grupla doğrular. FortiOS 7.6\'da <code>set transport</code> değerleri <code>udp</code>, <code>auto</code> (varsayılan: önce UDP, olmazsa TCP) ve <code>tcp</code>\'dir; TCP taşıma yalnız IKEv2 ile çalışır ve FortiClient 7.4.1+ ister. TCP portu <code>config system settings</code> → <code>ike-tcp-port</code> ile belirlenir (7.6\'da varsayılan 443). Aynı arayüzde yönetim HTTPS de 443\'teyse IKE önceliklidir ve web yönetimine erişim kaybolur; yönetim portu (<code>admin-sport</code>) değiştirilir.',
+                'SSL-VPN tünel modu 7.6.3\'te kaldırıldığı için uzaktan erişim IPsec\'e taşınmak zorunda. TCP 443 desteği, eski SSL-VPN\'in "her yerden bağlanır" avantajını korur; ama yönetim portuyla çakışma fark edilmezse yöneticiler cihaza erişimi kaybeder.',
+                'config vpn ipsec phase1-interface\n    edit DIAL\n        set type dynamic\n        set interface port1\n        set ike-version 2\n        set peertype any\n        set net-device disable\n        set mode-cfg enable\n        set ipv4-start-ip 10.64.200.10\n        set ipv4-end-ip 10.64.200.50\n        set proposal aes256-sha256\n        set dhgrp 20 21\n        set eap enable\n        set eap-identity send-request\n        set authusrgrp VPN-USERS\n        set transport auto\n        set psksecret &lt;anahtar&gt;\n    next\nend\nconfig system global\n    set admin-sport 8443\nend',
+                ['TCP taşımayı IKEv1 ile denemek: yalnız IKEv2.', 'ike-tcp-port ile istemcideki portu farklı bırakmak.', 'Yönetim HTTPS\'i 443\'te bırakıp aynı arayüzde IKE TCP 443 açmak: GUI erişimi kaybolur.', 'Tünel → LAN kuralını yazmayı unutmak: tünel kurulur ama trafik geçmez.']),
+            goals: ['Dial-up faz 1: type dynamic, mode-cfg, EAP', 'Faz 2, havuz nesnesi ve tünel kuralı', '7.6 transport auto ve TCP 443', 'Yönetim portu çakışmasını gidermek'],
+            tasks: [
+                { t: 'Dial-up faz 1 <code>DIAL</code>: type dynamic, port1, IKEv2, mode-cfg (havuz 10.64.200.10–50), aes256-sha256 / DH 20 21, EAP ile VPN-USERS, transport auto, PSK <code>Lab-Dial-2026</code>.',
+                  why: 'Dial-up faz 1\'de karşı uç adresi yoktur; istemci kimliği EAP ile gruptan doğrulanır, adres mode-cfg havuzundan verilir.',
+                  hints: ['config vpn ipsec phase1-interface → edit DIAL → set type dynamic …', 'Ders bölümündeki örnek yapılandırmanın faz 1 kısmı.'],
+                  steps: P1,
+                  check: s => { const p = s.obj('vpn ipsec phase1-interface', 'DIAL'); return !!p && p.type === 'dynamic' && p['mode-cfg'] === 'enable' && p.eap === 'enable' && p.authusrgrp === 'VPN-USERS' && p['ike-version'] === '2'; } },
+                { t: 'Faz 2 <code>DIAL</code> ve havuz adres nesnesi <code>DIAL-RANGE</code> (10.64.200.10–50). ayse\'nin tüneli kurulmalı.',
+                  why: 'Faz 2 faz 1\'e bağlanır; havuz nesnesi kuralda kaynak olarak kullanılacaktır.',
+                  hints: ['config vpn ipsec phase2-interface → edit DIAL → set phase1name DIAL', 'config firewall address → edit DIAL-RANGE → set type iprange → set start-ip / set end-ip'],
+                  steps: P2, needs: [0],
+                  check: s => !!s.obj('vpn ipsec phase2-interface', 'DIAL') && !!s.obj('firewall address', 'DIAL-RANGE') && !!(s.dialup('ayse') || {}).ok },
+                { t: 'Tünelden LAN\'a kural: <code>VPN-LAN</code> (DIAL → port2, DIAL-RANGE → LAN-NET, ALL, accept). ayse LAN\'a erişebilmeli.',
+                  why: 'Tünel kurulsa da kural yoksa trafik örtük deny\'a düşer. Kaynak adres havuz nesnesidir.',
+                  hints: ['config firewall policy → edit 0', '<code>set srcintf DIAL</code> → <code>set dstintf port2</code> → <code>set srcaddr DIAL-RANGE</code> → <code>set dstaddr LAN-NET</code> → accept, always, ALL'],
+                  steps: PL, needs: [0, 1],
+                  check: s => { const d = s.dialup('ayse'); return !!d && d.ok && d.traffic === 'ok'; } },
+                { t: 'IKE ağ geçidi listesine bakın: ayse hangi taşıma ve portla bağlandı?', ask: { choices: [['tcp443', 'TCP 443: istemcinin ağında UDP engelli, transport auto TCP\'ye düştü'], ['udp', 'UDP 500/4500'], ['ssl', 'SSL-VPN tünel modu']], correct: 'tcp443' },
+                  why: 'transport auto önce UDP\'yi dener; UDP kapalıysa IKE, ike-tcp-port\'tan (7.6 varsayılanı 443) TCP ile kurulur.',
+                  hints: ['<code>diagnose vpn ike gateway list</code>', 'Taşıma ve port satırı.'],
+                  steps: ['diagnose vpn ike gateway list', { answer: 3, v: 'tcp443' }], needs: [0, 1] },
+                { t: 'WAN\'da yönetim HTTPS de 443\'te: IKE TCP 443 ile çakışıyor. Yönetim portunu 8443 yapın.',
+                  why: 'Aynı arayüz ve portta IKE önceliklidir; yöneticiler web arayüzüne erişemez. Yönetim portunu taşımak çakışmayı giderir (ya da ike-tcp-port başka bir porta alınır; o zaman istemciler de değişir).',
+                  hints: ['config system global', '<code>set admin-sport 8443</code> → <code>end</code>'],
+                  steps: ['config system global', 'set admin-sport 8443', 'end'], needs: [0, 1],
+                  check: s => s.obj('system global')['admin-sport'] === '8443' && (s.dialup('ayse') || {}).adminLost === false },
+                { t: 'Neden TCP 443 desteği isteniyor?', ask: { choices: [['fw', 'Otel ve misafir ağları çoğu zaman UDP 500/4500\'ü engeller, TCP 443 ise genellikle açıktır'], ['speed', 'TCP UDP\'den hızlıdır'], ['cert', 'TCP 443 sertifika gerektirmez']], correct: 'fw' },
+                  why: 'SSL-VPN\'in yaygın kullanılmasının nedeni 443\'ün hemen her ağda açık olmasıydı. 7.6\'da IPsec aynı esnekliği TCP taşımayla sağlar.',
+                  hints: ['Kullanıcılar nereden bağlanıyor?', 'Otel ağı.'] },
+            ],
+            verify: ['get vpn ipsec tunnel summary', 'diagnose vpn ike gateway list', 'show vpn ipsec phase1-interface DIAL', 'get system settings'],
+            learn: ['Dial-up: type dynamic, remote-gw yok; mode-cfg havuzu; EAP + authusrgrp.', '7.6 transport: udp / auto (varsayılan) / tcp; TCP yalnız IKEv2.', 'ike-tcp-port (7.6 varsayılanı 443).', 'Yönetim 443 ile çakışma: admin-sport değiştir.', 'Tünel → LAN kuralı şart.'],
+            links: { tool: '#/fortigate/ipsec', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/130' }, cert: 'NSE 4 · M11 (7.6)'
+        };
+    })(),
+    (() => {
+        const CL = o => Object.assign({ user: 'ayse', pass: 'Ayse-Pw-1', src: '198.51.100.77', psk: 'Lab-Dial-2026', ike: '2', proposal: 'aes256-sha256', dh: '20', transport: 'auto', tcpPort: 443, udpBlocked: true }, o);
+        const OK = BASE().concat(['config system interface', 'edit port1', 'set allowaccess ping https ssh', 'end', 'config system global', 'set admin-sport 8443', 'end',
+            'config user local', 'edit ayse', 'set passwd Ayse-Pw-1', 'next', 'edit mehmet', 'set passwd Mehmet-Pw-1', 'end', 'config user group', 'edit VPN-USERS', 'set member ayse', 'end',
+            'config vpn ipsec phase1-interface', 'edit DIAL', 'set type dynamic', 'set interface port1', 'set ike-version 2', 'set peertype any', 'set net-device disable', 'set mode-cfg enable',
+            'set ipv4-start-ip 10.64.200.10', 'set ipv4-end-ip 10.64.200.50', 'set proposal aes256-sha256', 'set dhgrp 20 21', 'set eap enable', 'set eap-identity send-request', 'set authusrgrp VPN-USERS',
+            'set transport auto', 'set psksecret Lab-Dial-2026', 'end',
+            'config vpn ipsec phase2-interface', 'edit DIAL', 'set phase1name DIAL', 'end', 'config firewall address', 'edit DIAL-RANGE', 'set type iprange', 'set start-ip 10.64.200.10', 'set end-ip 10.64.200.50', 'end',
+            'config firewall policy', 'edit 1', 'set name VPN-LAN', 'set srcintf DIAL', 'set dstintf port2', 'set srcaddr DIAL-RANGE', 'set dstaddr LAN-NET', 'set action accept', 'set schedule always', 'set service ALL', 'end']);
+        const V = [
+            { key: 'transport', start: ['config vpn ipsec phase1-interface', 'edit DIAL', 'set transport udp', 'end'], fix: ['config vpn ipsec phase1-interface', 'edit DIAL', 'set transport auto', 'end'] },
+            { key: 'tcpport', start: ['config system settings', 'set ike-tcp-port 10443', 'end'], fix: ['config system settings', 'set ike-tcp-port 443', 'end'] },
+            { key: 'pool', sim: { dialUsed: 41 }, fix: ['config vpn ipsec phase1-interface', 'edit DIAL', 'set ipv4-end-ip 10.64.200.100', 'end', 'config firewall address', 'edit DIAL-RANGE', 'set end-ip 10.64.200.100', 'end'] },
+            { key: 'auth', user: 'mehmet', fix: ['config user group', 'edit VPN-USERS', 'append member mehmet', 'end'] },
+            { key: 'proposal', client: { dh: '14' }, fix: ['config vpn ipsec phase1-interface', 'edit DIAL', 'set dhgrp 20 21 14', 'end'] },
+            { key: 'nopolicy', start: ['config firewall policy', 'delete 1', 'end'], fix: ['config firewall policy', 'edit 1', 'set name VPN-LAN', 'set srcintf DIAL', 'set dstintf port2', 'set srcaddr DIAL-RANGE', 'set dstaddr LAN-NET', 'set action accept', 'set schedule always', 'set service ALL', 'end'] },
+        ].map(v => Object.assign({}, v, { sim: Object.assign({ dialup: [CL(Object.assign(v.user ? { user: v.user, pass: 'Mehmet-Pw-1' } : {}, v.client || {}))] }, v.sim || {}) }));
+        const who = s => (s.variant() && s.variant().user) || 'ayse';
+        const lastCfg = s => { const L = s.ev.list(); for (let i = L.length - 1; i >= 0; i--) if (L[i].canon && /^(set |append |unset |delete )/.test(L[i].canon)) return i; return -1; };
+        return {
+            id: 'f76-54', vendor: 'fortigate-76', fos: '7.6', level: 7, title: 'Dial-up istemci bağlanamıyor: 7.6 IPsec tanılama', minutes: 25, kind: 'firewall', hostname: 'FGT-A', pre: ['f76-30'],
+            up: ['port1', 'port2'], hosts: ['203.0.113.1'],
+            start: OK,
+            variants: V,
+            story: '<b>Arıza kaydı:</b> "Uzaktan çalışan kullanıcı (198.51.100.77) FortiClient ile bağlanamıyor ya da bağlanıyor ama hiçbir şeye erişemiyor." Dial-up yapılandırması f76-30\'daki gibi (DIAL, havuz 10.64.200.10–50, VPN-USERS, transport auto, TCP 443). Tünel durumunu ve IKE debug\'ını okuyun, nedeni bulun, yalnız bozulan ayarı düzeltin. <small>[Simülatör] Debug satırları sadeleştirilmiştir. Her turda farklı bir neden — "Yeni tur".</small>',
+            lesson: L('Dial-up arızalarında sıra: tünel özeti (<code>get vpn ipsec tunnel summary</code>) ve ağ geçidi listesi (<code>diagnose vpn ike gateway list</code>) istemcinin hiç gelip gelmediğini gösterir. Ayrıntı IKE debug\'ındadır: önce <code>diagnose vpn ike log filter rem-addr4 &lt;istemci genel IP&gt;</code> (7.4.1+ sözdizimi), sonra <code>diagnose debug application ike -1</code> ve <code>diagnose debug enable</code>. Tipik nedenler: taşıma (UDP engelli, sunucu yalnız UDP), TCP portu uyuşmazlığı (<code>ike-tcp-port</code>), öneri/DH uyuşmazlığı (7.6 varsayılanı DH 20 21), EAP kimlik doğrulama (kullanıcı grupta değil), mode-cfg havuzunun tükenmesi ve tünel kurulduğu hâlde tünel → LAN kuralının olmaması.',
+                'Kullanıcı yalnız "bağlanamıyorum" der. Debug satırı altı farklı nedeni birbirinden ayırır ve düzeltmeyi tek ayara indirir; tahminle yapılan değişiklikler çoğu zaman yeni bir arıza ekler.',
+                'get vpn ipsec tunnel summary\ndiagnose vpn ike gateway list\ndiagnose vpn ike log filter rem-addr4 198.51.100.77\ndiagnose debug application ike -1\ndiagnose debug enable\ndiagnose debug disable\ndiagnose debug reset',
+                ['Debug\'ı filtresiz açmak: tüm IKE trafiği konsola akar.', 'Debug\'ı kapatmayı unutmak.', 'Havuzu genişletip kuraldaki havuz nesnesini güncellememek.', 'Kullanıcıyı gruba eklemek yerine grubu genişletmek (yetki kapsamı büyür).']),
+            goals: ['Tünel özetini ve ağ geçidi listesini okumak', 'IKE debug\'ını filtreyle açıp kapatmak', 'Altı dial-up arızasını ayırt etmek', 'Yalnız bozulan ayarı düzeltip doğrulamak'],
+            tasks: [
+                { t: 'Tünel durumuna bakın: istemci ağ geçidi listesinde görünüyor mu?',
+                  why: 'İstemci hiç görünmüyorsa IKE aşamasında takılıyordur; görünüyor ve IP almışsa sorun tünelden sonra (kural) olabilir.',
+                  hints: ['get vpn ipsec tunnel summary / diagnose vpn ike gateway list', '<code>get vpn ipsec tunnel summary</code> → <code>diagnose vpn ike gateway list</code>'],
+                  steps: ['get vpn ipsec tunnel summary', 'diagnose vpn ike gateway list'], loo: false, /* 5. görev de tünel özetini çalıştırır */
+                  check: s => s.ev.ran(/^get vpn ipsec tunnel summary$/) },
+                { t: 'İstemciyle sınırlı IKE debug\'ı alın, sonra kapatın.',
+                  why: 'rem-addr4 filtresi yalnız bu istemcinin müzakeresini gösterir; debug iş bitince kapatılır.',
+                  hints: ['diagnose vpn ike log filter rem-addr4 198.51.100.77 → diagnose debug application ike -1 → diagnose debug enable', 'Bitince <code>diagnose debug disable</code>'],
+                  steps: ['diagnose debug reset', 'diagnose vpn ike log filter rem-addr4 198.51.100.77', 'diagnose debug application ike -1', 'diagnose debug enable', 'diagnose debug disable'],
+                  check: s => s.ev.list().some(e => e.dialdebug) && s.ev.after(/^diagnose debug enable$/, /^diagnose debug (disable|reset)$/) },
+                { t: 'Neden?', ask: { choices: [['transport', 'Sunucu yalnız UDP kabul ediyor, istemcinin ağında UDP engelli'], ['tcpport', 'İstemci TCP 443 deniyor, sunucunun ike-tcp-port\'u farklı'], ['pool', 'mode-cfg havuzunda boş adres yok'], ['auth', 'EAP doğrulaması başarısız: kullanıcı VPN-USERS grubunda değil'], ['proposal', 'Öneri/DH uyuşmuyor: istemci DH 14, sunucu 20 21'], ['nopolicy', 'Tünel kuruluyor, IP alınıyor ama tünel → LAN kuralı yok']], correct: v => v.key },
+                  why: 'Debug ve durum çıktısı nedeni söyler: taşıma/port satırları, "no proposal chosen" benzeri öneri hatası, EAP başarısızlığı, havuz tükenmesi; tünel kurulup IP atanmışsa trafik kuralı.',
+                  hints: ['Debug\'daki son anlamlı satır.', 'İstemci IP aldı mı?'] },
+                { t: 'Düzeltin: yalnız bozulan ayar. İstemci bağlanmalı ve LAN\'a erişebilmeli.',
+                  why: 'Nedene karşılık gelen tek değişiklik: transport auto, ike-tcp-port 443, havuzu (ve havuz nesnesini) genişletmek, kullanıcıyı gruba eklemek, DH grubunu eklemek ya da kuralı yazmak.',
+                  hints: ['Nedene karşılık gelen ayar.', 'transport → set transport auto · tcpport → ike-tcp-port 443 · pool → ipv4-end-ip + DIAL-RANGE · auth → append member · proposal → set dhgrp 20 21 14 · nopolicy → VPN-LAN kuralı'],
+                  steps: v => v.fix,
+                  check: s => { const d = s.dialups()[0]; return !!d && d.ok && d.traffic === 'ok'; },
+                  fb: s => { const d = s.dialups()[0]; return d && !d.ok ? 'İstemci hâlâ bağlanamıyor (neden: ' + d.reason + ').' : d && d.traffic !== 'ok' ? 'Tünel kuruluyor ama trafik geçmiyor.' : null; } },
+                { t: 'Düzeltmeyi doğrulayın: son değişiklikten sonra tünel özetinde istemci görünmeli.',
+                  why: 'Kanıt: istemcinin genel IP\'si ve portuyla tünel satırı.',
+                  hints: ['get vpn ipsec tunnel summary', '<code>get vpn ipsec tunnel summary</code>'],
+                  steps: ['get vpn ipsec tunnel summary'], needs: [3],
+                  check: s => { const d = s.dialups()[0], i = lastCfg(s); return !!d && d.ok && s.ev.list().slice(i + 1).some(e => e.canon === 'get vpn ipsec tunnel summary'); } },
+            ],
+            verify: ['get vpn ipsec tunnel summary', 'diagnose vpn ike gateway list', 'show vpn ipsec phase1-interface DIAL'],
+            learn: ['Önce tünel özeti ve ağ geçidi listesi, sonra rem-addr4 filtreli IKE debug.', 'Nedenler: taşıma, TCP portu, öneri/DH, EAP, havuz, kural.', 'Yalnız bozulan ayar; debug\'ı kapat.'],
+            links: { tool: '#/fortigate/ipsec', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/131' }, cert: 'NSE 4 · M11, M15 (7.6)'
+        };
+    })(),
+    {
+        id: 'fgt-61', vendor: 'fortigate', level: 2, title: 'RADIUS testi başarısız: Message-Authenticator ve Blast-RADIUS', minutes: 15, kind: 'firewall', hostname: 'FGT-A', pre: ['fgt-09'],
+        up: ['port1', 'port2', 'port3'], hosts: ['203.0.113.1', '10.64.99.20'],
+        start: BASE().concat(IF('port3', '10.64.99.1 255.255.255.0', ['set role lan']), ['config user radius', 'edit RAD-NPS', 'set server 10.64.99.20', 'set secret Rad-Key-2026', 'end']),
+        sim: { radius: { ip: '10.64.99.20', secret: 'Rad-Key-2026', users: { netadmin: 'Lab-Pw-1' }, noMsgAuth: true } },
+        story: 'Güncellemeden sonra RADIUS ile yönetici girişi çalışmıyor. Paylaşılan anahtar ve parola doğru, sunucu (10.64.99.20) yanıt veriyor. Sunucu eski bir RADIUS yazılımı ve yanıtlarına <b>Message-Authenticator</b> özniteliği eklemiyor. <small>[Simülatör] RADIUS sunucusu benzetilir.</small>',
+        lesson: L('Blast-RADIUS (CVE-2024-3596), UDP/TCP üzerindeki RADIUS\'ta yanıtların bütünlüğünü hedefleyen bir protokol açığıdır. Önlem, yanıtlarda Message-Authenticator özniteliğinin zorunlu tutulmasıdır. FortiOS\'ta <code>config user radius</code> altındaki <code>require-message-authenticator</code> varsayılan olarak <b>enable</b>\'dır: öznitelik olmayan yanıt reddedilir. Kalıcı çözüm RADIUS sunucusunu güncelleyip özniteliği göndermesini sağlamak ya da RADIUS\'u TLS (RADSEC) üzerinden kullanmaktır.',
+            'Güncellemeden sonra "RADIUS bozuldu" sanılan durumların bir kısmı bu korumadır. Kontrolü kapatmak girişi geri getirir ama açığı da geri getirir; bu yüzden yalnız geçici, kayıtlı ve süreli bir önlem olabilir.',
+            'diagnose test authserver radius RAD-NPS pap netadmin &lt;parola&gt;\n# geçici önlem (sunucu güncellenene kadar, kayıt altında):\nconfig user radius\n    edit RAD-NPS\n        set require-message-authenticator disable\n    next\nend\n# sunucu güncellenince:\n#   set require-message-authenticator enable',
+            ['Kontrolü kalıcı olarak kapatıp unutmak.', 'Sorunu paylaşılan anahtarda aramak.', 'Sunucu tarafını güncellemeyi planlamamak.']),
+        goals: ['diagnose test authserver ile RADIUS testi', 'Message-Authenticator zorunluluğu ve Blast-RADIUS', 'Kalıcı çözüm ile geçici önlemi ayırmak'],
+        tasks: [
+            { t: 'RADIUS sunucusunu test edin: netadmin / Lab-Pw-1.',
+              why: '<code>diagnose test authserver radius &lt;sunucu&gt; &lt;yöntem&gt; &lt;kullanıcı&gt; &lt;parola&gt;</code> girişi canlıya almadan sınar.',
+              hints: ['diagnose test authserver radius …', '<code>diagnose test authserver radius RAD-NPS pap netadmin Lab-Pw-1</code>'],
+              steps: ['diagnose test authserver radius RAD-NPS pap netadmin Lab-Pw-1'], loo: false, /* 4. görev de testi tekrarlar */
+              check: s => s.ev.list().some(e => e.authtest === 'radius') },
+            { t: 'Anahtar ve parola doğru, sunucu yanıt veriyor. Test neden başarısız?', ask: { choices: [['msgauth', 'Sunucu yanıtında Message-Authenticator yok; FortiGate bunu varsayılan olarak zorunlu tutuyor'], ['secret', 'Paylaşılan anahtar yanlış'], ['port', 'RADIUS portu kapalı']], correct: 'msgauth' },
+              why: '<code>require-message-authenticator</code> varsayılanı enable\'dır (CLI başvurusu). Blast-RADIUS\'a karşı öznitelik olmayan yanıtlar kabul edilmez.',
+              hints: ['<code>show full-configuration user radius RAD-NPS</code>', 'Hikâyedeki sunucu bilgisi.'] },
+            { t: 'Kalıcı ve güvenli çözüm hangisi?', ask: { choices: [['server', 'RADIUS sunucusunu güncelleyip Message-Authenticator göndermesini sağlamak (ya da RADSEC / TLS kullanmak)'], ['disable', 'require-message-authenticator\'ı kalıcı olarak kapatmak'], ['local', 'Tüm yöneticileri yerel hesaba taşımak']], correct: 'server' },
+              why: 'Kontrolü kapatmak açığı yeniden açar. Fortinet, UDP/TCP RADIUS kullanılıyorsa sunucunun güncellenmesini, mümkünse RADSEC\'i önerir.',
+              hints: ['Açığı kim kapatır?', 'Sunucu tarafı.'] },
+            { t: 'Sunucu güncellenene kadar, değişiklik kaydı açılarak <b>geçici</b> önlem alınacak: bu sunucu için zorunluluğu kapatın ve testi tekrarlayın.',
+              why: 'Geçici önlem kayıt altında ve süreli olmalı; sunucu güncellenince ayar yeniden enable yapılır.',
+              hints: ['config user radius → edit RAD-NPS', '<code>set require-message-authenticator disable</code> → <code>end</code> → testi tekrarlayın'],
+              steps: ['config user radius', 'edit RAD-NPS', 'set require-message-authenticator disable', 'end', 'diagnose test authserver radius RAD-NPS pap netadmin Lab-Pw-1'],
+              check: s => s.obj('user radius', 'RAD-NPS')['require-message-authenticator'] === 'disable' && s.ev.list().some(e => e.authtest === 'radius' && e.result === 'ok') },
+            { t: 'Sunucu güncellendikten sonra ne yapılmalı?', ask: { choices: [['enable', 'require-message-authenticator yeniden enable yapılır ve test tekrarlanır'], ['keep', 'Ayar kapalı kalabilir'], ['delete', 'RADIUS sunucusu silinip yeniden eklenir']], correct: 'enable' },
+              why: 'Geçici önlem kapanmadan değişiklik kaydı kapatılmaz.',
+              hints: ['Geçici önlemin sonu.', 'Varsayılana dönmek.'] },
+        ],
+        verify: ['diagnose test authserver radius RAD-NPS pap netadmin Lab-Pw-1', 'show full-configuration user radius RAD-NPS'],
+        learn: ['Blast-RADIUS: CVE-2024-3596.', 'require-message-authenticator varsayılanı enable.', 'Kalıcı çözüm: sunucuyu güncelle ya da RADSEC.', 'Kapatmak yalnız geçici ve kayıtlı.'],
+        links: { tool: '#/fortigate/user', cli: '#/cli/fortigate', wizard: '#/troubleshoot/fortigate/132' }, cert: 'NSE 4 · M4'
+    },
     ];
     // Çoktan seçmeli (ask) görevler: cevap s.answers['<lab>:<görev>'] içinde
     LABS.forEach(l => l.tasks.forEach((t, i) => {

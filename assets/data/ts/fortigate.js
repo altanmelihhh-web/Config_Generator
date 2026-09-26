@@ -503,5 +503,59 @@
                 { q: 'ZTNA\'da cihaz durumu etiketi nereden gelir?', choices: [['ems', 'FortiClient EMS etiketleme kurallarından'], ['fgt', 'FortiGate antivirüsünden'], ['dhcp', 'DHCP\'den']], correct: 'ems', why: 'Security posture tag\'ler EMS\'te üretilir ve FortiGate\'e EMS bağlayıcısıyla gelir.' },
             ],
         },
+        // ── Parti 8: 7.6 IPsec dial-up (f76-30, f76-54), RADIUS Message-Authenticator (fgt-61)
+        {
+            title: 'FortiOS 7.6: FortiClient IPsec Dial-up Kurulumu ve TCP 443 (Web Yönetimi Erişimi Kayboldu mu?)', severity: 'warn', topic: 'vpn', lab: 'f76-30',
+            symptom: 'SSL-VPN tünel modunun yerine IPsec dial-up kuruldu. Bazı kullanıcılar otel ağlarından bağlanamıyor; ya da TCP 443 açıldıktan sonra yöneticiler WAN\'dan web arayüzüne erişemiyor.',
+            steps: [
+                { code: 'show vpn ipsec phase1-interface DIAL', desc: 'type dynamic, ike-version 2, mode-cfg ve havuz, eap + authusrgrp, transport. 7.6\'da transport değerleri udp / auto (varsayılan) / tcp; TCP taşıma yalnız IKEv2 ile ve FortiClient 7.4.1+ ile çalışır.',
+                  fix: [{ cause: 'Sunucu yalnız UDP kabul ediyor (UDP engelli ağlardan bağlanılamaz)', cmd: 'config vpn ipsec phase1-interface\nedit DIAL\nset transport auto\nend' }] },
+                { code: 'get system settings', desc: 'ike-tcp-port (7.6 varsayılanı 443). İstemcideki port bununla aynı olmalı.' },
+                { expect: 'bad', code: 'show system global', desc: 'admin-sport 443 ve WAN arayüzünde https yönetimi açıksa aynı port ve arayüzde IKE önceliklidir: web yönetimine erişim kaybolur. Yönetim portunu taşıyın (ya da ike-tcp-port\'u başka bir porta alıp istemcileri güncelleyin).',
+                  sample: 'config system global\n    set admin-sport 443\n    …\nend\n\n# WAN\'da hem yönetim HTTPS hem IKE TCP 443: GUI erişimi kaybolur',
+                  fix: [{ cause: 'Yönetim portu IKE TCP portuyla çakışıyor', cmd: 'config system global\nset admin-sport 8443\nend' }] },
+                { code: 'diagnose vpn ike gateway list', desc: 'Bağlı istemciler: peer-id (kullanıcı), atanan IPv4 adresi ve taşıma. İstemci burada varsa IKE ve mode-cfg tamam; LAN\'a erişemiyorsa tünel → LAN kuralına bakın.' },
+            ],
+            quiz: [
+                { q: '7.6\'da transport auto ne yapar?', choices: [['fallback', 'Önce UDP\'yi dener, olmazsa TCP\'ye geçer'], ['tcp', 'Her zaman TCP'], ['udp', 'Her zaman UDP']], correct: 'fallback', why: 'auto, 7.4\'teki udp-fallback-tcp\'nin 7.6 karşılığıdır.' },
+                { q: 'TCP taşıma hangi IKE sürümüyle çalışır?', choices: [['v2', 'Yalnız IKEv2'], ['v1', 'Yalnız IKEv1'], ['both', 'İkisi de']], correct: 'v2', why: 'Admin Guide 7.6.5 "Dialup IPsec VPN using custom TCP port": TCP taşıma IKEv2 ister.' },
+            ],
+        },
+        {
+            title: 'Dial-up İstemci (FortiClient) Bağlanamıyor: IKE Debug ile Altı Neden', severity: 'err', topic: 'vpn', lab: 'f76-54',
+            symptom: 'Uzaktan çalışan kullanıcı FortiClient ile IPsec dial-up\'a bağlanamıyor ya da bağlanıyor ama iç ağa erişemiyor.',
+            steps: [
+                { code: 'get vpn ipsec tunnel summary', desc: 'İstemcinin genel IP\'siyle bir satır var mı? Yoksa IKE aşamasında takılıyordur; varsa ve IP almışsa sorun tünelden sonradır.' },
+                { code: 'diagnose vpn ike log filter rem-addr4 198.51.100.77', desc: 'Debug\'ı istemcinin genel IP\'siyle sınırlayın (7.4.1+ sözdizimi). Ardından "diagnose debug application ike -1" ve "diagnose debug enable"; bitince "diagnose debug disable".' },
+                { expect: 'bad', code: 'diagnose debug enable', desc: 'Son anlamlı satır nedeni söyler: IKE paketi hiç gelmiyor (taşıma), başka TCP portu (ike-tcp-port), öneri seçilemedi (DH/proposal), EAP başarısız (kullanıcı grupta değil), havuzda adres yok (mode-cfg).',
+                  sample: 'ike 0:DIAL: comes 198.51.100.77:50000->203.0.113.2:443 (TCP)\nike 0:DIAL: mode-cfg: no available IPv4 address in pool\n\n# [Simülatör] sadeleştirilmiş örnek: havuz tükenmiş',
+                  fix: [{ cause: 'Sunucu yalnız UDP, istemcinin ağında UDP engelli', cmd: 'config vpn ipsec phase1-interface\nedit DIAL\nset transport auto\nend' },
+                        { cause: 'İstemci TCP 443 deniyor, sunucu başka port', cmd: 'config system settings\nset ike-tcp-port 443\nend' },
+                        { cause: 'Havuz tükenmiş: havuzu ve kuraldaki havuz nesnesini birlikte genişletin', cmd: 'config vpn ipsec phase1-interface\nedit DIAL\nset ipv4-end-ip 10.64.200.100\nend\nconfig firewall address\nedit DIAL-RANGE\nset end-ip 10.64.200.100\nend' },
+                        { cause: 'EAP başarısız: kullanıcı grupta değil', cmd: 'config user group\nedit VPN-USERS\nappend member mehmet\nend' },
+                        { cause: 'Öneri/DH uyuşmuyor (7.6 varsayılanı DH 20 21; istemci 14)', cmd: 'config vpn ipsec phase1-interface\nedit DIAL\nset dhgrp 20 21 14\nend' }] },
+                { code: 'show firewall policy', desc: 'İstemci IP almış ama iç ağa erişemiyorsa tünel arayüzünden (DIAL) LAN\'a, kaynak havuz nesnesi olan bir kural gerekir.',
+                  fix: [{ cause: 'Tünel → LAN kuralı yok', cmd: 'config firewall policy\nedit 0\nset name VPN-LAN\nset srcintf DIAL\nset dstintf port2\nset srcaddr DIAL-RANGE\nset dstaddr LAN-NET\nset action accept\nset schedule always\nset service ALL\nend' }] },
+            ],
+            quiz: [
+                { q: 'Debug\'da "mode-cfg: no available IPv4 address in pool". Ne yapılır?', choices: [['pool', 'Havuz ve kuraldaki havuz nesnesi birlikte genişletilir'], ['psk', 'PSK değiştirilir'], ['port', 'TCP portu değiştirilir']], correct: 'pool', why: 'Havuz eşzamanlı kullanıcı sayısını karşılamıyor; kural havuz nesnesine dayandığı için ikisi birlikte güncellenir.' },
+                { q: 'Tünel kuruldu, istemci IP aldı, ama iç ağa erişim yok. İlk bakılacak?', choices: [['policy', 'Tünel → LAN kuralı'], ['p1', 'Faz 1 önerileri'], ['eap', 'EAP grubu']], correct: 'policy', why: 'IKE ve mode-cfg tamamlanmışsa sorun trafik kuralındadır.' },
+            ],
+        },
+        {
+            title: 'Güncellemeden Sonra RADIUS Girişi Başarısız: Message-Authenticator (Blast-RADIUS, CVE-2024-3596)', severity: 'warn', topic: 'aaa', lab: 'fgt-61',
+            symptom: 'FortiOS güncellemesinden sonra RADIUS ile yönetici (ya da VPN) girişi başarısız; paylaşılan anahtar ve parola doğru, sunucu yanıt veriyor.',
+            steps: [
+                { expect: 'bad', code: 'diagnose test authserver radius RAD-NPS pap netadmin <parola>', desc: 'Anahtar ve parola doğru olduğu hâlde "failed" dönüyorsa sunucunun yanıtında Message-Authenticator özniteliği olmayabilir; FortiGate bu özniteliği varsayılan olarak zorunlu tutar.',
+                  sample: "authenticate 'netadmin' against 'pap' failed, assigned_rad_session_id=1790336451 session_timeout=0 secs idle_timeout=0 secs!" },
+                { code: 'show full-configuration user radius RAD-NPS', desc: '"set require-message-authenticator enable" varsayılandır (CLI başvurusu: yanıtta message authenticator doğrulaması zorunlu). Blast-RADIUS\'a karşı önlemdir.' },
+                { code: 'config user radius', desc: 'Kalıcı çözüm RADIUS sunucusunu güncelleyip özniteliği göndermesini sağlamak ya da RADSEC (TLS) kullanmaktır. Sunucu güncellenene kadar, değişiklik kaydıyla, yalnız o sunucu için geçici olarak "set require-message-authenticator disable"; güncellemeden sonra yeniden enable.',
+                  fix: [{ cause: 'Geçici önlem (kayıtlı ve süreli)', cmd: 'config user radius\nedit RAD-NPS\nset require-message-authenticator disable\nend' }] },
+            ],
+            quiz: [
+                { q: 'require-message-authenticator varsayılanı?', choices: [['enable', 'enable'], ['disable', 'disable']], correct: 'enable', why: 'FortiOS CLI başvurusunda (user radius) varsayılan enable.' },
+                { q: 'Kalıcı çözüm?', choices: [['server', 'RADIUS sunucusunu güncellemek ya da RADSEC kullanmak'], ['disable', 'Kontrolü kalıcı kapatmak'], ['secret', 'Anahtarı değiştirmek']], correct: 'server', why: 'Kontrolü kapatmak açığı yeniden açar.' },
+            ],
+        },
     ];
 })();
