@@ -10,7 +10,7 @@ function ccReadFortiGate(text) {
     // block values: 'iface'|'route'|'policy'|'addr'|'addrgrp'|'svc'|'vip'|'ippool'|'dns'|'ntp'|'syslogd'
     let block = null;
     let curIface = null, curPolicy = null, curAddr = null, curSvc = null;
-    let curVip = null, curPool = null, curAddrGrp = null;
+    let curVip = null, curPool = null, curAddrGrp = null, curZone = null;
     let curTunnel = null, curVdom = null, curSdwanMember = null, curSdwanHC = null;
     let subDepth = 0; // sdwan/vdom içindeki nested 'config ... end' bloklarını saymak için
 
@@ -25,6 +25,25 @@ function ccReadFortiGate(text) {
         return tokens;
     }
 
+    // Kaynak sürüm (#config-version=MODEL-7.6.5-FW-...) — faz 1 varsayılanları sürüme bağlı.
+    const _srcVer = ((text.split('\n').slice(0, 5).find(l => l.indexOf('#config-version=') === 0) || '').match(/-(\d+)\.(\d+)\.(\d+)-FW-/) || []).slice(1).map(Number);
+    // FortiOS CLI Ref (phase1-interface): ike-version varsayılanı 1 (7.4.8 ve 7.6.6);
+    // dhgrp varsayılanı 7.4.8'de 14, 7.6.5 RN "Changes in default behavior" sonrası 20 21 (modele göre değişebilir).
+    function _p1Defaults(t) {
+        if (!t) return;
+        if (!t.ikeVersion) {
+            t.ikeVersion = '1';
+            ccAddAssumption(ir, 'vpn ipsec phase1-interface ike-version', '1', 'FortiOS varsayilani',
+                "kaynakta 'set ike-version' yok (" + t.p1Name + ')', CC_SEVERITY.MANUAL);
+        }
+        if (!t.dhgrp) {
+            const v765 = _srcVer.length === 3 && (_srcVer[0] > 7 || (_srcVer[0] === 7 && (_srcVer[1] > 6 || (_srcVer[1] === 6 && _srcVer[2] >= 5))));
+            t.dhgrp = v765 ? '20 21' : '14';
+            ccAddAssumption(ir, 'vpn ipsec phase1-interface dhgrp', t.dhgrp, 'FortiOS varsayilani (' + (_srcVer.length ? _srcVer.join('.') : 'surum bilinmiyor → 7.4') + ')',
+                "kaynakta 'set dhgrp' yok (" + t.p1Name + '); model/surume gore degisebilir', CC_SEVERITY.MANUAL);
+        }
+    }
+
     while (i < lines.length) {
         const line = lines[i].trim();
 
@@ -35,6 +54,8 @@ function ccReadFortiGate(text) {
         if (line === 'config firewall address')        { block = 'addr';    i++; continue; }
         if (line === 'config firewall addrgrp')        { block = 'addrgrp'; i++; continue; }
         if (line === 'config firewall service custom') { block = 'svc';     i++; continue; }
+        if (line === 'config firewall service group')  { block = 'svcgrp';  i++; continue; }
+        if (line === 'config system zone')             { block = 'zone';    i++; continue; }
         if (line === 'config firewall vip')            { block = 'vip';     i++; continue; }
         if (line === 'config firewall ippool')         { block = 'ippool';  i++; continue; }
         if (line === 'config system dns')              { block = 'dns';     i++; continue; }
@@ -62,7 +83,6 @@ function ccReadFortiGate(text) {
             line.startsWith('config log syslogd')) { block = 'syslogd'; i++; continue; }
         // Silently skip known unhandled config blocks
         if (line === 'config system global' ||
-            line.startsWith('config firewall service group') ||
             line.startsWith('config firewall schedule') ||
             line.startsWith('config firewall profile') ||
             line.startsWith('config vpn') ||
@@ -80,6 +100,8 @@ function ccReadFortiGate(text) {
             if (block === 'addr'    && curAddr)    { ir.addressObjects.push(curAddr);    curAddr    = null; }
             if (block === 'addrgrp' && curAddrGrp) { ir.addressObjects.push(curAddrGrp); curAddrGrp = null; }
             if (block === 'svc'     && curSvc)     { ir.serviceObjects.push(curSvc);     curSvc     = null; }
+            if (block === 'svcgrp'  && curSvc)     { ir.serviceObjects.push(curSvc);     curSvc     = null; }
+            if (block === 'zone'    && curZone)    { ir.zones.push(curZone);             curZone    = null; }
             if (block === 'vip'     && curVip)     { ir.natRules.push(curVip);            curVip     = null; }
             if (block === 'ippool'  && curPool)    { ir.natRules.push(curPool);           curPool    = null; }
             if (block === 'sslsettings' && ir.sslVpn) { /* zaten ir.sslVpn üzerinde birikti */ }
@@ -100,7 +122,7 @@ function ccReadFortiGate(text) {
                 const ip = line.slice(14).trim(); if (ip) ir.system.ntp.push(ip);
             // inside edit sub-blocks: set server X.X.X.X
             } else if (line.startsWith('set server ')) {
-                const ip = line.slice(11).trim(); if (ip) ir.system.ntp.push(ip);
+                const ip = line.slice(11).trim().replace(/"/g, ''); if (ip) ir.system.ntp.push(ip);
             }
         }
 
@@ -174,6 +196,18 @@ function ccReadFortiGate(text) {
                 curAddr.type = (mask === '255.255.255.255') ? 'host' : 'network';
             } else if (curAddr && line.startsWith('set fqdn ')) {
                 curAddr.type = 'fqdn'; curAddr.value = line.slice(9).replace(/"/g, '');
+            } else if (curAddr && line.startsWith('set type ')) {
+                // ipmask (varsayılan) | iprange | fqdn | geography | wildcard | dynamic | interface-subnet | mac
+                const t = line.slice(9).trim();
+                if (t === 'iprange') curAddr.type = 'range';
+                else if (t === 'fqdn') curAddr.type = 'fqdn';
+                else if (t !== 'ipmask') { curAddr.type = t; curAddr.value = ''; }
+            } else if (curAddr && curAddr.type === 'range' && line.startsWith('set start-ip ')) {
+                const st = line.slice(13).trim(); const r = String(curAddr.value || '').split('-');
+                curAddr.value = st + '-' + (r[1] || st);
+            } else if (curAddr && curAddr.type === 'range' && line.startsWith('set end-ip ')) {
+                const r = String(curAddr.value || '').split('-');
+                curAddr.value = (r[0] || '') + '-' + line.slice(11).trim();
             } else if (curAddr && line.startsWith('set comment ')) {
                 curAddr.description = line.slice(12).replace(/"/g, '');
             } else if (line === 'next') { if (curAddr) { ir.addressObjects.push(curAddr); curAddr = null; } }
@@ -197,12 +231,49 @@ function ccReadFortiGate(text) {
                 if (curSvc) ir.serviceObjects.push(curSvc);
                 curSvc = { name: line.slice(6, -1), proto: 'tcp', ports: '' };
             } else if (curSvc && line.startsWith('set tcp-portrange ')) {
-                curSvc.proto = 'tcp'; curSvc.ports = line.slice(18).trim();
+                // TCP ve UDP aralığı aynı nesnede birlikte olabilir: ikisi ayrı saklanır
+                // (proto/ports ilk görülen için; diğer vendor yazıcıları bunları kullanır).
+                curSvc.tcpPorts = line.slice(18).trim();
+                if (!curSvc.ports) { curSvc.proto = 'tcp'; curSvc.ports = curSvc.tcpPorts; }
             } else if (curSvc && line.startsWith('set udp-portrange ')) {
-                curSvc.proto = 'udp'; curSvc.ports = line.slice(18).trim();
+                curSvc.udpPorts = line.slice(18).trim();
+                if (!curSvc.ports) { curSvc.proto = 'udp'; curSvc.ports = curSvc.udpPorts; }
+            } else if (curSvc && line.startsWith('set sctp-portrange ')) {
+                curSvc.sctpPorts = line.slice(19).trim();
+                if (!curSvc.ports) { curSvc.proto = 'sctp'; curSvc.ports = curSvc.sctpPorts; }
+            } else if (curSvc && line.startsWith('set protocol ')) {
+                const pr = line.slice(13).trim().toUpperCase();
+                if (pr === 'ICMP' || pr === 'ICMP6') curSvc.proto = pr.toLowerCase();
+                else if (pr === 'IP') curSvc.proto = 'ip';
+            } else if (curSvc && line.startsWith('set icmptype ')) {
+                curSvc.icmptype = line.slice(13).trim();
             } else if (curSvc && line.startsWith('set protocol-number ')) {
                 curSvc.proto = 'ip'; curSvc.protoNum = line.slice(20).trim();
             } else if (line === 'next') { if (curSvc) { ir.serviceObjects.push(curSvc); curSvc = null; } }
+        }
+
+        // ── firewall service group ─────────────────────────────────────────────
+        else if (block === 'svcgrp') {
+            if (line.startsWith('edit "')) {
+                if (curSvc) ir.serviceObjects.push(curSvc);
+                curSvc = { name: line.slice(6, -1), proto: '', ports: '', members: [] };
+            } else if (curSvc && line.startsWith('set member ')) {
+                curSvc.members = parseQuotedTokens(line.slice(11));
+            } else if (line === 'next') { if (curSvc) { ir.serviceObjects.push(curSvc); curSvc = null; } }
+        }
+
+        // ── system zone ────────────────────────────────────────────────────────
+        else if (block === 'zone') {
+            if (line.startsWith('edit "')) {
+                if (curZone) ir.zones.push(curZone);
+                curZone = { name: line.slice(6, -1), interfaces: [], description: '', trust_level: 0 };
+            } else if (curZone && line.startsWith('set interface ')) {
+                curZone.interfaces = parseQuotedTokens(line.slice(14));
+            } else if (curZone && line.startsWith('set intrazone ')) {
+                curZone.intrazone = line.slice(14).trim();
+            } else if (curZone && line.startsWith('set description ')) {
+                curZone.description = line.slice(16).replace(/"/g, '');
+            } else if (line === 'next') { if (curZone) { ir.zones.push(curZone); curZone = null; } }
         }
 
         // ── firewall vip block (static NAT / DNAT) ────────────────────────────
@@ -333,7 +404,9 @@ function ccReadFortiGate(text) {
         // ── IPsec Phase1 ────────────────────────────────────────────────────────
         else if (block === 'ipsecp1') {
             if (line.startsWith('edit "')) {
-                curTunnel = { p1Name: line.slice(6, -1), iface: '', remoteGw: '', psk: '', ikeVersion: '2', proposal: 'aes256-sha256', dhgrp: '14', p2Name: '', localSubnet: '', remoteSubnet: '' };
+                // ike-version/dhgrp yazılmamışsa FortiOS varsayılanı geçerlidir; 'next'te doldurulup
+                // varsayım olarak bildirilir (önceden sessizce ike-version 2 / dhgrp 14 varsayılıyordu).
+                curTunnel = { p1Name: line.slice(6, -1), iface: '', remoteGw: '', psk: '', ikeVersion: '', proposal: 'aes256-sha256', dhgrp: '', p2Name: '', localSubnet: '', remoteSubnet: '' };
                 ir.vpnTunnels.push(curTunnel);
             } else if (curTunnel) {
                 if (line.startsWith('set interface '))     curTunnel.iface = line.slice(14).replace(/"/g, '').trim();
@@ -342,7 +415,7 @@ function ccReadFortiGate(text) {
                 else if (line.startsWith('set ike-version ')) curTunnel.ikeVersion = line.slice(16).trim();
                 else if (line.startsWith('set proposal '))  curTunnel.proposal = line.slice(13).trim();
                 else if (line.startsWith('set dhgrp '))     curTunnel.dhgrp = line.slice(10).trim();
-                else if (line === 'next') curTunnel = null;
+                else if (line === 'next') { _p1Defaults(curTunnel); curTunnel = null; }
             }
         }
 
@@ -490,7 +563,7 @@ function ccReadFortiGate(text) {
         if (p.dstZone) zoneNames.add(p.dstZone);
     });
     zoneNames.forEach(name => {
-        if (name) ir.zones.push({ name, interfaces: [], description: '', trust_level: 0 });
+        if (name && !ir.zones.find(z => z.name === name)) ir.zones.push({ name, interfaces: [], description: '', trust_level: 0 });
     });
 
     // ── Resolve address objects → canonical value in securityPolicies ──────────

@@ -32,9 +32,13 @@ function _fgWNetOrBcast(ip, len) {
 }
 // allowaccess denetimi (fgt-01): WAN'da şifresiz yönetim, her yerde telnet, tanınmayan anahtar sözcük
 const _FGW_ACCESS = ['ping', 'https', 'ssh', 'http', 'snmp', 'fgfm', 'telnet', 'radius-acct', 'probe-response', 'fabric', 'ftm', 'speed-test'];
+// FortiOS 7.6.6 CLI Ref (config system interface → allowaccess) yalnız 7.6'da eklenen değerler
+const _FGW_ACCESS_76 = ['scim', 'dnp', 'icond'];
 function _fgWAccess(label, list, isWan, w) {
     const a = String(list || '').trim().split(/[\s,]+/).filter(Boolean).map(x => x.toLowerCase());
-    const unk = a.filter(x => _FGW_ACCESS.indexOf(x) === -1);
+    const only76 = a.filter(x => _FGW_ACCESS_76.indexOf(x) !== -1);
+    const unk = a.filter(x => _FGW_ACCESS.indexOf(x) === -1 && _FGW_ACCESS_76.indexOf(x) === -1);
+    if (only76.length) w.push('ℹ ' + label + ': ' + only76.join(', ') + ' yalnız FortiOS 7.6 ve sonrasında geçerli; 7.4 cihaz bu değeri reddeder.');
     if (unk.length) w.push('⚠ ' + label + ': tanınmayan allowaccess değeri (' + unk.join(', ') + '); cihaz "value parse error" ile reddedebilir. FortiOS 7.4 değerleri: ' + _FGW_ACCESS.join(' ') + '.');
     if (a.indexOf('telnet') !== -1) w.push('⚠ ' + label + ': telnet parolayı düz metin taşır; yönetim için yalnız ssh/https kullanın (fgt-01).');
     if (isWan && a.indexOf('http') !== -1) w.push('⚠ ' + label + ': http, yönetim arayüzünü internete şifresiz açar; kaldırın (fgt-01).');
@@ -192,7 +196,10 @@ function cgFgAddrGen(data) {
     }
     if (comment) c += '        set comment "' + comment + '"\n';
     c += '    next\nend\n\n';
-    c += '# Doğrulama:\n# show firewall address "' + name + '"\n# diagnose firewall address list\n';
+    // FortiOS 7.4.8 / 7.6.6 CLI Ref (diagnose firewall): 'address list' alt komutu yok.
+    // FQDN nesnesinin çözümlenen IP'leri 'fqdn list-all' ile görülür.
+    c += '# Doğrulama:\n# show firewall address "' + name + '"\n';
+    if (type === 'fqdn') c += '# diagnose firewall fqdn list-all\n';
     return c;
 }
 
@@ -621,7 +628,7 @@ FortiGate.sslvpn = {
             topic: {
                 icon: 'fas fa-user-shield',
                 title: 'SSL-VPN (FortiGate)',
-                desc: 'FortiClient / web tabanlı SSL-VPN portali ve tunnel-mode konfigürasyonu.<br><code>config vpn ssl settings\n  set port 10443\n  set tunnel-ip-pools "SSLVPN_TUNNEL_ADDR1"\n  set source-interface "port1"\nend</code>'
+                desc: 'FortiClient / web tabanlı SSL-VPN portali ve tunnel-mode konfigürasyonu. <b>FortiOS 7.4 ve öncesi içindir:</b> 7.6.3 ve sonrasında tünel modu kaldırıldı, yerine IPsec dial-up VPN kullanılır.<br><code>config vpn ssl settings\n  set port 10443\n  set tunnel-ip-pools "SSLVPN_TUNNEL_ADDR1"\n  set source-interface "port1"\nend</code>'
             },
             sections: [
                 {
@@ -669,6 +676,11 @@ function cgFgSslvpnGen(data) {
     const split = data.split_tunnel === 'disable' ? 'disable' : 'enable';
     const w = [];
     let c = '# ========================================\n# FortiGate — SSL-VPN Configuration\n# ========================================\n\n';
+    // FortiOS 7.6.3 RN: SSL VPN tünel modu kaldırıldı; 7.6.6 CLI Ref'te portal altında tunnel-mode/ip-pools/
+    // split-tunneling, settings altında tunnel-ip-pools yok. Çıktı 7.4 içindir (içerik değişmedi).
+    c += '# SÜRÜM: FortiOS 7.4 ve öncesi içindir. 7.6.3 ve sonrasında SSL-VPN tünel modu yoktur;\n';
+    c += '# tunnel-mode, ip-pools, split-tunneling ve tunnel-ip-pools satırları reddedilir.\n';
+    c += '# 7.6.3+ için IPsec dial-up VPN (FortiClient) kullanın.\n\n';
     c += '# 1. Tunnel IP Havuzu\nconfig firewall address\n    edit "' + pool + '"\n        set type iprange\n';
     const parts = range.split('-');
     if (parts.length === 2) {
@@ -697,7 +709,7 @@ function cgFgSslvpnGen(data) {
     c += '        set action accept\n        set schedule "always"\n        set service "ALL"\n        set logtraffic all\n    next\nend\n\n';
     c += '# Doğrulama:\n# get vpn ssl monitor\n# diagnose vpn ssl list\n# diagnose debug application sslvpn -1\n';
     // ── Girdi uyarıları (fgt-12 / fgt-24)
-    w.push('ℹ FortiOS 7.4 içindir: SSL-VPN tünel modu 7.6.3 ve sonrasında tüm modellerde kaldırıldı (ayarlar yükseltmede taşınmaz); yeni kurulumlarda IPsec dial-up VPN (FortiClient) değerlendirin.');
+    w.push('⚠ FortiOS 7.4 içindir: SSL-VPN tünel modu 7.6.3 ve sonrasında tüm modellerde kaldırıldı (ayarlar yükseltmede taşınmaz); yeni kurulumlarda IPsec dial-up VPN (FortiClient) değerlendirin.');
     const pr = String(data.pool_range || '').split('-').map(x => x.trim());
     if (pr.length !== 2 || !_fgWIsIp(pr[0]) || !_fgWIsIp(pr[1])) w.push('⛔ IP havuzu aralığı "başlangıç-bitiş" biçiminde olmalı; start-ip/end-ip yazılamadı.');
     else if (_fgWN(pr[0]) > _fgWN(pr[1])) w.push('⛔ Havuzun başlangıç IP\'si bitişten büyük: aralık nesnesi kaydedilmez.');
@@ -758,27 +770,31 @@ function cgFgSecProfGen(data) {
     const policyId = cgEsc(data.policy_id || '');
     const log      = cgEsc(data.logtraffic || 'all');
     let c = '# ========================================\n# FortiGate — Security Profiles (UTM) + Policy Binding\n# ========================================\n\n';
-    c += '! 1. Antivirus Profil\nconfig antivirus profile\n    edit "' + avName + '"\n';
-    c += '        config http\n            set options scan\n        end\n';
-    c += '        config ftp\n            set options scan\n        end\n';
+    c += '# 1. Antivirus Profil\nconfig antivirus profile\n    edit "' + avName + '"\n';
+    // FortiOS 7.4.8 / 7.6.6 CLI Ref: protokol bloğunda 'options' alanı yok; av-scan disable|block|monitor.
+    c += '        config http\n            set av-scan block\n        end\n';
+    c += '        config ftp\n            set av-scan block\n        end\n';
     c += '        set comment "Corporate AV profile"\n    next\nend\n\n';
-    c += '! 2. IPS Sensor\nconfig ips sensor\n    edit "' + ipsName + '"\n';
+    c += '# 2. IPS Sensor\nconfig ips sensor\n    edit "' + ipsName + '"\n';
     c += '        config entries\n            edit 1\n                set severity high critical\n                set status enable\n            next\n        end\n';
     c += '        set comment "Corporate IPS sensor"\n    next\nend\n\n';
-    c += '! 3. Web Filter Profil\nconfig webfilter profile\n    edit "' + wfName + '"\n';
+    c += '# 3. Web Filter Profil\nconfig webfilter profile\n    edit "' + wfName + '"\n';
     c += '        set comment "Corporate web filter"\n';
     c += '        config ftgd-wf\n            config filters\n                edit 1\n                    set category 26\n                    set action block\n                next\n            end\n        end\n    next\nend\n\n';
-    c += '! 4. Application Control\nconfig application list\n    edit "' + appName + '"\n';
+    c += '# 4. Application Control\nconfig application list\n    edit "' + appName + '"\n';
     c += '        set comment "Corporate app control"\n';
     c += '        config entries\n            edit 1\n                set category 2\n                set action block\n            next\n        end\n    next\nend\n\n';
-    c += '! 5. Policy\'e UTM Profilleri Bağla\nconfig firewall policy\n    edit ' + policyId + '\n';
+    c += '# 5. Policy\'e UTM Profilleri Bağla\nconfig firewall policy\n    edit ' + policyId + '\n';
     c += '        set utm-status enable\n';
+    // ssl-ssh-profile varsayılanı no-inspection: yazılmazsa HTTPS'te web filtre/AV neredeyse etkisiz kalır.
+    c += '        set ssl-ssh-profile "certificate-inspection"\n';
     c += '        set av-profile "' + avName + '"\n';
     c += '        set ips-sensor "' + ipsName + '"\n';
     c += '        set webfilter-profile "' + wfName + '"\n';
     c += '        set application-list "' + appName + '"\n';
     c += '        set logtraffic ' + log + '\n';
     c += '    next\nend\n\n';
+    c += '# Not: certificate-inspection yalnız SNI/sertifika bilgisine bakar; HTTPS içeriğinde AV/IPS için\n# deep-inspection profili ve istemcilere dağıtılmış CA sertifikası gerekir.\n';
     c += '# Doğrulama:\n# show antivirus profile "' + avName + '"\n# show ips sensor "' + ipsName + '"\n# show firewall policy ' + policyId + '\n# diagnose firewall iprope show 00100004 ' + policyId + '\n';
     return c;
 }
@@ -846,6 +862,8 @@ function cgFgSdwanGen(data) {
     c += '    end\n';
     c += '    config health-check\n        edit "hc-primary"\n';
     c += '            set server "' + hcServer + '"\n            set protocol ping\n';
+    // Ölçüme katılacak üyeler açıkça yazılır (FortiOS CLI Ref: health-check 'set members <seq-num>').
+    c += '            set members 1 2\n';
     c += '            config sla\n                edit 1\n';
     c += '                    set latency-threshold ' + hcLat + '\n';
     c += '                    set jitter-threshold ' + hcJit + '\n';
@@ -854,7 +872,8 @@ function cgFgSdwanGen(data) {
     c += '            config sla\n                edit "hc-primary"\n                    set id 1\n                next\n            end\n';
     c += '            set priority-members 1 2\n        next\n    end\nend\n\n';
     c += '# Statik route SD-WAN zone\'a yönlendir:\n# config router static\n#     edit 1\n#         set dst 0.0.0.0/0\n#         set sdwan-zone "virtual-wan-link"\n#     next\n# end\n\n';
-    c += '# Doğrulama:\n# diagnose sys sdwan member\n# diagnose sys sdwan health-check\n# diagnose sys sdwan service\n# get system sdwan\n';
+    // FortiOS 7.4.8 / 7.6.6 CLI Ref (diagnose sys): 'sdwan service' yok → service4; health-check için status.
+    c += '# Doğrulama:\n# diagnose sys sdwan member\n# diagnose sys sdwan health-check status\n# diagnose sys sdwan service4\n# show system sdwan\n';
     return c;
 }
 
@@ -1106,12 +1125,13 @@ function cgFgOspfGen(data) {
     c += '    config network\n';
     networks.forEach((net, i) => { c += '        edit ' + (i+1) + '\n            set prefix ' + net + '\n            set area ' + area + '\n        next\n'; });
     c += '    end\n';
+    // FortiOS 7.4.8 / 7.6.6 CLI Ref (config router ospf): pasif arayüz üst düzeyde
+    // 'set passive-interface' listesidir (ospf-interface altında 'passive' alanı yok);
+    // yeniden dağıtım 'config redistribute' / edit "connected" / set status tablosudur.
     if (passiveIntfs.length > 0) {
-        c += '    config ospf-interface\n';
-        passiveIntfs.forEach(intf => { c += '        edit "' + cgEsc(intf) + '"\n            set passive enable\n        next\n'; });
-        c += '    end\n';
+        c += '    set passive-interface ' + passiveIntfs.map(intf => '"' + intf + '"').join(' ') + '\n';
     }
-    c += '    set redistribute connected ' + redist + '\nend\n\n';
+    c += '    config redistribute\n        edit "connected"\n            set status ' + redist + '\n        next\n    end\nend\n\n';
     c += '# Doğrulama:\n# get router info ospf neighbor\n# get router info routing-table ospf\n';
     return c;
 }
@@ -1291,7 +1311,7 @@ FortiGate.antivirus = {
             topic: {
                 icon: 'fas fa-virus-slash',
                 title: 'Anti-Virus Profile (FortiGate)',
-                desc: 'HTTP, FTP ve SMTP trafiği üzerinde virüs tarama ve karantina konfigürasyonu.<br><code>config antivirus profile\n  edit "AV-PROFILE"\n    config http\n      set av-scan enable\n    end\n    set quarantine infected\n  next\nend</code>',
+                desc: 'HTTP, FTP ve SMTP trafiği üzerinde virüs tarama ve karantina konfigürasyonu.<br><code>config antivirus profile\n  edit "AV-PROFILE"\n    config http\n      set av-scan block\n      set quarantine enable\n    end\n  next\nend</code>',
             },
             sections: [
                 {
@@ -1299,12 +1319,12 @@ FortiGate.antivirus = {
                     icon: 'fas fa-virus-slash',
                     fields: [
                         { name: 'profile_name', why: 'Profil adı kuralda görünür. Tutarlı isimlendirme (ör. <code>WF_CORPORATE</code>) çok profilli kurulumlarda karışıklığı önler.', label: 'Profil Adı',    type: 'text',   required: true,  placeholder: 'AV-PROFILE', hint: 'Policy\'e bağlanacak profil adı' },
-                        { name: 'http_scan', why: "HTTP trafiğinin taranması. HTTPS için ayrıca SSL Inspection gerekir; bugün trafiğin çoğu HTTPS olduğundan yalnız HTTP taraması sınırlı koruma sağlar.",    label: 'HTTP Tarama',   type: 'select', options: [{ value: 'enable', label: 'Enable', selected: true }, { value: 'disable', label: 'Disable' }] },
-                        { name: 'ftp_scan', why: "FTP dosya aktarımı taraması. FTP düz metin protokoldür; mümkünse tamamen kapatıp SFTP'ye geçmek daha doğrudur.",     label: 'FTP Tarama',    type: 'select', options: [{ value: 'enable', label: 'Enable', selected: true }, { value: 'disable', label: 'Disable' }] },
-                        { name: 'smtp_scan', why: "SMTP taraması, e-posta ekindeki zararlıları yakalar. Giden yönde de açmak, kendi ağından zararlı yayılmasını önler.",    label: 'SMTP Tarama',   type: 'select', options: [{ value: 'enable', label: 'Enable', selected: true }, { value: 'disable', label: 'Disable' }] },
-                        { name: 'quarantine', why: 'Karantina, tehdit tespit edilen kaynağı belirli süre bloklar. Yanlış pozitifte meşru kullanıcıyı da keser — süreyi kısa tut.',   label: 'Quarantine',    type: 'select', options: [
-                            { value: 'infected', label: 'Infected', selected: true },
-                            { value: 'none',     label: 'None' }
+                        { name: 'http_scan', why: "HTTP trafiğinin taranması. HTTPS için ayrıca SSL Inspection gerekir; bugün trafiğin çoğu HTTPS olduğundan yalnız HTTP taraması sınırlı koruma sağlar.",    label: 'HTTP Tarama',   type: 'select', options: [{ value: 'block', label: 'Block (engelle)', selected: true }, { value: 'monitor', label: 'Monitor (yalnız logla)' }, { value: 'disable', label: 'Disable' }] },
+                        { name: 'ftp_scan', why: "FTP dosya aktarımı taraması. FTP düz metin protokoldür; mümkünse tamamen kapatıp SFTP'ye geçmek daha doğrudur.",     label: 'FTP Tarama',    type: 'select', options: [{ value: 'block', label: 'Block (engelle)', selected: true }, { value: 'monitor', label: 'Monitor (yalnız logla)' }, { value: 'disable', label: 'Disable' }] },
+                        { name: 'smtp_scan', why: "SMTP taraması, e-posta ekindeki zararlıları yakalar. Giden yönde de açmak, kendi ağından zararlı yayılmasını önler.",    label: 'SMTP Tarama',   type: 'select', options: [{ value: 'block', label: 'Block (engelle)', selected: true }, { value: 'monitor', label: 'Monitor (yalnız logla)' }, { value: 'disable', label: 'Disable' }] },
+                        { name: 'quarantine', why: 'Enfekte dosyanın bir kopyasını karantinaya alır (inceleme için). FortiOS bunu profil düzeyinde değil, her protokol bloğunda <code>set quarantine enable</code> olarak tutar; karantina deposu (disk ya da FortiAnalyzer) yoksa etkisizdir.',   label: 'Quarantine',    type: 'select', options: [
+                            { value: 'enable',  label: 'Enable', selected: true },
+                            { value: 'disable', label: 'Disable' }
                         ]}
                     ]
                 }
@@ -1316,17 +1336,25 @@ FortiGate.antivirus = {
     }
 };
 function cgFgAntivirusGen(data) {
+    // FortiOS 7.4.8 / 7.6.6 CLI Ref (config antivirus profile): av-scan değerleri
+    // disable|block|monitor; quarantine profil düzeyinde değil, protokol bloğunda enable|disable.
+    // Eski kayıtlı formlarla uyum: enable→block, infected→enable, none→disable.
+    const _scan = v => { v = String(v || 'block'); return v === 'enable' ? 'block' : (['block', 'monitor', 'disable'].includes(v) ? v : 'block'); };
     const pname      = cgEsc(data.profile_name || '');
-    const httpScan   = cgEsc(data.http_scan || 'enable');
-    const ftpScan    = cgEsc(data.ftp_scan || 'enable');
-    const smtpScan   = cgEsc(data.smtp_scan || 'enable');
-    const quarantine = cgEsc(data.quarantine || 'infected');
+    const httpScan   = _scan(data.http_scan);
+    const ftpScan    = _scan(data.ftp_scan);
+    const smtpScan   = _scan(data.smtp_scan);
+    const qv         = String(data.quarantine || 'enable');
+    const quarantine = (qv === 'infected' || qv === 'enable') ? 'enable' : 'disable';
+    const blk = (proto, scan) => '        config ' + proto + '\n            set av-scan ' + scan + '\n' +
+        (scan !== 'disable' ? '            set quarantine ' + quarantine + '\n' : '') + '        end\n';
     let c = '# ========================================\n# FortiGate — Anti-Virus Profile\n# ========================================\n\n';
     c += 'config antivirus profile\n    edit "' + pname + '"\n        set comment "AV Profile"\n';
-    c += '        config http\n            set av-scan ' + httpScan + '\n        end\n';
-    c += '        config ftp\n            set av-scan ' + ftpScan + '\n        end\n';
-    c += '        config smtp\n            set av-scan ' + smtpScan + '\n        end\n';
-    c += '        set quarantine ' + quarantine + '\n    next\nend\n\n';
+    c += blk('http', httpScan);
+    c += blk('ftp', ftpScan);
+    c += blk('smtp', smtpScan);
+    c += '    next\nend\n\n';
+    c += '# Not: HTTPS/SMTPS trafiğinin taranması için kuralda SSL/SSH inspection profili gerekir.\n';
     c += '# Doğrulama:\n# show antivirus profile "' + pname + '"\n';
     return c;
 }
@@ -1541,6 +1569,12 @@ function cgFgVdomGen(data) {
     const adminUser = cgEsc(data.admin_user || '');
     const adminPass = cgEsc(data.admin_pass || '');
     let c = '# ========================================\n# FortiGate — VDOM\n# ========================================\n\n';
+    // FortiOS 7.4.8 / 7.6.6 CLI Ref (config system global): vdom-mode [no-vdom | multi-vdom].
+    // Çoklu VDOM açılmadan 'config vdom' komutu yoktur.
+    c += '# 1. Çoklu VDOM modunu aç (zaten açıksa bu adımı atla).\n';
+    c += '#    Onay sorusu (y/n) gelir; ardından oturum kapanır, yeniden giriş yapıp devam et.\n';
+    c += 'config system global\n    set vdom-mode multi-vdom\nend\n\n';
+    c += '# 2. VDOM, yöneticisi ve çalışma modu\n';
     c += 'config vdom\n    edit ' + vdomName + '\n    next\nend\n\n';
     c += 'config global\n    config system admin\n        edit "' + adminUser + '"\n';
     c += '            set password ' + adminPass + '\n            set vdom "' + vdomName + '"\n            set accprofile "prof_admin"\n        next\n    end\nend\n\n';
@@ -1656,11 +1690,19 @@ function cgFgSnmpv3Gen(data) {
     const trapHost  = cgEsc(data.trap_host || '');
     let c = '# ========================================\n# FortiGate — SNMP v3\n# ========================================\n\n';
     c += 'config system snmp sysinfo\n    set status enable\nend\n\n';
+    // FortiOS 7.4.8 / 7.6.6 CLI Ref (config system snmp user): security-level varsayılanı
+    // no-auth-no-priv — yazılmazsa auth/priv ayarları uygulanmaz. notify-hosts düz alandır
+    // (alt tablo değil).
     c += 'config system snmp user\n    edit "' + username + '"\n';
+    c += '        set status enable\n';
+    c += '        set security-level auth-priv\n';
     c += '        set auth-proto ' + authProto + '\n        set auth-pwd ' + authPass + '\n';
     c += '        set priv-proto ' + privProto + '\n        set priv-pwd ' + privPass + '\n';
+    c += '        set queries enable\n';
+    c += '        set trap-status enable\n';
+    c += '        set notify-hosts ' + trapHost + '\n';
     c += '        set events cpu-high mem-low\n';
-    c += '        config notify-hosts\n            edit 1\n                set ip ' + trapHost + '\n            next\n        end\n    next\nend\n\n';
+    c += '    next\nend\n\n';
     c += '# Doğrulama:\n# show system snmp user "' + username + '"\n';
     return c;
 }
