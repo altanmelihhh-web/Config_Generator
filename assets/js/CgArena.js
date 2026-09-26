@@ -462,7 +462,7 @@ const CgArena = {
         const broken = checks.filter(c => c.kind === 'safe' && !c.ok), useless = diag.filter(d => !d.useful), errs = applied.filter(a => a.err);
         const minutes = diag.reduce((a, d) => a + d.min, 0) + (plan.free || 0) * 2 + v.issues.reduce((a, is) => { const f = is.fixes.find(x => x.id === (plan.fix || {})[is.id]); return a + (f ? f.min : 0); }, 0);
         const time = minutes <= v.target ? 20 : Math.max(0, 20 - (minutes - v.target));
-        parts.push({ k: 'Kök neden', p: Math.round(cause), max: 40 }, { k: 'Düzeltme', p: Math.round(fix), max: 40 }, { k: 'Süre (' + minutes + ' / ' + v.target + ' dk)', p: time, max: 20 });
+        parts.push({ k: 'Kök neden', p: Math.round(cause), max: 40 }, { k: 'Düzeltme', p: Math.round(fix), max: 40 }, { k: 'Süre (teşhis ' + (diag.reduce((a, d) => a + d.min, 0) + (plan.free || 0) * 2) + ' + müdahale ' + (minutes - diag.reduce((a, d) => a + d.min, 0) - (plan.free || 0) * 2) + ' = ' + minutes + ' / ' + v.target + ' dk)', p: time, max: 20 });
         if (broken.length) parts.push({ k: 'Yan etki: ' + broken.map(c => c.label).join(', '), p: -10 * broken.length });
         if (useless.length) parts.push({ k: 'Gereksiz eylem: ' + useless.map(d => d.label).join(', '), p: -3 * useless.length });
         if (errs.length) parts.push({ k: 'Hatalı komut', p: -5 * errs.length });
@@ -499,7 +499,7 @@ const CgArena = {
                 </main>
             </div></div>`;
         const $ = q => this._root.querySelector(q), $$ = q => this._root.querySelectorAll(q);
-        const meter = () => { const left = v.budget - S.used.length - S.free; $('.cg-nb-meter').innerHTML = `<span><i class="far fa-clock"></i> ${this._nbClock(v, S.minutes)} <small>(${S.minutes} / ${v.target} dk)</small></span><span><i class="fas fa-bolt"></i> Eylem ${v.budget - left} / ${v.budget}</span>${st.best !== null ? `<span><i class="fas fa-trophy"></i> En iyi ${st.best}</span>` : ''}`;
+        const meter = () => { const left = v.budget - S.used.length - S.free; $('.cg-nb-meter').innerHTML = `<span><i class="far fa-clock"></i> ${this._nbClock(v, S.minutes)} <small>(teşhis ${S.minutes} dk · hedef ${v.target} dk, müdahale süresi planla eklenir)</small></span><span><i class="fas fa-bolt"></i> Eylem ${v.budget - left} / ${v.budget}</span>${st.best !== null ? `<span><i class="fas fa-trophy"></i> En iyi ${st.best}</span>` : ''}`;
             $$('.cg-nb-dbtn').forEach(b => { b.disabled = !!S.result || S.used.includes(b.dataset.d) || left <= 0; }); $('.cg-nb-free input').disabled = $('.cg-nb-free button').disabled = !!S.result || left <= 0; };
         const show = (label, runs, note) => { const con = $('.cg-nb-con'), e = con.querySelector('.cg-nb-empty'); if (e) e.remove();
             con.insertAdjacentHTML('beforeend', `<div class="cg-nb-out"><div class="cg-nb-oh"><b>${E(label)}</b> <small>${this._nbClock(v, S.minutes)}</small></div>${runs.map(r => `<pre><span class="cg-nb-ps">[root@bigip-a:Active:Standalone] config # </span>${E(r.cmd)}\n${E(r.out)}</pre>`).join('')}${note ? `<p class="cg-nb-note">${E(note)}</p>` : ''}</div>`);
@@ -568,7 +568,7 @@ const CgArena = {
         msg.className = 'cg-ar-edmsg is-ok'; msg.innerHTML = k.empty ? '<i class="fas fa-check-circle"></i> Kural yok; yalnız profil ayarları uygulandı.' : '<i class="fas fa-check-circle"></i> Kural kaydedildi ve <code>' + cgEsc(t.vs.name) + '</code>\'e bağlandı.';
         const run = this._run = { stop: false }; st.runs++; this._save();
         this._view(code);
-        const tb = $('.cg-ar-flow tbody'); tb.innerHTML = ''; $('.cg-ar-log').textContent = ''; $('.cg-ar-logn').textContent = ''; $('.cg-ar-done').hidden = true;
+        const tb = $('.cg-ar-flow tbody'); tb.innerHTML = ''; $('.cg-ar-score').textContent = ''; $('.cg-ar-log').textContent = ''; $('.cg-ar-logn').textContent = ''; $('.cg-ar-done').hidden = true;
         this._root.querySelectorAll('.cg-ar-mem:not(.is-down) .cg-ar-hits').forEach(h => { h.textContent = '0'; });
         $('[data-a="run"]').disabled = true; $('[data-a="step"]').hidden = this._speed !== 0; this._lock(true);
         const hits = {}, logs = [], all = this._runAll(t, k.c, this._prof); let ok = 0;

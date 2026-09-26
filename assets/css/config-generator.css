@@ -1546,3 +1546,25 @@
     #config-generator-root .cg-ar-srv { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
 #config-generator-root .cg-ts-warn { font-size: .82rem; margin: 6px 0; padding: 8px 10px; border-radius: 8px; background: rgba(245, 158, 11, .12); border: 1px solid rgba(245, 158, 11, .5); color: var(--text-primary, #111827); }
+/* Denetim S1 doğrulama: kalanlar */
+#config-generator-root .cg-ts-btn.ok, [data-theme="dark"] #config-generator-root .cg-ts-btn.ok { background: #047857; border-color: #047857; color: #fff; }
+[data-theme="dark"] #config-generator-root .cg-ar-panel .cg-ar-lnk, [data-theme="dark"] #config-generator-root .cg-waf .cg-ar-lnk { color: #a5b4fc; }
+#config-generator-root .cg-waf-log { grid-template-columns: minmax(0, 1fr); }
+#config-generator-root .cg-waf-e { min-width: 0; }
+@media (max-width: 600px) {
+    #config-generator-root .cg-ar-mem { white-space: nowrap; word-break: normal; overflow: hidden; text-overflow: ellipsis; font-size: .66rem; }
+    #config-generator-root .cg-ar-tbl table, #config-generator-root .cg-ar-tbl tbody { display: block; }
+    #config-generator-root .cg-ar-tbl thead { display: none; }
+    #config-generator-root .cg-ar-tbl tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 8px; padding: 8px 10px; border-top: 1px solid var(--border-color, #eef0f3); }
+    #config-generator-root .cg-ar-tbl td { display: block; border: 0; padding: 0; }
+    #config-generator-root .cg-ar-tbl td:nth-child(1) { grid-row: 1; grid-column: 1; }
+    #config-generator-root .cg-ar-tbl td:nth-child(3) { grid-row: 1; grid-column: 2; }
+    #config-generator-root .cg-ar-tbl td:nth-child(6) { grid-row: 1; grid-column: 3; }
+    #config-generator-root .cg-ar-tbl td:nth-child(4), #config-generator-root .cg-ar-tbl td:nth-child(5) { grid-column: 1 / -1; min-width: 0; }
+    #config-generator-root .cg-ar-tbl td:nth-child(4)::before { content: 'Beklenen: '; font-size: .72rem; color: var(--text-secondary, #6b7280); }
+    #config-generator-root .cg-ar-tbl td:nth-child(5)::before { content: 'Gerçekleşen: '; font-size: .72rem; color: var(--text-secondary, #6b7280); }
+    #config-generator-root .cg-ar-tbl tr.cg-ar-empty { display: block; }
+}
+#config-generator-root .cg-waf-eh > span, #config-generator-root .cg-waf-e > div, #config-generator-root .cg-waf-v > div { min-width: 0; overflow-wrap: anywhere; }
+#config-generator-root .cg-waf-e code { white-space: normal; overflow-wrap: anywhere; }
+#config-generator-root .cg-waf-e { grid-template-columns: minmax(0, 1fr); } #config-generator-root .cg-waf-eh { min-width: 0; flex-wrap: wrap; }
