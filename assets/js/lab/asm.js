@@ -86,7 +86,7 @@ const CgASM = (function () {
         const rating = viol.length === 0 ? (sigs.length ? 1 : 0) : Math.min(5, (hi >= 2 ? 5 : hi === 1 ? 4 : liveSigs.length ? 3 : 2) + (viol.some(v => v.name === V.evasion) ? 1 : 0));
         const blocked = !!p.blocking && blocking.length > 0;
         const id = supportId(req, seq++);
-        return { violations: viol, sigs, rating, blocked, status: blocked ? 'Blocked' : viol.length ? 'Alarmed (geçti)' : 'Legal', supportId: viol.length || sigs.length ? id : null, policy: p.name };
+        return { violations: viol, sigs, rating, blocked, status: blocked ? 'Blocked' : viol.length ? 'Alarmed (geçti)' : 'Legal', supportId: viol.length || sigs.length ? id : null, tid: id, policy: p.name };
     }
     const blockPage = sid => '<html><head><title>Request Rejected</title></head><body>The requested URL was rejected. Please consult with your administrator.<br><br>Your support ID is: ' + sid + '<br><br><a href=\'javascript:history.back();\'>[Go Back]</a></body></html>';
     return { V, SIGS, META_DEFAULT, policy, evaluate, blockPage, parseParams };

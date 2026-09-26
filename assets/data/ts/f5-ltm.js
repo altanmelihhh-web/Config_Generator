@@ -296,5 +296,50 @@
                 { q: 'Doğrudan required\'a geçmenin riski?', choices: [['lost', 'Şifresiz çerezli kullanıcıların kalıcılığı kaybolur (oturum/sepet kopar)'], ['none', 'Risk yok'], ['rst', 'Bağlantılar sıfırlanır']], correct: 'lost', why: 'required eski çerezi tanımaz; geçiş preferred ile yapılır.' },
             ]
         },
+        {
+            title: 'ASM iRule Olayları Tetiklenmiyor: ASM_REQUEST_DONE Çalışmıyor ya da Özel Blok Sayfası Bağlantıyı Sıfırlıyor', severity: 'warn', topic: 'adc', lab: 'f5-68',
+            symptom: 'VS\'ye ASM_REQUEST_DONE içeren bir iRule bağlandı ama log satırı hiç düşmüyor; ya da özel blok sayfası için yazılan kural, engellenen istekte bağlantıyı sıfırlıyor.',
+            steps: [
+                { code: 'tmsh list ltm virtual vs_web rules policies profiles', desc: 'Kural VS\'de mi, ASM politikası (asm enable eylemli LTM policy + websecurity profili) aynı VS\'ye bağlı ve yayınlanmış mı? Politika bağlı değilse ASM değerlendirmesi olmaz, ASM_* olayları da olmaz.' },
+                { code: 'tmsh show ltm rule r_asm', desc: '"Ltm::Rule Event: r_asm:ASM_REQUEST_DONE" satırında Executions Total 0 ise olay hiç tetiklenmiyordur. En sık neden: politikada "Trigger ASM iRule Events" kapalı ya da Compatibility mode (GUI: Security › Application Security › Policy › Policy Properties). Olay ihlal olmasa da her istekte tetiklenmelidir.',
+                  sample: '------------------------------------------------------------\nLtm::Rule Event: r_asm:ASM_REQUEST_DONE\n------------------------------------------------------------\nPriority                         500\nExecutions\n  Total                            0\n  Failures                         0\n\n# Total 0: olay çalışmıyor → Trigger ASM iRule Events (Normal mode) kontrol' },
+                { code: 'grep -e "Invalid action" -e 01220001 /var/log/ltm', desc: 'HTTP::respond ASM olaylarında geçerli değildir; engellenen istekte bağlantı sıfırlanır ve "http_process_state_prepend - Invalid action" görülür. Yanıtı HTTP_REQUEST_SEND\'e taşıyın (ASM_REQUEST_DONE\'da bayrak + ASM::unblock).',
+                  fix: [{ cause: 'HTTP::respond ASM_REQUEST_DONE içinde', cmd: 'tmsh modify ltm rule r_asm when ASM_REQUEST_DONE { if { [ASM::status] eq "blocked" } { set sid [ASM::support_id] ; ASM::unblock } } when HTTP_REQUEST_SEND { if { [info exists sid] } { HTTP::respond 403 content "Istek engellendi. Destek numarasi: $sid" ; TCP::close } }' }] },
+                { code: 'tmsh list ltm rule r_asm', desc: 'ASM::unblock yalnız engellenecek istekte ve yalnız özel yanıt verilecekse çağrılmalı; koşulsuz unblock tüm saldırıları sunucuya iletir. ASM::violation / support_id / status yalnız ASM olaylarında geçerlidir (başka olayda kayıt 01070151 ile reddedilir).' },
+            ],
+            quiz: [
+                { q: 'Kural VS\'de, politika bağlı ve yayınlı; ama ASM_REQUEST_DONE sayacı 0. İlk bakılacak ayar?', choices: [['trig', 'Politikada Trigger ASM iRule Events (Normal mode)'], ['prio', 'Kural priority değeri'], ['snat', 'SNAT']], correct: 'trig', why: 'Ayar kapalıyken ASM_* olayları tetiklenmez.' },
+                { q: 'Engellenen istekte özel sayfa neden bağlantıyı sıfırlıyor olabilir?', choices: [['resp', 'HTTP::respond ASM_REQUEST_DONE içinde çağrılmış'], ['sid', 'support ID çok uzun'], ['rule', 'Kural iki when içeriyor']], correct: 'resp', why: 'Yanıt HTTP_REQUEST_SEND\'de verilir.' },
+            ]
+        },
+        {
+            title: 'Yedek Sunuculara Trafik Gitmiyor ya da Hiç Geri Dönmüyor: Priority Group, min-active-members, Slow Ramp ve Persistence', severity: 'warn', topic: 'adc', lab: 'f5-69',
+            symptom: 'Birincil sunucular düştüğü hâlde yedek sunucular trafik almıyor; ya da birincil sunucular döndüğü hâlde kullanıcılar yedekte kalıyor, yedek her zaman biraz trafik alıyor.',
+            steps: [
+                { code: 'tmsh list ltm pool web_pool members min-active-members slow-ramp-time', desc: 'min-active-members 0 ise priority group etkisizdir (tüm üyeler trafik alır). Üyelerin priority-group değerleri doğru mu (büyük sayı = yüksek öncelik)?',
+                  fix: [{ cause: 'min-active-members 0 (özellik kapalı)', cmd: 'tmsh modify ltm pool web_pool min-active-members 1' }] },
+                { code: 'tmsh show ltm pool web_pool members', desc: '"Priority Groups: 10/5/5 (highest/current/lowest)" current değeri o an kullanılan en alt grubu gösterir. Birincil üyeler "available" ama current düşük kalıyorsa geri dönüşü geciktiren bir ayar vardır.',
+                  sample: 'Ltm::Pool: web_pool\n  Minimum Active Members : 1\n  Priority Groups        : 10/5/5 (highest/current/lowest)\n  Available Members      : 3\n\n# current 5: yedek grup da trafik alıyor' },
+                { code: 'tmsh list ltm pool web_pool slow-ramp-time', desc: 'slow-ramp-time (varsayılan 10) süren üye tam aktif sayılmaz; yeterli üst grup üyesi varken alt gruba trafik gidebilir. Priority group kullanan pool\'larda 0 önerilir (K000149891, K16242).',
+                  fix: [{ cause: 'Slow ramp priority group ile çakışıyor', cmd: 'tmsh modify ltm pool web_pool slow-ramp-time 0' }] },
+                { code: 'tmsh show ltm persistence persist-records pool web_pool', desc: 'Persistence kaydı priority group kararından önce uygulanır: yedeğe düşen istemci kayıt bitene kadar orada kalır. Kalıcılığı kaldırmak yerine eski kayıtları silin.',
+                  fix: [{ cause: 'Yedeğe yapışan kalıcılık kayıtları', cmd: 'tmsh delete ltm persistence persist-records pool web_pool' }] },
+            ],
+            quiz: [
+                { q: 'Birincil grup döndü ama bazı kullanıcılar saatlerdir yedekte. En olası neden?', choices: [['per', 'Persistence kayıtları yedeği gösteriyor'], ['mon', 'Monitor'], ['ramp', 'Slow ramp saatlerce sürer']], correct: 'per', why: 'Slow ramp saniyeler sürer; saatlerce süren yapışma kalıcılıktır.' },
+            ]
+        },
+        {
+            title: 'Bakımdan Dönen Sunucu Anında Boğuldu: Least Connections ve Slow Ramp', severity: 'warn', topic: 'adc', lab: 'f5-70',
+            symptom: 'Bakımdan dönen (enabled yapılan) üye birkaç saniyede yüzlerce bağlantı alıyor; uygulama havuzu doluyor, sunucu yanıt veremez hâle geliyor.',
+            steps: [
+                { code: 'tmsh list ltm pool web_pool load-balancing-mode slow-ramp-time', desc: 'least-connections-member + slow-ramp-time 0: yeni dönen üyenin bağlantısı 0 olduğu için tüm yeni bağlantılar ona gider.',
+                  fix: [{ cause: 'Slow ramp kapalı', cmd: 'tmsh modify ltm pool web_pool slow-ramp-time 60' }] },
+                { code: 'tmsh show ltm pool web_pool members', desc: 'Current Connections sütunu: dönen üye ile diğerleri arasındaki fark ne kadar büyükse, slow ramp bittikten sonra da o kadar uzun süre yeni bağlantılar ona yönelir. Kapasite sınırı gerekiyorsa üyeye connection-limit ya da ratio yöntemi düşünülür.' },
+            ],
+            quiz: [
+                { q: 'slow-ramp-time ne yapar?', choices: [['ramp', 'Yeni etkinleşen/up olan üyenin payını süreyle orantılı sınırlar'], ['delay', 'Üyeyi süre dolana kadar tamamen kapalı tutar'], ['bal', 'Bağlantı sayılarını eşitler']], correct: 'ramp', why: 'Süre dolunca üye tam pay alır; dengeleme yapmaz.' },
+            ]
+        },
 ];
 })();

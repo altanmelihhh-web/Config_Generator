@@ -6,12 +6,12 @@
 // Görevler: assets/data/arena/masa.js · İlerleme: localStorage 'cg-arena-v1'
 const CgArena = {
     KEY: 'cg-arena-v1',
-    FILES: ['assets/js/lab/irule.js', 'assets/js/lab/asm.js', 'assets/data/arena/masa.js', 'assets/data/arena/meydan.js', 'assets/data/arena/waf.js'],
+    FILES: ['assets/js/lab/core.js', 'assets/js/lab/irule.js', 'assets/js/lab/asm.js', 'assets/js/lab/tmsh.js', 'assets/data/arena/masa.js', 'assets/data/arena/meydan.js', 'assets/data/arena/waf.js', 'assets/data/arena/nobet.js'],
     RULE: 'r_masa',
     MODES: [
         { id: 'masa', icon: 'fa-project-diagram', title: 'Trafik Masası', desc: 'Kuralı yaz, trafiği başlat: her isteğin hangi olaydan geçtiğini, hangi satırın çalıştığını ve nereye gittiğini canlı izle.', ready: true },
         { id: 'waf', icon: 'fa-shield-alt', title: 'WAF Masası', desc: 'ASM politikasını ayarla ya da istek logunu incele: meşru trafik geçsin, saldırı engellensin. Geniş istisna kaybettirir.', ready: true },
-        { id: 'nobet', icon: 'fa-bell', title: 'Nöbet', desc: 'Kurgusal şirkette nöbettesin: alarm, grafik, log ve ekip mesajlarından kök nedeni bul, kesintiyi kapat.' },
+        { id: 'nobet', icon: 'fa-bell', title: 'Nöbet', desc: 'Kurgusal şirkette nöbettesin: alarm, log, istek/yanıt ve ekip mesajlarından kök nedeni bul, en dar düzeltmeyi uygula, "bozmadım" kanıtını göster. Eylem bütçesi ve süre sınırlı.', ready: true },
         { id: 'meydan', icon: 'fa-flag-checkered', title: 'Meydan Okuma', desc: 'Gizli testli kod görevleri: görünür testlerle dene, tümüyle gönder; doğruluk + maliyet puanı.', ready: true },
     ],
 
@@ -20,6 +20,7 @@ const CgArena = {
     _save() { try { localStorage.setItem(this.KEY, JSON.stringify(this._store())); } catch (e) { /* yalnız oturum */ } },
     _st(id) { const s = this._store(); return s.masa[id] || (s.masa[id] = { code: null, runs: 0, done: false, stars: 0, hints: 0 }); },
     _wst(id) { const s = this._store(); s.waf = s.waf || {}; return s.waf[id] || (s.waf[id] = { cfg: null, dec: null, runs: 0, done: false, stars: 0, hints: 0 }); },
+    _nst(id) { const s = this._store(); s.nobet = s.nobet || {}; return s.nobet[id] || (s.nobet[id] = { runs: 0, done: false, stars: 0, best: null }); },
     _mst(id) { const s = this._store(); s.meydan = s.meydan || {}; return s.meydan[id] || (s.meydan[id] = { code: null, subs: 0, done: false, stars: 0, hints: 0, best: null }); },
 
     async render(root, mode, id) {
@@ -30,6 +31,7 @@ const CgArena = {
         const T = window.CG_ARENA_MASA || [];
         if (mode === 'masa' && id) { const t = T.find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._desk(t); return; }
         if (mode === 'waf' && id) { const t = (window.CG_ARENA_WAF || []).find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._waf(t); return; }
+        if (mode === 'nobet' && id) { const v = (window.CG_ARENA_NOBET || []).find(x => x.id === id); if (!v) { location.hash = '#/arena'; return; } this._nb(v); return; }
         if (mode === 'meydan' && id) { const t = (window.CG_ARENA_MO || []).find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._mo(t); return; }
         this._hub(T);
     },
@@ -41,6 +43,7 @@ const CgArena = {
             <header class="cg-ar-head"><h1><i class="fas fa-chess-knight"></i> iRule Arenası</h1><p>Kuralın içini gör: istek gelir, olaylar tetiklenir, satırlar çalışır, trafik yönlenir. Üç mod, her biri farklı bir beceri.</p></header>
             <div class="cg-ar-modes">${this.MODES.map(m => `<section class="cg-ar-mode${m.ready ? '' : ' is-soon'}"><div class="cg-ar-mh"><i class="fas ${m.icon}"></i><b>${E(m.title)}</b>${m.ready ? '' : '<span class="cg-ar-soon">Yakında</span>'}</div><p>${E(m.desc)}</p>
                 ${m.id === 'waf' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_WAF || []).map((t, k) => { const st = this._wst(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/waf/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}
+                ${m.id === 'nobet' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_NOBET || []).map((v, k) => { const st = this._nst(v.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/nobet/${v.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(v.title)}</b><small>${E(v.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : st.best !== null ? st.best + ' puan' : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}
                 ${m.id === 'meydan' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_MO || []).map((t, k) => { const st = this._mst(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/meydan/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : t.tests.filter(x => x.hidden).length + ' gizli test'}</span></a>`; }).join('')}</div>` : ''}
                 ${m.id === 'masa' ? `<div class="cg-ar-tasks">${T.map((t, k) => { const st = this._st(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/masa/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}</section>`).join('')}</div></div>`;
     },
@@ -403,6 +406,101 @@ const CgArena = {
             main.querySelector('[data-a="replay"]').addEventListener('click', () => { const cfg = this._wFromDec(t, dec, entries); const res = this._wEval(t, cfg, t.traffic).concat(this._wEval(t, cfg, t.hidden).map(x => Object.assign(x, { hidden: true }))); this._wSend(res); });
             this._wBindHint(); };
         paint();
+    },
+    // ═══ Nöbet: hikâyeli olay müdahalesi (veri: assets/data/arena/nobet.js; motor: tmsh simülatörü) ═══
+    // Teşhis eylemleri canlı oturumda (salt okunur) çalışır; plan uygulanınca yeni bir oturumda düzeltmeler + kanıt komutları çalışır.
+    // Puan (100): kök neden 40 (kanıtsız doğru tahmin yarım puan) + düzeltme 40 (best 1 · good 0,6 · bad 0; kanıtla doğrulanmazsa 0)
+    //   + süre 20 (hedef dakikayı aşan her dakika −1) − yan etki (bozulan her "safe" kanıt −10) − gereksiz teşhis (−3) − hatalı komut (−5).
+    NB_RO: /^(tmsh (list|show) |list |show |curl |grep |tail |cat |ping |date$)/,
+    _nbEng() { return (window.CG_LAB_ENGINES || {})['f5-ltm']; },
+    _nbExec(s, cmd) { const b = s.ev.list().length, out = s.input(cmd), add = s.ev.list().slice(b), c = add.filter(e => e.curl).pop(); return { cmd, out: String(out == null ? '' : out), curl: c ? c.curl : null, err: add.some(e => e.err) }; },
+    _nbEval(v, plan) {
+        const E = this._nbEng(), s = E.session(v.lab), N = v.issues.length, diag = (plan.diag || []).map(id => v.diag.find(d => d.id === id)).filter(Boolean);
+        const applied = [], parts = [], issues = [];
+        v.issues.forEach(is => { const f = is.fixes.find(x => x.id === (plan.fix || {})[is.id]); (f ? f.cmds : []).forEach(c => applied.push(Object.assign(this._nbExec(s, c), { issue: is.id }))); });
+        const checks = v.checks.map(ch => { const L = [].concat(ch.cmd).map(c => this._nbExec(s, c)), r = L[L.length - 1]; let ok = false; try { ok = !!ch.test(r, s); } catch (e) { ok = false; } return { id: ch.id, label: ch.label, kind: ch.kind, issue: ch.issue, ok, runs: L }; });
+        let cause = 0, fix = 0;
+        v.issues.forEach(is => {
+            const ev = diag.some(d => (d.issues || []).includes(is.id)), cOk = (plan.cause || {})[is.id] === is.cause, cp = cOk ? (ev ? 1 : 0.5) : 0;
+            const f = is.fixes.find(x => x.id === (plan.fix || {})[is.id]), lv = f ? ({ best: 1, good: 0.6, bad: 0 }[f.level] || 0) : 0;
+            const own = checks.filter(c => c.issue === is.id), verified = own.every(c => c.ok), fp = own.length && !verified ? 0 : lv;
+            cause += cp * 40 / N; fix += fp * 40 / N;
+            issues.push({ id: is.id, causeOk: cOk, evidence: ev, fix: f || null, level: f ? f.level : null, verified: own.length ? verified : null, cp, fp });
+        });
+        const broken = checks.filter(c => c.kind === 'safe' && !c.ok), useless = diag.filter(d => !d.useful), errs = applied.filter(a => a.err);
+        const minutes = diag.reduce((a, d) => a + d.min, 0) + (plan.free || 0) * 2 + v.issues.reduce((a, is) => { const f = is.fixes.find(x => x.id === (plan.fix || {})[is.id]); return a + (f ? f.min : 0); }, 0);
+        const time = minutes <= v.target ? 20 : Math.max(0, 20 - (minutes - v.target));
+        parts.push({ k: 'Kök neden', p: Math.round(cause), max: 40 }, { k: 'Düzeltme', p: Math.round(fix), max: 40 }, { k: 'Süre (' + minutes + ' / ' + v.target + ' dk)', p: time, max: 20 });
+        if (broken.length) parts.push({ k: 'Yan etki: ' + broken.map(c => c.label).join(', '), p: -10 * broken.length });
+        if (useless.length) parts.push({ k: 'Gereksiz eylem: ' + useless.map(d => d.label).join(', '), p: -3 * useless.length });
+        if (errs.length) parts.push({ k: 'Hatalı komut', p: -5 * errs.length });
+        const score = Math.max(0, Math.min(100, parts.reduce((a, x) => a + x.p, 0)));
+        return { score, stars: score >= 90 ? 3 : score >= 70 ? 2 : score >= 50 ? 1 : 0, parts, checks, applied, issues, minutes, broken, useless };
+    },
+    _nbClock(v, add) { const [h, m] = v.clock.split(':').map(Number), t = h * 60 + m + add; return String(Math.floor(t / 60) % 24).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); },
+    _nb(v) {
+        const E = cgEsc, st = this._nst(v.id), eng = this._nbEng();
+        if (!eng) { this._root.innerHTML = '<div class="cg-empty"><i class="fas fa-exclamation-triangle"></i><p>Simülatör yüklenemedi.</p></div>'; return; }
+        const S = this._nbState = { v, s: eng.session(v.lab), used: [], free: 0, minutes: 0, log: [], cause: {}, fix: {}, result: null };
+        const lvl = { best: 'En iyi', good: 'Kabul edilebilir', bad: 'Yanlış / yan etkili' };
+        this._root.innerHTML = `<div class="cg-ar cg-nb">
+            <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Nöbet</span><i class="fas fa-chevron-right"></i><span>${E(v.title)}</span></nav>
+            <div class="cg-nb-bar"><h2><i class="fas fa-bell"></i> ${E(v.title)}</h2><span class="cg-nb-meter" aria-live="polite"></span></div>
+            <div class="cg-nb-grid">
+                <aside class="cg-nb-side">
+                    <section class="cg-nb-alarm is-${v.alarm.sev}"><div class="cg-nb-ah"><i class="fas ${v.alarm.sev === 'crit' ? 'fa-exclamation-circle' : 'fa-exclamation-triangle'}"></i> ${v.alarm.sev === 'crit' ? 'ALARM' : 'UYARI'} · ${E(v.alarm.src)} <time>${E(v.clock)}</time></div><p>${E(v.alarm.text)}</p></section>
+                    <section class="cg-nb-card"><h3>Durum</h3><p>${v.story}</p><p class="cg-nb-sym"><b>Belirti:</b> ${E(v.symptom)}</p></section>
+                    ${v.report ? `<section class="cg-nb-card"><h3><i class="fas fa-file-contract"></i> Rapor bulguları</h3><ol class="cg-nb-rep">${v.report.map(r => `<li><span class="cg-ar-chip">${E(r.sev)}</span> <b>${E(r.title)}</b><br><small>${E(r.text)}</small></li>`).join('')}</ol></section>` : ''}
+                    <section class="cg-nb-card"><h3><i class="fas fa-comments"></i> Ekip kanalı</h3><ul class="cg-nb-chat">${v.team.map(m => `<li><div class="cg-nb-who"><b>${E(m.who)}</b> <small>${E(m.role)} · ${E(m.at)}</small></div><p>${E(m.text)}</p></li>`).join('')}</ul></section>
+                </aside>
+                <main class="cg-nb-main">
+                    <section class="cg-nb-card"><h3><i class="fas fa-search"></i> Teşhis <small>her eylem bütçeden düşer ve dakika harcar; gereksiz eylem puan kaybettirir</small></h3>
+                        <div class="cg-nb-diag">${v.diag.map(d => `<button type="button" class="cg-nb-dbtn" data-d="${d.id}"><i class="fas ${d.icon}"></i> <span>${E(d.label)}</span><small>${d.min} dk</small></button>`).join('')}</div>
+                        <form class="cg-nb-free" autocomplete="off"><label for="cg-nb-cmd">Kendi komutun (salt okunur: list, show, curl, grep, tail, ping)</label><div><input id="cg-nb-cmd" type="text" spellcheck="false" placeholder="tmsh show ltm pool web_pool members"><button type="submit" class="cg-ar-lnk"><i class="fas fa-terminal"></i> Çalıştır</button></div><small class="cg-nb-fmsg" role="status"></small></form>
+                        <div class="cg-nb-con" aria-live="polite"><p class="cg-nb-empty">Henüz komut çalıştırılmadı. Kanıt toplamadan karar vermek "tahmin" sayılır.</p></div></section>
+                    <section class="cg-nb-card cg-nb-plan"><h3><i class="fas fa-clipboard-list"></i> Müdahale planı</h3>
+                        ${v.issues.map(is => `<fieldset class="cg-nb-issue" data-i="${is.id}"><legend>${E(is.title)}</legend>
+                            <p class="cg-nb-q">${E(is.q)}</p><div class="cg-nb-opts">${is.causes.map(([k, t]) => `<label><input type="radio" name="c_${is.id}" value="${k}"> ${E(t)}</label>`).join('')}</div>
+                            <p class="cg-nb-q">Düzeltme</p><div class="cg-nb-opts">${is.fixes.map(f => `<label><input type="radio" name="f_${is.id}" value="${f.id}"> ${E(f.label)} <small>${f.min} dk</small>${f.cmds.length ? `<code class="cg-nb-cmdp">${f.cmds.map(E).join('<br>')}</code>` : '<small class="cg-nb-nocmd">(BIG-IP\'de komut yok)</small>'}</label>`).join('')}</div></fieldset>`).join('')}
+                        <div class="cg-ar-ctl"><button type="button" class="cg-ar-go" data-a="apply" disabled><i class="fas fa-play"></i> Planı uygula ve doğrula</button><button type="button" class="cg-ar-lnk" data-a="restart"><i class="fas fa-undo"></i> Vakayı baştan başlat</button></div></section>
+                    <section class="cg-nb-card cg-nb-res" hidden></section>
+                </main>
+            </div></div>`;
+        const $ = q => this._root.querySelector(q), $$ = q => this._root.querySelectorAll(q);
+        const meter = () => { const left = v.budget - S.used.length - S.free; $('.cg-nb-meter').innerHTML = `<span><i class="far fa-clock"></i> ${this._nbClock(v, S.minutes)} <small>(${S.minutes} / ${v.target} dk)</small></span><span><i class="fas fa-bolt"></i> Eylem ${v.budget - left} / ${v.budget}</span>${st.best !== null ? `<span><i class="fas fa-trophy"></i> En iyi ${st.best}</span>` : ''}`;
+            $$('.cg-nb-dbtn').forEach(b => { b.disabled = !!S.result || S.used.includes(b.dataset.d) || left <= 0; }); $('.cg-nb-free input').disabled = $('.cg-nb-free button').disabled = !!S.result || left <= 0; };
+        const show = (label, runs, note) => { const con = $('.cg-nb-con'), e = con.querySelector('.cg-nb-empty'); if (e) e.remove();
+            con.insertAdjacentHTML('beforeend', `<div class="cg-nb-out"><div class="cg-nb-oh"><b>${E(label)}</b> <small>${this._nbClock(v, S.minutes)}</small></div>${runs.map(r => `<pre><span class="cg-nb-ps">[root@bigip-a:Active:Standalone] config # </span>${E(r.cmd)}\n${E(r.out)}</pre>`).join('')}${note ? `<p class="cg-nb-note">${E(note)}</p>` : ''}</div>`);
+            con.lastElementChild.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
+        const runDiag = d => { S.used.push(d.id); S.minutes += d.min; show(d.label, d.cmds.map(c => this._nbExec(S.s, c))); meter(); };
+        $$('.cg-nb-dbtn').forEach(b => b.addEventListener('click', () => runDiag(v.diag.find(d => d.id === b.dataset.d))));
+        $('.cg-nb-free').addEventListener('submit', e => { e.preventDefault(); const inp = $('.cg-nb-free input'), c = inp.value.trim().replace(/\s+/g, ' ').replace(/^(list|show) /, 'tmsh $1 '), msg = $('.cg-nb-fmsg'); if (!c) return;
+            const d = v.diag.find(x => x.cmds.includes(c)); if (d) { if (S.used.includes(d.id)) { msg.textContent = 'Bu kanıt zaten toplandı.'; return; } runDiag(d); inp.value = ''; msg.textContent = ''; return; }
+            if (!this.NB_RO.test(c) || /\bdelete\b|\bmodify\b|\bcreate\b/.test(c)) { msg.textContent = 'Nöbette değişiklikler plan üzerinden yapılır; burada yalnız okuma komutları (list, show, curl, grep, tail, ping) çalışır.'; return; }
+            S.free++; S.minutes += 2; show('Serbest komut', [this._nbExec(S.s, c)]); inp.value = ''; msg.textContent = ''; meter(); });
+        const ready = () => { $('[data-a="apply"]').disabled = !!S.result || !v.issues.every(is => S.cause[is.id] && S.fix[is.id]); };
+        $$('.cg-nb-issue input').forEach(x => x.addEventListener('change', () => { const iid = x.closest('.cg-nb-issue').dataset.i; (x.name.startsWith('c_') ? S.cause : S.fix)[iid] = x.value; ready(); }));
+        $('[data-a="restart"]').addEventListener('click', () => this._nb(v));
+        $('[data-a="apply"]').addEventListener('click', () => {
+            const R = S.result = this._nbEval(v, { diag: S.used, free: S.free, cause: S.cause, fix: S.fix });
+            st.runs++; st.best = Math.max(st.best || 0, R.score); if (R.stars) { st.done = true; st.stars = Math.max(st.stars, R.stars); } this._save();
+            $$('.cg-nb-issue input').forEach(x => { x.disabled = true; }); ready(); meter();
+            const box = $('.cg-nb-res'); box.hidden = false;
+            box.innerHTML = `<h3><i class="fas fa-flag-checkered"></i> Sonuç: ${R.score} / 100 <span class="cg-ar-stars">${'★'.repeat(R.stars)}${'☆'.repeat(3 - R.stars)}</span></h3>
+                <table class="cg-nb-score">${R.parts.map(x => `<tr class="${x.p < 0 ? 'is-neg' : ''}"><th>${E(x.k)}</th><td>${x.p}${x.max ? ' / ' + x.max : ''}</td></tr>`).join('')}</table>
+                <h4>Kanıt: düzeldi mi, bir şey bozuldu mu?</h4><ul class="cg-nb-checks">${R.checks.map(c => `<li class="${c.ok ? 'is-ok' : 'is-bad'}"><details><summary><i class="fas ${c.ok ? 'fa-check' : 'fa-times'}"></i> <span class="cg-ar-chip">${c.kind === 'safe' ? 'bozulmadı mı' : 'düzeldi mi'}</span> ${E(c.label)}</summary>${c.runs.map(r => `<pre>${E(r.cmd)}\n${E(r.out)}</pre>`).join('')}</details></li>`).join('')}</ul>
+                <details class="cg-nb-applied"><summary><i class="fas fa-terminal"></i> Uygulanan komutlar (${R.applied.length})</summary>${R.applied.length ? R.applied.map(a => `<pre>${E(a.cmd)}${a.out ? '\n' + E(a.out) : ''}</pre>`).join('') : '<p>BIG-IP\'de değişiklik yapılmadı.</p>'}</details>
+                <h4>Değerlendirme</h4><div class="cg-nb-debrief">${v.issues.map((is, k) => { const x = R.issues[k], best = is.fixes.find(f => f.level === 'best'), cz = is.causes.find(c => c[0] === is.cause);
+                    return `<div class="cg-nb-db"><b>${E(is.title)}</b><p>${x.causeOk ? '<i class="fas fa-check"></i> Kök neden doğru' + (x.evidence ? '' : ' <small>(kanıt toplanmadan: yarım puan)</small>') : '<i class="fas fa-times"></i> Kök neden: ' + E(cz[1])}</p><p class="cg-nb-why">${E(is.why)}</p>
+                        <p>Seçtiğiniz düzeltme: <b>${E(x.fix ? x.fix.label : '—')}</b> <span class="cg-ar-chip">${E(lvl[x.level] || '')}</span>${x.verified === false ? ' <span class="cg-ar-chip is-bad">kanıtla doğrulanmadı</span>' : ''}<br><small>${E(x.fix ? x.fix.note || '' : '')}</small></p>
+                        ${x.level !== 'best' ? `<p>En iyi seçenek: <b>${E(best.label)}</b><br><small>${E(best.note || '')}</small></p>` : ''}</div>`; }).join('')}</div>
+                ${R.useless.length ? `<h4>Gereksiz eylemler</h4><ul>${R.useless.map(d => `<li><b>${E(d.label)}</b>: ${E(d.note || '')}</li>`).join('')}</ul>` : ''}
+                <h4>Öğrenilenler</h4><ul>${v.learn.map(x => `<li>${E(x)}</li>`).join('')}</ul><p class="cg-nb-src"><b>Kaynaklar:</b> ${v.sources.map(E).join(' · ')}</p>
+                <div class="cg-ar-db"><button type="button" class="cg-ar-go" data-a="again"><i class="fas fa-redo"></i> Vakayı yeniden oyna</button><a class="cg-ar-ghost" href="#/arena"><i class="fas fa-chess-knight"></i> Arena</a></div>`;
+            box.querySelector('[data-a="again"]').addEventListener('click', () => this._nb(v));
+            box.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        });
+        meter();
     },
     _profDef(t) { return Object.assign({ known: ['CONNECT', 'DELETE', 'GET', 'HEAD', 'LOCK', 'OPTIONS', 'POST', 'PROPFIND', 'PUT', 'TRACE', 'UNLOCK'], unknown: 'allow', persist: 'none' }, (t && t.prof) || {}); },
     _runAll(t, c, prof) {

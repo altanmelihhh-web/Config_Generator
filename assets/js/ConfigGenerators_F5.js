@@ -134,6 +134,15 @@ F5LTM.pool = {
 };
 
 // ── F5 LTM: Health Monitor ────────────────────────────────────────────────────
+// send dizgesi kurucu (K2167, K13397): satırlar \r\n ile ayrılır, istek \r\n\r\n ile biter; HTTP/1.1'de Host zorunlu.
+// Tek satırlık tmsh çıktısı CLI Lab simülatöründe de çalışır (labtest.d/f5-mongen.js).
+function cgF5MonSend(d) {
+    const m = String(d.send_method || 'GET').toUpperCase(), p = String(d.send_path || '/').trim() || '/', v = d.send_http === '1.0' ? '1.0' : '1.1';
+    let x = m + ' ' + (p.startsWith('/') ? p : '/' + p) + ' HTTP/' + v + '\\r\\n';
+    if (d.send_host) x += 'Host: ' + String(d.send_host).trim() + '\\r\\n';
+    if (d.send_close !== 'no') x += 'Connection: Close\\r\\n';
+    return x + '\\r\\n';
+}
 F5LTM.monitor = {
     label: 'Health Monitor',
     init(container) {
@@ -141,48 +150,78 @@ F5LTM.monitor = {
             topic: {
                 icon: 'fas fa-heartbeat',
                 title: 'Health Monitor',
-                desc: 'Sunucu üyelerinin erişilebilirliğini HTTP, HTTPS veya TCP protokolü üzerinden periyodik olarak denetleyen monitör oluşturur.'
+                desc: 'Sunucu üyelerinin erişilebilirliğini HTTP, HTTPS veya TCP protokolü üzerinden periyodik olarak denetleyen monitör oluşturur. send dizgesini alanlardan kurar (satır sonları ve bitiş boş satırı otomatik), recv-disable ile bakım modu ve alias port destekler.<br>Örnek: <code>tmsh create ltm monitor http mon_app defaults-from http interval 5 timeout 16 send "GET /health HTTP/1.1\\r\\nHost: app.lab.example\\r\\nConnection: Close\\r\\n\\r\\n" recv "200 OK"</code>'
             },
             sections: [
                 {
                     title: 'Monitor Ayarları',
                     icon: 'fas fa-stethoscope',
                     fields: [
-                        { name: 'mon_name', why: "Monitor adı pool ve üye seviyesinde referans edilir; aynı isimli farklı partition monitörleri karıştırılırsa beklenmedik sağlık sonuçları alınır ve hangi kontrolün çalıştığı anlaşılamaz.", label: 'Monitor Adı', type: 'text', required: true, placeholder: 'MON_HTTP_APP', hint: 'Monitor için benzersiz bir isim.' },
+                        { name: 'mon_name', why: "Monitor adı pool ve üye seviyesinde referans edilir; aynı isimli farklı partition monitörleri karıştırılırsa beklenmedik sağlık sonuçları alınır ve hangi kontrolün çalıştığı anlaşılamaz.", label: 'Monitor Adı', type: 'text', required: true, placeholder: 'mon_app', hint: 'Monitor için benzersiz bir isim.' },
                         { name: 'mon_type', why: "TCP monitor yalnızca 3-way handshake'i doğrular; uygulama 500 dönse bile sunucu sağlıklı görünür ve hatalı içerik servis edilmeye devam eder. HTTP/HTTPS monitor içerik doğrular; HTTPS servise http monitor bağlanırsa monitor kalıcı down kalır.", label: 'Tip', type: 'select', options: [
                             { value: 'http', label: 'HTTP' },
                             { value: 'https', label: 'HTTPS' },
                             { value: 'tcp', label: 'TCP' }
                         ]},
                         { name: 'interval', why: "Interval çok uzun olursa arızalı üye dakikalarca trafik almaya devam eder; çok kısa olursa backend sunucular monitor istekleriyle gereksiz yüklenir. Genel kural: <b>timeout = 3 x interval + 1</b>.", label: 'Interval (sn)', type: 'text', optional: true, placeholder: '5', hint: 'Kontrol aralığı; varsayılan 5 saniye.' },
-                        { name: 'timeout', why: "Timeout interval'dan küçük veya ona eşit verilirse monitor sağlıklı üyeleri bile flapping (sürekli up/down) yapar ve trafik dalgalanır. Önerilen oran <b>timeout = 3 x interval + 1</b>; yani 5 sn interval için 16 sn timeout.", label: 'Timeout (sn)', type: 'text', optional: true, placeholder: '16', hint: 'Zaman aşımı; varsayılan 16 saniye.' }
+                        { name: 'timeout', why: "Timeout interval'dan küçük veya ona eşit verilirse monitor sağlıklı üyeleri bile flapping (sürekli up/down) yapar ve trafik dalgalanır. Önerilen oran <b>timeout = 3 x interval + 1</b>; yani 5 sn interval için 16 sn timeout: üç ardışık denemenin başarısız olması beklenir.", label: 'Timeout (sn)', type: 'text', optional: true, placeholder: '16', hint: 'Zaman aşımı; varsayılan 16 saniye.' },
+                        { name: 'alias_port', why: "Alias port (destination *:port) verilirse monitor üyenin kendi portunu değil bu portu sınar: ör. uygulama 80'de, sağlık servisi 8080'de. Yanlış port verilirse üyeler 'Connection refused' ile kırmızı olur.", label: 'Alias port', type: 'text', optional: true, placeholder: '8080', hint: 'Boş: üyenin portu (destination *:*).' }
                     ]
                 },
                 {
-                    title: 'HTTP/HTTPS Kontrol',
+                    title: 'HTTP/HTTPS İsteği (send kurucu)',
                     icon: 'fas fa-code',
                     fields: [
-                        { name: 'send', why: "Send string HTTP/1.1 ile yazıldıysa <code>Host:</code> başlığı zorunludur; yoksa sunucu 400 Bad Request döner ve tüm üyeler down işaretlenir. Satır sonları CRLF ile kapatılmazsa istek hiç tamamlanmaz ve monitor zaman aşımına uğrar.", label: 'Send String', type: 'text', optional: true, placeholder: 'GET /health HTTP/1.1\\r\\nHost: app.corp.com\\r\\n\\r\\n', hint: 'HTTP/HTTPS için gönderilecek istek.' },
-                        { name: 'recv', why: "Receive string sunucu yanıtında birebir aranır; uygulama yanıtını değiştirdiğinde (örneğin 200 yerine 302) tüm pool aniden down olur. Sağlık sayfasına özel benzersiz bir metin seçmek yanlış pozitifleri azaltır.", label: 'Receive String', type: 'text', optional: true, placeholder: '200 OK', hint: 'Beklenen yanıt içeriği.' }
+                        { name: 'send_method', why: "GET sağlık sayfasının gövdesini döndürür ve recv ile içerik doğrulanır; HEAD yalnız başlık döndürür, gövdede aranan recv dizgesi hiç bulunmaz.", label: 'Metot', type: 'select', options: [
+                            { value: 'GET', label: 'GET' },
+                            { value: 'HEAD', label: 'HEAD (yalnız başlık)' }
+                        ]},
+                        { name: 'send_path', why: "Hafif, uygulamanın gerçekten çalıştığını gösteren bir sağlık yolu seçin (ör. /health). Ağır ana sayfa yoğun saatlerde yavaşlar ve monitor timeout'una takılıp flap yapar.", label: 'Yol', type: 'text', optional: true, placeholder: '/health', hint: 'Doldurulursa send dizgesi alanlardan kurulur.' },
+                        { name: 'send_host', why: "HTTP/1.1 isteğinde <code>Host</code> başlığı zorunludur; yoksa sunucu 400 Bad Request döner ve tüm üyeler kırmızı olur (K2167). Sanal ana makine (virtual host) kullanan sunucularda doğru site adı yazılmalıdır.", label: 'Host başlığı', type: 'text', optional: true, placeholder: 'app.lab.example', hint: 'HTTP/1.1 için zorunlu.' },
+                        { name: 'send_http', why: "HTTP/1.1 kalıcı bağlantıyı varsayar; Connection: Close verilmezse sunucu bağlantıyı açık tutabilir. HTTP/1.0 Host istemez ama sanal ana makineli sunucular yanlış siteyi döndürebilir.", label: 'HTTP sürümü', type: 'select', options: [
+                            { value: '1.1', label: 'HTTP/1.1' },
+                            { value: '1.0', label: 'HTTP/1.0' }
+                        ]},
+                        { name: 'send_close', why: "Connection: Close sunucuya yanıttan sonra bağlantıyı kapatmasını söyler; monitor her denemede yeni bağlantı açtığı için sunucuda boşta bekleyen bağlantı birikmez.", label: 'Connection: Close', type: 'select', options: [
+                            { value: 'yes', label: 'Ekle' },
+                            { value: 'no', label: 'Ekleme' }
+                        ]},
+                        { name: 'send', why: "Elle yazılan send ham HTTP isteğidir: satırlar <code>\\r\\n</code> ile ayrılır ve istek boş satırla (<code>\\r\\n\\r\\n</code>) biter; son boş satır yoksa sunucu isteğin devamını bekler ve monitor zaman aşımına düşer (K13397).", label: 'Send String (elle)', type: 'text', optional: true, placeholder: 'GET /health HTTP/1.1\\r\\nHost: app.lab.example\\r\\nConnection: Close\\r\\n\\r\\n', hint: 'Doluysa kurucu alanları yerine bu kullanılır.' },
+                        { name: 'recv', why: "Receive string sunucu yanıtında birebir aranır; uygulama yanıtını değiştirdiğinde (örneğin 200 yerine 302) tüm pool aniden down olur. Sağlık sayfasına özel benzersiz bir metin seçmek yanlış pozitifleri azaltır.", label: 'Receive String', type: 'text', optional: true, placeholder: '200 OK', hint: 'Beklenen yanıt içeriği.' },
+                        { name: 'recv_disable', why: "recv-disable yanıtta görülürse üye <b>disabled</b> olur: yeni bağlantı almaz ama açık oturumlar sürer. Sunucu ekibi sağlık sayfasına 'BAKIM' yazarak BIG-IP'ye dokunmadan kesintisiz bakım yapabilir.", label: 'Receive Disable String', type: 'text', optional: true, placeholder: 'BAKIM', hint: 'Yalnız HTTP/HTTPS; planlı bakım için.' }
                     ]
                 }
             ],
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
-            const { mon_name, mon_type, interval, timeout, send, recv } = data;
-            const intv = interval || '5', tout = timeout || '16';
-            let c = '# ========================================\n# F5 BIG-IP LTM — Health Monitor\n# ========================================\n\n';
-            c += 'tmsh create ltm monitor ' + mon_type + ' ' + mon_name + ' {\n';
-            c += '    interval ' + intv + '\n';
-            c += '    timeout ' + tout + '\n';
-            if (send) c += '    send "' + String(send).replace(/"/g, '') + '"\n';
-            if (recv) c += '    recv "' + String(recv).replace(/"/g, '') + '"\n';
-            c += '}\n\ntmsh save sys config\n\n';
-            c += '# Doğrulama:\n# tmsh list ltm monitor ' + mon_type + ' ' + mon_name + '\n# tmsh show ltm pool <pool> members   (Monitor Status)\n# curl -v http://<üye-ip>:<port>/health   (BIG-IP bash\'ten; monitörün gördüğü yanıt)\n';
-            const w = [];
-            if (/^https?$/.test(mon_type) && !recv) w.push('⚠ recv boş: sunucu 404 ya da 500 dönse bile her yanıt "up" sayılır. Sağlık sayfasının döndürdüğü bir metni (ör. "200 OK") yazın (f5-04).');
-            if (/^https?$/.test(mon_type) && /HTTP\/1\.1/.test(send || '') && !/Host:/i.test(send || '')) w.push('⛔ HTTP/1.1 send dizgesinde Host başlığı yok: çoğu sunucu 400 döner ve tüm üyeler kırmızı olur. \\r\\nHost: <ad>\\r\\n ekleyin.');
+            const { mon_name, mon_type, interval, timeout, send, recv, recv_disable, alias_port, send_path, send_host } = data;
+            const intv = interval || '5', tout = timeout || '16', web = /^https?$/.test(mon_type), w = [];
+            const q = x => '"' + String(x).replace(/"/g, '') + '"';
+            let sendStr = send ? String(send).replace(/"/g, '') : '';
+            if (!sendStr && (send_path || send_host) && mon_type !== 'tcp') sendStr = cgF5MonSend(data);
+            const port = alias_port ? String(alias_port).trim() : '';
+            let line = 'tmsh create ltm monitor ' + mon_type + ' ' + mon_name + ' defaults-from ' + mon_type + ' interval ' + intv + ' timeout ' + tout;
+            if (sendStr) line += ' send ' + q(sendStr);
+            if (recv) line += ' recv ' + q(recv);
+            if (recv_disable && web) line += ' recv-disable ' + q(recv_disable);
+            if (port) line += ' destination *:' + port;
+            let c = '# ========================================\n# F5 BIG-IP LTM — Health Monitor\n# ========================================\n\n' + line + '\n\ntmsh save sys config\n\n';
+            if (sendStr) c += '# send dizgesinin sunucuya giden hâli (\\r\\n = satır sonu):\n' + sendStr.split('\\r\\n').map(x => '#   ' + (x || '<boş satır: istek sonu>')).slice(0, -1).join('\n') + '\n\n';
+            c += '# Doğrulama:\n# tmsh list ltm monitor ' + mon_type + ' ' + mon_name + '\n# tmsh show ltm pool <pool> members   (Monitor Status / Reason)\n' + (sendStr && web ? "# printf '" + sendStr + "' | nc <üye-ip> " + (port || '<port>') + "   (BIG-IP bash'ten; monitörün gönderdiği isteğin aynısı)\n" : '# curl -v http://<üye-ip>:<port>/health   (BIG-IP bash\'ten)\n');
+            const iv = +intv, tv = +tout;
+            if (!/^\d+$/.test(intv) || !/^\d+$/.test(tout) || iv < 1) w.push('⛔ interval ve timeout pozitif tam sayı (saniye) olmalı.');
+            else if (tv <= iv) w.push('⛔ timeout (' + tv + ') interval\'dan (' + iv + ') büyük olmalı: tek yavaş yanıt üyeyi düşürür, üyeler sürekli yeşil-kırmızı olur (flap). Öneri: ' + (3 * iv + 1) + '.');
+            else if (tv < 3 * iv + 1) w.push('⚠ timeout ' + tv + ' < 3 × interval + 1 (' + (3 * iv + 1) + '): üye tek ya da iki kaçırılan denemede düşer; yoğun saatte yavaşlayan sunucular flap yapar. Önerilen: timeout ' + (3 * iv + 1) + '.');
+            if (web && !recv) w.push('⚠ recv boş: sunucu 404 ya da 500 dönse bile her yanıt "up" sayılır. Sağlık sayfasının döndürdüğü bir metni (ör. "200 OK") yazın (f5-04).');
+            if (web && /HTTP\/1\.1/.test(sendStr) && !/\\r\\nHost:/i.test(sendStr)) w.push('⛔ HTTP/1.1 send dizgesinde Host başlığı yok: çoğu sunucu 400 döner ve tüm üyeler kırmızı olur. Host alanını doldurun ya da \\r\\nHost: <ad> ekleyin (K2167).');
+            if (send && /HTTP\/1\.[01]/.test(sendStr) && !/\\r\\n\\r\\n$/.test(sendStr)) w.push('⛔ Elle yazılan send dizgesi boş satırla (\\r\\n\\r\\n) bitmiyor: sunucu isteğin devamını bekler, monitor "No successful responses received before deadline" ile düşer (K13397).');
+            if (send && send_path && !sendStr.includes(' ' + String(send_path).trim() + ' ')) w.push('⚠ Elle yazılan send dizgesi kullanıldı ve Yol alanındaki ' + String(send_path).trim() + ' ile uyuşmuyor: monitor send\'deki yolu sınar.');
+            if (send && send_host && !sendStr.includes('Host: ' + String(send_host).trim())) w.push('⚠ Elle yazılan send dizgesi kullanıldı ve Host alanındaki ' + String(send_host).trim() + ' send\'de yok: sunucu yanlış siteyi döndürebilir.');
+            if (web && /^HEAD /.test(sendStr) && recv && !/^HTTP|^\d{3}/.test(recv)) w.push('⚠ HEAD yanıtında gövde yoktur: recv dizgesi gövdede aranıyorsa hiç bulunmaz. GET kullanın ya da recv\'i durum satırına göre yazın ("200 OK").');
             if (recv && /0K/.test(recv)) w.push('⚠ recv dizgesinde "0K" (sıfır) var; "OK" (harf) olmalı. Tek karakterlik hata tüm pool\'u kırmızıya çevirir (f5-10).');
+            if (recv_disable && !web) w.push('⚠ recv-disable yalnız HTTP/HTTPS monitörlerinde kullanılır; TCP tipinde yok sayıldı.');
+            if (port && !/^\d{1,5}$/.test(port)) w.push('⛔ Alias port 1–65535 arası bir sayı olmalı.');
+            else if (port) w.push('ℹ Alias port: monitor üyenin portu yerine ' + port + '\'i sınar. Sağlık servisi uygulamadan bağımsız çalışıyorsa uygulama çökse bile üye yeşil kalabilir.');
             w.push('ℹ Monitör, sunucu ağındaki non-floating self IP\'den gönderilir; sunucu güvenlik duvarı bu adrese izin vermeli.');
             return { config: c, warnings: w };
         });

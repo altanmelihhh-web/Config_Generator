@@ -1,0 +1,75 @@
+/* ─── iRule Arenası · Nöbet (CgArena._nb) ─────────────────────────────────────
+   Tema değişkenleri config-generator.css ile ortak; yalnız .cg-nb-* seçicileri. */
+#config-generator-root .cg-nb { --nb-crit: #dc2626; --nb-warn: #d97706; --nb-ok: #059669; }
+#config-generator-root .cg-nb-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 14px; }
+#config-generator-root .cg-nb-bar h2 { margin: 0; font-size: 1.25rem; color: var(--text-primary, #111827); display: flex; align-items: center; gap: 8px; }
+#config-generator-root .cg-nb-meter { display: flex; flex-wrap: wrap; gap: 8px; }
+#config-generator-root .cg-nb-meter > span { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb); border-radius: 999px; padding: 4px 12px; font-size: .85rem; color: var(--text-primary, #111827); font-variant-numeric: tabular-nums; }
+#config-generator-root .cg-nb-meter small { color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb-grid { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { #config-generator-root .cg-nb-grid { grid-template-columns: minmax(0, 1fr); } }
+#config-generator-root .cg-nb-side, #config-generator-root .cg-nb-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+#config-generator-root .cg-nb-card { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb); border-radius: 10px; padding: 14px 16px; color: var(--text-primary, #111827); }
+#config-generator-root .cg-nb-card h3 { margin: 0 0 10px; font-size: 1rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+#config-generator-root .cg-nb-card h3 small { font-weight: 400; font-size: .78rem; color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb-card h4 { margin: 16px 0 8px; font-size: .92rem; }
+#config-generator-root .cg-nb-card p { margin: 0 0 8px; line-height: 1.5; }
+#config-generator-root .cg-nb-alarm { border-radius: 10px; padding: 12px 14px; border: 1px solid var(--border-color, #e5e7eb); border-left: 5px solid var(--nb-warn); background: var(--card-bg, #fff); color: var(--text-primary, #111827); }
+#config-generator-root .cg-nb-alarm.is-crit { border-left-color: var(--nb-crit); }
+#config-generator-root .cg-nb-ah { font-weight: 700; font-size: .85rem; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+#config-generator-root .cg-nb-alarm.is-crit .cg-nb-ah i { color: var(--nb-crit); }
+#config-generator-root .cg-nb-alarm.is-warn .cg-nb-ah i { color: var(--nb-warn); }
+#config-generator-root .cg-nb-ah time { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb-alarm p { margin: 0; font-size: .9rem; }
+#config-generator-root .cg-nb-sym { font-size: .88rem; color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb-rep { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: .88rem; }
+#config-generator-root .cg-nb-chat { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+#config-generator-root .cg-nb-chat li { border-left: 3px solid var(--primary-color, #4F46E5); padding: 2px 0 2px 10px; }
+#config-generator-root .cg-nb-chat p { margin: 2px 0 0; font-size: .88rem; }
+#config-generator-root .cg-nb-who small { color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb-diag { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+#config-generator-root .cg-nb-dbtn { display: flex; align-items: center; gap: 8px; text-align: left; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border-color, #e5e7eb); background: var(--card-bg, #fff); color: var(--text-primary, #111827); font: inherit; font-size: .86rem; cursor: pointer; min-height: 44px; }
+#config-generator-root .cg-nb-dbtn span { flex: 1; }
+#config-generator-root .cg-nb-dbtn small { color: var(--text-secondary, #4b5563); white-space: nowrap; }
+#config-generator-root .cg-nb-dbtn:hover:not(:disabled) { border-color: var(--primary-color, #4F46E5); }
+#config-generator-root .cg-nb-dbtn:focus-visible { outline: 2px solid var(--primary-color, #4F46E5); outline-offset: 2px; }
+#config-generator-root .cg-nb-dbtn:disabled { opacity: .5; cursor: default; }
+#config-generator-root .cg-nb-free { margin: 12px 0 0; display: flex; flex-direction: column; gap: 4px; }
+#config-generator-root .cg-nb-free label { font-size: .8rem; color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb-free > div { display: flex; gap: 8px; }
+#config-generator-root .cg-nb-free input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; padding: 7px 10px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px; background: var(--input-bg, #fff); color: var(--text-primary, #111827); }
+#config-generator-root .cg-nb-fmsg { color: var(--nb-warn); min-height: 1em; }
+#config-generator-root .cg-nb-con { margin-top: 12px; max-height: 460px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+#config-generator-root .cg-nb-empty { color: var(--text-secondary, #4b5563); font-size: .86rem; margin: 0; }
+#config-generator-root .cg-nb-oh { font-size: .82rem; display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+#config-generator-root .cg-nb-oh small { color: var(--text-secondary, #4b5563); font-variant-numeric: tabular-nums; }
+#config-generator-root .cg-nb pre { margin: 0 0 6px; background: #0f172a; color: #e2e8f0; border-radius: 6px; padding: 8px 10px; font-size: .76rem; line-height: 1.45; overflow-x: auto; white-space: pre; }
+#config-generator-root .cg-nb-ps { color: #86efac; }
+#config-generator-root .cg-nb-note { font-size: .82rem; color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb-issue { border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; padding: 10px 12px 12px; margin: 0 0 12px; min-width: 0; }
+#config-generator-root .cg-nb-issue legend { font-weight: 700; padding: 0 6px; font-size: .92rem; }
+#config-generator-root .cg-nb-q { font-weight: 600; font-size: .85rem; margin: 8px 0 4px; color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb-opts { display: flex; flex-direction: column; gap: 6px; }
+#config-generator-root .cg-nb-opts label { display: block; padding: 7px 10px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px; font-size: .88rem; cursor: pointer; line-height: 1.45; }
+#config-generator-root .cg-nb-opts label:has(input:checked) { border-color: var(--primary-color, #4F46E5); box-shadow: 0 0 0 1px var(--primary-color, #4F46E5) inset; }
+#config-generator-root .cg-nb-opts small { color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb-cmdp { display: block; margin-top: 4px; font-size: .74rem; color: var(--text-secondary, #4b5563); word-break: break-all; }
+#config-generator-root .cg-nb-nocmd { display: block; margin-top: 2px; }
+#config-generator-root .cg-nb-score { border-collapse: collapse; width: 100%; max-width: 560px; font-size: .88rem; }
+#config-generator-root .cg-nb-score th, #config-generator-root .cg-nb-score td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border-color, #e5e7eb); }
+#config-generator-root .cg-nb-score td { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#config-generator-root .cg-nb-score tr.is-neg td { color: var(--nb-crit); }
+#config-generator-root .cg-nb-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+#config-generator-root .cg-nb-checks summary { cursor: pointer; font-size: .88rem; }
+#config-generator-root .cg-nb-checks li.is-ok summary i { color: var(--nb-ok); }
+#config-generator-root .cg-nb-checks li.is-bad summary i { color: var(--nb-crit); }
+#config-generator-root .cg-nb-checks pre { margin-top: 6px; }
+#config-generator-root .cg-nb-applied summary { cursor: pointer; font-size: .88rem; margin: 10px 0 6px; }
+#config-generator-root .cg-nb-debrief { display: flex; flex-direction: column; gap: 10px; }
+#config-generator-root .cg-nb-db { border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; padding: 10px 12px; font-size: .88rem; }
+#config-generator-root .cg-nb-db p { margin: 4px 0; }
+#config-generator-root .cg-nb-db .fa-check { color: var(--nb-ok); }
+#config-generator-root .cg-nb-db .fa-times { color: var(--nb-crit); }
+#config-generator-root .cg-nb-why { color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb-src { font-size: .8rem; color: var(--text-secondary, #4b5563); }
+#config-generator-root .cg-nb .cg-ar-go:disabled { opacity: .5; cursor: not-allowed; }

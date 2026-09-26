@@ -362,7 +362,7 @@ const CgLabTmsh = (function () {
         function ensureNode(ip) { const n = Object.entries(M().nodes).find(([, x]) => x.address === ip); if (n) return n[0]; M().nodes[ip] = { address: ip, session: 'user-enabled', state: 'user-up', monitor: null, desc: '' }; return ip; }
         T['ltm pool'] = {
             kind: 'pool', named: true, coll: () => M().pools,
-            fresh: () => ({ members: {}, order: [], monitor: null, lb: 'round-robin', minActive: 0, desc: '' }),
+            fresh: () => ({ members: {}, order: [], monitor: null, lb: 'round-robin', minActive: 0, slowRamp: 10, desc: '' }),
             set(o, P, name) {
                 for (const p of P) {
                     if (p.k === 'members') {
@@ -395,6 +395,8 @@ const CgLabTmsh = (function () {
                     else if (p.k === 'monitor') { if (p.v === 'none') { o.monitor = null; continue; } for (const m of monSpec(p.v)) if (!monOf(m)) return NF('monitor', m); o.monitor = monSpec(p.v); }
                     else if (p.k === 'load-balancing-mode') { if (!LB_MODES.includes(p.v)) return SYNx('"' + p.v + '" invalid load-balancing-mode'); o.lb = p.v; }
                     else if (p.k === 'min-active-members') { if (!/^\d{1,3}$/.test(p.v)) return SYNx('"' + p.v + '" invalid value'); o.minActive = +p.v; }
+                    // slow-ramp-time: saniye, varsayılan 10, 0 = kapalı (tmsh-reference ltm pool; K14804)
+                    else if (p.k === 'slow-ramp-time') { if (!/^\d{1,5}$/.test(p.v)) return SYNx('"' + p.v + '" invalid value'); o.slowRamp = +p.v; }
                     else if (p.k === 'description') o.desc = p.v;
                     else return SYN(p.k);
                 }
@@ -406,9 +408,10 @@ const CgLabTmsh = (function () {
                 if (o.order.length) { L.push('    members {'); o.order.forEach(k => { const m = o.members[k]; L.push('        ' + m.ip + ':' + pname(m.port) + ' {', '            address ' + m.ip); if (m.pg) L.push('            priority-group ' + m.pg); if (m.ratio !== 1) L.push('            ratio ' + m.ratio); if (m.session !== 'user-enabled') L.push('            session ' + m.session); if (m.state !== 'user-up') L.push('            state ' + m.state); if (m.limit) L.push('            connection-limit ' + m.limit); L.push('        }'); }); L.push('    }'); }
                 if (o.minActive) L.push('    min-active-members ' + o.minActive);
                 if (o.monitor) L.push('    monitor ' + o.monitor.join(' and '));
+                if (o.slowRamp !== undefined && o.slowRamp !== 10) L.push('    slow-ramp-time ' + o.slowRamp);
                 L.push('}'); return L;
             },
-            props: ['members', 'monitor', 'load-balancing-mode', 'min-active-members', 'description'],
+            props: ['members', 'monitor', 'load-balancing-mode', 'min-active-members', 'slow-ramp-time', 'description'],
         };
         const monType = (typ) => ({
             kind: 'monitor', named: true, coll: () => new Proxy(M().monitors, { get: (t, k) => (t[k] && t[k].type === typ ? t[k] : undefined), has: (t, k) => !!(t[k] && t[k].type === typ), ownKeys: t => Object.keys(t).filter(k => t[k].type === typ), getOwnPropertyDescriptor: (t, k) => (t[k] && t[k].type === typ ? { enumerable: true, configurable: true, value: t[k] } : undefined), set: (t, k, v) => { t[k] = v; return true; }, deleteProperty: (t, k) => { delete t[k]; return true; } }),
@@ -510,7 +513,9 @@ const CgLabTmsh = (function () {
                 return null;
             },
             del(name) { const u = Object.entries(M().virtuals).find(([, v]) => v.profiles.includes(name)); if (u) return E('# [Simülatör] Profil /Common/' + u[0] + ' tarafından kullanılıyor.'); const c = Object.entries(M().httpProfiles).find(([, x]) => x.parent === name); if (c) return E('# [Simülatör] Profil /Common/' + c[0] + ' bu profilden türetilmiş (defaults-from).'); return null; },
-            list(n, o) { const f = httpEff(n), e = o.enf || {}, h = o.hsts || {}, L = ['ltm profile http ' + n + ' {', '    app-service none', '    defaults-from /Common/' + o.parent];
+            list(n, o, all) { const f = httpEff(n), e = o.enf || {}, h = o.hsts || {}, L = ['ltm profile http ' + n + ' {', '    app-service none', '    defaults-from /Common/' + o.parent];
+                // all-properties: varsayılandan gelen (devralınan) değerler de yazılır [Simülatör: yalnız bu lab'ın modellediği özellikler]
+                if (all) { L.push('    enforcement {', '        known-methods { ' + f.known.join(' ') + ' }', '        max-header-count ' + f.maxHdrCount, '        max-header-size ' + f.maxHdrSize, '        unknown-method ' + f.unknown, '    }', '    fallback-host ' + (f.fallbackHost || 'none'), '    hsts {', '        include-subdomains ' + f.hsts.sub, '        maximum-age ' + f.hsts.maxAge, '        mode ' + f.hsts.mode, '        preload ' + f.hsts.preload, '    }', '    insert-xforwarded-for ' + f.xff, '    redirect-rewrite ' + f.redirectRewrite, '    server-agent-name ' + (f.serverAgent === '' ? 'none' : f.serverAgent), '}'); return L; }
                 if (Object.keys(e).length) { L.push('    enforcement {'); if (e.known) L.push('        known-methods { ' + e.known.join(' ') + ' }'); if (e.maxHdrCount) L.push('        max-header-count ' + e.maxHdrCount); if (e.maxHdrSize) L.push('        max-header-size ' + e.maxHdrSize); if (e.unknown) L.push('        unknown-method ' + e.unknown); L.push('    }'); }
                 if (o.fallbackHost) L.push('    fallback-host ' + o.fallbackHost);
                 if (Object.keys(h).length) { L.push('    hsts {'); L.push('        include-subdomains ' + f.hsts.sub, '        maximum-age ' + f.hsts.maxAge, '        mode ' + f.hsts.mode, '        preload ' + f.hsts.preload); L.push('    }'); }
@@ -1034,7 +1039,7 @@ const CgLabTmsh = (function () {
         function listCmd(key, rest) {
             const t = T[key]; let opts = rest.map(x => x.t);
             if (key === 'sys crypto cert' && opts[0] && !t.props.includes(opts[0]) && !['one-line', 'all-properties'].includes(opts[0]) && !M().certs[opts[0]]) { log({ list: key }); return { out: '', ok: true }; }
-            const oneLine = opts.includes('one-line'); opts = opts.filter(x => x !== 'one-line' && x !== 'all-properties');
+            const oneLine = opts.includes('one-line'), allP = opts.includes('all-properties'); opts = opts.filter(x => x !== 'one-line' && x !== 'all-properties');
             const fmt = L => (oneLine ? L.map(l => l.trim()).join(' ').replace(/\{ \}/g, '{ }') : L.join('\n'));
             let blocks = [];
             if (t.special === 'mgmtip') blocks = [t.list()];
@@ -1042,7 +1047,7 @@ const CgLabTmsh = (function () {
             else {
                 const coll = t.coll(), names = opts.length && !t.props.includes(opts[0]) ? [opts[0]] : Object.keys(coll);
                 if (opts.length && !t.props.includes(opts[0]) && !(opts[0] in coll)) return NF(t.kind, opts[0]);
-                blocks = names.map(n => t.list(n, coll[n]));
+                blocks = names.map(n => t.list(n, coll[n], allP));
                 const propF = opts.slice(names.length === 1 && opts[0] === names[0] ? 1 : 0).filter(x => t.props.includes(x));
                 // özellik süzme: çok satırlı alt bloklar ("profiles {" … "}") bütün olarak alınır
                 const keep = L => { const out = []; let depth = 0, on = false; L.slice(1, -1).forEach(l => { const tr = l.trim(); if (depth === 0) on = propF.some(p => tr.startsWith(p + ' ') || tr === p); if (on) out.push(l); depth += (tr.match(/\{/g) || []).length - (tr.match(/\}/g) || []).length; if (depth < 0) depth = 0; }); return out; };
@@ -1185,7 +1190,7 @@ const CgLabTmsh = (function () {
             const e = typeof ent === 'number' ? { code: ent } : ent;
             const H = []; if (e.loc) H.push('Location: ' + e.loc); (e.headers || []).forEach(h => H.push(h));
             const body = e.body !== undefined ? e.body : (e.code === 200 ? (P.body || srv.name || srv.ip) + ' OK' : e.code + ' ' + (REASON[e.code] || ''));
-            return { code: e.code, headers: H, body: method === 'HEAD' ? '' : body, noServerHdr: H.some(h => /^server:/i.test(h)) };
+            return { code: e.code, headers: H, body: method === 'HEAD' ? '' : body, noServerHdr: H.some(h => /^server:/i.test(h)), delay: e.delay || 0 };
         }
         // monitör sonucu: { up, err, disabled }
         function monCheck(mname, ip, port) {
@@ -1206,6 +1211,9 @@ const CgLabTmsh = (function () {
             if (/HTTP\/1\.[01]$/.test(l1) && !/\\r\\n\\r\\n$/.test(sraw)) return { up: false, err: 'No successful responses received before deadline.' };
             const resp = /HTTP\/1\.1$/.test(l1) && !/\\r\\nHost:/i.test(sraw) ? { code: 400, headers: ['Content-Type: text/html'], body: '<h1>Bad Request</h1>' } : serverResp(srv, dport, path, method);
             if (!resp) return { up: false, err: 'Unable to connect.' };
+            // yavaş yanıt: sunucu yolu "delay" (sn; o anki en kötü yanıt süresi) timeout'u aşarsa monitor yanıtı beklemeden down der.
+            // [Simülatör] Zaman boyutu yok: gecikme timeout'a yakın/üstünde olan üye gerçekte up/down arasında gidip gelir (flap); burada anlık durum down.
+            if (resp.delay && resp.delay >= mo.timeout) return { up: false, err: 'No successful responses received before deadline.', slow: true };
             const raw = 'HTTP/1.1 ' + resp.code + ' ' + (REASON[resp.code] || '') + '\r\n' + resp.headers.join('\r\n') + '\r\n\r\n' + resp.body;
             if (mo.recvDisable && raw.includes(mo.recvDisable)) return { up: true, disabled: true };
             if (!mo.recv) return { up: true };
@@ -1300,30 +1308,47 @@ const CgLabTmsh = (function () {
                 else if (prevV[vn] === 'RED') { push('notice mcpd[7276]: 01071681:5: SNMP_TRAP: Virtual /Common/' + vn + ' has become available'); push('notice mcpd[7276]: 010719e7:5: Virtual Address /Common/' + va + ' general status changed from RED to ' + nowV[vn] + '.'); push('notice mcpd[7276]: 010719e8:5: Virtual Address /Common/' + va + ' monitor status changed from DOWN to UP.'); }
             }
             S.rt.ms = now; S.rt.ps = nowP; S.rt.vs = nowV; S.rt.ns = nowN;
+            rampTrack();
         }
         // ── istemciden VIP'e istek: { kind: 'ok'|'refused'|'reset'|'timeout', resp, member, setCookie }
         // şifreli BIGipServer değeri: "!" ile başlayan base64 benzeri metin (biçim temsilidir; gerçek algoritma değil). IP/port okunamaz.
         function f5cookieEnc(ip, port, pass, pool) { let h = 2166136261; const t = ip + ':' + port + '|' + pass + '|' + pool; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; let o = '!'; for (let i = 0; i < 44; i++) { h = Math.imul(h ^ (h >>> 13), 2246822507) >>> 0; o += A[h % 64]; } return o + '=='; }
         function f5cookie(ip, port) { const o = ip.split('.').map(Number); const n = o[0] + o[1] * 256 + o[2] * 65536 + o[3] * 16777216; const pp = ((port & 0xff) << 8) | (port >> 8); return n + '.' + pp + '.0000'; }
+        // üye yeni bağlantı alabilir mi (priority group öncesi): available/unknown ve enabled
+        const baseOk = (pn, k) => { const st = memberStatus(pn, k); return (st.avail === 'available' || st.avail === 'unknown') && st.state === 'enabled'; };
+        // ── Sanal saat ve slow ramp. slow-ramp-time (varsayılan 10 sn, 0 = kapalı): üye etkinleştirildiğinde ya da monitor up olduğunda payı
+        // "kullanılabilir olduğu süre / slow-ramp-time" oranında sınırlanır (techdocs "About Pools"; K14804; tmsh-reference ltm pool).
+        // Sanal saat: VIP'e her curl 1 sn, bash "sleep N" N sn ilerletir. [Simülatör] Oranın seçim algoritmasına uygulanışı temsilîdir.
+        S.clock = 0;
+        function rampF(pn, k) { const pl = M().pools[pn], sr = pl.slowRamp === undefined ? 10 : pl.slowRamp; if (!sr) return 1; const t = (S.rt.upAt || {})[pn + '|' + k]; if (t === undefined) return 1; return Math.max(0, Math.min(1, (S.clock - t) / sr)); }
+        function rampTrack() {
+            const up = S.rt.upAt || (S.rt.upAt = {}), was = S.rt.okNow || (S.rt.okNow = {});
+            for (const [pn, pl] of Object.entries(M().pools)) for (const k of pl.order) { const id = pn + '|' + k, okn = baseOk(pn, k); if (okn && was[id] === false) up[id] = S.clock; was[id] = okn; }
+        }
         function eligible(pn) {
             const pl = M().pools[pn];
-            let L = pl.order.filter(k => { const st = memberStatus(pn, k); return (st.avail === 'available' || st.avail === 'unknown') && st.state === 'enabled'; });
+            let L = pl.order.filter(k => baseOk(pn, k));
             if (pl.minActive > 0 && L.length) {
-                // priority group activation: en yüksek gruptan başla, min-active karşılanana kadar alt gruplar eklenir
-                const groups = [...new Set(L.map(k => pl.members[k].pg))].sort((a, b) => b - a); let sel = [];
-                for (const g of groups) { sel = sel.concat(L.filter(k => pl.members[k].pg === g)); if (sel.length >= pl.minActive) break; }
+                // priority group activation: en yüksek gruptan başla, min-active karşılanana kadar alt gruplar eklenir.
+                // Slow ramp süren üye henüz tam aktif sayılmaz: yeterli üst grup üyesi varken alt gruba trafik gidebilir
+                // (K16242, K000149891: slow ramp ile priority group birlikte önerilmez). [Simülatör] Sayım modeli temsilîdir.
+                const groups = [...new Set(L.map(k => pl.members[k].pg))].sort((a, b) => b - a); let sel = [], full = 0;
+                for (const g of groups) { const G = L.filter(k => pl.members[k].pg === g); sel = sel.concat(G); full += G.filter(k => rampF(pn, k) >= 1).length; if (full >= pl.minActive) break; }
                 L = sel;
             }
             return L;
         }
         function lbPick(pn, L) {
-            const pl = M().pools[pn], rr = S.rt.rr || (S.rt.rr = {});
+            const pl = M().pools[pn], rr = S.rt.rr || (S.rt.rr = {}), cr = S.rt.rcred || (S.rt.rcred = {});
             const conns = k => ((SIM.conns || {})[k] || 0) + ((S.rt.conns || {})[pn + '|' + k] || 0);
             const lb = pl.lb;
-            if (/^ratio-(member|node|session)$/.test(lb)) { const seq = [].concat(...L.map(k => Array(pl.members[k].ratio).fill(k))); const i = (rr[pn] || 0) % seq.length; rr[pn] = (rr[pn] || 0) + 1; return seq[i]; }
-            if (/least-connections|least-sessions|observed/.test(lb)) return L.slice().sort((a, b) => conns(a) - conns(b))[0];
-            if (/fastest|predictive/.test(lb)) return L.slice().sort((a, b) => ((SIM.latency || {})[a] || 5) - ((SIM.latency || {})[b] || 5))[0];
-            const i = (rr[pn] || 0) % L.length; rr[pn] = (rr[pn] || 0) + 1; return L[i];
+            // slow ramp: rampadaki üye, sırası geldiğinde payı kadar kredi biriktirir; kredi 1'e ulaşınca bağlantıyı alır, yoksa sıradakine geçilir
+            const rampOk = k => { const f = rampF(pn, k); if (f >= 1) return true; const id = pn + '|' + k; cr[id] = (cr[id] || 0) + f; if (cr[id] >= 1) { cr[id] -= 1; return true; } return false; };
+            const first = cand => cand.find(rampOk) || cand.find(k => rampF(pn, k) >= 1) || cand[0];
+            if (/^ratio-(member|node|session)$/.test(lb)) { const seq = [].concat(...L.map(k => Array(pl.members[k].ratio).fill(k))); const i = (rr[pn] || 0) % seq.length; const cand = seq.slice(i).concat(seq.slice(0, i)); const k = first(cand); rr[pn] = (rr[pn] || 0) + 1 + ((cand.indexOf(k) + seq.length) % seq.length); return k; }
+            if (/least-connections|least-sessions|observed/.test(lb)) return first(L.slice().sort((a, b) => conns(a) - conns(b)));
+            if (/fastest|predictive/.test(lb)) return first(L.slice().sort((a, b) => ((SIM.latency || {})[a] || 5) - ((SIM.latency || {})[b] || 5)));
+            const i = (rr[pn] || 0) % L.length; const cand = L.slice(i).concat(L.slice(0, i)); const k = first(cand); rr[pn] = (rr[pn] || 0) + 1 + cand.indexOf(k); return k;
         }
         // ═══ iRule çalıştırma ═══════════════════════════════════════════════
         // Biçimler: notes/f5-irule-arastirma.md. Kurallar M().rules[ad] = { src, events }, data group M().dgroups[ad] = { type, records }
@@ -1366,13 +1391,14 @@ const CgLabTmsh = (function () {
             }
             if (X.act.reject) return { kind: 'reset', why: 'irule-reject', notes: X.notes };
             if (X.act.drop) return { kind: 'timeout', why: 'irule-drop' };
-            if (X.act.respond && (ev === 'HTTP_REQUEST' || ev === 'LB_FAILED' || ev === 'LB_SELECTED')) return Object.assign(irRespond(X), { notes: X.notes });
+            if (X.act.respond && (ev === 'HTTP_REQUEST' || ev === 'LB_FAILED' || ev === 'LB_SELECTED' || ev === 'HTTP_REQUEST_SEND')) return Object.assign(irRespond(X), { notes: X.notes });
             return null;
         }
         // BIG-IP'nin kendisinin ürettiği yanıt (HTTP::respond / HTTP::redirect)
         function irRespond(X) {
             const R = X.act.respond; const headers = R.headers.map(h => h[0] + ': ' + h[1]);
             if (!R.noserver && !R.headers.some(h => /^server$/i.test(h[0]))) headers.push('Server: BigIP');
+            if (X.act.close && !R.headers.some(h => /^connection$/i.test(h[0]))) headers.push('Connection: close');
             return { kind: 'ok', byF5: true, resp: { code: R.code, headers, body: R.body, noServerHdr: true, version: R.redirect ? '1.0' : '1.0' } };
         }
         // sunucu yanıtından sonra HTTP_RESPONSE
@@ -1411,8 +1437,23 @@ const CgLabTmsh = (function () {
             const ap = M().asmPolicies[lp.asm]; if (!ap || !ap.pub || !ap.pub.active) return null;
             const pol = AS.policy({ name: lp.asm, blocking: ap.pub.blocking === 'enabled' });
             const r = AS.evaluate(pol, { method: o.method || 'GET', uri: X.req ? X.req.uri : (o.path || '/'), headers: X.req ? X.req.headers : reqHeaders(o), body: o.body || '', form: !!o.body, ip: o.src });
-            if (!o.test) (S.asmlog || (S.asmlog = [])).push({ policy: lp.asm, method: o.method || 'GET', uri: o.path || '/', ip: o.src, r });
-            if (!r.blocked) { o.asm = r; return null; }
+            // ASM_REQUEST_DONE: ASM ihlalleri bulduktan sonra, eylemden (sunucuya iletme ya da blok sayfası) önce; ihlal olsun olmasın tetiklenir
+            // (clouddocs ASM_REQUEST_DONE). Gerçekte politikada "Trigger ASM iRule Events" açık olmalı (Normal mode); tmsh "asm policy"
+            // bu simülatörde o ayarı taşımaz → [Simülatör] açık kabul edilir. ASM::unblock engeli kaldırır; istek sunucuya gider.
+            let unblocked = false;
+            if (X.rules.length && X.rules.some(n => (M().rules[n].events || []).some(e => e.name === 'ASM_REQUEST_DONE'))) {
+                X.asm = { r, unblocked: false, sid: r.supportId || r.tid, policy: lp.asm };
+                if (!X.req) X.req = { method: o.method || 'GET', uri: o.path || '/', version: '1.1', headers: reqHeaders(o, true) };
+                X.act.respond = null;
+                const f = irFire(X, 'ASM_REQUEST_DONE');
+                // HTTP::respond ASM olayında geçerli değil (clouddocs HTTP::respond geçerli olaylar listesinde ASM_* yok); DevCentral'da bildirilen
+                // "http_process_state_prepend - Invalid action" hatası ve bağlantı sıfırlanması. Önerilen yol: ASM::unblock + HTTP_REQUEST_SEND'de HTTP::respond.
+                if (X.act.respond) { if (!o.test) S.ltmlog.push(lstamp() + ' ' + lh() + ' err tmm[11925]: http_process_state_prepend - Invalid action:0x109071 clientside (' + o.src + ':51514 -> ' + X.vs.ip + ':' + X.vs.port + ') [Simülatör] HTTP::respond, ASM_REQUEST_DONE içinde çalıştırılamaz; bağlantı sıfırlandı.'); X.act.respond = null; return { kind: 'reset', why: 'asm-respond' }; }
+                if (f) return f;
+                unblocked = X.asm.unblocked && r.blocked;
+            }
+            if (!o.test) (S.asmlog || (S.asmlog = [])).push({ policy: lp.asm, method: o.method || 'GET', uri: o.path || '/', ip: o.src, r, unblocked });
+            if (!r.blocked || unblocked) { o.asm = unblocked ? Object.assign({}, r, { unblocked: true }) : r; return null; }
             return { kind: 'ok', byF5: true, asm: r, resp: { code: 200, headers: ['Content-Type: text/html; charset=utf-8', 'Cache-Control: no-cache', 'Pragma: no-cache', 'Connection: close'], body: AS.blockPage(r.supportId), noServerHdr: true, version: '1.1' } };
         }
         // HTTP profili yanıt ayarları: HSTS başlığı ve BIG-IP'nin kendi yanıtlarında Server (server-agent-name)
@@ -1471,7 +1512,8 @@ const CgLabTmsh = (function () {
             let key = null, setCookie = null, persisted = false;
             const cname = pers === 'cookie' ? ((M().persists[v.persist[0]] || {}).cookieName || 'BIGipServer' + PN) : null;
             // devre dışı (session user-disabled) üye yeni bağlantı almaz ama kalıcılık kaydı olan istemcileri kabul eder; forced offline kabul etmez
-            const persistOk = k => { if (!pl.members[k]) return false; if (L.includes(k)) return true; const st = memberStatus(PN, k); return (st.avail === 'available' || st.avail === 'unknown') && st.session === 'user-disabled'; };
+            // kalıcılık kaydı priority group'tan önce gelir: alt gruptaki üyeye yapışan istemci, üst grup dönse de orada kalır (K000149891)
+            const persistOk = k => { if (!pl.members[k]) return false; if (L.includes(k)) return true; const st = memberStatus(PN, k); return (st.avail === 'available' || st.avail === 'unknown') && (st.state === 'enabled' || st.session === 'user-disabled'); };
             const cprof = pers === 'cookie' ? (M().persists[v.persist[0]] || { enc: 'disabled' }) : null;
             if (pers === 'cookie' && o.cookie && o.cookie[cname]) { const cv = o.cookie[cname]; key = pl.order.find(k => persistOk(k) && ((cprof.enc !== 'required' && f5cookie(pl.members[k].ip, pl.members[k].port) === cv) || (cprof.enc !== 'disabled' && f5cookieEnc(pl.members[k].ip, pl.members[k].port, cprof.pass, PN) === cv))) || null; persisted = !!key; }
             if (pers === 'source-addr' || (!key && pers === 'cookie' && v.fallback && persistType(v.fallback) === 'source-addr')) { const pr = (S.rt.persist || (S.rt.persist = {}))[PN + '|' + o.src]; if (pr && persistOk(pr)) { key = pr; persisted = true; } }
@@ -1481,10 +1523,13 @@ const CgLabTmsh = (function () {
             const m = pl.members[key];
             if (pers === 'source-addr' || (pers === 'cookie' && v.fallback)) { S.rt.persist[PN + '|' + o.src] = key; (S.rt.pmeta || (S.rt.pmeta = {}))[PN + '|' + o.src] = { vs: vn, age: 12 + (ip2n(o.src) % 150) }; }
             if (pers === 'cookie' && hasHttp && !persisted) { const mt = (M().persists[v.persist[0]] || {}).method || 'insert'; if (mt === 'insert') setCookie = cname + '=' + (cprof.enc !== 'disabled' ? f5cookieEnc(m.ip, m.port, cprof.pass, PN) : f5cookie(m.ip, m.port)) + '; path=/; Httponly'; }
-            (S.rt.conns || (S.rt.conns = {}))[PN + '|' + key] = ((S.rt.conns || {})[PN + '|' + key] || 0);
+            // SIM.holdConns: her istek uzun ömürlü bir bağlantı açık bırakır (least-connections ve slow ramp labları)
+            (S.rt.conns || (S.rt.conns = {}))[PN + '|' + key] = ((S.rt.conns || {})[PN + '|' + key] || 0) + (SIM.holdConns && !o.test ? 1 : 0);
             (S.rt.hits || (S.rt.hits = {}))[PN + '|' + key] = (S.rt.hits[PN + '|' + key] || 0) + 1;
             const sport = v.tport === 'enabled' ? m.port : o.port, sip = v.taddr === 'enabled' ? m.ip : o.ip;
             if (X.rules.length) { X.lb = { pool: PN, ip: m.ip, port: sport }; const f = fire('LB_SELECTED'); if (f) return Object.assign(f, { vs: vn, tls }); }
+            // HTTP_REQUEST_SEND: istek sunucuya gönderilmeden hemen önce (sunucu tarafı); HTTP::respond burada geçerlidir
+            if (X.rules.length && X.req) { const f = fire('HTTP_REQUEST_SEND'); if (f) return Object.assign(f, { vs: vn, tls, member: key, asm: o.asm && o.asm.unblocked ? o.asm : undefined }); }
             const srv = srvOf(sip), r = reach(m.ip);
             if (!srv || !r.ok) return { kind: 'timeout', why: 'l2', vs: vn, member: key };
             if (!srv.ports || !srv.ports[sport]) return { kind: 'reset', why: 'srvrefused', vs: vn, member: key, sport, tls };
@@ -1789,7 +1834,7 @@ const CgLabTmsh = (function () {
             let tlsI = null, ver = null;
             if (isVip && https) { const t = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni, tlsOnly: true, test: true })); if (t.kind === 'tls') { tlsI = t.tls; ver = tlsVerify(tlsI, sni || ip); } }
             if (isVip && tlsI && !ver.ok && !insecure) { res = { kind: 'tlsfail', vs: null }; if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi.'); }
-            else if (isVip) { res = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni, host: hostN + (port === 80 || port === 443 ? '' : ':' + port), hdrs: hdr.filter(h => !/^Cookie:/i.test(h)), body: data })); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi' + (res.vs ? '; karşılayan virtual server: /Common/' + res.vs : '') + '.'); }
+            else if (isVip) { S.clock += 1; res = viaPeer(() => vipRequest({ ip, port, path, method, src: SIM.client || '198.51.100.20', cookie, https, sni, host: hostN + (port === 80 || port === 443 ? '' : ':' + port), hdrs: hdr.filter(h => !/^Cookie:/i.test(h)), body: data })); if (!silent) L.push('# [Simülatör] İstek dış istemciden (' + (SIM.client || '198.51.100.20') + ') gönderildi' + (res.vs ? '; karşılayan virtual server: /Common/' + res.vs : '') + '.'); }
             else {
                 const r = reach(ip), srv = srvOf(ip);
                 if (iface && !Object.values(M().selfs).some(s => s.address && s.address.split('/')[0] === iface) && !(M().mgmtIp && M().mgmtIp.split('/')[0] === iface)) return E('curl: (45) bind failed with errno 99: Cannot assign requested address', 'value');
@@ -1801,7 +1846,7 @@ const CgLabTmsh = (function () {
             }
             if (res.notes && !silent) res.notes.forEach(n => L.push('# ' + n));
             if (isVip) { const rc = rstCauseOf(res); if (rc) rstSent(ip + ':' + port, (SIM.client || '198.51.100.20') + ':' + (52100 + S.ev.length), rc.cause, rc.peer); }
-            log({ curl: { vs: res.vs || null, ip, host: hostN, https, port, path, method, vip: isVip, byF5: !!res.byF5, why: res.why || null, loc: ((res.resp && (res.resp.headers || []).find(h => /^Location:/i.test(h))) || '').replace(/^Location:\s*/i, '') || null, rhdrs: res.resp ? (res.resp.headers || []).slice() : null, body: res.resp ? String(res.resp.body || '').slice(0, 400) : null, kind: res.kind, code: res.resp ? res.resp.code : null, asm: res.asm ? { blocked: true, supportId: res.asm.supportId, violations: res.asm.violations.map(v => v.name) } : null, member: res.member || null, persisted: !!res.persisted, tlsErr: ver && !ver.ok ? ver.code : null, insecure, prof: tlsI ? tlsI.prof : null } });
+            log({ curl: { vs: res.vs || null, ip, host: hostN, https, port, path, method, vip: isVip, byF5: !!res.byF5, why: res.why || null, loc: ((res.resp && (res.resp.headers || []).find(h => /^Location:/i.test(h))) || '').replace(/^Location:\s*/i, '') || null, rhdrs: res.resp ? (res.resp.headers || []).slice() : null, body: res.resp ? String(res.resp.body || '').slice(0, 400) : null, kind: res.kind, code: res.resp ? res.resp.code : null, asm: res.asm ? { blocked: !res.asm.unblocked, unblocked: !!res.asm.unblocked, supportId: res.asm.supportId, violations: res.asm.violations.map(v => v.name) } : null, member: res.member || null, persisted: !!res.persisted, tlsErr: ver && !ver.ok ? ver.code : null, insecure, prof: tlsI ? tlsI.prof : null } });
             // curl 7.81 biçimi (notes/f5-tmsh-cikti-ornekleri.md §9)
             const T12 = ['* ALPN, offering h2', '* ALPN, offering http/1.1', '*  CAfile: /etc/ssl/certs/ca-certificates.crt', '*  CApath: /etc/ssl/certs', '* TLSv1.0 (OUT), TLS header, Certificate Status (22):', '* TLSv1.3 (OUT), TLS handshake, Client hello (1):', '* TLSv1.2 (IN), TLS header, Certificate Status (22):', '* TLSv1.2 (IN), TLS handshake, Server hello (2):', '* TLSv1.2 (IN), TLS handshake, Certificate (11):'];
             const T12b = ['* TLSv1.2 (IN), TLS handshake, Server key exchange (12):', '* TLSv1.2 (IN), TLS handshake, Server finished (14):', '* TLSv1.2 (OUT), TLS handshake, Client key exchange (16):', '* TLSv1.2 (OUT), TLS change cipher, Change cipher spec (1):', '* TLSv1.2 (OUT), TLS handshake, Finished (20):', '* TLSv1.2 (IN), TLS handshake, Finished (20):', '* SSL connection using TLSv1.2 / ECDHE-RSA-AES128-GCM-SHA256', '* ALPN, server accepted to use http/1.1'];
@@ -1830,7 +1875,7 @@ const CgLabTmsh = (function () {
             else if (head || incl) { L.push(st); if (!r.noServerHdr) L.push('Server: Apache'); r.headers.forEach(h => L.push(h)); L.push('Content-Length: ' + r.body.length); if (incl && !head) L.push(''); }
             if (!head && out !== '/dev/null' && r.body) L.push(r.body);
             if (verbose) L.push('* Connection #0 to host ' + hostN + ' left intact');
-            if (wfmt) L.push(wfmt.replace(/%\{http_code\}/g, String(r.code)).replace(/\\n/g, '\n').replace(/\n$/, ''));
+            if (wfmt) L.push(wfmt.replace(/%\{http_code\}/g, String(r.code)).replace(/%\{time_total\}/g, ((r.delay || 0) + 0.004213).toFixed(6)).replace(/\\n/g, '\n').replace(/\n$/, ''));
             return { out: L.join('\n') };
         }
         // ═══ RST nedeni ve paket yakalama (tcpdump) ═══════════════════════
@@ -2112,6 +2157,8 @@ const CgLabTmsh = (function () {
             if (c === 'grep') { const g = grepF(a, ''); if (!g || !g.file) return E('Usage: grep [OPTION]... PATTERNS [FILE]...', 'incomplete'); const F = FILES(); if (!(g.file in F)) return E('grep: ' + g.file + ': No such file or directory', 'value'); return { out: grepF(a.slice(0, -1), F[g.file]).text, log: { file: g.file, grep: true } }; }
             if (c === 'ls') { const d = (a.filter(x => !/^-/.test(x))[1] || '/config').replace(/\/$/, ''); if (!(d in DIRS())) return E('ls: cannot access \'' + d + '\': No such file or directory', 'value'); const L = DIRS()[d]; return a.includes('-l') || a.includes('-lh') ? L.map(n => '-rw-r--r--. 1 root root ' + (/\.iso$/.test(n) ? '2.4G' : '12K') + ' Sep 24 09:12 ' + n).join('\n') : L.join('  '); }
             if (c === 'date') return 'Thu Sep 24 10:21:07 PDT 2026';
+            // sanal saati ilerletir (slow ramp gözlemi); gerçekte bekler
+            if (c === 'sleep') { if (!/^\d{1,4}$/.test(a[1] || '')) return E('sleep: invalid time interval \'' + (a[1] || '') + '\'', 'value'); S.clock += +a[1]; return { out: '', log: { sleep: +a[1] } }; }
             if (c === 'qkview') {
                 if (a.slice(1).some(x => !['-s0', '-c', '-f'].includes(x) && !/^\S+\.qkview$/.test(x))) return E('# [Simülatör] Bu lab\'da qkview için -s0 ve -c seçenekleri desteklenir.', 'unsupported');
                 const f = '/var/tmp/' + short() + '.qkview'; if (!S.tmp.includes(short() + '.qkview')) S.tmp.push(short() + '.qkview');
@@ -2276,7 +2323,7 @@ const CgLabTmsh = (function () {
             vsFor: (ip, port, src) => vsMatch(ip, port, src || SIM.client || '198.51.100.20'),
             // iRule oyunları için yan etkisiz istek: { ip, port, path, method, host, src, hdrs } → sonuç ayrıntıları (log satırları dahil)
             irTest: q => { const keepRt = JSON.stringify(S.rt), keepLog = S.ltmlog.length, keepSt = JSON.stringify(S.rstat), keepTb = JSON.stringify(S.rtable);
-                const r = viaPeer(() => vipRequest({ ip: q.ip || '203.0.113.100', port: q.port || 80, path: q.path || '/', method: q.method || 'GET', src: q.src || SIM.client || '198.51.100.20', cookie: q.cookie || {}, host: q.host, hdrs: q.hdrs || [], test: false }));
+                const r = viaPeer(() => vipRequest({ ip: q.ip || '203.0.113.100', port: q.port || 80, path: q.path || '/', method: q.method || 'GET', src: q.src || SIM.client || '198.51.100.20', cookie: q.cookie || {}, host: q.host, hdrs: q.hdrs || [], body: q.body, test: false }));
                 const logs = S.ltmlog.slice(keepLog); S.ltmlog.length = keepLog; S.rt = JSON.parse(keepRt); S.rstat = JSON.parse(keepSt); S.rtable = JSON.parse(keepTb);
                 const H = r.resp ? (r.resp.headers || []) : []; const hv = n => { const x = H.find(h => h.toLowerCase().startsWith(n.toLowerCase() + ':')); return x ? x.slice(x.indexOf(':') + 1).trim() : null; };
                 return { kind: r.kind, why: r.why || null, code: r.resp ? r.resp.code : null, byF5: !!r.byF5, member: r.member || null, loc: hv('Location'), hdr: hv, headers: H.slice(), body: r.resp ? r.resp.body : null, logs, err: logs.find(l => /01220001/.test(l)) || null }; },
@@ -2285,6 +2332,7 @@ const CgLabTmsh = (function () {
             conns: () => S.ct.map(c => Object.assign({}, c)), persistRecords: () => Object.assign({}, S.rt.persist || {}),
             vols: () => clone(S.vols), bootVol: () => S.boot, inop: () => S.inop, ucsFiles: () => S.ucs.map(u => u.name),
             memberStatus: (p, k) => memberStatus(p, k), poolStatus: p => poolStatus(p), vsStatus: v => vsStatus(v),
+            ltmlog: () => S.ltmlog.slice(), clock: () => S.clock,
             reach: ip => reach(ip), sshAllowed: ip => allowHas(M().sshd.allow, ip || ADMIN), guiAllowed: ip => allowHas(M().httpd.allow, ip || ADMIN),
             selfAllows: (name, svc) => { const s = M().selfs[name]; if (!s) return false; if (s.allow === 'all') return true; if (s.allow === 'none') return false; const L = s.allow === 'default' ? ALLOW_DEFAULT : s.allow; const [pr, pt] = svc.split(':'); return L.some(x => { const [p2, t2] = x.split(':'); return p2 === pr && (t2 === 'any' || t2 === pt || SVC_PORT[t2] === +pt || +t2 === SVC_PORT[pt]); }); },
             showRun: () => TYPES.map(k => { const t = T[k]; if (t.special) return t.list().join('\n'); if (t.single) return t.list().join('\n'); return Object.keys(t.coll()).map(n => t.list(n, t.coll()[n]).join('\n')).join('\n'); }).filter(Boolean).join('\n'),

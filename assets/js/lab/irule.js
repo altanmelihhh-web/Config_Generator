@@ -9,7 +9,7 @@ const CgIRule = (() => {
         'HTTP_REQUEST', 'HTTP_REQUEST_DATA', 'HTTP_REQUEST_SEND', 'HTTP_REQUEST_RELEASE', 'HTTP_RESPONSE', 'HTTP_RESPONSE_DATA', 'HTTP_RESPONSE_RELEASE', 'HTTP_DISABLED', 'HTTP_PROXY_REQUEST',
         'CLIENTSSL_CLIENTHELLO', 'CLIENTSSL_HANDSHAKE', 'CLIENTSSL_CLIENTCERT', 'CLIENTSSL_SERVERHELLO_SEND', 'CLIENTSSL_DATA', 'SERVERSSL_CLIENTHELLO_SEND', 'SERVERSSL_SERVERHELLO', 'SERVERSSL_HANDSHAKE', 'SERVERSSL_DATA',
         'LB_SELECTED', 'LB_FAILED', 'LB_QUEUED', 'PERSIST_DOWN', 'DNS_REQUEST', 'DNS_RESPONSE', 'ACCESS_SESSION_STARTED', 'ACCESS_SESSION_CLOSED', 'ACCESS_POLICY_AGENT_EVENT', 'ACCESS_ACL_ALLOWED',
-        'ASM_REQUEST_DONE', 'ASM_REQUEST_BLOCKING', 'ASM_REQUEST_VIOLATION', 'WEBSOCKET_REQUEST', 'WEBSOCKET_RESPONSE', 'NAME_RESOLVED'];
+        'ASM_REQUEST_DONE', 'ASM_REQUEST_BLOCKING', 'ASM_REQUEST_VIOLATION', 'ASM_RESPONSE_VIOLATION', 'WEBSOCKET_REQUEST', 'WEBSOCKET_RESPONSE', 'NAME_RESOLVED'];
     const HTTP_EVENTS = EVENTS.filter(e => /^HTTP_/.test(e));
     // F5'te devre dışı Tcl komutları (clouddocs DisabledTclCommands)
     const DISABLED = ['exec', 'open', 'socket', 'file', 'cd', 'pwd', 'glob', 'source', 'load', 'exit', 'vwait', 'fileevent', 'fconfigure', 'fcopy', 'flush', 'gets', 'puts', 'read', 'seek', 'tell', 'eof', 'interp', 'package', 'pid', 'update'];
@@ -397,7 +397,7 @@ const CgIRule = (() => {
     function f5cmds() {
         const ev = I => I.ctx.event;
         const isResp = I => /^HTTP_RESPONSE/.test(ev(I));
-        const httpOk = I => { if (!/^HTTP_|^LB_|^SERVER_CONNECTED$|^CLIENTSSL_HANDSHAKE$/.test(ev(I)) || !I.ctx.req) throw new TclError('Operation not supported (line ' + I.ctx.line + ')', 'abort'); };
+        const httpOk = I => { if (!/^HTTP_|^LB_|^ASM_REQUEST_|^SERVER_CONNECTED$|^CLIENTSSL_HANDSHAKE$/.test(ev(I)) || !I.ctx.req) throw new TclError('Operation not supported (line ' + I.ctx.line + ')', 'abort'); };
         const H = I => (isResp(I) ? I.ctx.resp.headers : I.ctx.req.headers);
         const hget = (L, n) => { const x = L.find(h => h[0].toLowerCase() === String(n).toLowerCase()); return x ? x[1] : ''; };
         const onceRespond = I => { if (I.ctx.act.respond) throw new TclError('Operation not supported. Multiple redirect/respond invocations not allowed (line ' + I.ctx.line + ')', 'abort'); };
@@ -481,7 +481,8 @@ const CgIRule = (() => {
         };
         C['TCP::client_port'] = C['TCP::remote_port'] = (I) => String(I.ctx.client.port);
         C['TCP::local_port'] = (I) => String(I.ctx.vs.port);
-        C['TCP::close'] = (I) => { I.ctx.act.reject = true; return ''; };
+        // TCP::close: HTTP::respond'dan sonra gelirse yanıt gönderilip bağlantı kapatılır; tek başına bağlantıyı kapatır
+        C['TCP::close'] = (I) => { if (I.ctx.act.respond) I.ctx.act.close = true; else I.ctx.act.reject = true; return ''; };
         C['virtual'] = (I, a) => { if (!a.length || a[0] === 'name') return '/Common/' + I.ctx.vs.name; throw new TclError('virtual: bu lab\'da yalnız "virtual name"'); };
         C['pool'] = (I, a) => {
             need(a, 1, 4, 'pool <pool_name> ?member <addr> ?<port>??');
@@ -495,6 +496,27 @@ const CgIRule = (() => {
         C['LB::server'] = (I, a) => { const lb = I.ctx.lb || {}; const k = a[0] || ''; if (k === 'addr') return lb.ip || ''; if (k === 'port') return lb.port ? String(lb.port) : ''; if (k === 'pool') return lb.pool ? '/Common/' + lb.pool : ''; if (k === 'name') return lb.pool ? '/Common/' + lb.pool + ' ' + lb.ip + ' ' + lb.port : ''; return lb.pool ? '/Common/' + lb.pool + ' ' + lb.ip + ' ' + lb.port : ''; };
         C['LB::reselect'] = (I, a) => { if (a[0] === 'pool' && a[1]) { if (!I.ctx.hasPool(a[1])) throw new TclError('no such pool: ' + a[1] + ' (line ' + I.ctx.line + ')', 'nopool'); I.ctx.act.reselect = a[1]; } return ''; };
         C['LB::status'] = (I) => 'up';
+        // ═══ ASM:: (clouddocs.f5.com/api/irules/ASM.html) — motor ctx.asm = { r: CgASM.evaluate sonucu, unblocked, sid, policy } sağlar.
+        // Geçerli olaylar: ASM_REQUEST_DONE, ASM_REQUEST_VIOLATION, ASM_RESPONSE_VIOLATION (derleme denetimi aşağıda).
+        // İhlal adları iControl ASM::ViolationName sabitleri; "Attack signature detected" → VIOLATION_ATTACK_SIGNATURE_DETECTED (DevCentral örnekleri).
+        const ASM_VN = { 'Illegal method': 'VIOLATION_ILLEGAL_METHOD', 'Illegal file type': 'VIOLATION_OBJ_TYPE', 'Illegal URL': 'VIOLATION_OBJ_DOESNT_EXIST', 'Illegal URL length': 'VIOLATION_OBJ_LEN', 'Illegal query string length': 'VIOLATION_QS_LEN',
+            'Illegal parameter': 'VIOLATION_PARAM', 'Illegal parameter value length': 'VIOLATION_PARAM_VALUE_LEN', 'Illegal meta character in parameter value': 'VIOLATION_METACHAR_IN_DEF_PARAM', 'Illegal parameter data type': 'VIOLATION_PARAM_DATA_TYPE',
+            'Illegal repeated parameter name': 'VIOLATION_REPEATED_PARAMETER_NAME', 'Modified domain cookie(s)': 'VIOLATION_MOD_DOMAIN_COOKIE', 'Attack signature detected': 'VIOLATION_ATTACK_SIGNATURE_DETECTED', 'Evasion technique detected': 'VIOLATION_EVASION_DETECTED', 'HTTP protocol compliance failed': 'VIOLATION_HTTP_SANITY_CHECK_FAILED' };
+        const asmOf = I => { if (!I.ctx.asm) throw new TclError('ASM:: komutu için ASM değerlendirmesi yok (VS\'ye yayınlanmış ASM politikası bağlı değil) [Simülatör]'); return I.ctx.asm; };
+        C['ASM::violation'] = (I, a) => {
+            need(a, 1, 1, 'ASM::violation <count|names|attack_types|details>'); const A = asmOf(I), V = A.r.violations;
+            if (a[0] === 'count') return String(V.length);
+            if (a[0] === 'names') return listJoin(V.map(v => ASM_VN[v.name] || v.name));
+            if (a[0] === 'attack_types') return listJoin([...new Set((A.r.sigs || []).filter(x => !x.staged).map(x => x.type))]);
+            if (a[0] === 'details') { I.ctx.note('[Simülatör] ASM::violation details bu lab sürümünde boş liste döner.'); return ''; }
+            throw new TclError('bad option "' + a[0] + '": must be count, names, attack_types or details');
+        };
+        C['ASM::support_id'] = (I) => asmOf(I).sid;
+        // ASM::status: clouddocs "Blocked / Alarm / Clear" diye tanımlar; resmî ve DevCentral örnek kodları küçük harfli "blocked" / "alarmed" ile karşılaştırır.
+        // Simülatör örnek kodlarla uyumlu küçük harfli değerleri döndürür. Unblock edilen istek "alarmed" olur.
+        C['ASM::status'] = (I) => { const A = asmOf(I); return A.r.blocked && !A.unblocked ? 'blocked' : A.r.violations.length ? 'alarmed' : 'clear'; };
+        // ASM::unblock: engellenecek isteği sunucuya iletir; istek logunda "unblocked" işaretlenir, ihlalleri öğrenmeye girmez; engellenmeyecek istekte etkisizdir
+        C['ASM::unblock'] = (I) => { const A = asmOf(I); if (A.r.blocked) A.unblocked = true; return ''; };
         C['event'] = (I, a) => { if (a[0] === 'disable') { if (a[1] === 'all') I.ctx.act.off.add('*'); else I.ctx.act.off.add(ev(I)); return ''; } if (a[0] === 'enable') return ''; return ev(I); };
         C['reject'] = (I) => { I.ctx.act.reject = true; return ''; };
         C['drop'] = C['discard'] = (I) => { I.ctx.act.drop = true; return ''; };
@@ -595,6 +617,7 @@ const CgIRule = (() => {
             const lit = w0.braced ? w0.parts[0].v : (w0.parts.length === 1 && w0.parts[0].t === 'lit' ? w0.parts[0].v : null);
             if (lit !== null) {
                 if (DISABLED.includes(lit)) return { err: 'undefined procedure: ' + lit, cmd: lit, line: c.line, text: c.text.split('\n')[0] };
+                if (/^ASM::(violation|support_id|status|unblock)$/.test(lit) && !/^ASM_(REQUEST_DONE|REQUEST_VIOLATION|RESPONSE_VIOLATION)$/.test(SCAN.ev)) return { kind: 'ctx', err: 'command is not valid in current event context', event: SCAN.ev, cmd: lit, line: c.line };
                 if ((REQ_ONLY.includes(lit) && /^HTTP_RESPONSE/.test(SCAN.ev)) || (/^HTTP::/.test(lit) && NO_HTTP_EV.includes(SCAN.ev)) || (lit === 'HTTP::status' && /^HTTP_REQUEST/.test(SCAN.ev))) return { kind: 'ctx', err: 'command is not valid in current event context', event: SCAN.ev, cmd: lit, line: c.line };
                 const plain = k => c.words[k] && (c.words[k].braced || (c.words[k].parts.length === 1 && c.words[k].parts[0].t === 'lit')) ? (c.words[k].braced ? c.words[k].parts[0].v : c.words[k].parts[0].v) : null;
                 if ((lit === 'pool' || lit === 'active_members') && plain(1) && plain(1) !== '-list') SCAN.refs.push({ type: 'pool', name: plain(1), line: c.line, text: c.text.split('\n')[0] });
