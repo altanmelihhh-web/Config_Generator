@@ -224,7 +224,7 @@
             symptom: 'Kullanıcı bir form gönderince ya da belirli bir sayfada "The requested URL was rejected. Please consult with your administrator. Your support ID is: …" sayfası görüyor.',
             steps: [
                 { expect: 'bad', code: 'Security ›› Event Logs : Application : Requests  (filtre: Support ID)', desc: 'Kullanıcının verdiği support ID ile isteği bulun. İstek detayında policy adı, ihlaller (violations), istek metni ve engellenip engellenmediği görünür.',
-                  sample: 'Support ID : 1234567890123456789\nPolicy     : /Common/waf_app\nStatus     : Blocked\nViolations : Illegal meta character in parameter value\n             Attack signature detected\nParameter  : yorum\nIstek      : POST /form/gonder  yorum=Fiyat\'lar <b>çok</b> iyi\n\n# Okuma: "yorum" alanındaki kesme işareti ve <b> etiketi meta karakter/imza ihlali üretmiş.\n# Karar: metin düzenleyicili bir yorum alanı için bu meşru olabilir (yanlış pozitif).' },
+                  sample: 'Support ID : 1234567890123456789\nPolicy     : /Common/waf_app\nStatus     : Blocked\nViolations : Illegal meta character in parameter value (yorum: \' < >)\nParameter  : yorum\nİstek      : POST /form/gonder  yorum=Fiyat\'lar <b>çok</b> iyi\n\n# Okuma: "yorum" alanındaki kesme işareti ve <b> etiketi yalnız meta karakter ihlali üretmiş; imza yok.\n# Karar: metin düzenleyicili bir yorum alanı için bu meşru olabilir (yanlış pozitif).' },
                 { code: 'İstek detayı › Violations › ihlalin ayrıntısı (imza adı/ID, parametre, URL)', desc: 'Karar: bu meşru kullanıcı davranışı mı (yanlış pozitif), gerçek saldırı mı? Aynı ihlal çok sayıda farklı kullanıcıda ve normal iş akışında görülüyorsa yanlış pozitif olasılığı yüksektir.',
                   fix: [{ cause: 'Yanlış pozitif: istisnayı en dar kapsamda yapın (yalnız o parametre / URL; tüm policy\'de imzayı kapatmayın)' }, { cause: 'Gerçek saldırı: engel doğru; kaynak IP ve benzer istekleri inceleyin' }] },
                 { code: 'Policy Building › Traffic Learning', desc: 'ASM aynı ihlal için öneri (suggestion) üretmiş olabilir; öneriyi kabul etmeden önce kapsamını okuyun (ör. "parametrede meta karaktere izin ver" mi, "imzayı tüm policy\'de kapat" mı).' },
@@ -279,7 +279,7 @@
             ],
             quiz: [
                 { q: 'Reason "Response Code: 400 (Bad Request)" diyor. En olası neden?', choices: [['host', 'send dizgesi HTTP/1.1 ama Host başlığı yok'], ['fw', 'Güvenlik duvarı'], ['down', 'Sunucu kapalı']], correct: 'host', why: '400 yanıtı sunucunun ayakta olduğunu ama isteği anlamadığını gösterir.' },
-                { q: 'Bakıma alınacak sunucuyu, açık oturumları kesmeden devreden çıkarmak için?', choices: [['rd', 'recv-disable dizgesi (ya da üyeyi session disabled)'], ['del', 'Üyeyi pool\'dan silmek'], ['down', 'Üyeyi forced offline yapmak']], correct: 'rd', why: 'disabled: yeni bağlantı yok, mevcut oturumlar sürer; forced offline mevcutları da reddeder.' },
+                { q: 'Bakıma alınacak sunucuyu, açık oturumları kesmeden devreden çıkarmak için?', choices: [['rd', 'recv-disable dizgesi (ya da üyeyi session disabled)'], ['del', 'Üyeyi pool\'dan silmek'], ['down', 'Üyeyi forced offline yapmak (kalıcılıklı kullanıcıları da keser)']], correct: 'rd', why: 'disabled: yeni bağlantı almaz ama mevcut bağlantılar ve kalıcılık kaydı olan kullanıcılar sürer. forced offline mevcut bağlantıları sürdürür ama kalıcılıkla gelen yeni bağlantıları da reddeder: oturumlu kullanıcı bir sonraki istekte kopar.' },
             ]
         },
         {

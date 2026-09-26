@@ -1728,7 +1728,7 @@
               steps: ['tmsh modify ltm persistence cookie p_cookie cookie-encryption preferred cookie-encryption-passphrase GizliAnahtar2026', 'curl -s -c /var/tmp/j -b /var/tmp/j http://203.0.113.100/'], needs: [0],
               check: s => { const p = s.model.persists.p_cookie; return p && p.enc === 'preferred' && !!p.pass && curlsAfter(s, /cookie-encryption preferred/).some(c => c.persisted); } },
             { t: 'Yeni ziyaretçi şifreli çerez almalı: yeni bir kavanozla <code>curl -I -c /var/tmp/k -b /var/tmp/k http://203.0.113.100/</code>', why: 'Şifreli değer "!" ile başlar ve adres içermez.', hints: ['Yeni kavanoz: /var/tmp/k', '<code>curl -I -c /var/tmp/k -b /var/tmp/k http://203.0.113.100/</code>'],
-              steps: ['tmsh modify ltm persistence cookie p_cookie cookie-encryption preferred cookie-encryption-passphrase GizliAnahtar2026', 'curl -I -c /var/tmp/k -b /var/tmp/k http://203.0.113.100/'],
+              steps: ['curl -I -c /var/tmp/k -b /var/tmp/k http://203.0.113.100/'], needs: [2],
               check: s => curlsAfter(s, /cookie-encryption/).some(c => (c.rhdrs || []).some(h => /^Set-Cookie: BIGipServerweb_pool=!/.test(h))) },
             { t: 'Soru: Doğrudan <code>required</code>\'a geçseydiniz, eski çerezli (şifresiz) kullanıcılara ne olurdu?', ask: { choices: [['lost', 'Çerezleri kabul edilmez, round robin ile başka sunucuya düşebilir: sepet/oturum kopar'], ['same', 'Hiçbir şey olmaz'], ['rst', 'Bağlantıları sıfırlanır']], correct: 'lost' },
               why: 'required yalnız şifreli çerezi tanır; geçiş preferred ile yapılır, eski çerezler yenilendikten (süre/oturum sonu) sonra required\'a geçilir.', hints: ['required ne kabul eder?', 'Kalıcılık kaydı bulunamazsa ne olur?'] },

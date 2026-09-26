@@ -384,8 +384,8 @@ const CgLab = {
                     ${t.fill && !locked ? this._fillHtml(t, i, done) : ''}
                     ${t.quiz && !locked ? this._quizHtml(t, i, done) : ''}
                     ${!locked && (!(t.ask || t.fill || t.quiz) || done) ? `<details class="cg-lab-why"${(t.ask || t.fill || t.quiz) && done ? ' open' : ''}><summary>Neden?</summary><div>${t.why}</div></details>` : ''}
-                    ${!done && !locked ? `<div class="cg-lab-hints">${hintsOf(t).slice(0, hl).map((h, k) => `<div class="cg-lab-hint lv${k + 1}"><b>${['İpucu', 'Komut iskeleti', 'Çözüm'][k]}:</b> ${h}</div>`).join('')}
-                        ${hl < 3 ? `<button class="cg-lab-hbtn" data-hint="${i}"><i class="far fa-lightbulb"></i> ${['İpucu', 'Komut iskeleti', 'Tam çözüm'][hl]}${hl >= 1 ? ' <small>(★ düşürür)</small>' : ''}</button>` : ''}</div>` : ''}
+                    ${!done && !locked ? `<div class="cg-lab-hints">${hintsOf(t).slice(0, hl).map((h, k) => `<div class="cg-lab-hint lv${k + 1}"><b>${(t.ask || t.fill || t.quiz ? ['İpucu', 'Yönlendirme', 'Cevap'] : ['İpucu', 'Komut iskeleti', 'Çözüm'])[k]}:</b> ${h}</div>`).join('')}
+                        ${hl < 3 ? `<button class="cg-lab-hbtn" data-hint="${i}"><i class="far fa-lightbulb"></i> ${(t.ask || t.fill || t.quiz ? ['İpucu', 'Yönlendirme', 'Cevabı göster'] : ['İpucu', 'Komut iskeleti', 'Tam çözüm'])[hl]}${hl >= 1 ? ' <small>(★ düşürür)</small>' : ''}</button>` : ''}</div>` : ''}
                     ${this._fb && this._fb[i] && !done ? `<div class="cg-lab-fb"><i class="fas fa-exclamation-circle"></i> ${this._fb[i]}</div>` : ''}
                     ${done ? this._warnHtml(t) : ''}
                 </div>
@@ -426,7 +426,7 @@ const CgLab = {
         side.querySelectorAll('[data-fill]').forEach(x => x.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const b = side.querySelector('[data-fillchk="' + x.dataset.fill + '"]'); if (b) b.click(); } }));
         // mini test: seçimler taslakta tutulur, "Değerlendir" ile puanlanır
         side.querySelectorAll('[data-qz]').forEach(b => b.addEventListener('click', () => {
-            const [i, k] = b.dataset.qz.split(':').map(Number); this._qzDraft = this._qzDraft || {}; const d = this._qzDraft[i] = Object.assign({}, this._qzDraft[i]); d[k] = b.dataset.v; this._qzShown = Object.assign({}, this._qzShown, { [i]: false }); this._paintSide();
+            const [i, k] = b.dataset.qz.split(':').map(Number); this._qzDraft = this._qzDraft || {}; const d = this._qzDraft[i] = Object.assign({}, this._qzDraft[i]); d[k] = b.dataset.v; this._qzShown = Object.assign({}, this._qzShown, { [i]: false }); const fk = '[data-qz="' + b.dataset.qz + '"][data-v="' + CSS.escape(b.dataset.v) + '"]', sc = side.scrollTop; this._paintSide(); side.scrollTop = sc; const nb = side.querySelector(fk); if (nb) nb.focus({ preventScroll: true });
         }));
         side.querySelectorAll('[data-qzchk]').forEach(b => b.addEventListener('click', () => {
             const i = +b.dataset.qzchk, t = lab.tasks[i], key = lab.id + ':' + i, d = (this._qzDraft || {})[i] || {};
