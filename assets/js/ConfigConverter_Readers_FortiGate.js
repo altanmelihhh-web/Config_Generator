@@ -606,6 +606,8 @@ function ccReadFortiGate(text) {
         }
     }
     ccResolveDevice(ir);
+    // Kaynak sürüm kovası (ör. fortios-7.4, fortios-7.6): osVersions listesinden
+    if (ir.device && ir.device.osVersionBucket) ir._meta.srcOsVersion = ir.device.osVersionBucket;
 
     return ir;
 }

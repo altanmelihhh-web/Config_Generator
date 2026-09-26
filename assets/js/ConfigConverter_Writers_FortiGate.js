@@ -30,6 +30,8 @@ function ccWriteFortiGate(ir) {
     let c = '# ======================================\n# FortiGate — Converted Configuration\n# ======================================\n\n';
     if (ir.hostname) c += 'config system global\n    set hostname "' + ir.hostname + '"\nend\n\n';
     const _dq = s => String(s == null ? '' : s).replace(/^"+|"+$/g, '');
+    // F76-C2: hedef FortiOS 7.6 seçildiyse sürüme bağlı dallar (varsayılan 7.4 çıktısı değişmez)
+    const V76 = !!(ir._meta && ir._meta.dstOsVersion === 'fortios-7.6');
 
     // ── Adres başvurusu: nesne adı; değer eşleşirse o nesnenin adı; çıplak IP/ağ → otomatik nesne
     const addrObjs = (ir.addressObjects || []);
@@ -384,17 +386,30 @@ function ccWriteFortiGate(ir) {
         if (t.ikeVersion) c += '        set ike-version ' + t.ikeVersion + '\n';
         else ccDropField(ir, 'vpnTunnels', t.p1Name || '', 'ike-version', '', 'fortigate-ipsec-ike-version-unknown-manual', 'fortigate', CC_SEVERITY.MANUAL);
         c += '        set proposal ' + (t.proposal || 'aes256-sha256') + '\n';
-        if (t.dhgrp) c += '        set dhgrp ' + t.dhgrp + '\n';
+        // 7.6 hedef: dhgrp bilinmiyorsa 7.6.5+ varsayılanı (FortiOS 7.6.5 RN "Changes in default behavior": 20 21)
+        // açıkça yazılır ve varsayım olarak bildirilir (karşı uçla eşleşmeli).
+        const dh = t.dhgrp || (V76 ? '20 21' : '');
+        if (!t.dhgrp && V76) ccAddAssumption(ir, 'vpn ipsec phase1-interface dhgrp', '20 21', 'FortiOS 7.6.5+ varsayilani (hedef)', "kaynakta dhgrp yok (" + (t.p1Name || '') + '); karsi uc da 20/21 desteklemeli', CC_SEVERITY.MANUAL);
+        if (dh) c += '        set dhgrp ' + dh + '\n';
         else ccDropField(ir, 'vpnTunnels', t.p1Name || '', 'dhgrp', '', 'fortigate-ipsec-dhgrp-unknown-manual', 'fortigate', CC_SEVERITY.MANUAL);
         c += '    next\nend\n\n';
         c += 'config vpn ipsec phase2-interface\n    edit "' + (t.p2Name || t.p1Name + '_P2') + '"\n';
         c += '        set phase1name "' + t.p1Name + '"\n        set proposal ' + (t.proposal || 'aes256-sha256') + '\n';
-        if (t.dhgrp) c += '        set dhgrp ' + t.dhgrp + '\n';
+        if (t.dhgrp || V76) c += '        set dhgrp ' + (t.dhgrp || '20 21') + '\n';
         c += '        set src-subnet ' + (t.localSubnet || '') + '\n        set dst-subnet ' + (t.remoteSubnet || '') + '\n';
         c += '    next\nend\n\n';
     });
     // SSL-VPN
-    if (ir.sslVpn) {
+    if (ir.sslVpn && V76) {
+        // FortiOS 7.6.3+: SSL-VPN tünel modu yok (7.6.3 RN "SSL VPN tunnel mode replaced with IPsec VPN"); web modu
+        // "Agentless VPN" adıyla kalır (bazı küçük modellerde o da yok). Tünel alanları yazılmaz, IPsec dial-up önerilir.
+        const s = ir.sslVpn;
+        c += 'config vpn ssl web portal\n    edit "' + s.portalName + '"\n        set web-mode enable\n    next\nend\n\n';
+        c += 'config vpn ssl settings\n    set servercert "Fortinet_Factory"\n    set source-interface "' + s.sourceIface + '"\n    set source-address "all"\n    set default-portal "' + s.portalName + '"\n    set port ' + (s.port || '10443') + '\n';
+        if (s.userGroup) c += '    config authentication-rule\n        edit 1\n            set groups "' + s.userGroup + '"\n            set portal "' + s.portalName + '"\n        next\n    end\n';
+        c += 'end\n\n';
+        ccDropField(ir, 'sslVpn', s.portalName || '', 'tunnel-mode', (s.tunnelPoolName || '') + (s.poolRange ? ' ' + s.poolRange : ''), 'fortigate-76-sslvpn-tunnel-removed-use-ipsec-dialup-manual', 'fortigate', CC_SEVERITY.MANUAL);
+    } else if (ir.sslVpn) {
         const s = ir.sslVpn;
         c += 'config firewall address\n    edit "' + s.tunnelPoolName + '"\n        set type iprange\n';
         const parts = String(s.poolRange || '').split('-');

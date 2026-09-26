@@ -45,7 +45,7 @@ const CC_VENDOR_META = {
   'juniper-srx':  { label:'Juniper SRX',         cat:'firewall',      commentChar:'#', osVersions:[{id:'junos-srx', label:'Junos SRX'}] },
   'arista-eos':   { label:'Arista EOS',          cat:'switch-router', commentChar:'!', osVersions:[{id:'eos-4.3', label:'EOS 4.3x'}] },
   'mikrotik':     { label:'MikroTik RouterOS',   cat:'switch-router', commentChar:'#', osVersions:[{id:'ros-7', label:'RouterOS 7.x'},{id:'ros-6', label:'RouterOS 6.x (legacy)'}] },
-  'fortigate':    { label:'FortiGate',           cat:'firewall',      commentChar:'#', osVersions:[{id:'fortios-7.4', label:'FortiOS 7.4'},{id:'fortios-7.2', label:'FortiOS 7.2'}] },
+  'fortigate':    { label:'FortiGate',           cat:'firewall',      commentChar:'#', osVersions:[{id:'fortios-7.4', label:'FortiOS 7.4'},{id:'fortios-7.6', label:'FortiOS 7.6'},{id:'fortios-7.2', label:'FortiOS 7.2'}] },
   'paloalto':     { label:'Palo Alto PAN-OS',    cat:'firewall',      commentChar:'#', osVersions:[{id:'panos-10.2plus', label:'PAN-OS 10.2+'},{id:'panos-pre-10.2', label:'PAN-OS 10.1 ve öncesi'}] },
   'checkpoint':   { label:'Check Point Gaia',    cat:'firewall',      commentChar:'#', osVersions:[{id:'gaia-r81', label:'Gaia R81+'},{id:'gaia-r80', label:'Gaia R80.x'}] },
   'f5-bigip':     { label:'F5 BIG-IP',           cat:'adc',           commentChar:'#', osVersions:[{id:'tmos-17', label:'TMOS 17.x'},{id:'tmos-15', label:'TMOS 15.x'}] },
