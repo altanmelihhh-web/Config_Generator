@@ -3138,3 +3138,218 @@ CiscoIOS.vrfAddressFamily = {
         });
     }
 };
+
+// ── EVPN / VXLAN (cisco.ios.ios_evpn_global, ios_evpn_evi, ios_evpn_ethernet, ios_vxlan_vtep) ──
+// Kaynaklar: ansible-collections/cisco.ios @42bf389 argspec + rm_templates;
+// Cisco IOS XE 17.11 YANG (Cisco-IOS-XE-l2vpn, Cisco-IOS-XE-interfaces) sınırları:
+// EVPN instance 1-65535, ethernet-segment 1-65535, df-election wait-time 1-10,
+// interface nve 1-4096; VNI 24 bit (1-16777215). Platform: IOS XE, Catalyst 9000
+// BGP EVPN VXLAN (klasik IOS ve ISR/ASR'de komut kümesi farklı olabilir).
+const _CC_EVPN_PLAT = 'Platform: Cisco IOS XE — Catalyst 9000 BGP EVPN VXLAN. Klasik IOS\'ta yoktur; model ve sürüm desteğini Cisco yapılandırma kılavuzundan doğrulayın.';
+function _ccEvpnHdr(title) {
+    return '! ========================================\n! Cisco IOS XE ' + title + '\n! Platform: Catalyst 9000 (IOS XE) BGP EVPN VXLAN\n! ========================================\n\n';
+}
+// Ansible bool alanları üç durumludur: tanımsız (satır yok), true (komut), false ("no" komutu).
+function _ccTri(v, line) {
+    return v === 'on' ? ' ' + line + '\n' : v === 'off' ? ' no ' + line + '\n' : '';
+}
+const _CC_TRI_OPTS = [
+    { value: '', label: 'Değiştirme (satır üretme)', selected: true },
+    { value: 'on', label: 'Etkin' },
+    { value: 'off', label: 'Kapalı (no ...)' }
+];
+function _ccIsMcast4(ip) { const n = _ccN(ip); return CG_VALIDATORS.ip.re.test(String(ip || '').trim()) && n >= 3758096384 && n <= 4026531839; }
+function _ccIsMcast6(ip) { return /^ff[0-9a-f]{2}:/i.test(String(ip || '').trim()) && CG_VALIDATORS.ipv6.fn(ip); }
+
+CiscoIOS.evpnGlobal = {
+    label: 'EVPN Global',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-project-diagram', title: 'L2VPN EVPN — Global Ayarlar',
+                desc: 'Tüm EVPN instance\'larının varsayılanlarını <code>l2vpn evpn</code> altında belirler: BUM replikasyon türü, router-id arayüzü, default-gateway duyurusu, VNI tabanlı otomatik route-target. ' + _CC_EVPN_PLAT },
+            configTypes: [{ id: 'global', label: 'l2vpn evpn', icon: 'fas fa-globe', desc: 'Global EVPN varsayılanları', badge: { text: 'IOS XE Cat9k', cls: 'advanced' } }],
+            sections: [{ title: 'Global EVPN', icon: 'fas fa-sliders-h', showFor: ['global'], fields: [
+                { name: 'eg_repl', label: 'Replikasyon Türü', type: 'select', options: [
+                    { value: '', label: 'Belirtme', selected: true }, { value: 'ingress', label: 'ingress — head-end (unicast) replikasyon' }, { value: 'static', label: 'static — underlay multicast grubu' }
+                ], hint: 'NVE member vni satırındaki replikasyon (ingress-replication / mcast-group) bununla aynı olmalı', why: 'BUM (broadcast, unknown unicast, multicast) trafiğinin VTEP\'ler arasında nasıl çoğaltılacağını seçer. static, underlay\'de PIM multicast ister; ingress ise multicast gerektirmez ama her VTEP\'e ayrı kopya gönderir.' },
+                { name: 'eg_rid', label: 'Router-ID Arayüzü', type: 'text', validate: 'ios_iface', placeholder: 'Loopback1', hint: 'Opsiyonel; Cisco kılavuzu loopback arayüzü kullanır' },
+                { name: 'eg_dgw', label: 'default-gateway advertise', type: 'select', options: _CC_TRI_OPTS, hint: 'Dağıtık anycast gateway MAC/IP rotalarını duyurur' },
+                { name: 'eg_rt_auto', label: 'route-target auto vni', type: 'select', options: _CC_TRI_OPTS, hint: 'RT\'yi ASN:VNI olarak otomatik türetir' },
+                { name: 'eg_ip_ll_disable', label: 'ip local-learning disable', type: 'select', options: _CC_TRI_OPTS, hint: 'Etkin = yerel IP öğrenmeyi kapatır' },
+                { name: 'eg_flood_disable', label: 'flooding-suppression address-resolution disable', type: 'select', options: _CC_TRI_OPTS, hint: 'Etkin = ARP/ND flooding bastırmayı kapatır (varsayılan: bastırma açık)' }
+            ]}], submit: 'EVPN Global Oluştur'
+        }, data => {
+            const f = n => String(data[n] == null ? '' : data[n]).trim();
+            const warnings = [];
+            let body = '';
+            if (f('eg_repl')) body += ' replication-type ' + cgEsc(f('eg_repl')) + '\n';
+            if (f('eg_rid')) {
+                body += ' router-id ' + cgEsc(f('eg_rid')) + '\n';
+                if (!/^(Loopback|Lo)\d/i.test(f('eg_rid'))) warnings.push('⚠ Router-ID için Cisco kılavuzu loopback arayüzü kullanır; fiziksel arayüz düşerse EVPN router-id değişir.');
+            }
+            body += _ccTri(f('eg_dgw'), 'default-gateway advertise');
+            body += _ccTri(f('eg_rt_auto'), 'route-target auto vni');
+            body += _ccTri(f('eg_ip_ll_disable'), 'ip local-learning disable');
+            body += _ccTri(f('eg_flood_disable'), 'flooding-suppression address-resolution disable');
+            let c = _ccEvpnHdr('EVPN Global');
+            if (!body) return { config: c + '! Hiçbir global EVPN ayarı seçilmedi; satır üretilmedi.\n', warnings: ['En az bir global EVPN ayarı seçin.'] };
+            c += 'l2vpn evpn\n' + body + '!\n! Doğrulama:\n! show l2vpn evpn summary\n! show running-config | section l2vpn evpn\n';
+            return { config: c, warnings };
+        });
+    }
+};
+
+CiscoIOS.evpnEvi = {
+    label: 'EVPN Instance (EVI)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-layer-group', title: 'L2VPN EVPN Instance (VLAN-based)',
+                desc: 'VLAN-based EVPN instance (EVI) oluşturur ve isteğe bağlı olarak VLAN\'ı EVI + Layer-2 VNI\'ye bağlar (<code>vlan configuration</code> / <code>member evpn-instance</code>). ' + _CC_EVPN_PLAT },
+            configTypes: [{ id: 'evi', label: 'VLAN-based EVI', icon: 'fas fa-layer-group', desc: 'l2vpn evpn instance N vlan-based', badge: { text: 'IOS XE Cat9k', cls: 'advanced' } }],
+            sections: [
+                { title: 'EVPN Instance', icon: 'fas fa-cube', showFor: ['evi'], fields: [
+                    { name: 'ev_id', label: 'EVI Numarası', type: 'text', min: 1, max: 65535, required: true, placeholder: '101', hint: 'IOS XE YANG: 1-65535' },
+                    { name: 'ev_encap', label: 'Encapsulation', type: 'select', options: [{ value: 'vxlan', label: 'vxlan', selected: true }], hint: 'Ansible ios_evpn_evi yalnız vxlan destekler (varsayılan)' },
+                    { name: 'ev_repl', label: 'Replikasyon Türü', type: 'select', options: [
+                        { value: '', label: 'Global ayarı kullan', selected: true }, { value: 'ingress', label: 'ingress' }, { value: 'static', label: 'static' }
+                    ], hint: 'NVE member vni replikasyonuyla aynı olmalı' },
+                    { name: 'ev_rd', label: 'Route Distinguisher', type: 'text', validate: 'rd', placeholder: '65000:101', hint: 'Opsiyonel; boşsa otomatik RD (router-id:EVI) kullanılır' },
+                    { name: 'ev_dgw', label: 'default-gateway advertise', type: 'select', options: [
+                        { value: '', label: 'Global ayarı kullan', selected: true }, { value: 'enable', label: 'enable' }, { value: 'disable', label: 'disable' }
+                    ]},
+                    { name: 'ev_ip_ll', label: 'ip local-learning', type: 'select', options: [
+                        { value: '', label: 'Global ayarı kullan', selected: true }, { value: 'enable', label: 'enable' }, { value: 'disable', label: 'disable' }
+                    ]}
+                ]},
+                { title: 'VLAN → EVI → VNI Eşlemesi', icon: 'fas fa-link', showFor: ['evi'], fields: [
+                    { name: 'ev_map', label: 'VLAN Eşlemesi', type: 'select', options: [
+                        { value: 'map', label: 'VLAN\'ı bu EVI ve L2VNI\'ye bağla', selected: true }, { value: 'none', label: 'Eşleme üretme' }
+                    ], why: 'EVI tek başına trafik taşımaz; VLAN, <code>vlan configuration</code> altında EVI\'ye ve NVE\'deki Layer-2 VNI\'ye bağlanınca köprüleme başlar. Aynı VNI, <code>interface nve</code> altında <code>member vni</code> olarak da tanımlanmalıdır.' },
+                    { name: 'ev_vlan', label: 'VLAN ID', type: 'text', validate: 'vlan', requiredIf: { field: 'ev_map', in: ['map'] }, placeholder: '101' },
+                    { name: 'ev_vni', label: 'Layer-2 VNI', type: 'text', validate: 'vni', requiredIf: { field: 'ev_map', in: ['map'] }, placeholder: '10101', hint: '24 bit: 1-16777215' }
+                ]}
+            ], submit: 'EVPN Instance Oluştur'
+        }, data => {
+            const f = n => String(data[n] == null ? '' : data[n]).trim();
+            const warnings = [];
+            const id = f('ev_id'), rd = f('ev_rd');
+            if (!_cgInt(id, 1, 65535)) warnings.push('⛔ EVI numarası 1-65535 arasında olmalı; çıktı üretilmedi.');
+            if (rd && (/^(target|origin):/i.test(rd) || rd.toLowerCase() === 'auto')) warnings.push('⛔ IOS XE EVI altında rd ASN:NN veya IPv4:NN biçiminde yazılır; target:/origin: öneki ve auto kullanılmaz.');
+            const map = f('ev_map') === 'map';
+            if (map && (!_cgInt(f('ev_vlan'), 1, 4094) || !_cgInt(f('ev_vni'), 1, 16777215))) warnings.push('⛔ VLAN eşlemesi için geçerli VLAN (1-4094) ve VNI (1-16777215) gerekir.');
+            let c = _ccEvpnHdr('EVPN Instance');
+            if (warnings.length) return { config: c + '! Geçersiz EVI girdisi; çıktı üretilmedi.\n', warnings };
+            c += 'l2vpn evpn instance ' + cgEsc(id) + ' vlan-based\n encapsulation ' + cgEsc(f('ev_encap') || 'vxlan') + '\n';
+            if (f('ev_repl')) c += ' replication-type ' + cgEsc(f('ev_repl')) + '\n';
+            if (rd) c += ' rd ' + cgEsc(rd) + '\n';
+            if (f('ev_dgw')) c += ' default-gateway advertise ' + cgEsc(f('ev_dgw')) + '\n';
+            if (f('ev_ip_ll')) c += ' ip local-learning ' + cgEsc(f('ev_ip_ll')) + '\n';
+            c += '!\n';
+            if (map) c += 'vlan configuration ' + cgEsc(f('ev_vlan')) + '\n member evpn-instance ' + cgEsc(id) + ' vni ' + cgEsc(f('ev_vni')) + '\n!\n';
+            if (map) warnings.push('ℹ VNI ' + f('ev_vni') + ' ayrıca interface nve altında member vni olarak tanımlanmalı (VXLAN VTEP aracı).');
+            c += '! Doğrulama:\n! show l2vpn evpn evi ' + cgEsc(id) + ' detail\n! show nve vni\n';
+            return { config: c, warnings };
+        });
+    }
+};
+
+CiscoIOS.evpnEthernet = {
+    label: 'EVPN Ethernet Segment',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-code-branch', title: 'L2VPN EVPN Ethernet Segment (Multihoming)',
+                desc: 'EVPN multihoming için ethernet segment (ESI) tanımlar: kimlik türü, redundancy modu ve DF election zamanlayıcıları. Segment daha sonra port-channel altında <code>evpn ethernet-segment N</code> ile bağlanır. ' + _CC_EVPN_PLAT + ' EVPN multihoming desteği Catalyst 9000 modeline ve IOS XE sürümüne göre değişir.' },
+            configTypes: [{ id: 'es', label: 'Ethernet Segment', icon: 'fas fa-code-branch', desc: 'l2vpn evpn ethernet-segment N', badge: { text: 'IOS XE Cat9k', cls: 'advanced' } }],
+            sections: [{ title: 'Ethernet Segment', icon: 'fas fa-code-branch', showFor: ['es'], fields: [
+                { name: 'es_id', label: 'Segment Numarası', type: 'text', min: 1, max: 65535, required: true, placeholder: '1', hint: 'IOS XE YANG: 1-65535' },
+                { name: 'es_type', label: 'Identifier Türü', type: 'select', options: [
+                    { value: '0', label: 'type 0 — 9 baytlık elle ESI', selected: true }, { value: '3', label: 'type 3 — system-mac tabanlı' }, { value: '', label: 'Belirtme' }
+                ]},
+                { name: 'es_value', label: 'ESI / System MAC', type: 'text', validate: 'single_cli_line', requiredIf: { field: 'es_type', in: ['0', '3'] }, placeholder: '00.00.00.00.00.00.00.00.01',
+                  hint: 'type 0: 9 onaltılık bayt noktalı (00.00.00.00.00.00.00.00.01); type 3: Cisco MAC (0011.2233.4455)' },
+                { name: 'es_red', label: 'Redundancy', type: 'select', options: [
+                    { value: '', label: 'Belirtme', selected: true }, { value: 'all-active', label: 'all-active' }, { value: 'single-active', label: 'single-active' }
+                ]},
+                { name: 'es_wait', label: 'DF Election wait-time (sn)', type: 'text', min: 1, max: 10, placeholder: '3', hint: 'IOS XE YANG: 1-10, varsayılan 3' },
+                { name: 'es_preempt', label: 'DF Election preempt-time (sn)', type: 'text', validate: 'uint32', placeholder: '1', hint: 'Ansible: int; Cisco YANG\'da üst sınır verilmez — cihaz CLI yardımıyla doğrulayın' }
+            ]}], submit: 'Ethernet Segment Oluştur'
+        }, data => {
+            const f = n => String(data[n] == null ? '' : data[n]).trim();
+            const warnings = [];
+            const id = f('es_id'), type = f('es_type'), val = f('es_value');
+            if (!_cgInt(id, 1, 65535)) warnings.push('⛔ Segment numarası 1-65535 arasında olmalı.');
+            if (type === '0' && !/^[0-9a-fA-F]{1,2}(\.[0-9a-fA-F]{1,2}){8}$/.test(val)) warnings.push('⛔ type 0 ESI 9 onaltılık bayt olmalı (örn: 00.00.00.00.00.00.00.00.01).');
+            if (type === '3' && !/^[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}$/.test(val)) warnings.push('⛔ type 3 system-mac Cisco MAC biçiminde olmalı (örn: 0011.2233.4455).');
+            if (f('es_wait') && !_cgInt(f('es_wait'), 1, 10)) warnings.push('⛔ DF election wait-time 1-10 saniye olmalı.');
+            if (f('es_preempt') && !_cgInt(f('es_preempt'), 0, 4294967295)) warnings.push('⛔ DF election preempt-time tam sayı olmalı.');
+            let c = _ccEvpnHdr('EVPN Ethernet Segment');
+            if (warnings.length) return { config: c + '! Geçersiz ethernet segment girdisi; çıktı üretilmedi.\n', warnings };
+            c += 'l2vpn evpn ethernet-segment ' + cgEsc(id) + '\n';
+            if (type === '0') c += ' identifier type 0 ' + cgEsc(val) + '\n';
+            if (type === '3') c += ' identifier type 3 system-mac ' + cgEsc(val) + '\n';
+            if (f('es_red')) c += ' redundancy ' + cgEsc(f('es_red')) + '\n';
+            if (f('es_wait')) c += ' df-election wait-time ' + cgEsc(f('es_wait')) + '\n';
+            if (f('es_preempt')) c += ' df-election preempt-time ' + cgEsc(f('es_preempt')) + '\n';
+            c += '!\n! Segmenti port-channel\'a bağlama:\n! interface Port-channel1\n!  evpn ethernet-segment ' + cgEsc(id) + '\n!\n';
+            c += '! Doğrulama:\n! show l2vpn evpn ethernet-segment detail\n';
+            if (!type) warnings.push('ℹ Identifier belirtilmedi; aynı segmenti paylaşan VTEP\'lerde ESI aynı olmalı.');
+            return { config: c, warnings };
+        });
+    }
+};
+
+CiscoIOS.vxlanVtep = {
+    label: 'VXLAN VTEP (NVE)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-network-wired', title: 'VXLAN VTEP — interface nve',
+                desc: 'NVE arayüzünü, kaynak loopback\'ini, BGP host-reachability\'yi ve Layer-2/Layer-3 VNI üyeliklerini yapılandırır. ' + _CC_EVPN_PLAT },
+            configTypes: [{ id: 'nve', label: 'NVE Arayüzü', icon: 'fas fa-network-wired', desc: 'interface nveN + member vni', badge: { text: 'IOS XE Cat9k', cls: 'advanced' } }],
+            sections: [
+                { title: 'NVE Arayüzü', icon: 'fas fa-ethernet', showFor: ['nve'], fields: [
+                    { name: 'vt_nve', label: 'NVE Numarası', type: 'text', min: 1, max: 4096, required: true, value: '1', placeholder: '1', hint: 'interface nveN — IOS XE YANG: 1-4096' },
+                    { name: 'vt_src', label: 'Source Interface', type: 'text', validate: 'ios_iface', required: true, placeholder: 'Loopback1', hint: 'Underlay\'de erişilebilir, yönlendirme protokollerinden ayrı bir loopback' },
+                    { name: 'vt_bgp', label: 'host-reachability protocol bgp', type: 'checkbox', checked: true }
+                ]},
+                { title: 'Layer-2 VNI', icon: 'fas fa-sitemap', showFor: ['nve'], fields: [
+                    { name: 'vt_l2_rep', label: 'L2VNI Replikasyonu', type: 'select', options: [
+                        { value: 'ingress', label: 'ingress-replication', selected: true }, { value: 'static', label: 'mcast-group (static)' }, { value: 'none', label: 'L2VNI ekleme' }
+                    ], hint: 'EVPN global/EVI replication-type ile aynı olmalı' },
+                    { name: 'vt_l2_vni', label: 'L2VNI', type: 'text', validate: 'vni', requiredIf: { field: 'vt_l2_rep', in: ['ingress', 'static'] }, placeholder: '10101' },
+                    { name: 'vt_mcast4', label: 'IPv4 Multicast Grubu', type: 'text', validate: 'ip', requiredIf: { field: 'vt_l2_rep', in: ['static'] }, placeholder: '233.252.0.101', hint: 'Yalnız mcast-group için; 224.0.0.0/4 (örnek: RFC 5771 MCAST-TEST-NET 233.252.0.0/24)' },
+                    { name: 'vt_mcast6', label: 'IPv6 Multicast Grubu', type: 'text', validate: 'ipv6', placeholder: 'ff0e::db8:101', hint: 'Opsiyonel, yalnız mcast-group için (Ansible mcast_group.ipv6); ff00::/8' }
+                ]},
+                { title: 'Layer-3 VNI', icon: 'fas fa-route', showFor: ['nve'], fields: [
+                    { name: 'vt_l3', label: 'L3VNI (VRF) üyeliği ekle', type: 'checkbox' },
+                    { name: 'vt_l3_vni', label: 'L3VNI', type: 'text', validate: 'vni', requiredIf: { field: 'vt_l3', checked: true }, placeholder: '50901' },
+                    { name: 'vt_l3_vrf', label: 'VRF', type: 'text', validate: 'objname', requiredIf: { field: 'vt_l3', checked: true }, placeholder: 'TENANT_A', hint: 'VRF önce tanımlı olmalı (vrf definition)' }
+                ]}
+            ], submit: 'VXLAN VTEP Oluştur'
+        }, data => {
+            const f = n => String(data[n] == null ? '' : data[n]).trim();
+            const warnings = [];
+            const nve = f('vt_nve'), rep = f('vt_l2_rep') || 'ingress';
+            const l2 = rep === 'ingress' || rep === 'static';
+            if (!_cgInt(nve, 1, 4096)) warnings.push('⛔ NVE numarası 1-4096 arasında olmalı.');
+            if (!f('vt_src')) warnings.push('⛔ Source interface girilmedi.');
+            if (l2 && !_cgInt(f('vt_l2_vni'), 1, 16777215)) warnings.push('⛔ L2VNI 1-16777215 arasında olmalı.');
+            if (rep === 'static' && !_ccIsMcast4(f('vt_mcast4'))) warnings.push('⛔ IPv4 multicast grubu 224.0.0.0-239.255.255.255 aralığında olmalı.');
+            if (rep === 'static' && f('vt_mcast6') && !_ccIsMcast6(f('vt_mcast6'))) warnings.push('⛔ IPv6 multicast grubu ff00::/8 içinde olmalı.');
+            if (data.vt_l3 && (!_cgInt(f('vt_l3_vni'), 1, 16777215) || !CG_VALIDATORS.objname.re.test(f('vt_l3_vrf')))) warnings.push('⛔ L3VNI için geçerli VNI ve VRF adı gerekir.');
+            if (data.vt_l3 && l2 && f('vt_l3_vni') === f('vt_l2_vni')) warnings.push('⛔ Aynı VNI hem L2VNI hem L3VNI olamaz.');
+            if (!l2 && !data.vt_l3) warnings.push('⛔ En az bir L2VNI veya L3VNI üyeliği seçin.');
+            let c = _ccEvpnHdr('VXLAN VTEP');
+            if (warnings.length) return { config: c + '! Geçersiz NVE girdisi; çıktı üretilmedi.\n', warnings };
+            if (!/^(Loopback|Lo)\d/i.test(f('vt_src'))) warnings.push('⚠ Cisco kılavuzu NVE source-interface olarak loopback kullanır.');
+            if (rep === 'ingress' && (f('vt_mcast4') || f('vt_mcast6'))) warnings.push('ℹ ingress-replication seçildi; multicast grubu kullanılmaz ve yazılmadı.');
+            c += 'interface nve' + cgEsc(nve) + '\n no ip address\n source-interface ' + cgEsc(f('vt_src')) + '\n';
+            if (data.vt_bgp) c += ' host-reachability protocol bgp\n';
+            if (rep === 'ingress') c += ' member vni ' + cgEsc(f('vt_l2_vni')) + ' ingress-replication\n';
+            if (rep === 'static') c += ' member vni ' + cgEsc(f('vt_l2_vni')) + ' mcast-group ' + cgEsc(f('vt_mcast4')) + (f('vt_mcast6') ? ' ' + cgEsc(f('vt_mcast6')) : '') + '\n';
+            if (data.vt_l3) c += ' member vni ' + cgEsc(f('vt_l3_vni')) + ' vrf ' + cgEsc(f('vt_l3_vrf')) + '\n';
+            c += '!\n! Doğrulama:\n! show nve interface nve' + cgEsc(nve) + ' detail\n! show nve vni\n! show nve peers\n';
+            if (!data.vt_bgp) warnings.push('ℹ host-reachability protocol bgp kapalı: VTEP\'ler EVPN kontrol düzlemi yerine flood-and-learn ile öğrenir.');
+            return { config: c, warnings };
+        });
+    }
+};

@@ -29,7 +29,10 @@ vm.runInContext(source('assets/js/ConfigGeneratorManagement.js') +
     '\nthis.__validators = CG_VALIDATORS; this.__registry = CG_REGISTRY;', context);
 
 const families = [
-    { id: 'cisco-ios', file: 'assets/js/ConfigGenerators_Cisco.js', symbol: 'CiscoIOS', expected: 45 },
+    { id: 'cisco-ios', file: 'assets/js/ConfigGenerators_Cisco.js', symbol: 'CiscoIOS', expected: 49,
+      // Cisco parti 1 araçları: registry satırları yöneticiye istek olarak iletildi
+      // (ConfigGeneratorManagement.js başka iş kolunda). Kayda girince bu liste boşaltılır.
+      pendingRegistry: ['evpnGlobal', 'evpnEvi', 'evpnEthernet', 'vxlanVtep'] },
     { id: 'cisco-ftd', file: 'assets/js/ConfigGenerators_FTD.js', symbol: 'CiscoFTD', expected: 14 },
     { id: 'cisco-nxos', file: 'assets/js/ConfigGenerators_NX-OS.js', symbol: 'CiscoNXOS', expected: 34 },
     { id: 'cisco-asa', file: 'assets/js/ConfigGenerators_ASA.js', symbol: 'CiscoASA', expected: 21 },
@@ -50,8 +53,15 @@ for (const family of families) {
 
     assert.strictEqual(Object.keys(generators).length, family.expected,
         `${family.id}: generator sayısı değişti`);
-    assert.strictEqual(registryTypes.length, family.expected,
+    // Her generator kayıtlı olmalı; yalnız pendingRegistry'deki yeni araçlar geçici olarak kayıtsız olabilir.
+    const registered = new Set(registryTypes.map(t => { try { return t.gen(); } catch (e) { return null; } }));
+    const unregistered = Object.keys(generators).filter(k => !registered.has(generators[k]));
+    const pending = family.pendingRegistry || [];
+    assert.deepStrictEqual(unregistered.filter(k => !pending.includes(k)), [],
+        `${family.id}: kayıtsız generator var`);
+    assert.strictEqual(registryTypes.length, family.expected - unregistered.length,
         `${family.id}: kayıt sayısı generator sayısıyla aynı olmalı`);
+    if (unregistered.length) console.log(`BEKLEYEN KAYIT (${family.id}): ${unregistered.join(', ')}`);
     assert.strictEqual(captured.length, family.expected,
         `${family.id}: her generator bir form şeması üretmeli`);
 
@@ -76,7 +86,7 @@ for (const family of families) {
     familyRuntime[family.id] = { generators, captured };
 }
 
-assert.strictEqual(families.reduce((sum, family) => sum + family.expected, 0), 114);
+assert.strictEqual(families.reduce((sum, family) => sum + family.expected, 0), 118);
 
 assert.strictEqual(context.__validators.ipv6.fn('2001:db8::1'), true);
 assert.strictEqual(context.__validators.ipv6.fn('2001:db8:::1'), false);
@@ -87,15 +97,30 @@ const nx = familyRuntime['cisco-nxos'];
 const nxPrefix = nx.captured[Object.keys(nx.generators).indexOf('prefixList')];
 const validPrefix = nxPrefix.generateFn({
     _cgtype: 'ipv4', pl_name: 'ALLOW-PREFIX', pl_seq: '10', pl_action: 'permit',
-    pl_v4: '192.0.2.0/24', pl_ge: '25', pl_le: '32'
+    pl_v4: '192.0.2.0/24', pl_match: 'range', pl_ge: '25', pl_le: '32'
 });
 assert.ok(String(validPrefix).includes('ip prefix-list ALLOW-PREFIX seq 10 permit 192.0.2.0/24 ge 25 le 32'));
 const invalidPrefix = nxPrefix.generateFn({
     _cgtype: 'ipv6', pl_name: 'ALLOW-V6', pl_seq: '10', pl_action: 'permit',
-    pl_v6: '2001:db8::/32', pl_eq: '64', pl_ge: '48'
+    pl_v6: '2001:db8::/32', pl_match: 'eq', pl_eq: '16', pl_ge: '48'
 });
-assert.ok(invalidPrefix.warnings.length > 0, 'NX-OS prefix-list eq ile ge/le birlikte kabul edilmemeli');
+assert.ok(invalidPrefix.warnings.length > 0, 'NX-OS prefix-list eq temel prefiksten küçük olamaz');
 assert.ok(!invalidPrefix.config.includes('seq 10 permit'), 'Geçersiz NX-OS prefix-list satırı üretilmemeli');
+// eq ve ge/le ayrı eşleşme modlarıdır: seçilmeyen moddaki değer satıra girmez.
+const exactPrefix = nxPrefix.generateFn({
+    _cgtype: 'ipv6', pl_name: 'ALLOW-V6', pl_seq: '10', pl_action: 'permit',
+    pl_v6: '2001:db8::/32', pl_match: 'exact', pl_eq: '64', pl_ge: '48'
+});
+assert.ok(String(exactPrefix).includes('ipv6 prefix-list ALLOW-V6 seq 10 permit 2001:db8::/32\n'));
+const eqPrefix = nxPrefix.generateFn({
+    _cgtype: 'ipv6', pl_name: 'ALLOW-V6', pl_seq: '10', pl_action: 'permit',
+    pl_v6: '2001:db8::/32', pl_match: 'eq', pl_eq: '64', pl_ge: '48'
+});
+assert.ok(String(eqPrefix).includes('seq 10 permit 2001:db8::/32 eq 64\n'));
+const emptyRange = nxPrefix.generateFn({
+    _cgtype: 'ipv4', pl_name: 'P', pl_seq: '10', pl_action: 'permit', pl_v4: '192.0.2.0/24', pl_match: 'range'
+});
+assert.ok(emptyRange.warnings.length > 0 && !emptyRange.config.includes('seq 10'), 'ge/le modunda değer yoksa satır üretilmemeli');
 
 const nxBfd = nx.captured[Object.keys(nx.generators).indexOf('bfd')];
 const bfdGlobal = nxBfd.generateFn({
@@ -171,4 +196,4 @@ const nxapiDisabled = nxapiGen.generateFn({ _cgtype: 'disable' });
 assert.ok(nxapiDisabled.includes('no feature nxapi'));
 
 console.log(JSON.stringify(audit, null, 2));
-console.log('OK: Cisco aile envanteri 45 IOS + 14 FTD + 34 NX-OS + 21 ASA = 114.');
+console.log('OK: Cisco aile envanteri 49 IOS + 14 FTD + 34 NX-OS + 21 ASA = 118.');

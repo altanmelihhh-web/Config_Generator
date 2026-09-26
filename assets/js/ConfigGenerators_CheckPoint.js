@@ -672,7 +672,7 @@ CheckPoint.netobj = {
                     icon: 'fas fa-network-wired',
                     fields: [
                         { name: 'name', why: "Nesne adı SmartConsole veritabanında benzersiz olmalı. Tutarlı isimlendirme (<code>SRV_WEB_01</code>) 500 nesneli bir kurulumda aranabilirliği belirler.", label: 'Nesne Adı', type: 'text', required: true, placeholder: 'NET-DMZ', hint: 'SmartConsole\'da görünecek nesne adı' },
-                        { name: 'subnet', why: 'Ağ nesnesi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet', type: 'text', validate: 'subnet', required: true, placeholder: '172.24.50.0', hint: 'Ağ adresi (host bitleri sıfır olmalı)' },
+                        { name: 'subnet', why: 'Ağ nesnesi. Çok geniş tanımlamak (<code>0.0.0.0/0</code>) kuralı istemeden herkese açar.', label: 'Subnet', type: 'text', validate: 'ip', required: true, placeholder: '172.24.50.0', hint: 'Ağ adresi (host bitleri sıfır olmalı)' },
                         { name: 'mask', why: "Ağ maskesi. Çok geniş tanımlamak kuralı istemeden komşu segmentlere de açar.", label: 'Subnet Mask', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.255.0', hint: 'Subnet maskesi (örn: 255.255.255.0 → /24)' },
                         { name: 'color', why: "SmartConsole'da nesne rengi. Kurumsal renk şeması (ör. kırmızı=DMZ, yeşil=LAN) büyük kural listelerinde hata oranını gözle görülür azaltır.", label: 'Renk', type: 'select', options: [
                             { value: 'green', label: 'green', selected: true },

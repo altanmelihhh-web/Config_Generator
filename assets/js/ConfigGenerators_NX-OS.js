@@ -29,11 +29,26 @@ CiscoNXOS.prefixList = {
                             { value: 'permit', label: 'permit', selected: true },
                             { value: 'deny', label: 'deny' }
                         ]},
-                        { name: 'pl_v4', label: 'IPv4 Prefix', type: 'text', validate: 'cidr', requiredIf: { field: '_cgtype', in: ['ipv4'] }, showFor: ['ipv4'], placeholder: '192.0.2.0/24' },
-                        { name: 'pl_v6', label: 'IPv6 Prefix', type: 'text', validate: 'ipv6_cidr', requiredIf: { field: '_cgtype', in: ['ipv6'] }, showFor: ['ipv6'], placeholder: '2001:db8::/32' },
-                        { name: 'pl_eq', label: 'Tam Prefix Uzunluğu (eq)', type: 'text', min: 0, max: 128, placeholder: '24', hint: 'Boşsa ge/le kullanılabilir' },
-                        { name: 'pl_ge', label: 'En Az Prefix (ge)', type: 'text', min: 0, max: 128, placeholder: '25' },
-                        { name: 'pl_le', label: 'En Çok Prefix (le)', type: 'text', min: 0, max: 128, placeholder: '32' }
+                        { name: 'pl_match', label: 'Uzunluk Eşleşmesi', type: 'select', options: [
+                            { value: 'exact', label: 'Yalnız bu prefix (uzunluk koşulu yok)', selected: true },
+                            { value: 'eq', label: 'eq — tam uzunluk' },
+                            { value: 'range', label: 'ge / le — uzunluk aralığı' }
+                        ], hint: 'NX-OS eq ile ge/le aynı kuralda birlikte kabul etmez' },
+                        { name: 'pl_eq', label: 'Tam Prefix Uzunluğu (eq)', type: 'text', min: 0, max: 128, requiredIf: { field: 'pl_match', in: ['eq'] }, placeholder: '24', hint: 'Yalnız eq seçiliyken kullanılır; temel prefix uzunluğundan küçük olamaz' },
+                        { name: 'pl_ge', label: 'En Az Prefix (ge)', type: 'text', min: 0, max: 128, placeholder: '25', hint: 'Yalnız ge/le seçiliyken kullanılır' },
+                        { name: 'pl_le', label: 'En Çok Prefix (le)', type: 'text', min: 0, max: 128, placeholder: '32', hint: 'Yalnız ge/le seçiliyken kullanılır' }
+                    ]
+                },
+                {
+                    title: 'IPv4 Prefix', icon: 'fas fa-network-wired', showFor: ['ipv4'],
+                    fields: [
+                        { name: 'pl_v4', label: 'IPv4 Prefix', type: 'text', validate: 'cidr', requiredIf: { field: '_cgtype', in: ['ipv4'] }, placeholder: '192.0.2.0/24' }
+                    ]
+                },
+                {
+                    title: 'IPv6 Prefix', icon: 'fas fa-project-diagram', showFor: ['ipv6'],
+                    fields: [
+                        { name: 'pl_v6', label: 'IPv6 Prefix', type: 'text', validate: 'ipv6_cidr', requiredIf: { field: '_cgtype', in: ['ipv6'] }, placeholder: '2001:db8::/32' }
                     ]
                 }
             ],
@@ -43,9 +58,14 @@ CiscoNXOS.prefixList = {
             const prefix = String(afi === 'ipv6' ? data.pl_v6 || '' : data.pl_v4 || '').trim();
             const base = Number(prefix.split('/')[1]);
             const limit = afi === 'ipv6' ? 128 : 32;
-            const eq = String(data.pl_eq || '').trim(), ge = String(data.pl_ge || '').trim(), le = String(data.pl_le || '').trim();
+            const match = data.pl_match || 'exact';
+            const eq = match === 'eq' ? String(data.pl_eq || '').trim() : '';
+            const ge = match === 'range' ? String(data.pl_ge || '').trim() : '';
+            const le = match === 'range' ? String(data.pl_le || '').trim() : '';
             const warnings = [];
-            if (eq && (ge || le)) warnings.push('eq ile ge/le aynı kuralda birlikte kullanılamaz.');
+            if (!prefix) warnings.push((afi === 'ipv6' ? 'IPv6' : 'IPv4') + ' prefix girilmedi.');
+            if (match === 'eq' && !eq) warnings.push('eq seçildi ama tam uzunluk girilmedi.');
+            if (match === 'range' && !ge && !le) warnings.push('ge/le seçildi ama ge veya le değeri girilmedi.');
             if (eq && (+eq < base || +eq > limit)) warnings.push(`eq ${base}-${limit} aralığında olmalı.`);
             if (ge && (+ge < base || +ge > limit)) warnings.push(`ge ${base}-${limit} aralığında olmalı.`);
             if (le && (+le < base || +le > limit)) warnings.push(`le ${base}-${limit} aralığında olmalı.`);
@@ -89,13 +109,13 @@ CiscoNXOS.bfd = {
                     fields: [
                         { name: 'bfd_tx', label: 'Minimum TX (ms)', type: 'text', min: 50, max: 999, required: true, value: '50', hint: 'N9K: 50-999 ms; bazı N3K modellerinde varsayılan 250 ms' },
                         { name: 'bfd_rx', label: 'Minimum RX (ms)', type: 'text', min: 50, max: 999, required: true, value: '50' },
-                        { name: 'bfd_mult', label: 'Detect Multiplier', type: 'text', min: 1, max: 50, required: true, value: '3' },
-                        { name: 'bfd_slow', label: 'Slow Timer (ms)', type: 'text', min: 1000, max: 30000, showFor: ['global'], value: '2000', hint: 'Global mod; 1000-30000 ms' }
+                        { name: 'bfd_mult', label: 'Detect Multiplier', type: 'text', min: 1, max: 50, required: true, value: '3' }
                     ]
                 },
                 {
-                    title: 'Global Echo', icon: 'fas fa-reply', showFor: ['global'],
+                    title: 'Global Slow Timer ve Echo', icon: 'fas fa-reply', showFor: ['global'],
                     fields: [
+                        { name: 'bfd_slow', label: 'Slow Timer (ms)', type: 'text', min: 1000, max: 30000, value: '2000', hint: 'Yalnız global mod; 1000-30000 ms' },
                         { name: 'bfd_echo_if', label: 'Echo Loopback', type: 'text', validate: 'iface', placeholder: 'loopback1', hint: 'Boş = echo-interface yazılmaz; bazı Nexus ailelerinde desteklenmez' }
                     ]
                 },
@@ -263,14 +283,39 @@ CiscoNXOS.routeMap = {
                     ]
                 },
                 {
-                    title: 'Match', icon: 'fas fa-filter',
+                    title: 'Match — IPv4 Prefix-List', icon: 'fas fa-filter', showFor: ['ipv4-prefix'],
                     fields: [
-                        { name: 'rm_v4_pl', label: 'IPv4 Prefix-List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['ipv4-prefix'] }, showFor: ['ipv4-prefix'], placeholder: 'ALLOW-PREFIX BACKUP-PREFIX' },
-                        { name: 'rm_v6_pl', label: 'IPv6 Prefix-List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['ipv6-prefix'] }, showFor: ['ipv6-prefix'], placeholder: 'ALLOW-V6' },
-                        { name: 'rm_acl', label: 'IPv4 ACL Adı', type: 'text', validate: 'objname', requiredIf: { field: '_cgtype', in: ['acl'] }, showFor: ['acl'], placeholder: 'ACL-BGP-SOURCES' },
-                        { name: 'rm_comm_match', label: 'Community-List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['community'] }, showFor: ['community'], placeholder: 'COMM-INTERNAL COMM-CUSTOMER' },
-                        { name: 'rm_aspath', label: 'AS-Path List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['as-path'] }, showFor: ['as-path'], placeholder: 'ASPATH-CUSTOMER' },
-                        { name: 'rm_iface', label: 'Interface', type: 'text', validate: 'iface', requiredIf: { field: '_cgtype', in: ['interface'] }, showFor: ['interface'], placeholder: 'Ethernet1/1' }
+                        { name: 'rm_v4_pl', label: 'IPv4 Prefix-List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['ipv4-prefix'] }, placeholder: 'ALLOW-PREFIX BACKUP-PREFIX' }
+                    ]
+                },
+                {
+                    title: 'Match — IPv6 Prefix-List', icon: 'fas fa-filter', showFor: ['ipv6-prefix'],
+                    fields: [
+                        { name: 'rm_v6_pl', label: 'IPv6 Prefix-List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['ipv6-prefix'] }, placeholder: 'ALLOW-V6' }
+                    ]
+                },
+                {
+                    title: 'Match — IPv4 ACL', icon: 'fas fa-filter', showFor: ['acl'],
+                    fields: [
+                        { name: 'rm_acl', label: 'IPv4 ACL Adı', type: 'text', validate: 'objname', requiredIf: { field: '_cgtype', in: ['acl'] }, placeholder: 'ACL-BGP-SOURCES' }
+                    ]
+                },
+                {
+                    title: 'Match — Community', icon: 'fas fa-filter', showFor: ['community'],
+                    fields: [
+                        { name: 'rm_comm_match', label: 'Community-List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['community'] }, placeholder: 'COMM-INTERNAL COMM-CUSTOMER' }
+                    ]
+                },
+                {
+                    title: 'Match — AS-Path', icon: 'fas fa-filter', showFor: ['as-path'],
+                    fields: [
+                        { name: 'rm_aspath', label: 'AS-Path List Adları', type: 'text', validate: 'objname_list', requiredIf: { field: '_cgtype', in: ['as-path'] }, placeholder: 'ASPATH-CUSTOMER' }
+                    ]
+                },
+                {
+                    title: 'Match — Interface', icon: 'fas fa-filter', showFor: ['interface'],
+                    fields: [
+                        { name: 'rm_iface', label: 'Interface', type: 'text', validate: 'iface', requiredIf: { field: '_cgtype', in: ['interface'] }, placeholder: 'Ethernet1/1' }
                     ]
                 },
                 {

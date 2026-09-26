@@ -908,7 +908,7 @@ CitrixADC.snip = {
                     icon: 'fas fa-ethernet',
                     fields: [
                         { name: 'snip_ip', why: "SNIP backend'e giden trafiğin kaynak adresidir; tanımlı SNIP yoksa ADC NSIP'i kullanır ve yönetim trafiği ile uygulama trafiği karışır. <b>USNIP</b> modunda sunucu istemci IP'sini göremez; <b>USIP</b> modunda görür ama sunucunun default gateway'i ADC olmak zorundadır, aksi halde dönüş trafiği asimetrik olur.", label: 'SNIP IP Adresi', type: 'text', validate: 'ip', required: true, placeholder: '10.0.0.50', hint: 'Backend trafiği için kaynak IP' },
-                        { name: 'mask', why: "Maske yanlışsa ADC backend subnet'ini yerel saymaz ve trafiği default route'a gönderir; bu da zaman aşımı ve asimetrik yönlendirme üretir.", label: 'Subnet Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0' },
+                        { name: 'mask', why: "Maske yanlışsa ADC backend subnet'ini yerel saymaz ve trafiği default route'a gönderir; bu da zaman aşımı ve asimetrik yönlendirme üretir.", label: 'Subnet Mask', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.255.0' },
                         { name: 'vlan_id', why: "SNIP bir VLAN'a bağlanmazsa ADC hangi arayüzden çıkacağını yalnızca route tablosuna göre seçer; çok VLAN'lı ortamda bu yanlış arayüzden ARP yapılmasına ve trafiğin kaybolmasına yol açar.", label: 'VLAN ID', type: 'text', validate: 'vlan', optional: true, placeholder: '100', hint: 'Bu SNIP\'i belirli bir VLAN\'a bağla' },
                         { name: 'mgmt', why: "Mgmt access açık bir SNIP, yönetim arayüzünü uygulama ağına açar ve saldırı yüzeyini büyütür. Kapalıyken bu adres üzerinden SSH/GUI erişimi yapılamaz; sorun giderme için ayrı bir yönetim adresi hazır olmalıdır.", label: 'Mgmt Access', type: 'select', options: [
                             { value: 'DISABLED', label: 'DISABLED', selected: true },
@@ -973,7 +973,7 @@ CitrixADC.vlan = {
                     info: 'Opsiyonel: bu VLAN\'a bir NSIP/SNIP bağlamak için doldur.',
                     fields: [
                         { name: 'ip', why: "VLAN'a IP bağlanmazsa ADC bu VLAN'daki sunuculara katman 3 seviyesinde erişemez ve o gruptaki tüm monitor'lar DOWN kalır.", label: 'IP Adresi', type: 'text', validate: 'ip', optional: true, placeholder: '192.168.200.1' },
-                        { name: 'mask', why: "Maske yanlışsa ADC komşu sunucuları uzak sayar ve trafiği gateway'e gönderir; sunucular yanıt verse bile oturum kurulamaz ve sorun yönlendirme yerine uygulamada aranır.", label: 'Subnet Mask', type: 'text', validate: 'subnet', optional: true, placeholder: '255.255.255.0' }
+                        { name: 'mask', why: "Maske yanlışsa ADC komşu sunucuları uzak sayar ve trafiği gateway'e gönderir; sunucular yanıt verse bile oturum kurulamaz ve sorun yönlendirme yerine uygulamada aranır.", label: 'Subnet Mask', type: 'text', validate: 'netmask', optional: true, placeholder: '255.255.255.0' }
                     ]
                 }
             ],
@@ -1033,7 +1033,7 @@ CitrixADC.acl = {
                     icon: 'fas fa-arrow-right',
                     fields: [
                         { name: 'src_ip', why: "Kaynak IP <code>0.0.0.0</code> verilirse kural tüm kaynakları kapsar; bu bir DENY kuralında cihazı erişilemez hale getirebilir. Kural yazmadan önce mevcut yönetim oturumunun hangi kaynaktan geldiği mutlaka kontrol edilmelidir.", label: 'Kaynak IP', type: 'text', validate: 'ip', required: true, placeholder: '10.128.10.0', hint: 'Eşleşecek kaynak ağ (0.0.0.0 tümü demektir — dikkat)' },
-                        { name: 'src_mask', why: "Maske kuralın kaç adresi kapsadığını belirler; yanlış maske beklenenden çok daha geniş bir aralığı kapsar ve istenmeyen trafiği sessizce engeller.", label: 'Kaynak Mask', type: 'text', validate: 'subnet', required: true, placeholder: '255.255.255.0', hint: 'Wildcard mask formatı' }
+                        { name: 'src_mask', why: "Maske kuralın kaç adresi kapsadığını belirler; yanlış maske beklenenden çok daha geniş bir aralığı kapsar ve istenmeyen trafiği sessizce engeller.", label: 'Kaynak Mask', type: 'text', validate: 'netmask', required: true, placeholder: '255.255.255.0', hint: 'Wildcard mask formatı' }
                     ]
                 },
                 {
@@ -1042,7 +1042,7 @@ CitrixADC.acl = {
                     info: 'Hedef IP ve port bilgileri opsiyoneldir. Boş bırakılırsa tüm hedeflere uygulanır.',
                     fields: [
                         { name: 'dst_ip', why: "Hedef IP boş bırakılırsa kural tüm hedefleri kapsar; VIP'ler ve NSIP de dahil olur. Belirli bir servisi korumak isterken tüm cihazı kilitlememek için hedef daraltılmalıdır.", label: 'Hedef IP', type: 'text', validate: 'ip', optional: true, placeholder: '10.0.0.0' },
-                        { name: 'dst_mask', why: "Hedef maske kuralın kapsamını belirler; <code>255.255.0.0</code> gibi geniş bir maske komşu sistemleri de kapsayıp beklenmedik kesintiler yaratır.", label: 'Hedef Mask', type: 'text', validate: 'subnet', optional: true, placeholder: '255.255.0.0' },
+                        { name: 'dst_mask', why: "Hedef maske kuralın kapsamını belirler; <code>255.255.0.0</code> gibi geniş bir maske komşu sistemleri de kapsayıp beklenmedik kesintiler yaratır.", label: 'Hedef Mask', type: 'text', validate: 'netmask', optional: true, placeholder: '255.255.0.0' },
                         { name: 'protocol', why: "Protokol seçilmezse kural TCP, UDP ve ICMP dahil her şeye uygulanır. ICMP'yi kapatmak sorun gidermeyi ve path MTU keşfini bozar, bu da büyük paketlerde açıklanamayan takılmalara yol açar.", label: 'Protokol', type: 'select', options: [
                             { value: 'TCP', label: 'TCP', selected: true },
                             { value: 'UDP', label: 'UDP' },

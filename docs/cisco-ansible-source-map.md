@@ -29,7 +29,7 @@ belgesi ayrıca kaynak alınır.
 
 | Aile | Mevcut karşılıklar | Eklenecek / genişletilecek Ansible kaynaklı konular |
 |---|---|---|
-| IOS | ACL, interface/L2/L3, BFD, BGP, OSPF, prefix-list, route-map, SNMP, static route, VLAN, VRF | EVPN global/EVI/Ethernet ve VXLAN VTEP; mevcut başlıklarda argspec alt seçenekleri |
+| IOS | ACL, interface/L2/L3, BFD, BGP, OSPF, prefix-list, route-map, SNMP, static route, VLAN, VRF, EVPN global/EVI/Ethernet, VXLAN VTEP | mevcut başlıklarda argspec alt seçenekleri |
 | NX-OS | AAA, ACL, BFD global/interface, BGP, EVPN/VXLAN, interface, HSRP, LLDP, logging, NTP, NX-API, OSPFv2/OSPFv3, prefix-list, route-map, SNMP, static route, telemetry, VLAN, vPC, VRF | BGP AF/neighbor AF/template; OSPF interface seçeneklerini genişletme; IGMP/PIM; UDLD; VRRP; VTP; FC/VSAN/zoning |
 | ASA | ACL, object-group, banner/yönetim, çok sayıda ASA CLI konusu | `asa_acls` seçeneklerini genişletme; `asa_objects` ağ/service nesneleri; `asa_ogs` ağ/service/protocol/ICMP object-group alt türleri |
 | FTD/FMC | bootstrap, interface, NAT, ACP, IPS/SSL, VPN, platform settings, route, prefilter, identity | network/port object; physical/subinterface; DNS server group; access-rule logging/network seçenekleri; deployment ve device registration alt seçenekleri |
@@ -72,9 +72,42 @@ Tamamlanan altyapı:
   doğrulayıcıları.
 - İncelenen dört Ansible deposunun commit kimlikleri ve ürün eşlemesi.
 
+### 26 Eylül 2026 — Cisco parti 1
+
+Yöntem: her yeni alan sabitlenmiş Ansible commit'indeki argspec (`choices`, tür,
+`required`) ve `rm_templates` (üretilen CLI) ile Cisco'nun kendi YANG modelleri
+(YangModels/yang `vendor/cisco/xe/1711`: `Cisco-IOS-XE-l2vpn`,
+`Cisco-IOS-XE-interfaces`, `Cisco-IOS-XE-types`) ve Catalyst 9000 BGP EVPN VXLAN
+yapılandırma kılavuzlarından alındı. Ansible'da ve Cisco kaynağında olmayan sınır
+uydurulmadı (ör. `df-election preempt-time` yalnız tür olarak `uint32`).
+
+| Araç (IOS) | Ansible modülü | Cisco sınırları | Platform etiketi |
+|---|---|---|---|
+| EVPN Global | `ios_evpn_global` | replication-type `ingress`/`static` (Ansible choices) | IOS XE Catalyst 9000 |
+| EVPN Instance (EVI) | `ios_evpn_evi` | EVI 1-65535 (YANG), encapsulation `vxlan`; VLAN→EVI→VNI eşlemesi Cisco kılavuzundan | IOS XE Catalyst 9000 |
+| EVPN Ethernet Segment | `ios_evpn_ethernet` | segment 1-65535, wait-time 1-10, ESI type 0 (9 bayt) / type 3 (system-mac, Cisco MAC) (YANG) | IOS XE Catalyst 9000; multihoming model/sürüme bağlı |
+| VXLAN VTEP (NVE) | `ios_vxlan_vtep` | nve 1-4096 (YANG), VNI 1-16777215, mcast-group IPv4 224/4 + opsiyonel IPv6 ff00::/8 | IOS XE Catalyst 9000 |
+
+Çapraz alan kuralları (geçersizse satır üretilmez, testli): EVI/segment/NVE sınırı,
+EVI `rd` için `auto`/`target:` reddi, eksik VLAN/VNI ile eşleme, ESI biçimi türe
+göre, `static` replikasyonda multicast grubu zorunlu ve multicast aralığında,
+aynı VNI'nin hem L2 hem L3 olması, üyeliksiz NVE. `ingress-replication`
+seçiliyken girilen grup yazılmaz (Ansible `rm_templates` davranışı).
+
+Durum: 4 araç `ConfigGenerators_Cisco.js`'te ve `tests/cisco-validation.test.js`
+testlerinde; kayıt defteri (`CG_REGISTRY`) satırları yönetici onayında. Kayda girene
+kadar `tests/cisco-family-schema-audit.test.js` bu dört aracı "bekleyen kayıt" olarak
+listeler. Ayrıca: 27 doğrulayıcının `CG_RULES`/`CG_WHY` metinleri (davranış
+değişmeden), NX-OS prefix-list eşleşme kipi (`pl_match`) ve alan düzeyi `showFor`
+kullanan NX-OS alanlarının `showFor`'lu bölümlere taşınması.
+
+Madde 2 (genel `iface` → `ios_iface`) kullanıcı kararıyla ertelendi: mevcut Cisco
+alan kuralları değiştirilmeyecek; 25 `iface` + 4 `iface_range` alanının listesi ve
+denetim bulgularının kanıtları parti 1 raporunda (depo dışı yönetici notu).
+
 Kalan Config Generator işleri, öncelik sırasıyla:
 
-1. IOS EVPN global/EVI/Ethernet ve VXLAN VTEP.
+1. ~~IOS EVPN global/EVI/Ethernet ve VXLAN VTEP.~~ (parti 1; kayıt bekliyor)
 2. IOS'taki mevcut 38 başlığın tüm koşullu alanlarını komut bazında son kez
    tarama; genel `iface` kullanılan yerleri IOS'a özgü doğrulayıcıya taşıma.
 3. NX-OS BGP global/address-family/neighbor/template alt seçenekleri.

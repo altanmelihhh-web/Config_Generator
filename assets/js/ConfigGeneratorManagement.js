@@ -64,7 +64,8 @@ const CG_VALIDATORS = {
     ios_proto_list:{ fn: v => String(v).split(',').map(x=>x.trim().toLowerCase()).filter(Boolean).every(x => ['tcp','udp','icmp','ftp','http','https','dns','smtp','sip','h323'].includes(x)), msg: 'Desteklenen protokolleri virgülle ayırın (örn: tcp,udp,icmp)' },
     isis_net: { re: /^[0-9a-fA-F]{2}(?:\.[0-9a-fA-F]{4}){3,6}\.00$/, msg: 'Geçerli IS-IS NET girin; selector .00 olmalı (örn: 49.0001.0000.0000.0001.00)' },
     archive_path:{ fn: v => /^(?:flash:|bootflash:|nvram:|scp:\/\/|tftp:\/\/)[^\s\r\n]+$/i.test(String(v).trim()), msg: 'Geçerli flash/bootflash/nvram/scp/tftp arşiv yolu girin' },
-    // Bitisik ag maskesi (255.255.255.0 gibi). 'subnet' her noktali dortluyu kabul eder;
+    // Bitisik ag maskesi (255.255.255.0 gibi); Cisco disi vendorlarin maske alanlari bunu
+    // kullanir. 'subnet' Cisco alanlarina ozeldir (ayni kural, Cisco belgesine gore).
     // prefix'e cevrilecek alanlarda bu kullanilir — 255.0.255.0 cevrilemez.
     netmask:  { fn: v => cgMaskLen(String(v).trim()) !== '', msg: 'Geçerli ağ maskesi girin (örn: 255.255.255.0)' },
     posint:   { fn: v => _cgInt(v, 1, 2147483647), msg: 'Pozitif tam sayı girin' },
@@ -572,6 +573,119 @@ const CG_RULES = {
     ip_range:    'Başlangıç-bitiş: 10.0.0.10-10.0.0.100. Başlangıç bitişten büyük olamaz.',
     vlan_list:   'VLAN ID\'leri (1–4094) virgül veya boşlukla, aralıklar tireyle: 10,20,30-40. Tümü için all. Ters aralık (40-30) olmaz.',
 };
+
+// ── Cisco kaynaklı doğrulayıcıların sebep üreteçleri ve kural metinleri ──────
+// 0fe7028 ile eklenen 27 doğrulayıcı (ve anlamı değişen 'subnet') için. Her
+// üreteç yalnız GEÇERSİZ değerde metin döndürür; geçerli değerde ''.
+function _cgIpv6Why(t) {
+    if (!t) return '';
+    if (t.indexOf('/') >= 0) return 'bu alan önek almaz, yalnızca adres girin';
+    const bad = t.match(/[^0-9a-fA-F:.]/);
+    if (bad) return _cgQ(bad[0]) + ' karakteri IPv6 adresinde kullanılamaz';
+    if ((t.match(/::/g) || []).length > 1) return '"::" kısaltması yalnızca bir kez kullanılabilir';
+    if (/^[\d.]+$/.test(t)) return 'IPv4 biçiminde girdiniz; IPv6 adresi bekleniyor';
+    const long = t.split(/:+/).find(g => g.length > 4 && g.indexOf('.') < 0);
+    if (long) return _cgQ(long) + ' grubu 4 onaltılık haneden uzun';
+    if (t.indexOf('::') < 0 && t.split(':').length !== 8) return t.split(':').length + ' grup girdiniz; "::" yoksa 8 grup olmalı';
+    return _cgIpv6(t) ? '' : 'IPv6 biçimi tanınmadı';
+}
+function _cgIpv6CidrWhy(t) {
+    if (!t) return '';
+    const i = t.indexOf('/');
+    if (i < 0) return 'önek eksik — sonuna /64 gibi bir önek ekleyin';
+    const a = _cgIpv6Why(t.slice(0, i));
+    if (a) return a;
+    const p = t.slice(i + 1);
+    if (!/^\d+$/.test(p)) return 'önek ' + _cgQ(p) + ' sayı değil';
+    return +p > 128 ? 'önek ' + p + ' geçersiz (0-128)' : '';
+}
+function _cgIosIfaceWhy(t) {
+    if (!t) return '';
+    if (_cgIosIface(t)) return '';
+    const g = _cgIfaceWhy(t);
+    if (g) return g;
+    const m = t.match(/^([A-Za-z-]+)(.*)$/);
+    if (!m) return 'arayüz adı harfle başlamalı';
+    if (!_cgIosIface(m[1] + '0')) return _cgQ(m[1]) + ' bilinen bir Cisco IOS arayüz ailesi değil';
+    if (/(^|\/)\d*\d{4,}/.test(m[2])) return 'slot/port numarası 0-255 aralığının dışında';
+    return 'numara yapısı geçersiz (en fazla üç bölüm: 1/0/24, alt arayüz .100)';
+}
+Object.assign(CG_WHY, {
+    subnet:          t => _cgIpWhy(t) || (cgMaskLen(t) === '' ? 'maske bitişik değil — 1 bitleri soldan kesintisiz olmalı (örn: 255.255.240.0)' : ''),
+    ipv6:            _cgIpv6Why,
+    ipv6_cidr:       _cgIpv6CidrWhy,
+    ios_acl:         t => (!t || CG_VALIDATORS.ios_acl.fn(t) ? '' : /\s/.test(t) ? 'ACL adı boşluk içeremez'
+                         : /^\d+$/.test(t) ? t + ' IP ACL numarası değil (1-199 veya 2000-2699)' : /^\d/.test(t) ? 'ACL adı harfle başlamalı' : 'yalnızca harf, rakam, _ . : - kullanılır'),
+    snmpv3_secret:   t => (String(t).length >= 8 ? '' : String(t).length + ' karakter girdiniz, en az 8 olmalı'),
+    ios_domain:      t => (!t || CG_VALIDATORS.ios_domain.fn(t) ? '' : t.length > 253 ? t.length + ' karakter girdiniz, en fazla 253'
+                         : t.indexOf('.') < 0 ? 'tam domain adı en az bir nokta içerir (örn: example.com)'
+                         : (t.split('.').find(x => !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(x)) !== undefined
+                            ? _cgQ(t.split('.').find(x => !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(x))) + ' etiketi geçersiz (harf, rakam, tire; tireyle başlayıp bitemez)' : 'biçim tanınmadı')),
+    ios_proto_list:  t => { if (!t || CG_VALIDATORS.ios_proto_list.fn(t)) return ''; if (/[;|\s]/.test(t.replace(/,\s+/g, ','))) return 'protokolleri virgülle ayırın (tcp,udp,icmp)';
+                            const x = t.split(',').map(y => y.trim().toLowerCase()).filter(Boolean).find(y => !['tcp','udp','icmp','ftp','http','https','dns','smtp','sip','h323'].includes(y));
+                            return x ? _cgQ(x) + ' desteklenen protokoller arasında değil' : 'liste tanınmadı'; },
+    isis_net:        t => (!t || CG_VALIDATORS.isis_net.re.test(t) ? '' : /[^0-9a-fA-F.]/.test(t) ? 'yalnızca onaltılık rakam ve nokta kullanılır'
+                         : !/\.00$/.test(t) ? 'NET, NSEL = 00 ile bitmeli (.00)' : 'alan kimliği + 3 dörtlü system-id + .00 biçiminde olmalı'),
+    archive_path:    t => (!t || CG_VALIDATORS.archive_path.fn(t) ? '' : /\s/.test(t) ? 'yol boşluk içeremez'
+                         : 'yol flash:, bootflash:, nvram:, scp:// veya tftp:// ile başlamalı'),
+    track_id:        t => _cgNumWhy(t, 1, 1000),
+    ip_sla_id:       t => _cgNumWhy(t, 1, 2147483647),
+    ospf_pid:        t => _cgNumWhy(t, 1, 65535),
+    ospf_area:       t => (!t || CG_VALIDATORS.ospf_area.fn(t) ? '' : t.indexOf('.') >= 0 ? (_cgIpWhy(t) || 'noktalı area biçimi geçersiz') : _cgNumWhy(t, 0, 4294967295)),
+    nxos_process_tag:t => (!t || /^[A-Za-z0-9]{1,63}$/.test(t) ? '' : t.length > 63 ? t.length + ' karakter girdiniz, en fazla 63' : 'yalnızca harf ve rakam kullanılır (boşluk, _ - olmaz)'),
+    objname_list:    t => { if (!t || CG_VALIDATORS.objname_list.fn(t)) return ''; if (/[,;]/.test(t)) return 'adları virgülle değil boşlukla ayırın';
+                            const x = t.split(/\s+/).find(y => !CG_VALIDATORS.objname.re.test(y)); return x ? _cgQ(x) + ': ' + (CG_WHY.objname(x) || 'geçersiz ad') : 'liste tanınmadı'; },
+    bgp_community_list: t => { if (!t || CG_VALIDATORS.bgp_community_list.fn(t)) return '';
+                            const x = t.split(/\s+/).find(y => !/^(?:\d+:\d+|internet|local-as|no-advertise|no-export|graceful-shutdown)$/i.test(y));
+                            return /^\d+$/.test(x) ? _cgQ(x) + ': AA:NN biçiminde yazılır (örn: 65000:100)' : _cgQ(x) + ' AA:NN veya bilinen community adı değil'; },
+    uint32_delta:    t => (!t || CG_VALIDATORS.uint32_delta.fn(t) ? '' : /^[+-]?\d+[.,]\d+$/.test(t) ? 'ondalıklı değil, tam sayı olmalı'
+                         : /^[+-]?\d+$/.test(t) ? 'mutlak değer 4294967295 üst sınırını aşıyor' : 'yalnızca sayı ve tek bir +/− işareti kullanılır'),
+    uint32:          t => _cgNumWhy(t, 0, 4294967295),
+    tcpudp_port:     t => _cgNumWhy(t, 1, 65535),
+    telemetry_id:    t => (!t || /^[A-Za-z0-9]+$/.test(t) ? '' : 'yalnızca harf ve rakam kullanılır (boşluk, - _ olmaz)'),
+    telemetry_depth: t => (!t || /^(?:unbounded|\d+)$/i.test(t) ? '' : /^-/.test(t) ? 'negatif değer kabul edilmez' : _cgQ(t) + ' sayı veya unbounded değil'),
+    single_cli_line: t => (/[\r\n\0]/.test(String(t)) ? 'değer satır sonu içeremez; tek satır girin' : !String(t).trim() ? 'yalnızca boşluktan oluşuyor' : ''),
+    fhrp_group:      t => _cgNumWhy(t, 0, 4095) || (_cgInt(t, 0, 255) ? '' : 'HSRPv1 için 0-255; daha büyük grup numarası HSRPv2 (0-4095), GLBP (0-1023) ister'),
+    wildcard_mask:   t => _cgIpWhy(t) || (CG_VALIDATORS.wildcard_mask.fn(t) ? '' : cgMaskLen(t) !== '' && t !== '0.0.0.0' && t !== '255.255.255.255'
+                         ? 'subnet maskesi girdiniz; wildcard onun tersidir (255.255.255.0 → 0.0.0.255)' : 'bitler dağınık — wildcard 0 bitleri soldan kesintisiz olmalı (örn: 0.0.15.255)'),
+    ios_rt:          t => (!t || CG_VALIDATORS.ios_rt.fn(t) ? '' : /^(target|origin):/i.test(t) ? 'IOS\'ta target:/origin: öneki yazılmaz (örn: 65000:100)'
+                         : t.toLowerCase() === 'auto' ? 'bu alanda auto kullanılmaz; ASN:NN veya IPv4:NN girin'
+                         : t.indexOf(':') < 0 ? 'iki bölüm gerekir, ":" ile ayrılır (örn: 65000:100)' : 'sol bölüm ASN veya IPv4, sağ bölüm sayı olmalı'),
+    ios_iface:       _cgIosIfaceWhy,
+    ios_iface_or_ip: t => (/^[\d.]+$/.test(t) ? _cgIpWhy(t) : _cgIosIfaceWhy(t)),
+    ios_iface_lines: t => { const xs = String(t).split(/[\r\n,]+/).map(x => x.trim()).filter(Boolean); if (!xs.length) return 'en az bir arayüz girin';
+                            const x = xs.find(y => !_cgIosIface(y)); return x ? _cgQ(x) + ': ' + _cgIosIfaceWhy(x) : ''; },
+});
+Object.assign(CG_RULES, {
+    subnet:          'Bitişik ağ maskesi, noktalı dörtlü: 255.255.255.0 olur, 255.0.255.0 olmaz. Ağ adresi (10.0.0.0) bu alana yazılmaz.',
+    ipv6:            'IPv6 adresi: en fazla 8 onaltılık grup, "::" yalnızca bir kez. Önek (/64) yazılmaz. Örn: 2001:db8::1',
+    ipv6_cidr:       'IPv6 adres/önek, önek 0–128 zorunlu. Örn: 2001:db8::/32',
+    ios_acl:         'IP ACL numarası 1–199 veya 2000–2699 ya da harfle başlayan, boşluksuz ACL adı.',
+    snmpv3_secret:   'SNMPv3 auth/priv parolası: en az 8 karakter (Cisco USM alt sınırı).',
+    ios_domain:      'Tam domain adı: en az bir nokta, etiketler harf/rakam/tire (tireyle başlamaz/bitmez), toplam en fazla 253 karakter. Örn: example.com',
+    ios_proto_list:  'Virgülle ayrılmış protokoller: tcp, udp, icmp, ftp, http, https, dns, smtp, sip, h323.',
+    isis_net:        'IS-IS NET: alan kimliği + system-id (3 dörtlü) + NSEL .00 — örn: 49.0001.0000.0000.0001.00',
+    archive_path:    'flash:, bootflash:, nvram:, scp:// veya tftp:// ile başlayan, boşluksuz yol.',
+    track_id:        'Track nesne numarası, tam sayı 1–1000.',
+    ip_sla_id:       'IP SLA operasyon numarası, tam sayı 1–2147483647.',
+    ospf_pid:        'OSPF process ID, tam sayı 1–65535 (yerel anlamlıdır, komşuyla eşleşmesi gerekmez).',
+    ospf_area:       'Area: tam sayı 0–4294967295 veya noktalı biçim (0.0.0.0).',
+    nxos_process_tag:'NX-OS process/instance tag: 1–63 harf veya rakam; boşluk, _ ve - olmaz.',
+    objname_list:    'Boşlukla ayrılmış adlar; her ad harfle başlar, boşluk içermez.',
+    bgp_community_list: 'Boşlukla ayrılmış AA:NN (65000:100) veya internet, local-as, no-advertise, no-export, graceful-shutdown.',
+    uint32_delta:    'Tam sayı 0–4294967295; başında + veya − ile değişim olarak da yazılabilir.',
+    uint32:          'Tam sayı 0–4294967295.',
+    tcpudp_port:     'TCP/UDP portu, tam sayı 1–65535.',
+    telemetry_id:    'Yalnızca harf ve rakam; boşluk ve özel karakter olmaz.',
+    telemetry_depth: '0, pozitif tam sayı veya unbounded.',
+    single_cli_line: 'Tek satırlık CLI değeri; satır sonu içeremez.',
+    fhrp_group:      'Grup numarası: HSRPv1 0–255, HSRPv2 0–4095, VRRP 1–255, GLBP 0–1023 (seçilen protokole göre).',
+    wildcard_mask:   'Ters subnet maskesi: /24 için 0.0.0.255, /30 için 0.0.0.3. Subnet maskesi (255.255.255.0) ve dağınık bitli wildcard kabul edilmez.',
+    ios_rt:          'ASN:NN (65000:100) veya IPv4:NN (192.0.2.1:100). target: öneki ve auto yazılmaz.',
+    ios_iface:       'Cisco IOS arayüzü: aile adı veya kısaltması + numara (GigabitEthernet1/0/24, Gi0/1, Te1/1/1, Port-channel1, Vlan10, Loopback0), alt arayüz .100. Slot/port 0–255.',
+    ios_iface_or_ip: 'IPv4 adresi (192.0.2.1) veya Cisco IOS arayüzü (GigabitEthernet0/0).',
+    ios_iface_lines: 'Her satıra (veya virgülle) bir Cisco IOS arayüzü: GigabitEthernet0/0, Loopback0.',
+});
 
 // min/max tasiyan ama dogrulayicisi olmayan alanlar icin dinamik aralik
 // dogrulayicisi: 'range:1:4094'. Kural metni, hata mesaji ve sebebi otomatik.
@@ -1250,6 +1364,10 @@ const CG_REGISTRY = {
             { id: 'eigrpnamed',    cat: 'routing', label: 'EIGRP Named Mode',   gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.eigrpnamed },
             { id: 'vrflite',       cat: 'routing', label: 'VRF-Lite',           gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.vrflite },
             { id: 'vrf-af',        cat: 'routing', label: 'VRF Address-Family', gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.vrfAddressFamily },
+            { id: 'evpn-global',   cat: 'overlay', label: 'EVPN Global',           gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.evpnGlobal },
+            { id: 'evpn-evi',      cat: 'overlay', label: 'EVPN Instance (EVI)',   gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.evpnEvi },
+            { id: 'evpn-es',       cat: 'overlay', label: 'EVPN Ethernet Segment', gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.evpnEthernet },
+            { id: 'vxlan-vtep',    cat: 'overlay', label: 'VXLAN VTEP (NVE)',      gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.vxlanVtep },
             { id: 'mpls',          cat: 'mpls', label: 'MPLS / LDP',         gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.mpls },
             { id: 'l3vpn',         cat: 'mpls', label: 'L3VPN (PE)',          gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.l3vpn },
             { id: 'routemap',      cat: 'routing', label: 'Route-Map & Redist.', gen: () => typeof CiscoIOS !== 'undefined' && CiscoIOS.routemap },

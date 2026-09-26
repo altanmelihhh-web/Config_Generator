@@ -40,8 +40,8 @@ const generators = context.__CiscoIOS;
 const validators = context.__validators;
 for (const generator of Object.values(generators)) generator.init({});
 
-assert.strictEqual(Object.keys(generators).length, 45, 'Cisco IOS generator sayısı beklenmedik biçimde değişti');
-assert.strictEqual(captured.length, 45, 'Her Cisco IOS generator cgFormBuilder kullanmalı');
+assert.strictEqual(Object.keys(generators).length, 49, 'Cisco IOS generator sayısı beklenmedik biçimde değişti');
+assert.strictEqual(captured.length, 49, 'Her Cisco IOS generator cgFormBuilder kullanmalı');
 
 const freeFormRequired = new Set([
     // CLI sırrı/metni: varlığı zorunlu, desteklenen uzunluk komut ve IOS sürümüne bağlı.
@@ -104,5 +104,85 @@ const badBgpNetwork = bgpAf.generateFn({
 });
 assert.ok(badBgpNetwork.warnings.length > 0, 'BGP network host bitleri açıkken uyarı üretilmeli');
 assert.ok(!badBgpNetwork.config.includes('network 198.51.100.7'), 'Host bitli BGP network satırı config çıktısına girmemeli');
+
+// ── EVPN / VXLAN (cisco.ios ios_evpn_* + ios_vxlan_vtep; IOS XE 17.11 YANG sınırları) ──
+// vm bağlamındaki diziler farklı realm'dedir; yapısal karşılaştırma JSON ile.
+const same = (a, b, m) => assert.strictEqual(JSON.stringify(a), JSON.stringify(b), m);
+const gen = name => captured[Object.keys(generators).indexOf(name)].generateFn;
+const cfg = r => (typeof r === 'string' ? r : r.config);
+const schemaOf = name => captured[Object.keys(generators).indexOf(name)].schema;
+const fieldOf = (name, field) => schemaOf(name).sections.flatMap(s => s.fields).find(x => x.name === field);
+const optionValues = (name, field) => fieldOf(name, field).options.map(o => o.value);
+
+// Ansible choices kaybolmamalı.
+same(optionValues('evpnGlobal', 'eg_repl').filter(Boolean), ['ingress', 'static']);
+same(optionValues('evpnEvi', 'ev_repl').filter(Boolean), ['ingress', 'static']);
+same(optionValues('evpnEvi', 'ev_encap'), ['vxlan']);
+same(optionValues('evpnEthernet', 'es_type').filter(Boolean), ['0', '3']);
+same(optionValues('evpnEthernet', 'es_red').filter(Boolean), ['all-active', 'single-active']);
+same(optionValues('vxlanVtep', 'vt_l2_rep').filter(v => v !== 'none'), ['ingress', 'static']);
+// Cisco YANG sınırları form şemasında.
+same([fieldOf('evpnEvi', 'ev_id').min, fieldOf('evpnEvi', 'ev_id').max], [1, 65535]);
+same([fieldOf('evpnEthernet', 'es_id').min, fieldOf('evpnEthernet', 'es_id').max], [1, 65535]);
+same([fieldOf('evpnEthernet', 'es_wait').min, fieldOf('evpnEthernet', 'es_wait').max], [1, 10]);
+same([fieldOf('vxlanVtep', 'vt_nve').min, fieldOf('vxlanVtep', 'vt_nve').max], [1, 4096]);
+// Platform etiketi.
+for (const n of ['evpnGlobal', 'evpnEvi', 'evpnEthernet', 'vxlanVtep']) {
+    assert.ok(/Catalyst 9000/.test(schemaOf(n).topic.desc), `${n}: platform etiketi eksik`);
+    assert.ok(/Cat9k/.test(schemaOf(n).configTypes[0].badge.text), `${n}: platform rozeti eksik`);
+}
+
+// EVPN global: olumlu (Ansible merged fixture komutları), üç durumlu bool, boş girdi.
+const eg = cfg(gen('evpnGlobal')({ _cgtype: 'global', eg_repl: 'ingress', eg_rid: 'Loopback1', eg_dgw: 'off', eg_rt_auto: 'on', eg_ip_ll_disable: 'on', eg_flood_disable: '' }));
+assert.ok(eg.includes('l2vpn evpn\n replication-type ingress\n router-id Loopback1\n no default-gateway advertise\n route-target auto vni\n ip local-learning disable\n'));
+assert.ok(!eg.includes('flooding-suppression'), 'Seçilmeyen bool satır üretmemeli');
+const egEmpty = gen('evpnGlobal')({ _cgtype: 'global' });
+assert.ok(egEmpty.warnings.length > 0 && !egEmpty.config.includes('l2vpn evpn\n'), 'Boş global EVPN satır üretmemeli');
+
+// EVI: olumlu, olumsuz (sınır ve rd), koşullu eşleme.
+const evOk = cfg(gen('evpnEvi')({ _cgtype: 'evi', ev_id: '101', ev_encap: 'vxlan', ev_repl: 'ingress', ev_rd: '65000:101', ev_dgw: 'enable', ev_ip_ll: 'disable', ev_map: 'map', ev_vlan: '101', ev_vni: '10101' }));
+assert.ok(evOk.includes('l2vpn evpn instance 101 vlan-based\n encapsulation vxlan\n replication-type ingress\n rd 65000:101\n default-gateway advertise enable\n ip local-learning disable\n'));
+assert.ok(evOk.includes('vlan configuration 101\n member evpn-instance 101 vni 10101\n'));
+const evBig = gen('evpnEvi')({ _cgtype: 'evi', ev_id: '65536', ev_map: 'none' });
+assert.ok(evBig.warnings.length > 0 && !evBig.config.includes('l2vpn evpn instance'), 'EVI 65536 satır üretmemeli');
+const evRd = gen('evpnEvi')({ _cgtype: 'evi', ev_id: '10', ev_rd: 'auto', ev_map: 'none' });
+assert.ok(evRd.warnings.length > 0 && !evRd.config.includes(' rd '), 'rd auto IOS EVI altında reddedilmeli');
+const evMapMissing = gen('evpnEvi')({ _cgtype: 'evi', ev_id: '10', ev_map: 'map', ev_vlan: '10', ev_vni: '' });
+assert.ok(evMapMissing.warnings.length > 0 && !evMapMissing.config.includes('member evpn-instance'), 'Eksik VNI ile eşleme üretilmemeli');
+const evNoMap = cfg(gen('evpnEvi')({ _cgtype: 'evi', ev_id: '10', ev_map: 'none', ev_vlan: '', ev_vni: '' }));
+assert.ok(evNoMap.includes('l2vpn evpn instance 10 vlan-based') && !evNoMap.includes('vlan configuration'));
+same(fieldOf('evpnEvi', 'ev_vni').requiredIf, { field: 'ev_map', in: ['map'] });
+
+// Ethernet segment: Ansible fixture (type 0), type 3 system-mac, geçersiz ESI/timer.
+const es0 = cfg(gen('evpnEthernet')({ _cgtype: 'es', es_id: '2', es_type: '0', es_value: '00.00.00.00.00.00.00.00.02', es_red: 'single-active', es_wait: '', es_preempt: '1' }));
+assert.ok(es0.includes('l2vpn evpn ethernet-segment 2\n identifier type 0 00.00.00.00.00.00.00.00.02\n redundancy single-active\n df-election preempt-time 1\n'));
+const es3 = cfg(gen('evpnEthernet')({ _cgtype: 'es', es_id: '3', es_type: '3', es_value: '0011.2233.4455', es_red: 'all-active', es_wait: '1' }));
+assert.ok(es3.includes(' identifier type 3 system-mac 0011.2233.4455\n redundancy all-active\n df-election wait-time 1\n'));
+const esBadEsi = gen('evpnEthernet')({ _cgtype: 'es', es_id: '1', es_type: '0', es_value: '00.00.01' });
+assert.ok(esBadEsi.warnings.length > 0 && !esBadEsi.config.includes('ethernet-segment 1\n'), 'Kısa ESI satır üretmemeli');
+const esBadMac = gen('evpnEthernet')({ _cgtype: 'es', es_id: '1', es_type: '3', es_value: '00.00.00.00.00.00.00.00.03' });
+assert.ok(esBadMac.warnings.length > 0 && !esBadMac.config.includes('system-mac'), 'type 3 için Cisco MAC gerekir');
+const esWait = gen('evpnEthernet')({ _cgtype: 'es', es_id: '1', es_type: '', es_wait: '11' });
+assert.ok(esWait.warnings.length > 0 && !esWait.config.includes('wait-time'), 'wait-time 11 reddedilmeli');
+const esNoId = cfg(gen('evpnEthernet')({ _cgtype: 'es', es_id: '4', es_type: '', es_value: '' }));
+assert.ok(esNoId.includes('l2vpn evpn ethernet-segment 4\n') && !esNoId.includes('identifier'));
+
+// VXLAN VTEP: Ansible fixture komutları, multicast/L3 çapraz alanları.
+const vt = cfg(gen('vxlanVtep')({ _cgtype: 'nve', vt_nve: '1', vt_src: 'Loopback1', vt_bgp: true, vt_l2_rep: 'static', vt_l2_vni: '10201', vt_mcast4: '233.252.0.101', vt_mcast6: 'FF0E::DB8:101', vt_l3: true, vt_l3_vni: '50901', vt_l3_vrf: 'green' }));
+assert.ok(vt.includes('interface nve1\n no ip address\n source-interface Loopback1\n host-reachability protocol bgp\n member vni 10201 mcast-group 233.252.0.101 FF0E::DB8:101\n member vni 50901 vrf green\n'));
+const vtIr = cfg(gen('vxlanVtep')({ _cgtype: 'nve', vt_nve: '1', vt_src: 'Loopback1', vt_bgp: true, vt_l2_rep: 'ingress', vt_l2_vni: '10102', vt_mcast4: '233.252.0.1' }));
+assert.ok(vtIr.includes(' member vni 10102 ingress-replication\n') && !vtIr.includes('233.252.0.1'), 'ingress-replication multicast grubu yazmamalı');
+const vtUni = gen('vxlanVtep')({ _cgtype: 'nve', vt_nve: '1', vt_src: 'Loopback1', vt_l2_rep: 'static', vt_l2_vni: '10101', vt_mcast4: '192.0.2.1' });
+assert.ok(vtUni.warnings.length > 0 && !vtUni.config.includes('member vni'), 'Unicast adres mcast-group olamaz');
+const vtNoGroup = gen('vxlanVtep')({ _cgtype: 'nve', vt_nve: '1', vt_src: 'Loopback1', vt_l2_rep: 'static', vt_l2_vni: '10101', vt_mcast4: '' });
+assert.ok(vtNoGroup.warnings.length > 0 && !vtNoGroup.config.includes('interface nve'), 'static replikasyonda grup zorunlu');
+const vtSame = gen('vxlanVtep')({ _cgtype: 'nve', vt_nve: '1', vt_src: 'Loopback1', vt_l2_rep: 'ingress', vt_l2_vni: '5000', vt_l3: true, vt_l3_vni: '5000', vt_l3_vrf: 'A' });
+assert.ok(vtSame.warnings.length > 0 && !vtSame.config.includes('member vni'), 'Aynı VNI L2 ve L3 olamaz');
+const vtNve = gen('vxlanVtep')({ _cgtype: 'nve', vt_nve: '4097', vt_src: 'Loopback1', vt_l2_rep: 'ingress', vt_l2_vni: '10101' });
+assert.ok(vtNve.warnings.length > 0 && !vtNve.config.includes('interface nve4097'), 'NVE 4097 reddedilmeli');
+const vtNothing = gen('vxlanVtep')({ _cgtype: 'nve', vt_nve: '1', vt_src: 'Loopback1', vt_l2_rep: 'none' });
+assert.ok(vtNothing.warnings.length > 0 && !vtNothing.config.includes('interface nve'), 'Üyeliksiz NVE üretilmemeli');
+same(fieldOf('vxlanVtep', 'vt_mcast4').requiredIf, { field: 'vt_l2_rep', in: ['static'] });
+same(fieldOf('vxlanVtep', 'vt_l3_vrf').requiredIf, { field: 'vt_l3', checked: true });
 
 console.log(`OK: ${captured.length} Cisco IOS generator şeması ve kritik validator regresyonları geçti.`);
