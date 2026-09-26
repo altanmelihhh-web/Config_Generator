@@ -11,9 +11,9 @@ const CgPalette = {
     GROUPS: [['vendor', 'Vendorlar', 4], ['page', 'Bölümler', 4], ['tool', 'Config araçları', 8], ['path', 'Öğrenme yolları', 3], ['lab', 'Lablar', 6], ['scen', 'Sorun giderme senaryoları', 5], ['cmd', 'Komutlar', 6]],
     W: { vendor: 30, page: 18, tool: 10, path: 8, lab: 6, scen: 4, cmd: 0 },
     PAGES: [
-        ['Vendorlar', '#/v', 'vendor seç aileler'], ['Tüm araçlar', '#/araclar', 'config araçları generator şablon'], ['Komut kütüphanesi', '#/cli', 'komutlar cli show'],
-        ['CLI Laboratuvarı', '#/lab', 'lab laboratuvar terminal simülatör'], ['iRule Arenası', '#/arena', 'f5 irule oyun bulmaca waf'],
-        ['Sorun giderme sihirbazı', '#/troubleshoot', 'troubleshoot arıza teşhis'], ['Config dönüştürücü', '#/converter', 'converter çevir taşı migrasyon'],
+        ['Ana Sayfa', '#/', 'giriş tanıtım'], ['Vendorlar', '#/v', 'vendor seç aileler platform'], ['Tüm araçlar', '#/araclar', 'config araçları generator şablon'], ['Tüm komutlar', '#/cli', 'komut kütüphanesi cli show'],
+        ['Tüm lablar', '#/lab', 'cli laboratuvarı lab terminal simülatör'],
+        ['Sorun giderme (belirtiye göre)', '#/troubleshoot', 'sihirbaz troubleshoot arıza teşhis belirti'], ['Config dönüştürücü', '#/converter', 'converter çevir taşı migrasyon'],
     ],
 
     init() {
@@ -120,7 +120,7 @@ const CgPalette = {
         FAM.forEach(f => {
             const plats = f.reg.map(r => REG[r] && REG[r].label).filter(Boolean).join(', ');
             items.push(this._item('vendor', f.name, plats, '#/v/' + f.slug, f.slug + ' ' + f.reg.join(' ')));
-            const sec = [['Config araçları', 'araclar', 1], ['Lablar', 'lab', f.lab.length], ['Komutlar', 'komutlar', f.cli.length], ['Sorun giderme', 'sorun', 1]];
+            const sec = [['Config araçları', 'araclar', 1], ['Lablar', 'lab', f.lab.length], ['Komutlar', 'komutlar', f.cli.length], ['Sorun giderme', 'sorun', 1], [typeof cgArenaName === 'function' ? cgArenaName(f) : 'Arena', 'arena', f.arena ? 1 : 0]];
             sec.forEach(([l, s, ok]) => { if (ok) items.push(this._item('page', f.name + ' · ' + l, 'Vendor bölümü', '#/v/' + f.slug + '/' + s, f.slug)); });
         });
         const CAT = {}; (typeof CG_CATEGORIES !== 'undefined' ? CG_CATEGORIES : []).forEach(c => { CAT[c.id] = c.label; });

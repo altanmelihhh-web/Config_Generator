@@ -191,10 +191,10 @@ const CgLanding = {
     },
     _featured() {
         const R = typeof CG_REGISTRY !== 'undefined' ? CG_REGISTRY : {};
-        const arena = this._fams().some(f => f.arena);
+        const af = this._fams().find(f => f.arena), arena = !!af;
         const F = [
             { icon: 'lab', title: 'CLI labları', href: '#/lab', desc: 'Tarayıcıda gerçekçi terminal; görevler cihaz durumuna göre kontrol edilir.' },
-            arena && { icon: 'arena', title: 'iRule Arenası', href: '#/arena', desc: 'Kuralı yaz, trafiği başlat: olaylar ve satırlar canlı akar.' },
+            arena && { icon: 'arena', title: typeof cgArenaName === 'function' ? cgArenaName(af) : 'Arena', href: '#/v/' + af.slug + '/arena', desc: 'Kuralı yaz, trafiği başlat: olaylar ve satırlar canlı akar.' },
             { icon: 'ts', title: 'Sorun giderme', href: '#/troubleshoot', desc: 'Belirtiden başla, kontrol komutlarıyla adım adım teşhise git.' },
             { icon: 'cli', title: 'Komut kütüphanesi', href: '#/cli', desc: 'Doğrulama, sorun giderme ve günlük işletim komutları; tıkla, kopyala.' },
             { icon: 'convert', title: 'Dönüştürücü', href: '#/converter', desc: "Bir vendorun config'ini diğerinin sözdizimine çevirin." },

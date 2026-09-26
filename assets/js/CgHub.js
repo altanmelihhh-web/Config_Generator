@@ -5,7 +5,8 @@
 // Kırıntı ve sol ağaç kabukta (CgShell); burada yalnız sayfa gövdesi çizilir. Sabit sayı yazılmaz.
 const CgHub = {
     // Görsel üst veri: cihaz sınıfı ve logo yoksa gösterilecek monogram.
-    // Logo ve marka rengi: cg-brands.js (CG_BRAND, CG_LOGO_PATHS) + cg-logos-extra.js (CG_LOGO_EXTRA); ikisi de simple-icons (CC0).
+    // Logo ve marka rengi: cg-brands.js (CG_BRAND, CG_LOGO_PATHS, cgLogoOf) + cg-logos-extra.js (CG_LOGO_EXTRA). Kaynaklar simple-icons (CC0)
+    // ve vendorların resmi basın/marka dosyaları; kelime logoları (vb alanı) rozette geniş çizilir.
     META: {
         cisco:      { mono: 'Ci', kinds: ['Switch', 'Router', 'Firewall'] },
         fortinet:   { mono: 'Ft', kinds: ['Firewall'] },
@@ -51,28 +52,34 @@ const CgHub = {
     _logo(f) {
         const b = typeof CG_BRAND !== 'undefined' ? CG_BRAND[f.reg[0]] : null;
         const x = typeof CG_LOGO_EXTRA !== 'undefined' ? CG_LOGO_EXTRA[f.slug] : null;
-        const path = (b && typeof CG_LOGO_PATHS !== 'undefined' && CG_LOGO_PATHS[b[0]]) || (x && x.path) || null;
+        const L = typeof cgLogoOf === 'function' ? cgLogoOf(f.reg[0]) : { path: (x && x.path) || null, vb: x && x.vb };
         const color = (x && x.color) || (b && b[1]) || '';
-        return { path, color: /^#[0-9a-f]{3,8}$/i.test(color) ? color : '' };
+        return { path: L.path, vb: L.vb || null, color: /^#[0-9a-f]{3,8}$/i.test(color) ? color : '' };
     },
     // Rozet: marka renginde logo (aria-hidden; vendor adı kartta metin olarak var). Logo yoksa marka renkli monogram.
     _badge(f, big) {
         const m = this._meta(f.slug), L = this._logo(f), px = big ? 34 : 28;
         const st = L.color ? ` style="--bc:${L.color}"` : '';
-        const cls = 'cg-vbadge' + (big ? ' cg-vbadge-lg' : '') + (L.path ? ' cg-vbadge-logo' : '');
+        const cls = 'cg-vbadge' + (big ? ' cg-vbadge-lg' : '') + (L.path ? ' cg-vbadge-logo' : '') + (L.vb ? ' cg-vbadge-wide' : '');
+        // Kelime logosu (vb): rozet genişler, logo ~rozet genişliğinde çizilir (Arista ~64×10, Citrix ~64×20)
+        let w = px, h = px, vb = '0 0 24 24';
+        if (L.path && L.vb) { const q = L.vb.split(/\s+/).map(Number); vb = L.vb; w = big ? 76 : 62; h = Math.round(w * q[3] / q[2]); }
         return L.path
-            ? `<span class="${cls}"${st} aria-hidden="true"><svg viewBox="0 0 24 24" width="${px}" height="${px}" focusable="false"><path fill="currentColor" d="${this._esc(L.path)}"/></svg></span>`
+            ? `<span class="${cls}"${st} aria-hidden="true"><svg viewBox="${this._esc(vb)}" width="${w}" height="${h}" focusable="false"><path fill="currentColor" d="${this._esc(L.path)}"/></svg></span>`
             : `<span class="${cls}"${st} aria-hidden="true">${this._esc(m.mono)}</span>`;
     },
     _platforms(f) { return f.reg.map(r => this._reg(r)).map((v, i) => v && { key: f.reg[i], label: v.label, n: v.types.length }).filter(Boolean); },
     _counts(slug) { return typeof cgFamilyCounts === 'function' ? (cgFamilyCounts(slug) || {}) : {}; },
     // Öğrenme yolu: CgLab verisi yüklendiyse ailenin ilk yolu (boş modüller zaten ayıklanmış), değilse undefined
     // Lab verisi yoksa özet (CG_LAB_INDEX): modüller { title, n } biçiminde; _start ikisini de okur
-    _path(f) {
-        if (typeof CgLab !== 'undefined' && window.CG_LAB_PATHS && window.CG_LABS) return CgLab._paths().find(p => f.lab.includes(p.vendor)) || null;
-        const ix = window.CG_LAB_INDEX;
-        if (!ix) return undefined;
-        return ix.paths.find(p => f.lab.includes(p.vendor)) || null;
+    _path(f) { const ps = this._pathsOf(f); return ps === undefined ? undefined : ps[0] || null; },
+    // Ailenin tüm yolları (ör. FortiGate 7.4 ve 7.6); yol sırası: ailenin lab vendor sırası
+    _pathsOf(f) {
+        let all;
+        if (typeof CgLab !== 'undefined' && window.CG_LAB_PATHS && window.CG_LABS) all = CgLab._paths();
+        else if (window.CG_LAB_INDEX) all = window.CG_LAB_INDEX.paths;
+        else return undefined;
+        return all.filter(p => f.lab.includes(p.vendor)).sort((a, b) => f.lab.indexOf(a.vendor) - f.lab.indexOf(b.vendor));
     },
     _arenaN(f) {
         if (!f.arena) return null;
@@ -118,7 +125,7 @@ const CgHub = {
                     ${ref ? `<li><a class="cg-hub-card" href="#/araclar?p=referans"><span class="cg-hub-ci">${this._ico('ref')}</span><span class="cg-hub-cb"><span class="cg-hub-ct">${this._esc(ref.label)}</span><span class="cg-hub-cd">Topoloji diyagramları, port tabloları ve karşılaştırmalı referanslar.</span><span class="cg-hub-cm">${this._n(ref.types.length)} referans modülü</span></span></a></li>` : ''}
                 </ul>
             </section>
-            <p class="cg-hub-note">Logolar simple-icons (CC0) kaynaklıdır; marka adları ve logoları ilgili sahiplerinin tescilli markalarıdır ve yalnız cihazı belirtmek için kullanılır. Logosu bulunmayan vendorlar harf rozetiyle gösterilir.</p>
+            <p class="cg-hub-note">Logolar simple-icons (CC0) ve vendorların resmi basın/marka kaynaklarından alınmıştır; marka adları ve logoları ilgili sahiplerinin tescilli markalarıdır ve yalnızca tanımlama amacıyla kullanılır.</p>
         </div>`;
 
         const tok = this._stamp(root);
@@ -141,6 +148,13 @@ const CgHub = {
         </a></li>`;
     },
     // Araç sayısı hep bilinir; lab/komut yalnız veri yüklendiyse. Labsız ailede "lab yok" senkron bilinir.
+    // Ailede birden çok yol varsa (ör. FortiGate 7.4 + 7.6) diğerleri bağlantı olarak
+    _morePaths(f) {
+        const ps = this._pathsOf(f) || [];
+        if (ps.length < 2) return '';
+        const E = v => this._esc(v);
+        return `<p class="cg-hub-sp cg-hub-more">Diğer ${ps.length > 2 ? 'yollar' : 'yol'}: ${ps.slice(1).map(p => `<a href="#/lab/path/${E(p.id)}">${E(p.title)}</a> <small>(${this._n(p.modules.length)} modül)</small>`).join(' · ')}</p>`;
+    },
     _vcardMeta(f, c) {
         const L = [this._n(c.tools || 0) + ' araç'];
         if (!f.lab.length) L.push('lab yok');
@@ -208,19 +222,20 @@ const CgHub = {
     // Bölüm kartı modeli. n: sayı (null = henüz bilinmiyor, gösterilmez); off: içerik yok (soluk, bağlantısız)
     _sections(f) {
         const c = this._counts(f.slug), base = '#/v/' + f.slug, path = f.lab.length ? this._path(f) : null;
+        const npaths = f.lab.length ? (this._pathsOf(f) || []).length : 0;
         const S = [
             { id: 'araclar', icon: 'tools', title: 'Config araçları', href: base + '/araclar', n: c.tools, unit: 'araç', off: !c.tools,
               desc: 'Formu doldur, cihaza yapıştırılacak config canlı üretilsin.' },
-            { id: 'lab', icon: 'lab', title: 'Lablar', href: base + '/lab', n: c.labs, unit: 'lab', off: !f.lab.length || c.labs === 0,
+            { id: 'lab', icon: 'lab', title: 'Lablar', href: base + '/lab', n: c.labs, unit: 'lab' + (c.labsVer && c.labsVer.length ? ' (+' + c.labsVer.map(x => x.ver + ' sürümü').join(', ') + ')' : ''), off: !f.lab.length || c.labs === 0,
               desc: 'Tarayıcıda gerçekçi terminal; görevler cihaz durumuna göre kontrol edilir.' },
             { id: 'yol', icon: 'path', title: 'Öğrenme yolu', href: base + '/yol', n: path ? path.modules.length : null, unit: 'modül', off: !f.lab.length || path === null,
-              desc: path ? path.title : 'Sıralı modüllerle sıfırdan üretime; her modülde lablar.' },
+              desc: path ? path.title + (npaths > 1 ? ' (+' + (npaths - 1) + ' yol daha)' : '') : 'Sıralı modüllerle sıfırdan üretime; her modülde lablar.' },
             { id: 'komutlar', icon: 'cli', title: 'Komutlar', href: base + '/komutlar', n: c.cmds, unit: 'komut', off: !f.cli.length || c.cmds === 0,
               desc: 'Doğrulama, sorun giderme ve günlük işletim komutları; tıkla, kopyala.' },
             { id: 'sorun', icon: 'ts', title: 'Sorun giderme', href: base + '/sorun', n: c.scenarios, unit: 'senaryo', off: !f.cli.length || c.scenarios === 0,
               desc: 'Belirtiden başla, kontrol komutlarıyla adım adım teşhise git.' },
         ];
-        if (f.arena) S.push({ id: 'arena', icon: 'arena', title: 'iRule Arenası', href: '#/arena', n: this._arenaN(f), unit: 'arena görevi', off: false,
+        if (f.arena) S.push({ id: 'arena', icon: 'arena', title: cgArenaName(f), href: base + '/arena', n: this._arenaN(f), unit: 'arena görevi', off: false,
             desc: 'Kuralı yaz, trafiği başlat: olaylar ve satırlar canlı akar.' });
         return S;
     },
@@ -246,7 +261,8 @@ const CgHub = {
             const mods = p ? p.modules.slice(0, 4) : [];
             return `${H}<p class="cg-hub-sp">${p ? `“${E(p.title)}” yolu sıralı modüllerle ilerler; her modülde tarayıcıda çalışan lablar var.` : `Sıralı modüllerden oluşan öğrenme yoluyla başlayın; her modülde tarayıcıda çalışan lablar var.`}</p>
                 ${mods.length ? `<ol class="cg-hub-steps">${mods.map(x => `<li><span>${E(x.title)}</span><small>${this._n(x.labs ? x.labs.length : x.n)} lab</small></li>`).join('')}</ol>` : ''}
-                <a class="cg-hub-btn" href="${base}/yol">Öğrenme yoluna başla ${this._ico('arrow')}</a>`;
+                <a class="cg-hub-btn" href="${base}/yol">Öğrenme yoluna başla ${this._ico('arrow')}</a>
+                ${this._morePaths(f)}`;
         }
         const plats = this._platforms(f);
         const first = plats[0] && this._reg(plats[0].key);

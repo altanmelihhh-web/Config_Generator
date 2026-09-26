@@ -1,10 +1,11 @@
 'use strict';
 
-// ─── iRule Arenası (#/arena, #/arena/masa/<görev>) ──────────────────────────
+// ─── iRule Arenası (#/v/f5/arena, #/v/f5/arena/masa/<görev>; eski #/arena… adresleri oraya yönlenir). Bağlantı tabanı _base rotadan gelir ───
 // Trafik Masası: kuralı yaz → istekler topolojide akar; tetiklenen olaylar, çalışan satırlar ve
 // seçilen üye canlı görünür. Kural CgIRule ile çalışır (lab simülatörüyle aynı yorumlayıcı).
 // Görevler: assets/data/arena/masa.js · İlerleme: localStorage 'cg-arena-v1'
 const CgArena = {
+    _base: '#/arena',   // aile bağlamında '#/v/<aile>/arena' (ConfigGenerator._renderArena)
     KEY: 'cg-arena-v1',
     FILES: ['assets/js/lab/core.js', 'assets/js/lab/irule.js', 'assets/js/lab/asm.js', 'assets/js/lab/tmsh.js', 'assets/data/arena/masa.js', 'assets/data/arena/meydan.js', 'assets/data/arena/waf.js', 'assets/data/arena/nobet.js'],
     RULE: 'r_masa',
@@ -29,10 +30,10 @@ const CgArena = {
         try { for (const f of this.FILES) await CgCli._load(f); }
         catch (e) { root.innerHTML = '<div class="cg-empty"><i class="fas fa-exclamation-triangle"></i><p>Arena yüklenemedi.</p></div>'; return; }
         const T = window.CG_ARENA_MASA || [];
-        if (mode === 'masa' && id) { const t = T.find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._desk(t); return; }
-        if (mode === 'waf' && id) { const t = (window.CG_ARENA_WAF || []).find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._waf(t); return; }
-        if (mode === 'nobet' && id) { const v = (window.CG_ARENA_NOBET || []).find(x => x.id === id); if (!v) { location.hash = '#/arena'; return; } this._nb(v); return; }
-        if (mode === 'meydan' && id) { const t = (window.CG_ARENA_MO || []).find(x => x.id === id); if (!t) { location.hash = '#/arena'; return; } this._mo(t); return; }
+        if (mode === 'masa' && id) { const t = T.find(x => x.id === id); if (!t) { location.hash = this._base; return; } this._desk(t); return; }
+        if (mode === 'waf' && id) { const t = (window.CG_ARENA_WAF || []).find(x => x.id === id); if (!t) { location.hash = this._base; return; } this._waf(t); return; }
+        if (mode === 'nobet' && id) { const v = (window.CG_ARENA_NOBET || []).find(x => x.id === id); if (!v) { location.hash = this._base; return; } this._nb(v); return; }
+        if (mode === 'meydan' && id) { const t = (window.CG_ARENA_MO || []).find(x => x.id === id); if (!t) { location.hash = this._base; return; } this._mo(t); return; }
         this._hub(T);
     },
 
@@ -42,10 +43,10 @@ const CgArena = {
         this._root.innerHTML = `<div class="cg-ar"><nav class="cg-ts-crumbs"><a href="#/lab"><i class="fas fa-flask"></i> Laboratuvar</a><i class="fas fa-chevron-right"></i><span>iRule Arenası</span></nav>
             <header class="cg-ar-head"><h1><i class="fas fa-chess-knight"></i> iRule Arenası</h1><p>Kuralın içini gör: istek gelir, olaylar tetiklenir, satırlar çalışır, trafik yönlenir. Dört mod, her biri farklı bir beceri: kural yazmak, WAF politikası ayarlamak, olay müdahalesi ve gizli testli kod görevleri.</p></header>
             <div class="cg-ar-modes">${this.MODES.map(m => `<section class="cg-ar-mode${m.ready ? '' : ' is-soon'}"><div class="cg-ar-mh"><i class="fas ${m.icon}"></i><b>${E(m.title)}</b>${m.ready ? '' : '<span class="cg-ar-soon">Yakında</span>'}</div><p>${E(m.desc)}</p>
-                ${m.id === 'waf' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_WAF || []).map((t, k) => { const st = this._wst(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/waf/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}
-                ${m.id === 'nobet' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_NOBET || []).map((v, k) => { const st = this._nst(v.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/nobet/${v.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(v.title)}</b><small>${E(v.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : st.best !== null ? st.best + ' puan' : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}
-                ${m.id === 'meydan' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_MO || []).map((t, k) => { const st = this._mst(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/meydan/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : t.tests.filter(x => x.hidden).length + ' gizli test'}</span></a>`; }).join('')}</div>` : ''}
-                ${m.id === 'masa' ? `<div class="cg-ar-tasks">${T.map((t, k) => { const st = this._st(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="#/arena/masa/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}</section>`).join('')}</div></div>`;
+                ${m.id === 'waf' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_WAF || []).map((t, k) => { const st = this._wst(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="${this._base}/waf/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}
+                ${m.id === 'nobet' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_NOBET || []).map((v, k) => { const st = this._nst(v.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="${this._base}/nobet/${v.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(v.title)}</b><small>${E(v.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : st.best !== null ? st.best + ' puan' : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}
+                ${m.id === 'meydan' ? `<div class="cg-ar-tasks">${(window.CG_ARENA_MO || []).map((t, k) => { const st = this._mst(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="${this._base}/meydan/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : t.tests.filter(x => x.hidden).length + ' gizli test'}</span></a>`; }).join('')}</div>` : ''}
+                ${m.id === 'masa' ? `<div class="cg-ar-tasks">${T.map((t, k) => { const st = this._st(t.id); return `<a class="cg-ar-task${st.done ? ' is-done' : ''}" href="${this._base}/masa/${t.id}"><span class="cg-ar-tn">${k + 1}</span><span><b>${E(t.title)}</b><small>${E(t.topic)}</small></span><span class="cg-ar-ts">${st.done ? '★'.repeat(st.stars) + '☆'.repeat(3 - st.stars) : '<i class="fas fa-play"></i>'}</span></a>`; }).join('')}</div>` : ''}</section>`).join('')}</div></div>`;
     },
 
     // ═══ Masa ═══
@@ -54,7 +55,7 @@ const CgArena = {
         this._t = t; this._hint = 0;
         const members = Object.entries(t.pools);
         this._root.innerHTML = `<div class="cg-ar cg-ar-deskwrap">
-            <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Trafik Masası</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
+            <nav class="cg-ts-crumbs"><a href="${this._base}"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Trafik Masası</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
             <div class="cg-ar-brief"><div><h1>${E(t.title)}</h1><p>${t.brief}</p></div>
                 <ol class="cg-ar-goals">${t.goals.map(g => `<li>${g}</li>`).join('')}</ol></div>
             ${t.panel ? '<section class="cg-ar-panel" aria-label="Profil ayarları"></section>' : ''}
@@ -274,7 +275,7 @@ const CgArena = {
         const E = cgEsc, st = this._mst(t.id), vis = t.tests.filter(x => !x.hidden), hid = t.tests.length - vis.length;
         this._t = t; this._hint = 0;
         this._root.innerHTML = `<div class="cg-ar cg-mo">
-            <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Meydan Okuma</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
+            <nav class="cg-ts-crumbs"><a href="${this._base}"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Meydan Okuma</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
             <div class="cg-ar-brief"><div><h1><i class="fas fa-flag-checkered" aria-hidden="true"></i> ${E(t.title)}</h1><p>${t.story}</p><p class="cg-mo-meta"><span>${vis.length} görünür test</span><span>${hid} gizli test</span><span>maliyet = çalışan kural satırı + regex cezası</span></p></div>
                 <ol class="cg-ar-goals">${t.reqs.map(g => `<li>${g}</li>`).join('')}</ol></div>
             <div class="cg-ar-desk">
@@ -325,7 +326,7 @@ const CgArena = {
             d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-trophy"></i> Tüm testler geçti! <span class="cg-ar-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</span></div>
                 <p class="cg-ar-dm">Maliyetin <b>${R.cost}</b> · örnek çözüm ${ref} · ★★★ için ≤ ${t.cost[2]}, ★★ için ≤ ${t.cost[1]} · ${st.subs} gönderim · en iyi ${st.best}</p>
                 <details><summary>Örnek çözümü karşılaştır</summary><pre class="cg-ar-tmsh">${cgEsc(t.solution)}</pre></details>
-                <div class="cg-ar-db">${nx ? `<a class="cg-ar-go" href="#/arena/meydan/${nx.id}"><i class="fas fa-arrow-right"></i> Sonraki meydan okuma</a>` : ''}<a class="cg-ar-ghost" href="#/arena"><i class="fas fa-chess-knight"></i> Arena</a></div>`;
+                <div class="cg-ar-db">${nx ? `<a class="cg-ar-go" href="${this._base}/meydan/${nx.id}"><i class="fas fa-arrow-right"></i> Sonraki meydan okuma</a>` : ''}<a class="cg-ar-ghost" href="${this._base}"><i class="fas fa-chess-knight"></i> Arena</a></div>`;
         } else { this._save(); d.hidden = false; d.className = 'cg-ar-done is-bad'; d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-exclamation-triangle"></i> ${R.n - R.pass} test kaldı.</div><p class="cg-ar-dm">Kalan gizli testlerin konusuna bakın; genellikle bir kenar durumudur (büyük/küçük harf, önek, sorgu dizesi, metot).</p>`; }
         d.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     },
@@ -350,7 +351,7 @@ const CgArena = {
     _waf(t) {
         const E = cgEsc, st = this._wst(t.id); this._t = t; this._hint = 0;
         this._root.innerHTML = `<div class="cg-ar cg-waf">
-            <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>WAF Masası</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
+            <nav class="cg-ts-crumbs"><a href="${this._base}"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>WAF Masası</span><i class="fas fa-chevron-right"></i><span>${E(t.title)}</span></nav>
             <div class="cg-ar-brief"><div><h1><i class="fas fa-shield-alt" aria-hidden="true"></i> ${E(t.title)}</h1><p>${t.brief}</p><p class="cg-mo-meta"><span>İmzalar eğitim amaçlı (E-xxxx), gerçek F5 imza veritabanı değildir</span><span>Violation rating sadeleştirilmiştir</span></p></div>
                 <ol class="cg-ar-goals">${t.goals.map(g => `<li>${g}</li>`).join('')}</ol></div>
             <section class="cg-waf-main"></section>
@@ -420,7 +421,7 @@ const CgArena = {
         st.runs++; const d = $('.cg-ar-done'); d.hidden = false;
         if (!fp && !miss) { const stars = Math.max(1, 3 - Math.min(2, st.hints) - (st.runs > 5 ? 1 : 0)); st.done = true; st.stars = Math.max(st.stars, stars); d.className = 'cg-ar-done is-ok';
             const WN = (window.CG_ARENA_WAF || [])[(window.CG_ARENA_WAF || []).indexOf(t) + 1];
-            d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-trophy"></i> Sıfır yanlış pozitif, sıfır kaçak! <span class="cg-ar-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</span></div><p class="cg-ar-dm">${st.runs} deneme · ${st.hints} ipucu <small>(her ipucu bir yıldız düşürür)</small></p><ul>${t.learn.map(x => `<li>${x}</li>`).join('')}</ul><div class="cg-ar-db">${WN ? `<a class="cg-ar-go" href="#/arena/waf/${WN.id}"><i class="fas fa-arrow-right"></i> Sonraki görev</a>` : ''}<a class="cg-ar-ghost" href="#/arena"><i class="fas fa-chess-knight"></i> Arena</a></div>`; }
+            d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-trophy"></i> Sıfır yanlış pozitif, sıfır kaçak! <span class="cg-ar-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</span></div><p class="cg-ar-dm">${st.runs} deneme · ${st.hints} ipucu <small>(her ipucu bir yıldız düşürür)</small></p><ul>${t.learn.map(x => `<li>${x}</li>`).join('')}</ul><div class="cg-ar-db">${WN ? `<a class="cg-ar-go" href="${this._base}/waf/${WN.id}"><i class="fas fa-arrow-right"></i> Sonraki görev</a>` : ''}<a class="cg-ar-ghost" href="${this._base}"><i class="fas fa-chess-knight"></i> Arena</a></div>`; }
         else { d.className = 'cg-ar-done is-bad'; d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-exclamation-triangle"></i> ${fp} yanlış pozitif, ${miss} kaçan saldırı.</div><p class="cg-ar-dm">Kırmızı satırlara tıklayıp istek detayını okuyun: hangi ihlal engelledi ya da neden hiçbir ihlal çıkmadı?</p>`; }
         this._save(); fl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     },
@@ -476,7 +477,7 @@ const CgArena = {
         const S = this._nbState = { v, s: eng.session(v.lab), used: [], free: 0, minutes: 0, log: [], cause: {}, fix: {}, result: null };
         const lvl = { best: 'En iyi', good: 'Kabul edilebilir', bad: 'Yanlış / yan etkili' };
         this._root.innerHTML = `<div class="cg-ar cg-nb">
-            <nav class="cg-ts-crumbs"><a href="#/arena"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Nöbet</span><i class="fas fa-chevron-right"></i><span>${E(v.title)}</span></nav>
+            <nav class="cg-ts-crumbs"><a href="${this._base}"><i class="fas fa-chess-knight"></i> iRule Arenası</a><i class="fas fa-chevron-right"></i><span>Nöbet</span><i class="fas fa-chevron-right"></i><span>${E(v.title)}</span></nav>
             <div class="cg-nb-bar"><h1><i class="fas fa-bell" aria-hidden="true"></i> ${E(v.title)}</h1><span class="cg-nb-meter" aria-live="polite"></span></div>
             <div class="cg-nb-grid">
                 <aside class="cg-nb-side">
@@ -528,7 +529,7 @@ const CgArena = {
                         ${x.level !== 'best' ? `<p>En iyi seçenek: <b>${E(best.label)}</b><br><small>${E(best.note || '')}</small></p>` : ''}</div>`; }).join('')}</div>
                 ${R.useless.length ? `<h4>Gereksiz eylemler</h4><ul>${R.useless.map(d => `<li><b>${E(d.label)}</b>: ${E(d.note || '')}</li>`).join('')}</ul>` : ''}
                 <h4>Öğrenilenler</h4><ul>${v.learn.map(x => `<li>${E(x)}</li>`).join('')}</ul><p class="cg-nb-src"><b>Kaynaklar:</b> ${v.sources.map(E).join(' · ')}</p>
-                <div class="cg-ar-db"><button type="button" class="cg-ar-go" data-a="again"><i class="fas fa-redo"></i> Vakayı yeniden oyna</button><a class="cg-ar-ghost" href="#/arena"><i class="fas fa-chess-knight"></i> Arena</a></div>`;
+                <div class="cg-ar-db"><button type="button" class="cg-ar-go" data-a="again"><i class="fas fa-redo"></i> Vakayı yeniden oyna</button><a class="cg-ar-ghost" href="${this._base}"><i class="fas fa-chess-knight"></i> Arena</a></div>`;
             box.querySelector('[data-a="again"]').addEventListener('click', () => this._nb(v));
             box.scrollIntoView({ block: 'start', behavior: 'smooth' });
         });
@@ -650,7 +651,7 @@ const CgArena = {
             d.hidden = false; d.className = 'cg-ar-done is-ok';
             d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-trophy"></i> Tüm trafik doğru yönlendi! <span class="cg-ar-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</span></div>
                 <p class="cg-ar-dm">${st.runs} deneme · ${st.hints} ipucu <small>(ipucu başına −1★; 4'ten fazla deneme −1★)</small>${t.panel ? ' · iRule satır çalışması: ' + (this._lastHits || 0) + (this._lastProf ? ' · profilde kesilen istek: ' + this._lastProf + ' (kurala hiç ulaşmadı)' : '') : ''}</p><ul>${t.learn.map(x => `<li>${x}</li>`).join('')}</ul>
-                <div class="cg-ar-db">${nx ? `<a class="cg-ar-go" href="#/arena/masa/${nx.id}"><i class="fas fa-arrow-right"></i> Sonraki görev</a>` : ''}<a class="cg-ar-ghost" href="#/arena"><i class="fas fa-chess-knight"></i> Arena</a></div>`;
+                <div class="cg-ar-db">${nx ? `<a class="cg-ar-go" href="${this._base}/masa/${nx.id}"><i class="fas fa-arrow-right"></i> Sonraki görev</a>` : ''}<a class="cg-ar-ghost" href="${this._base}"><i class="fas fa-chess-knight"></i> Arena</a></div>`;
         } else {
             d.hidden = false; d.className = 'cg-ar-done is-bad';
             d.innerHTML = `<div class="cg-ar-dh"><i class="fas fa-exclamation-triangle"></i> ${n - ok} istek beklendiği gibi sonuçlanmadı.</div><p class="cg-ar-dm">Kırmızı etiketler tutmayan parçayı gösterir (pool, kod, başlık ya da sunucuya giden yol); koddaki <b>×</b> sayıları hangi satırın kaç kez çalıştığını gösterir. Koda tıklayıp düzenle, yeniden başlat.</p>`;

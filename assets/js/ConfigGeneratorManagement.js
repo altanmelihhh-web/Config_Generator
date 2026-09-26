@@ -2069,12 +2069,23 @@ const ConfigGenerator = {
         if (nv) { const fix = '#/v' + (nv[1] || '').toLowerCase().replace(/\/+$/, '') + (nv[2] || ''); if (fix !== full) { history.replaceState(null, '', fix); full = fix; } }
         const qi = full.indexOf('?'), h = qi < 0 ? full : full.slice(0, qi);
         const P = new URLSearchParams(qi < 0 ? '' : full.slice(qi + 1));
+        // Arena aile bölümü: #/v/<aile>/arena[/<mod>/<görev>] (aile CG_FAMILIES'te arena alanıyla açılır)
+        const fa = h.match(/^#\/v\/([a-z0-9-]+)\/arena(?:\/(masa|meydan|waf|nobet)\/([a-z0-9-]+))?$/);
+        if (fa) {
+            const f = typeof CG_FAMILY_BY_SLUG !== 'undefined' && CG_FAMILY_BY_SLUG[fa[1]];
+            if (!f || !f.arena) { history.replaceState(null, '', '#/v' + (f ? '/' + f.slug : '')); this._route(); this._toast((f ? f.name + ' için' : 'Bu adreste') + ' arena yok.'); return; }
+            this._renderArena(fa[2], fa[3], f); return;
+        }
+        // Eski #/arena… adresleri (paylaşılmış bağlantılar) aile bağlamına yönlenir: #/v/f5/arena…
+        const oa = h.match(/^#\/arena(\/(?:masa|meydan|waf|nobet)\/[a-z0-9-]+)?$/);
+        if (oa && typeof cgArenaFamily === 'function' && cgArenaFamily()) { history.replaceState(null, '', '#/v/' + cgArenaFamily().slug + '/arena' + (oa[1] || '')); this._route(); return; }
         // Vendor rotaları en başta: #/v/<aile>/… (aile adları kayıt kimlikleriyle çakıştığı için önekli)
         const vr = h.match(/^#\/v(?:\/([a-z0-9-]+))?(?:\/([a-z]+))?(?:\/([a-z0-9-]+))?$/);
         if (vr) { this._routeFamily(vr[1], vr[2], vr[3], P); return; }
         if (h === '#/araclar') { this._renderHome({ fam: null, p: P.get('p'), k: P.get('k'), q: P.get('q') }); return; }
         const cli = h.match(/^#\/cli(?:\/([a-z0-9-]+))?$/);
-        if (cli) { this._renderCli(cli[1]); return; }
+        // #/cli/<k> (eski adres): vendoru belli → aile bağlamında (sol menü, yalnız ailenin kütüphaneleri); #/cli çapraz görünüm
+        if (cli) { const cf = cli[1] && typeof cgFamilyOf === 'function' ? cgFamilyOf(cli[1]) : null; this._renderCli(cli[1], cf && cf.cli.includes(cli[1]) ? cf : undefined); return; }
         const lp = h.match(/^#\/lab\/path\/([a-z0-9-]+)$/);
         if (lp) { this._renderLab(null, lp[1]); return; }
         const lab = h.match(/^#\/lab(?:\/([a-z0-9-]+))?$/);
@@ -2140,7 +2151,6 @@ const ConfigGenerator = {
             return;
         }
         if (sec === 'sorun' && !sub) { this._renderTs(null, P.get('k'), f); return; }
-        if (sec === 'arena' && !sub && f.arena) { redirect('#/arena'); return; }
         redirect('#/v/' + slug + '/araclar', 'Bu bölüm ' + f.name + ' için yok; ' + f.name + ' araçları gösteriliyor.');
     },
 
@@ -2174,12 +2184,16 @@ const ConfigGenerator = {
 
     // ── Üst çubuktaki aktif sekmeyi işaretle ────────────────────────────
     // title verilirse sekme eşlemesi yerine o başlık yazılır (aile sayfaları: Vendorlar sekmesi + "<Aile> lablar")
+    // Üst menü (S11a): Ana Sayfa · Platform (· Rehber · Blog · İletişim). Ürün bölümleri (vendors/tools/cli/lab/arena/ts/conv) Platform altında.
     _setNav(which, title) {
+        const top = which === 'home' ? 'home' : ['rehber', 'blog', 'iletisim'].includes(which) ? which : which ? 'platform' : null;
         document.querySelectorAll('.app-nav-tab').forEach(b => {
-            b.classList.toggle('active', b.dataset.nav === which);
-            if (b.dataset.nav === which) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+            const on = b.dataset.nav === top;
+            b.classList.toggle('active', on);
+            if (on && b.tagName === 'A') b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
         });
-        const T = { vendors: 'Vendorlar', tools: 'Config araçları', cli: 'Komut kütüphanesi', lab: 'CLI Laboratuvarı', arena: 'iRule Arenası', ts: 'Sorun giderme', conv: 'Dönüştürücü' };
+        if (typeof CgShell !== 'undefined') CgShell._nav = which;   // çekmece ve Platform menüsü geçerli bölümü işaretler
+        const T = { home: '', vendors: 'Vendorlar', tools: 'Config araçları', cli: 'Komut kütüphanesi', lab: 'CLI Laboratuvarı', arena: 'iRule Arenası', ts: 'Sorun giderme', conv: 'Dönüştürücü' };
         document.title = (title || T[which] ? (title || T[which]) + ' · ' : '') + 'Config Generator';
     },
 
@@ -2485,7 +2499,7 @@ const ConfigGenerator = {
 
     // ── TANITIM (A7): kırıntı ve sol ağaç yok (CgShell bu rotada ikisini de gizler); lab verisi yüklenmez ──
     _renderLanding() {
-        this._setNav(null);
+        this._setNav('home');
         this._vendor = this._type = null;
         CgLanding.render(this._root);   // document.title'ı CgLanding yazar
         window.scrollTo(0, 0);
@@ -2525,8 +2539,10 @@ const ConfigGenerator = {
     },
 
     // ── iRULE ARENASI: trafik masası (kural → canlı akış)
-    _renderArena(mode, id) {
-        this._setNav('arena');
+    // fam: arena alanı olan aile (#/v/<aile>/arena…); görev bağlantıları bu tabanla kurulur
+    _renderArena(mode, id, fam) {
+        this._setNav('arena', fam ? cgArenaName(fam) : null);
+        if (typeof CgArena !== 'undefined') CgArena._base = fam ? '#/v/' + fam.slug + '/arena' : '#/arena';
         this._vendor = this._type = null;
         if (typeof CgArena === 'undefined' || typeof CgCli === 'undefined') { this._root.innerHTML = '<div class="cg-empty"><p>Arena yüklenemedi.</p></div>'; return; }
         CgArena.render(this._root, mode, id);

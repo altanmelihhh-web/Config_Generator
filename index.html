@@ -23,8 +23,8 @@
   <link rel="stylesheet" href="assets/css/base.css?v=751ca0ee">
   <link rel="stylesheet" href="assets/css/config-generator.css?v=eb4c3d5e">
   <link rel="stylesheet" href="assets/css/cg-nobet.css?v=a244faf9">
-  <link rel="stylesheet" href="assets/css/shell.css?v=a0a1e4a0">
-  <link rel="stylesheet" href="assets/css/hub.css?v=0be3c6e9">
+  <link rel="stylesheet" href="assets/css/shell.css?v=02e5d233">
+  <link rel="stylesheet" href="assets/css/hub.css?v=aec05429">
   <link rel="stylesheet" href="assets/css/landing.css?v=999762c6">
   <link rel="stylesheet" href="assets/css/tools.css?v=dd73c90e">
   <link rel="stylesheet" href="assets/css/palette.css?v=79268dd7">
@@ -38,27 +38,15 @@
       <span class="app-brand-txt">Config Generator<small>Network konfigürasyon üretici &amp; dönüştürücü</small></span>
     </a>
     <nav class="app-nav" id="app-nav" aria-label="Ana menü">
-      <button class="app-nav-tab" data-nav="vendors" title="Vendorlar" aria-label="Vendorlar" onclick="location.hash='#/v'">
-        <i class="fas fa-building"></i> <span class="app-nav-l">Vendorlar</span>
-      </button>
-      <button class="app-nav-tab" data-nav="tools" title="Araçlar" aria-label="Araçlar" onclick="ConfigGenerator.goHome()">
-        <i class="fas fa-th-large"></i> <span class="app-nav-l">Araçlar</span>
-      </button>
-      <button class="app-nav-tab" data-nav="cli" title="Komutlar" aria-label="Komutlar" onclick="location.hash='#/cli'">
-        <i class="fas fa-terminal"></i> <span class="app-nav-l">Komutlar</span>
-      </button>
-      <button class="app-nav-tab" data-nav="lab" title="CLI Laboratuvarı" aria-label="Lab" onclick="location.hash='#/lab'">
-        <i class="fas fa-flask"></i> <span class="app-nav-l">Lab</span>
-      </button>
-      <button class="app-nav-tab" data-nav="arena" title="iRule Arenası" aria-label="Arena" onclick="location.hash='#/arena'">
-        <i class="fas fa-chess-knight"></i> <span class="app-nav-l">Arena</span>
-      </button>
-      <button class="app-nav-tab" data-nav="ts" title="Sorun Giderme" aria-label="Sorun Giderme" onclick="location.hash='#/troubleshoot'">
-        <i class="fas fa-stethoscope"></i> <span class="app-nav-l">Sorun Giderme</span>
-      </button>
-      <button class="app-nav-tab" data-nav="conv" title="Dönüştürücü" aria-label="Dönüştürücü" onclick="location.hash='#/converter'">
-        <i class="fas fa-exchange-alt"></i> <span class="app-nav-l">Dönüştürücü</span>
-      </button>
+      <a class="app-nav-tab" data-nav="home" href="#/"><i class="fas fa-home" aria-hidden="true"></i> <span class="app-nav-l">Ana Sayfa</span></a>
+      <div class="app-nav-dd">
+        <button type="button" class="app-nav-tab" data-nav="platform" aria-expanded="false" aria-controls="cg-plat-menu"><i class="fas fa-cubes" aria-hidden="true"></i> <span class="app-nav-l">Platform</span> <i class="fas fa-chevron-down app-nav-caret" aria-hidden="true"></i></button>
+        <ul class="app-nav-menu" id="cg-plat-menu" aria-label="Platform" hidden></ul>
+      </div>
+      <!-- S11b: Rehber, Blog, İletişim sayfaları hazır olunca görünür -->
+      <a class="app-nav-tab" data-nav="rehber" href="#/rehber" hidden><i class="fas fa-compass" aria-hidden="true"></i> <span class="app-nav-l">Rehber</span></a>
+      <a class="app-nav-tab" data-nav="blog" href="#/blog" hidden><i class="fas fa-pen-nib" aria-hidden="true"></i> <span class="app-nav-l">Blog</span></a>
+      <a class="app-nav-tab" data-nav="iletisim" href="#/iletisim" hidden><i class="fas fa-envelope" aria-hidden="true"></i> <span class="app-nav-l">İletişim</span></a>
     </nav>
     <div class="app-actions">
       <button type="button" class="app-search" data-pal-open aria-haspopup="dialog" aria-expanded="false" aria-controls="cg-pal" aria-keyshortcuts="Control+K" aria-label="Vendor, araç, lab, komut ara (Ctrl K)" title="Ara (Ctrl K)"><i class="fas fa-search" aria-hidden="true"></i><span class="app-search-t" aria-hidden="true">Vendor, araç, lab, komut ara…</span><kbd aria-hidden="true">Ctrl K</kbd></button>
@@ -146,18 +134,18 @@
   <script src="assets/js/ConfigConverter_Readers_CheckPoint.js?v=b6ebf004"></script>
   <script src="assets/js/ConfigConverter_Readers_Other.js?v=9ae05d19"></script>
   <script src="assets/js/ConfigConverter.js?v=2fae64ea"></script>
-  <script src="assets/js/cg-brands.js?v=c2bf124c"></script>
+  <script src="assets/js/cg-brands.js?v=3a103b17"></script>
   <script src="assets/js/cg-logos-extra.js?v=96d21c19"></script>
-  <script src="assets/js/cg-families.js?v=9221aea3"></script>
-  <script src="assets/js/CgShell.js?v=8c1539f3"></script>
+  <script src="assets/js/cg-families.js?v=7ac3fd09"></script>
+  <script src="assets/js/CgShell.js?v=2d2349c2"></script>
   <script src="assets/js/CgCli.js?v=6c35c522"></script>
   <script src="assets/js/CgTroubleshoot.js?v=9d145728"></script>
   <script src="assets/js/CgLab.js?v=5572b74c"></script>
-  <script src="assets/js/CgArena.js?v=77443497"></script>
-  <script src="assets/js/CgHub.js?v=9fd9bb19"></script>
-  <script src="assets/js/CgLanding.js?v=d9f73142"></script>
-  <script src="assets/js/CgPalette.js?v=7beac11b"></script>
-  <script src="assets/js/ConfigGeneratorManagement.js?v=56f51059"></script>
+  <script src="assets/js/CgArena.js?v=1335782a"></script>
+  <script src="assets/js/CgHub.js?v=9cca5f66"></script>
+  <script src="assets/js/CgLanding.js?v=69527945"></script>
+  <script src="assets/js/CgPalette.js?v=0d625417"></script>
+  <script src="assets/js/ConfigGeneratorManagement.js?v=27d834a2"></script>
   <script src="assets/js/app.js?v=02017eb1"></script>
 </body>
 </html>

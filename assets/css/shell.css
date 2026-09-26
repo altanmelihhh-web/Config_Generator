@@ -53,7 +53,39 @@
 @media (max-width: 1279.98px) { .app-menu-btn { display: inline-flex; } }
 @media (max-width: 1150px) { .app-brand small { display: none; } }
 /* 1280 altında sekmeler yalnız ikon (Vendorlar sekmesiyle nav 961–1279'da taşıyordu); ad title + aria-label'da, çekmecede etiketli */
-@media (max-width: 1279.98px) { .app-nav-l { display: none; } .app-nav-tab { padding: 8px 10px; } }
+/* Açık tema: marka renkli logo işaretleri (çip, kırıntı, lab kartı) açık zeminde ≥3:1 olsun diye koyulaştırılır (harf rozetiyle aynı oran).
+   Seçili çipte işaret beyaz kalır (config-generator.css .cg-chip.active .cg-mark). */
+:root:not([data-theme="dark"]) #config-generator-root .cg-mark:not(.cg-mark-txt), :root:not([data-theme="dark"]) .cg-mark:not(.cg-mark-txt) { color: color-mix(in srgb, var(--bc, var(--subtle)) 65%, #000000); }
+:root:not([data-theme="dark"]) #config-generator-root .cg-chip.active .cg-mark { color: inherit; }
+/* Kelime logolu işaret (cgBrandMark, vb): çip/kırıntı rozeti genişler */
+.cg-mark.cg-mark-wide, #config-generator-root .cg-mark.cg-mark-wide, #config-generator-root .cg-chip .cg-mark.cg-mark-wide { width: auto; min-width: 26px; padding: 0 4px; }
+
+/* Üst menü (S11a): Ana Sayfa · Platform (· Rehber · Blog · İletişim). Az sekme: etiketler 961px ve üstünde görünür. */
+.app-nav { align-items: center; }
+a.app-nav-tab { text-decoration: none; }
+.app-nav-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.app-nav-caret { font-size: .7em; margin-left: 2px; transition: transform var(--dur-fast, 150ms); }
+.app-nav-tab[aria-expanded="true"] .app-nav-caret { transform: rotate(180deg); }
+.app-nav-dd { position: relative; }
+.app-nav-menu {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; min-width: 300px; margin: 0; padding: 6px; list-style: none;
+    border: 1px solid var(--border); border-radius: var(--radius, 10px); background: var(--bg); box-shadow: 0 12px 32px rgba(0, 0, 0, .16);
+}
+.app-nav-menu a { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 8px 10px; border-radius: 8px; color: var(--text); text-decoration: none; }
+.app-nav-menu a i { width: 18px; margin-top: 3px; text-align: center; color: var(--muted); }
+.app-nav-menu a span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.app-nav-menu a b { font-weight: 600; font-size: .9rem; }
+.app-nav-menu a small { font-size: .78rem; color: var(--muted); }
+.app-nav-menu a:hover, .app-nav-menu a:focus-visible { background: var(--surface); }
+.app-nav-menu a:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.app-nav-menu a[aria-current] { background: var(--primary-soft); }
+.app-nav-menu a[aria-current] b, .app-nav-menu a[aria-current] i { color: var(--primary); }
+/* Lab terminali: 1280–1439'da sol menü yerine menü düğmesi + çekmece (terminal ve görev paneli geniş kalır) */
+@media (min-width: 1280px) and (max-width: 1439.98px) {
+    body.cg-side-narrow .cg-side { display: none !important; }
+    body.cg-side-narrow.cg-has-side .cg-shell { display: block; }
+    body.cg-side-narrow .app-menu-btn { display: inline-flex; }
+}
 @media (max-width: 960px) {
     .app-nav { display: none; }
     .app-menu-btn { width: 40px; height: 40px; }
