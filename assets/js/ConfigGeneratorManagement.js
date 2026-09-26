@@ -45,470 +45,29 @@ function cgExpandIfList(s) {
     return out;
 }
 
-const CG_VALIDATORS = {
-    ip:       { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Geçerli bir IPv4 adresi girin (örn: 10.0.0.1)' },
-    cidr:     { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/, msg: 'CIDR formatında girin (örn: 10.0.0.0/24)' },
-    ipv6:     { fn: v => _cgIpv6(String(v).trim()), msg: 'Geçerli IPv6 adresi girin (örn: 2001:db8::1)' },
-    ipv6_cidr:{ fn: v => { const p=String(v).trim().split('/'); return p.length === 2 && _cgIpv6(p[0]) && _cgInt(p[1], 0, 128); }, msg: 'IPv6 CIDR biçiminde girin (örn: 2001:db8::/32)' },
-    subnet:   { fn: v => cgMaskLen(String(v).trim()) !== '', msg: 'Bitişik bitli geçerli subnet mask girin (örn: 255.255.255.0)' },
-    // ASA nameif: arayuzun mantiksal adi (outside, inside, dmz, partner). Fiziksel
-    // arayuz adi degildir; 'iface' dogrulayicisi rakamsiz adlari reddediyordu.
-    nameif:   { re: /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/, msg: 'Nameif girin (örn: outside, inside, dmz)' },
-    // Genel nesne adi (VRF, VLAN adi, grup, profil): harfle baslar, bosluk yok.
-    objname:  { re: /^[A-Za-z][A-Za-z0-9_.:-]{0,62}$/, msg: 'Geçerli bir ad girin (harfle başlar, boşluk içermez)' },
-    ios_acl:  { fn: v => /^(?:[1-9]|[1-9]\d|1[0-9]{2}|1[3-9]\d{2}|2[0-6]\d{2}|[A-Za-z][A-Za-z0-9_.:-]{0,62})$/.test(String(v).trim()), msg: 'ACL numarası (1-199/1300-2699) veya harfle başlayan ACL adı girin' },
-    // SNMPv3 USM auth/priv passphrase için Cisco'nun belgelediği asgari uzunluk.
-    // Genel PSK/TACACS/NTP sırlarına uygulanmaz; bu sınırlar sürüme/komuta göre değişir.
-    snmpv3_secret:{ fn: v => String(v).length >= 8, msg: 'SNMPv3 parolası en az 8 karakter olmalı' },
-    ios_domain:{ fn: v => { const t=String(v).trim(); return t.length <= 253 && t.includes('.') && t.split('.').every(x => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(x)); }, msg: 'Geçerli tam domain adı girin (örn: example.com)' },
-    ios_proto_list:{ fn: v => String(v).split(',').map(x=>x.trim().toLowerCase()).filter(Boolean).every(x => ['tcp','udp','icmp','ftp','http','https','dns','smtp','sip','h323'].includes(x)), msg: 'Desteklenen protokolleri virgülle ayırın (örn: tcp,udp,icmp)' },
-    isis_net: { re: /^[0-9a-fA-F]{2}(?:\.[0-9a-fA-F]{4}){3,6}\.00$/, msg: 'Geçerli IS-IS NET girin; selector .00 olmalı (örn: 49.0001.0000.0000.0001.00)' },
-    archive_path:{ fn: v => /^(?:flash:|bootflash:|nvram:|disk0:|scp:\/\/|tftp:\/\/|ftp:\/\/|https?:\/\/|rcp:\/\/)[^\s\r\n]+$/i.test(String(v).trim()), msg: 'Geçerli flash/bootflash/nvram/disk0/scp/tftp/ftp/http(s)/rcp arşiv yolu girin' },
-    // Bitisik ag maskesi (255.255.255.0 gibi); Cisco disi vendorlarin maske alanlari bunu
-    // kullanir. 'subnet' Cisco alanlarina ozeldir (ayni kural, Cisco belgesine gore).
-    // prefix'e cevrilecek alanlarda bu kullanilir — 255.0.255.0 cevrilemez.
-    netmask:  { fn: v => cgMaskLen(String(v).trim()) !== '', msg: 'Geçerli ağ maskesi girin (örn: 255.255.255.0)' },
-    posint:   { fn: v => _cgInt(v, 1, 2147483647), msg: 'Pozitif tam sayı girin' },
-    track_id: { fn: v => _cgInt(v, 1, 1000), msg: 'Track object numarası 1-1000 arasında olmalı' },
-    ip_sla_id:{ fn: v => _cgInt(v, 1, 2147483647), msg: 'IP SLA operasyon numarası 1-2147483647 arasında olmalı' },
-    ospf_pid: { fn: v => _cgInt(v, 1, 65535), msg: 'OSPF process ID 1-65535 arasında olmalı' },
-    ospf_area:{ fn: v => _cgInt(v, 0, 4294967295) || CG_VALIDATORS.ip.re.test(String(v).trim()), msg: 'OSPF area 0-4294967295 veya dotted-decimal biçiminde olmalı' },
-    nxos_process_tag:{ re: /^[A-Za-z0-9]{1,63}$/, msg: 'NX-OS process/instance tag 1-63 alfanümerik karakter olmalı' },
-    objname_list:{ fn: v => String(v).trim().split(/\s+/).every(x => CG_VALIDATORS.objname.re.test(x)), msg: 'Adları boşlukla ayırın; her ad harfle başlamalı ve boşluk içermemeli' },
-    bgp_community_list:{ fn: v => String(v).trim().split(/\s+/).every(x => /^(?:\d+:\d+|internet|local-as|no-advertise|no-export|graceful-shutdown)$/i.test(x)), msg: 'BGP community girin (örn: 65000:100 no-export)' },
-    uint32_delta:{ fn: v => /^[+-]?\d+$/.test(String(v).trim()) && Math.abs(Number(v)) <= 4294967295, msg: '0-4294967295 aralığında sayı veya +/− değişim girin' },
-    uint32:{ fn: v => _cgInt(v, 0, 4294967295), msg: '0-4294967295 arasında tam sayı girin' },
-    tcpudp_port:{ fn: v => _cgInt(v, 1, 65535), msg: 'Port 1-65535 arasında olmalı' },
-    telemetry_id:{ re: /^[A-Za-z0-9]+$/, msg: 'Telemetry kimliği yalnız harf ve rakam içermeli' },
-    telemetry_depth:{ re: /^(?:unbounded|\d+)$/i, msg: 'Depth için 0, pozitif sayı veya unbounded girin' },
-    single_cli_line:{ fn: v => { const s=String(v); return s.trim().length > 0 && !/[\r\n\0]/.test(s); }, msg: 'Tek satırlık CLI değeri girin; satır sonu içeremez' },
-    fhrp_group:{ fn: (v, el) => {
-        const form = el && el.form, type = form && form.querySelector('[name="_cgtype"]')?.value;
-        if (type === 'vrrp') return _cgInt(v, 1, 255);
-        if (type === 'glbp') return _cgInt(v, 0, 1023);
-        const v2 = form && form.querySelector('[name="hsrp_v2"]')?.checked;
-        return _cgInt(v, 0, v2 ? 4095 : 255);
-    }, msg: 'Grup aralığı: VRRP 1-255, GLBP 0-1023, HSRPv1 0-255, HSRPv2 0-4095' },
-    // Next-hop: IP adresi VEYA cikis arayuzu ('ip route 0.0.0.0 0.0.0.0 Gi0/0')
-    nexthop:  { fn: v => { const t = String(v).trim(); return /^[\d.]+$/.test(t) ? CG_VALIDATORS.ip.re.test(t) : _cgIface(t); },
-                msg: 'Next-hop IP adresi veya çıkış arayüzü girin (örn: 192.168.1.1, GigabitEthernet0/0)' },
-    // Wildcard (ters) maske: 0.0.0.255 = /24. Huawei VRP ve Cisco ACL'lerinde kullanilir.
-    wildcard: { re: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/, msg: 'Wildcard maske girin (örn: 0.0.0.255 = /24)' },
-    // Ağ/prefix seçen alanlarda güvenli Cisco wildcard: subnet maskesinin bit
-    // düzeyinde tersi olmalıdır (0*1*). IOS ACL'leri non-contiguous wildcard da
-    // destekler; fakat bunun yanlışlıkla girilmesi çok daha yaygındır. Bu sıkı
-    // doğrulayıcı bilinçli "advanced wildcard" desteği eklenene kadar onu reddeder.
-    wildcard_mask: { fn: v => {
-        const p = String(v).trim().split('.');
-        if (p.length !== 4 || !p.every(o => /^\d{1,3}$/.test(o) && +o <= 255)) return false;
-        const bits = p.map(o => (+o).toString(2).padStart(8, '0')).join('');
-        return /^0*1*$/.test(bits);
-    }, msg: 'Ters subnet maskesi girin (örn: /24 için 0.0.0.255); dağınık bitli wildcard güvenli modda kabul edilmez' },
-    ip_cidr:  { fn: v => /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(v) || /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)\/(3[0-2]|[12]?\d)$/.test(v), msg: 'IP adresi veya CIDR (örn: 10.0.0.1 veya 10.0.0.0/24)' },
-    vlan:     { fn: v => _cgInt(v, 1, 4094), msg: 'VLAN ID 1-4094 arasında olmalı' },
-    asn:      { fn: v => { const n = parseInt(v); return (!isNaN(n) && n >= 1 && n <= 4294967295) || /^\d+\.\d+$/.test(v.trim()); }, msg: 'AS numarası 1-4294967295 veya dotted (ör: 65000 veya 1.100)' },
-    // Tek port. ACL alanlarinda 'eq 80', 'range 80 443', 'any' gibi ifadeler
-    // kullanildigi icin onlar ayri 'port_match' dogrulayicisinda.
-    port:     { fn: v => _cgInt(v, 0, 65535), msg: 'Port 0-65535 arasında olmalı' },
-    port_match:{ fn: v => { const t = String(v).trim().toLowerCase();
-                       if (!t || t === 'any') return true;
-                       let m = t.match(/^(eq|neq|gt|lt)\s+(\S+)$/);
-                       if (m) return _cgInt(m[2], 0, 65535) || /^[a-z][a-z0-9-]*$/.test(m[2]);
-                       m = t.match(/^range\s+(\S+)\s+(\S+)$/);
-                       if (m) return _cgInt(m[1], 0, 65535) && _cgInt(m[2], 0, 65535) && +m[1] <= +m[2];
-                       // Operator tek basina ('eq') adlandirilmis port sanilmasin
-                       if (/^(eq|neq|gt|lt|range)$/.test(t)) return false;
-                       return _cgInt(t, 0, 65535) || /^[a-z][a-z0-9-]*$/.test(t); },
-                msg: 'Port ifadesi girin: 80 · eq 80 · range 80 443 · gt 1024 · any' },
+// ─── Doğrulayıcılar ─────────────────────────────────────────────────────────
+// Tanımlar cihaz ailesine özgüdür: assets/js/validators/common.js (her vendorda
+// aynı anlamlı genel doğrulayıcılar + çözümleyici) ve <aile>.js (cisco, f5,
+// checkpoint, huawei …). Alan 'validate' adıyla, araç ailesiyle çözülür:
+// cgValidator(ad, aile) → önce aile, sonra common; başka ailenin tanımı görünmez.
+// Form öğesinde data-cgv = ad, data-cgf = aile.
+//
+// Üç metin ayrı işler görür:
+//   hint  -> alan NE (Trunk allowed VLAN listesi)
+//   why   -> NEDEN önemli (kavram, risk)
+//   rule  -> NE GİREBİLİRİM (aralık, biçim, ne kabul edilmez)  <- cgValRule
+//   hata  -> girdiğimin NESİ yanlış                           <- cgValWhy
 
-    // 'IP maske' ikilisi: '10.0.0.1 255.255.255.0' (Cisco/Huawei stili)
-    ip_mask:  { fn: v => { const p = String(v).trim().split(/\s+/);
-                       if (p.length !== 2) return false;
-                       const ipRe = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-                       return ipRe.test(p[0]) && ipRe.test(p[1]); },
-                msg: 'IP ve maske girin (örn: 10.0.0.1 255.255.255.0)' },
+// Formu kuran aracın ailesi (cgFamilyOf(regId).slug). ConfigGenerator._renderWork
+// gen.init'ten önce ayarlar; cgFormBuilder alanlara data-cgf olarak yazar.
+let cgValFamily = null;
 
-    // 'IP:port' (F5 virtual server hedefi)
-    host_port:{ fn: v => { const m = String(v).trim().match(/^(.+):(\d+)$/);
-                       if (!m) return false;
-                       const ipRe = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-                       // Yalnizca rakam ve noktadan olusan host bir IP'dir; '300.1.1.1' host adi sayilmaz
-                       const hostOk = /^[\d.]+$/.test(m[1]) ? ipRe.test(m[1]) : /^[a-z0-9][a-z0-9.-]*$/i.test(m[1]);
-                       return hostOk && _cgInt(m[2], 0, 65535); },
-                msg: 'IP:port veya host:port girin (örn: 10.1.1.100:443)' },
-    hostname: { re: /^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,61}[a-zA-Z0-9])?$/, msg: 'Geçerli hostname girin (harf, rakam, tire)' },
-    mac:      { re: /^([0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}$/, msg: 'MAC adresi formatında girin (örn: 00:1A:2B:3C:4D:5E)' },
-    prefix:   { fn: v => _cgInt(v, 0, 128), msg: 'Prefix 0-128 arasında olmalı' },
-    // Gecerli bicimler: 65000:100 · 10.0.0.1:100 (IP:nn) · auto · target:65001:100 (Junos)
-    rd:       { fn: v => _cgRdRt(String(v).trim()), msg: 'RD girin (örn: 65000:100, 10.0.0.1:100 veya auto)' },
-    rt:       { fn: v => _cgRdRt(String(v).trim()), msg: 'RT girin (örn: 65000:100, target:65001:100 veya auto)' },
-    ios_rt:   { fn: v => /^(?:\d+|(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)){3}):\d+$/.test(String(v).trim()), msg: 'Cisco IOS route-target girin (örn: 65000:100 veya 192.0.2.1:100)' },
-    vni:      { fn: v => _cgInt(v, 1, 16777215), msg: 'VNI 1-16777215 arasında olmalı' },
-    bgp_timer:{ fn: v => _cgInt(v, 1, 65535), msg: 'Timer 1-65535 saniye arasında olmalı' },
-
-    // ── Arayuz adi ────────────────────────────────────────────────────────
-    // Coklu vendor: GigabitEthernet0/1, Gi0/1, Te1/1/1, Ethernet1/1, ge-0/0/0,
-    // ae0, xe-0/0/0, port1, ether1, Eth-Trunk1, Vlanif10, ethernet1/1/1,
-    // Port-channel1, Vlan10, Loopback0, Tunnel0, mgmt0, 1.1 (F5)
-    // Kabul edilmeyen: bosluk iceren serbest metin, rakamsiz uydurma kelime.
-    iface:    { fn: v => _cgIface(String(v).trim()), msg: 'Geçerli bir arayüz adı girin (örn: GigabitEthernet0/1, ge-0/0/0, port1, Eth-Trunk1)' },
-
-    // IOS/IOS-XE arayüzü. Genel çok-vendor doğrulayıcı yalnızca "rakam içeriyor"
-    // kontrolü yaptığı için Gig1/21323123 gibi uydurma değerleri geçiriyordu.
-    ios_iface:{ fn: v => _cgIosIface(String(v).trim()), msg: 'Geçerli Cisco IOS arayüzü girin (örn: GigabitEthernet0/1, Gi1/0/24, Port-channel1, Vlan10)' },
-    ios_iface_or_ip:{ fn: v => CG_VALIDATORS.ip.re.test(String(v).trim()) || _cgIosIface(String(v).trim()), msg: 'Geçerli IPv4 adresi veya Cisco IOS arayüzü girin' },
-    ios_iface_lines:{ fn: v => String(v).split(/[\r\n,]+/).map(x=>x.trim()).filter(Boolean).length > 0 && String(v).split(/[\r\n,]+/).map(x=>x.trim()).filter(Boolean).every(_cgIosIface), msg: 'Her satıra geçerli bir Cisco IOS arayüzü girin' },
-
-    // Arayuz araligi: 'Gi0/1-2', 'GigabitEthernet0/1 - 10', 'ethernet1/1/1-1/1/10'
-    // veya virgulle ayrilmis liste.
-    // Arayuz veya aralik. Virgul ve BOSLUK ile ayrilmis liste de kabul edilir
-    // ('ge-0/0/3.0, lo0.0' / 'port3 port4' gibi gercek kullanimlar var).
-    //
-    // Tire ayirici SONDAN aranir: eski tembel eslesme 'ge-0/0/1' ifadesini ilk
-    // tireden bolup sol tarafi 'ge' yapiyor ve reddediyordu — Juniper ge-/xe-/et-,
-    // Huawei Eth-Trunk1, Dell port-channel1, MikroTik sfp-sfpplus1 hepsi bu
-    // yuzden gecersiz sayiliyordu.
-    iface_range: { fn: v => String(v).split(/[,\s]+/).filter(Boolean).every(p => {
-                       const t = p.trim();
-                       if (_cgIface(t)) return true;               // tek arayuz
-                       const i = t.lastIndexOf('-');
-                       if (i <= 0 || i === t.length - 1) return false;
-                       const a = t.slice(0, i).trim(), b = t.slice(i + 1).trim();
-                       return _cgIface(a) && (/^[0-9/.:]+$/.test(b) || _cgIface(b));
-                   }), msg: 'Arayüz veya aralık girin (örn: Gi0/1-2, ge-0/0/1, port3 port4)' },
-
-    // F5 BIG-IP arayuzleri ciplak sayisaldir: '1.1', '1.2', '2.1'
-    // Ayri tutulur; genel iface'e konursa diger vendor'larda '1.2' arayuz sanilir.
-    iface_f5: { fn: v => /^\d+(\.\d+)+$/.test(String(v).trim()) || _cgIface(String(v).trim()),
-                msg: 'F5 arayüzü girin (örn: 1.1, 1.2) veya trunk/VLAN adı' },
-
-    // IP araligi: '10.0.0.10-10.0.0.100' veya '10.0.0.10 10.0.0.100'
-    // DHCP havuzu, NAT havuzu, adres araligi alanlarinda kullanilir.
-    ip_range: { fn: v => { const t = String(v).trim();
-                    const parts = t.split(/\s*[-\s]\s*/).filter(Boolean);
-                    if (parts.length !== 2) return false;
-                    const re = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-                    if (!parts.every(x => re.test(x))) return false;
-                    const num = a => a.split('.').reduce((n, o) => n * 256 + (+o), 0);
-                    return num(parts[0]) <= num(parts[1]); },
-                msg: 'IP aralığı girin, başlangıç ≤ bitiş (örn: 10.0.0.10-10.0.0.100)' },
-
-    // VLAN listesi: '10', '10,20,30', '10-20', '1,10-20,99', 'all', 'none'
-    // Ayraclar: virgul, BOSLUK. Aralik: '10-20' veya Huawei bicimi '20 to 30'.
-    vlan_list:{ fn: v => { let t = String(v).trim().toLowerCase();
-                       if (t === 'all' || t === 'none') return true;
-                       t = t.replace(/\s+to\s+/g, '-');   // Huawei 'vlan batch 20 to 30'
-                       return t.split(/[,\s]+/).filter(Boolean).every(p => {
-                           const q = p.trim(); if (!q) return false;
-                           const r = q.match(/^(\d+)\s*-\s*(\d+)$/);
-                           if (r) { const a = +r[1], b = +r[2];
-                                    return a >= 1 && b <= 4094 && a <= b; }
-                           return _cgInt(q, 1, 4094);
-                       }); },
-                msg: 'VLAN listesi girin: 10 · 10,20,30 · 10-20 · all' },
-};
-
-// parseInt('10abc') === 10 oldugu icin eski dogrulayicilar '10abc' gibi
-// degerleri KABUL EDIYORDU. Tam sayi olmayani reddeder.
-function _cgInt(v, min, max) {
-    const t = String(v).trim();
-    if (!/^\d+$/.test(t)) return false;
-    const n = parseInt(t, 10);
-    return n >= min && n <= max;
-}
-
-// IPv6 sözdizimi: tek bir :: kısaltması, 8 adet 16-bit grup ve yalnız sonda
-// isteğe bağlı IPv4 kuyruğu. DNS çözümü yapmadan yalnız CLI adres biçimini sınar.
-function _cgIpv6(value) {
-    const s = String(value || '').trim();
-    if (!s || /[^0-9a-fA-F:.]/.test(s) || (s.match(/::/g) || []).length > 1) return false;
-    const sides = s.split('::');
-    const groups = [];
-    for (const side of sides) {
-        if (!side) continue;
-        const parts = side.split(':');
-        if (parts.some(x => !x)) return false;
-        groups.push(...parts);
-    }
-    let units = 0;
-    for (let i = 0; i < groups.length; i++) {
-        const g = groups[i];
-        if (g.includes('.')) {
-            if (i !== groups.length - 1 || !CG_VALIDATORS.ip.re.test(g)) return false;
-            units += 2;
-        } else {
-            if (!/^[0-9a-fA-F]{1,4}$/.test(g)) return false;
-            units++;
-        }
-    }
-    return sides.length === 2 ? units < 8 : units === 8;
-}
-
-// Bilinen adsiz arayuzler (rakam icermeyenler)
-// Rakam icermeyen gecerli arayuz / mantiksal arayuz adlari.
-// ASA'da arayuzlere nameif ile isim verilir ('outside', 'inside', 'management');
-// bu isimler config'te arayuz yerine gecer ve reddedilmemeli.
-const _CG_BARE_IF = ['bridge', 'irb', 'internal', 'external', 'wan', 'lan', 'dmz',
-                     'mgmt', 'management', 'outside', 'inside', 'untrust', 'trust',
-                     'loopback', 'null', 'vlan', 'any', 'all', 'guest', 'server',
-                     'voice', 'core', 'edge', 'transit'];
-function _cgRdRt(t) {
-    if (!t) return false;
-    if (t.toLowerCase() === 'auto') return true;
-    const m = t.match(/^(?:target:|origin:)?([^:]+):(\d+)$/i);
-    if (!m) return false;
-    const left = m[1];
-    if (/^\d+$/.test(left)) return true;                                   // 65000:100
-    return /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/.test(left); // 10.0.0.1:100
-}
-
-function _cgIface(t) {
-    if (!t || /\s/.test(t)) return false;              // bosluk yok
-    // Arayuz adi HARFLE baslar. F5'in '1.1' bicimi ciplak sayisaldir ve yalnizca
-    // F5 alanlarinda gecerlidir — genel dogrulayiciya konursa '1.2' gibi girdiler
-    // her vendor'da arayuz sanilir ve 'interface range 1.2' gibi gecersiz satir
-    // uretilir. O bicim ayri 'iface_f5' dogrulayicisinda.
-    if (!/^[A-Za-z0-9/._:-]+$/.test(t)) return false;  // gecersiz karakter
-    // Huawei CE aile adlari RAKAMLA baslar: 10GE1/0/1, 25GE1/0/1, 40GE1/0/1, 100GE1/0/1
-    if (/^\d+GE\d/i.test(t)) return true;
-    // Ciplak sayisal ('1.2', '1-2') arayuz DEGILDIR — F5 icin iface_f5 kullanilir.
-    if (/^[\d.\-]+$/.test(t)) return false;
-    if (!/^[A-Za-z]/.test(t)) return false;
-    if (/[-./:]$/.test(t)) return false;               // 'Gi0/1-' yarim kalmis aralik
-    if (/\d/.test(t)) return true;                     // rakam iceriyorsa gecerli say
-    return _CG_BARE_IF.includes(t.toLowerCase());      // rakamsizsa bilinen ad olmali
-}
-
-function _cgIosIface(t) {
-    if (!t || /\s/.test(t)) return false;
-    // IOS/IOS-XE'de yaygın fiziksel ve mantıksal aileler. Kısaltmalar CLI'nin
-    // yerleşik kısaltmalarıyla sınırlı; rastgele harf+rakam adları kabul edilmez.
-    const m = t.match(/^(GigabitEthernet|Gig|Gi|FastEthernet|Fast|Fa|Ethernet|Eth|Et|TenGigabitEthernet|TenGig|Te|TwentyFiveGigE|Twe|FortyGigabitEthernet|Fo|HundredGigE|Hu|Serial|Se|Loopback|Lo|Tunnel|Tu|Vlan|Vl|Port-channel|Po|Bundle-Ether|BE|BDI|Dialer|Di|Cellular|Ce|ATM|Async|Null|Nu)(\d+(?:\/\d+){0,2})(?:\.(\d+))?$/i);
-    if (!m) return false;
-    const parts = m[2].split('/').map(Number);
-    // Gerçek slot/port üst sınırı modele bağlıdır. 0..255 yapısal bir korumadır;
-    // kesin donanım varlığı ancak platform/model seçimiyle doğrulanabilir.
-    if (parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false;
-    if (m[3] !== undefined && (+m[3] < 0 || +m[3] > 4294967295)) return false;
-    return true;
-}
-
-// ─── Geçersizlik sebebi ("nesi yanlış") ─────────────────────────────────────
-// `msg` NE girilmesi gerektiğini söyler; buradaki fonksiyonlar girilen değerin
-// NESİNİN yanlış olduğunu söyler. İkisi tek satırda birleşir:
-//   "VLAN ID 1-4094 arasında olmalı — girdiğiniz 30000 üst sınırın (4094) üstünde"
-// Değer tanıdık bir hata biçimine uymuyorsa boş döner; o zaman yalnızca `msg`
-// gösterilir — yanlış sebep üretmektense hiç üretmemek yeğdir.
-
-const _CG_IPRE = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-
-function _cgQ(s) { return '"' + s + '"'; }
-
-function _cgNumWhy(t, min, max) {
-    if (!t) return '';
-    if (/^-\d/.test(t)) return 'negatif değer kabul edilmez';
-    if (/^\d+[.,]\d+$/.test(t)) return 'ondalıklı değil, tam sayı olmalı';
-    if (!/^\d+$/.test(t)) return _cgQ(t) + ' bir tam sayı değil';
-    const n = parseInt(t, 10);
-    if (n < min) return 'girdiğiniz ' + n + ' alt sınırın (' + min + ') altında';
-    if (n > max) return 'girdiğiniz ' + n + ' üst sınırın (' + max + ') üstünde';
-    return '';
-}
-
-function _cgIpWhy(t) {
-    if (!t) return '';
-    if (t.indexOf('/') >= 0) return 'bu alan CIDR öneki almaz, yalnızca adres girin';
-    const p = t.split('.');
-    if (p.length !== 4) return 'IPv4 dört parçadan oluşur, ' + p.length + ' parça girdiniz';
-    for (const o of p) {
-        if (o === '') return 'boş oktet var — noktalar arasında sayı olmalı';
-        if (!/^\d+$/.test(o)) return _cgQ(o) + ' sayı değil';
-        if (+o > 255) return o + ' geçerli bir oktet değil (0-255)';
-    }
-    return '';
-}
-
-function _cgCidrWhy(t) {
-    if (!t) return '';
-    const i = t.indexOf('/');
-    if (i < 0) return 'prefix eksik — sonuna /24 gibi bir önek ekleyin';
-    const r = _cgIpWhy(t.slice(0, i));
-    if (r) return r;
-    const pfx = t.slice(i + 1);
-    if (!/^\d+$/.test(pfx)) return 'prefix ' + _cgQ(pfx) + ' sayı değil';
-    if (+pfx > 32) return 'prefix ' + pfx + ' geçersiz (0-32)';
-    return '';
-}
-
-function _cgIfaceWhy(t) {
-    if (!t) return '';
-    if (/\s/.test(t)) return 'arayüz adında boşluk olamaz';
-    if (/-$/.test(t)) return 'tireden sonra aralığın bitişi eksik';
-    if (/^[\d.\-]+$/.test(t)) return 'çıplak sayısal ad yalnızca F5 arayüzlerinde geçerlidir';
-    if (!/^[A-Za-z0-9/._:-]+$/.test(t)) return 'geçersiz karakter içeriyor (harf, rakam, / . _ : - kullanılır)';
-    if (!/^[A-Za-z]/.test(t)) return 'arayüz adı harfle başlamalı';
-    if (!/\d/.test(t)) return _cgQ(t) + ' bilinen bir arayüz adı değil ve rakam içermiyor';
-    return '';
-}
-
-function _cgIfaceRangeWhy(t) {
-    if (!t) return '';
-    for (const p of String(t).split(/[,\s]+/).filter(Boolean)) {
-        if (_cgIface(p)) continue;
-        const i = p.lastIndexOf('-');
-        if (i <= 0 || i === p.length - 1) {
-            if (/^\d+\.\d+$/.test(p)) return 'aralık "-" ile yazılır, "." ile değil (örn: 1-2)';
-            if (i === p.length - 1) return _cgQ(p) + ': tireden sonra aralığın bitişi eksik';
-            return _cgQ(p) + ': ' + (_cgIfaceWhy(p) || 'geçerli bir arayüz değil');
-        }
-        const a = p.slice(0, i).trim(), b = p.slice(i + 1).trim();
-        if (!_cgIface(a)) return _cgQ(a) + ': ' + (_cgIfaceWhy(a) || 'aralığın başlangıcı geçerli bir arayüz değil');
-        if (!/^[0-9/.:]+$/.test(b) && !_cgIface(b)) return _cgQ(b) + ': aralığın bitişi geçersiz';
-    }
-    return '';
-}
-
-function _cgVlanListWhy(t0) {
-    let t = String(t0).trim().toLowerCase();
-    if (!t || t === 'all' || t === 'none') return '';
-    if (/[;|]/.test(t)) return 'ayraç olarak virgül kullanılır (10,20,30)';
-    t = t.replace(/\s+to\s+/g, '-');
-    for (const p of t.split(/[,\s]+/).filter(Boolean)) {
-        const r = p.match(/^(\d+)\s*-\s*(\d+)$/);
-        if (r) {
-            const a = +r[1], b = +r[2];
-            if (a < 1) return 'aralık 1\'den başlamalı, ' + a + ' girdiniz';
-            if (b > 4094) return b + ' VLAN aralığının (1-4094) dışında';
-            if (a > b) return 'aralık ters yazılmış: ' + a + ' > ' + b;
-            continue;
-        }
-        const w = _cgNumWhy(p, 1, 4094);
-        if (w) return w;
-    }
-    return '';
-}
-
-function _cgPortMatchWhy(t0) {
-    const t = String(t0).trim().toLowerCase();
-    if (!t || t === 'any') return '';
-    let m = t.match(/^(eq|neq|gt|lt)\s+(\S+)$/);
-    if (m) return _cgNumWhy(m[2], 0, 65535);
-    m = t.match(/^range\s+(\S+)\s+(\S+)$/);
-    if (m) {
-        const w = _cgNumWhy(m[1], 0, 65535) || _cgNumWhy(m[2], 0, 65535);
-        if (w) return w;
-        if (+m[1] > +m[2]) return 'aralık ters yazılmış: ' + m[1] + ' > ' + m[2];
-        return '';
-    }
-    if (/^(eq|neq|gt|lt|range)$/.test(t)) return _cgQ(t) + ' tek başına kullanılmaz, ardından port gelmeli';
-    if (/^range\s/.test(t)) return '"range" iki port ister (örn: range 80 443)';
-    return _cgNumWhy(t, 0, 65535);
-}
-
-function _cgIpMaskWhy(t) {
-    const p = String(t).trim().split(/\s+/).filter(Boolean);
-    if (p.length === 1) return 'maske eksik — IP ve maskeyi boşlukla ayırın';
-    if (p.length > 2) return p.length + ' parça girdiniz, IP ve maske olmak üzere 2 olmalı';
-    const a = _cgIpWhy(p[0]); if (a) return 'IP: ' + a;
-    const b = _cgIpWhy(p[1]); if (b) return 'maske: ' + b;
-    return '';
-}
-
-function _cgHostPortWhy(t0) {
-    const t = String(t0).trim();
-    if (!t) return '';
-    const m = t.match(/^(.+):(\d+)$/);
-    if (!m) return t.indexOf(':') < 0 ? 'port eksik — sonuna :443 gibi bir port ekleyin'
-                                      : 'iki nokta üst üsteden sonrası sayı olmalı';
-    const w = _cgNumWhy(m[2], 0, 65535);
-    if (w) return w;
-    if (/^[\d.]+$/.test(m[1])) { const r = _cgIpWhy(m[1]); return r ? 'IP: ' + r : ''; }
-    return /^[a-z0-9][a-z0-9.-]*$/i.test(m[1]) ? '' : 'host adı geçersiz: ' + _cgQ(m[1]);
-}
-
-function _cgHostnameWhy(t) {
-    if (!t) return '';
-    if (t.length > 63) return t.length + ' karakter girdiniz, en fazla 63 olabilir';
-    const bad = t.match(/[^a-zA-Z0-9.\-]/);
-    if (bad) return _cgQ(bad[0]) + ' karakteri kullanılamaz (harf, rakam, tire, nokta)';
-    if (/^[.\-]/.test(t)) return 'harf veya rakamla başlamalı';
-    if (/[.\-]$/.test(t)) return 'harf veya rakamla bitmeli';
-    return '';
-}
-
-function _cgMacWhy(t) {
-    if (!t) return '';
-    if (/^[0-9a-f]{4}(\.[0-9a-f]{4}){2}$/i.test(t))
-        return 'Cisco biçimi (00e0.1a2b.3c4d) yerine iki nokta üst üste ile yazın';
-    const g = t.split(/[:\-.]/);
-    if (g.length !== 6) return g.length + ' grup girdiniz, 6 olmalı';
-    for (const x of g) if (!/^[0-9a-fA-F]{2}$/.test(x)) return _cgQ(x) + ' geçerli bir onaltılık ikili değil';
-    return '';
-}
-
-function _cgRdWhy(t) {
-    if (!t) return '';
-    if (t.toLowerCase() === 'auto') return '';
-    if (t.indexOf(':') < 0) return 'iki bölüm gerekir, ":" ile ayrılır (örn: 65000:100)';
-    const m = t.match(/^(?:target:|origin:)?([^:]+):(\d+)$/i);
-    if (!m) {
-        const tail = t.slice(t.lastIndexOf(':') + 1);
-        if (!/^\d+$/.test(tail)) return 'son bölüm sayı olmalı, ' + _cgQ(tail) + ' girdiniz';
-        return 'biçim tanınmadı (örn: 65000:100 veya 10.0.0.1:100)';
-    }
-    if (/^\d+$/.test(m[1])) return '';
-    return 'sol bölüm AS numarası veya IPv4 olmalı, ' + _cgQ(m[1]) + ' girdiniz';
-}
-
-function _cgIpRangeWhy(t0) {
-    const t = String(t0).trim();
-    if (!t) return '';
-    const parts = t.split(/\s*[-\s]\s*/).filter(Boolean);
-    if (parts.length === 1) return 'bitiş adresi eksik (örn: 10.0.0.10-10.0.0.100)';
-    if (parts.length > 2) return parts.length + ' parça girdiniz, başlangıç ve bitiş olmak üzere 2 olmalı';
-    const a = _cgIpWhy(parts[0]); if (a) return 'başlangıç: ' + a;
-    const b = _cgIpWhy(parts[1]); if (b) return 'bitiş: ' + b;
-    const num = x => x.split('.').reduce((n, o) => n * 256 + (+o), 0);
-    if (num(parts[0]) > num(parts[1])) return 'başlangıç bitişten büyük';
-    return '';
-}
-
-// Doğrulayıcı tipi -> sebep üreteci. 22 doğrulayıcının 22'si karşılanır.
-const CG_WHY = {
-    ip:          _cgIpWhy,
-    cidr:        _cgCidrWhy,
-    subnet:      _cgIpWhy,
-    nameif:      t => (!t || /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/.test(t) ? '' : /\s/.test(t) ? 'boşluk olamaz' : !/^[A-Za-z]/.test(t) ? 'harfle başlamalı'
-                      : t.length > 48 ? t.length + ' karakter girdiniz, en fazla 48' : 'yalnızca harf, rakam, _ . - kullanılır'),
-    objname:     t => (!t || /^[A-Za-z][A-Za-z0-9_.:-]{0,62}$/.test(t) ? '' : /\s/.test(t) ? 'ad boşluk içeremez' : !/^[A-Za-z]/.test(t) ? 'ad harfle başlamalı' : t.length > 63 ? t.length + ' karakter girdiniz, en fazla 63' : 'yalnızca harf, rakam, _ . : - kullanılır'),
-    netmask:     t => _cgIpWhy(t) || (cgMaskLen(t) === '' ? 'maske bitişik değil — 1 bitleri soldan kesintisiz olmalı (örn: 255.255.240.0)' : ''),
-    posint:      t => _cgNumWhy(t, 1, 2147483647),
-    nexthop:     t => (/^[\d.]+$/.test(t) ? _cgIpWhy(t) : _cgIfaceWhy(t)),
-    wildcard:    _cgIpWhy,
-    ip_cidr:     t => (t.indexOf('/') >= 0 ? _cgCidrWhy(t) : _cgIpWhy(t)),
-    vlan:        t => _cgNumWhy(t, 1, 4094),
-    asn:         t => (/^\d+\.\d+$/.test(t) ? '' : _cgNumWhy(t, 1, 4294967295)),
-    port:        t => _cgNumWhy(t, 0, 65535),
-    port_match:  _cgPortMatchWhy,
-    ip_mask:     _cgIpMaskWhy,
-    host_port:   _cgHostPortWhy,
-    hostname:    _cgHostnameWhy,
-    mac:         _cgMacWhy,
-    prefix:      t => _cgNumWhy(t, 0, 128),
-    rd:          _cgRdWhy,
-    rt:          _cgRdWhy,
-    vni:         t => _cgNumWhy(t, 1, 16777215),
-    bgp_timer:   t => _cgNumWhy(t, 1, 65535),
-    iface:       _cgIfaceWhy,
-    iface_range: _cgIfaceRangeWhy,
-    iface_f5:    t => (/^\d+(\.\d+)*$/.test(t) ? 'F5 arayüzü iki bölümlü olmalı (örn: 1.1)' : _cgIfaceWhy(t)),
-    ip_range:    _cgIpRangeWhy,
-    vlan_list:   _cgVlanListWhy,
-};
+// Form öğesinin doğrulayıcısı (ad + aile).
+function cgElValidator(el) { return cgValidator(el.dataset.cgv, el.dataset.cgf || null); }
 
 // Sebep dizesi (yalnızca "nesi yanlış" kısmı) — uyarı şeridinde kısa gösterim için.
-function cgFieldReason(type, val) {
-    const f = CG_WHY[type];
+function cgFieldReason(type, val, family) {
+    const f = cgValWhy(type, family);
     if (!f) return '';
     try { return f(String(val == null ? '' : val).trim()) || ''; } catch (e) { return ''; }
 }
@@ -516,11 +75,11 @@ function cgFieldReason(type, val) {
 // Alan altında gösterilecek tam mesaj: kural + sebep.
 // `msg` fonksiyon olarak da tanımlanabilir (girilen değeri alır); statik metin
 // desteği korunur.
-function cgFieldMsg(type, val) {
-    const v = CG_VALIDATORS[type];
+function cgFieldMsg(type, val, family) {
+    const v = cgValidator(type, family);
     if (!v) return '';
     if (typeof v.msg === 'function') { try { return v.msg(val); } catch (e) { return ''; } }
-    const r = cgFieldReason(type, val);
+    const r = cgFieldReason(type, val, family);
     return r ? v.msg + ' — ' + r : v.msg;
 }
 
@@ -535,308 +94,27 @@ function _cgLabelOf(el) {
     return c.textContent.replace(/[*\s]+$/, '').trim() || el.name;
 }
 
-// ─── Geçerli değer kuralları ────────────────────────────────────────────────
-// Bilgi kartında her alanın altında "Geçerli değer" satırı olarak gösterilir.
-// Üç metin ayrı işler görür:
-//   hint  -> alan NE (Trunk allowed VLAN listesi)
-//   why   -> NEDEN önemli (kavram, risk)
-//   rule  -> NE GİREBİLİRİM (aralık, biçim, ne kabul edilmez)  <- bu tablo
-//   hata  -> girdiğimin NESİ yanlış (CG_WHY)
-// Doğrulayıcı başına tek yerde yazılır; o doğrulayıcıyı kullanan her alan alır.
-const CG_RULES = {
-    ip:          'Dört oktet (a.b.c.d), her biri 0–255. Önek (/24) yazılmaz.',
-    cidr:        'Adres/önek: a.b.c.d/0–32 — önek zorunlu. Örn: 10.0.0.0/24',
-    objname:     'Harfle başlar; harf, rakam, _ . : - içerir; boşluk olmaz; en fazla 63 karakter.',
-    nameif:      'ASA arayüzünün mantıksal adı: harfle başlar, harf/rakam/_ . -, en fazla 48 karakter. Fiziksel ad (GigabitEthernet0/0) değildir.',
-    subnet:      'Noktalı dörtlü, her oktet 0–255. Örn: 255.255.255.0',
-    netmask:     'Bitişik ağ maskesi: 255.255.240.0 olur, 255.0.255.0 olmaz. Önek sayısı (24) değil noktalı biçim yazılır.',
-    posint:      '1 veya daha büyük tam sayı; ondalık ve negatif olmaz.',
-    nexthop:     'IPv4 adresi (192.168.1.1) veya çıkış arayüzü adı (GigabitEthernet0/0).',
-    wildcard:    'Ters maske: /24 için 0.0.0.255, /30 için 0.0.0.3. Subnet maskesi (255.255.255.0) yazılmaz.',
-    ip_cidr:     'Tek adres (10.0.0.1) veya adres/önek (10.0.0.0/24); önek 0–32.',
-    vlan:        'Tam sayı, 1–4094. 0 ve 4095 IEEE 802.1Q gereği ayrılmıştır; Cisco IOS\'ta 1002–1005 de ayrılmıştır.',
-    asn:         '1–4294967295 arası tam sayı veya noktalı biçim (1.100). Özel kullanım aralıkları: 64512–65534 ve 4200000000–4294967294.',
-    port:        '0–65535 arası tam sayı.',
-    port_match:  'Port (80), operatör + port (eq 443, gt 1024), iki portlu aralık (range 80 443 — küçükten büyüğe) veya any. Port 0–65535.',
-    ip_mask:     'IP ve maske boşlukla ayrılır: 10.0.0.1 255.255.255.0',
-    host_port:   'Adres veya host adı, iki nokta, port: 10.1.1.100:443. Port 0–65535.',
-    hostname:    'Harf, rakam, tire, nokta; en fazla 63 karakter; harf veya rakamla başlar ve biter. Alt çizgi ve boşluk olmaz.',
-    mac:         'Altı onaltılık ikili, iki nokta veya tireyle: 00:1A:2B:3C:4D:5E. Noktalı Cisco biçimi (001a.2b3c.4d5e) bu alanda olmaz.',
-    prefix:      '0–128 arası tam sayı (IPv4 için 0–32).',
-    rd:          'ASN:sayı (65000:100), IPv4:sayı (10.0.0.1:100) veya auto.',
-    rt:          'ASN:sayı (65000:100), IPv4:sayı veya auto; Junos\'ta target: öneki olabilir.',
-    vni:         '1–16777215 arası tam sayı (24 bit).',
-    bgp_timer:   '1–65535 arası saniye.',
-    iface:       'Harfle başlayan, rakam içeren arayüz adı: GigabitEthernet0/1, ge-0/0/0, port1, Eth-Trunk1. Boşluk olmaz; yalnızca sayı (1.2) olmaz.',
-    iface_range: 'Tek arayüz, tireli aralık (Gi0/1-4) veya boşluk/virgülle ayrılmış liste. Aralık nokta ile değil tire ile yazılır.',
-    iface_f5:    'F5 arayüzü: yuva.port (1.1, 2.3) veya trunk/VLAN adı.',
-    ip_range:    'Başlangıç-bitiş: 10.0.0.10-10.0.0.100. Başlangıç bitişten büyük olamaz.',
-    vlan_list:   'VLAN ID\'leri (1–4094) virgül veya boşlukla, aralıklar tireyle: 10,20,30-40. Tümü için all. Ters aralık (40-30) olmaz.',
-};
-
-// ── Cisco kaynaklı doğrulayıcıların sebep üreteçleri ve kural metinleri ──────
-// 0fe7028 ile eklenen 27 doğrulayıcı (ve anlamı değişen 'subnet') için. Her
-// üreteç yalnız GEÇERSİZ değerde metin döndürür; geçerli değerde ''.
-function _cgIpv6Why(t) {
-    if (!t) return '';
-    if (t.indexOf('/') >= 0) return 'bu alan önek almaz, yalnızca adres girin';
-    const bad = t.match(/[^0-9a-fA-F:.]/);
-    if (bad) return _cgQ(bad[0]) + ' karakteri IPv6 adresinde kullanılamaz';
-    if ((t.match(/::/g) || []).length > 1) return '"::" kısaltması yalnızca bir kez kullanılabilir';
-    if (/^[\d.]+$/.test(t)) return 'IPv4 biçiminde girdiniz; IPv6 adresi bekleniyor';
-    const long = t.split(/:+/).find(g => g.length > 4 && g.indexOf('.') < 0);
-    if (long) return _cgQ(long) + ' grubu 4 onaltılık haneden uzun';
-    if (t.indexOf('::') < 0 && t.split(':').length !== 8) return t.split(':').length + ' grup girdiniz; "::" yoksa 8 grup olmalı';
-    return _cgIpv6(t) ? '' : 'IPv6 biçimi tanınmadı';
-}
-function _cgIpv6CidrWhy(t) {
-    if (!t) return '';
-    const i = t.indexOf('/');
-    if (i < 0) return 'önek eksik — sonuna /64 gibi bir önek ekleyin';
-    const a = _cgIpv6Why(t.slice(0, i));
-    if (a) return a;
-    const p = t.slice(i + 1);
-    if (!/^\d+$/.test(p)) return 'önek ' + _cgQ(p) + ' sayı değil';
-    return +p > 128 ? 'önek ' + p + ' geçersiz (0-128)' : '';
-}
-function _cgIosIfaceWhy(t) {
-    if (!t) return '';
-    if (_cgIosIface(t)) return '';
-    const g = _cgIfaceWhy(t);
-    if (g) return g;
-    const m = t.match(/^([A-Za-z-]+)(.*)$/);
-    if (!m) return 'arayüz adı harfle başlamalı';
-    if (!_cgIosIface(m[1] + '0')) return _cgQ(m[1]) + ' bilinen bir Cisco IOS arayüz ailesi değil';
-    if (/(^|\/)\d*\d{4,}/.test(m[2])) return 'slot/port numarası 0-255 aralığının dışında';
-    return 'numara yapısı geçersiz (en fazla üç bölüm: 1/0/24, alt arayüz .100)';
-}
-Object.assign(CG_WHY, {
-    subnet:          t => _cgIpWhy(t) || (cgMaskLen(t) === '' ? 'maske bitişik değil — 1 bitleri soldan kesintisiz olmalı (örn: 255.255.240.0)' : ''),
-    ipv6:            _cgIpv6Why,
-    ipv6_cidr:       _cgIpv6CidrWhy,
-    ios_acl:         t => (!t || CG_VALIDATORS.ios_acl.fn(t) ? '' : /\s/.test(t) ? 'ACL adı boşluk içeremez'
-                         : /^\d+$/.test(t) ? t + ' IP ACL numarası değil (1-199, 1300-1999 veya 2000-2699)' : /^\d/.test(t) ? 'ACL adı harfle başlamalı' : 'yalnızca harf, rakam, _ . : - kullanılır'),
-    snmpv3_secret:   t => (String(t).length >= 8 ? '' : String(t).length + ' karakter girdiniz, en az 8 olmalı'),
-    ios_domain:      t => (!t || CG_VALIDATORS.ios_domain.fn(t) ? '' : t.length > 253 ? t.length + ' karakter girdiniz, en fazla 253'
-                         : t.indexOf('.') < 0 ? 'tam domain adı en az bir nokta içerir (örn: example.com)'
-                         : (t.split('.').find(x => !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(x)) !== undefined
-                            ? _cgQ(t.split('.').find(x => !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(x))) + ' etiketi geçersiz (harf, rakam, tire; tireyle başlayıp bitemez)' : 'biçim tanınmadı')),
-    ios_proto_list:  t => { if (!t || CG_VALIDATORS.ios_proto_list.fn(t)) return ''; if (/[;|\s]/.test(t.replace(/,\s+/g, ','))) return 'protokolleri virgülle ayırın (tcp,udp,icmp)';
-                            const x = t.split(',').map(y => y.trim().toLowerCase()).filter(Boolean).find(y => !['tcp','udp','icmp','ftp','http','https','dns','smtp','sip','h323'].includes(y));
-                            return x ? _cgQ(x) + ' desteklenen protokoller arasında değil' : 'liste tanınmadı'; },
-    isis_net:        t => (!t || CG_VALIDATORS.isis_net.re.test(t) ? '' : /[^0-9a-fA-F.]/.test(t) ? 'yalnızca onaltılık rakam ve nokta kullanılır'
-                         : !/\.00$/.test(t) ? 'NET, NSEL = 00 ile bitmeli (.00)' : 'alan kimliği + 3 dörtlü system-id + .00 biçiminde olmalı'),
-    archive_path:    t => (!t || CG_VALIDATORS.archive_path.fn(t) ? '' : /\s/.test(t) ? 'yol boşluk içeremez'
-                         : 'yol flash:, bootflash:, nvram:, disk0:, scp://, tftp://, ftp://, http(s):// veya rcp:// ile başlamalı'),
-    track_id:        t => _cgNumWhy(t, 1, 1000),
-    ip_sla_id:       t => _cgNumWhy(t, 1, 2147483647),
-    ospf_pid:        t => _cgNumWhy(t, 1, 65535),
-    ospf_area:       t => (!t || CG_VALIDATORS.ospf_area.fn(t) ? '' : t.indexOf('.') >= 0 ? (_cgIpWhy(t) || 'noktalı area biçimi geçersiz') : _cgNumWhy(t, 0, 4294967295)),
-    nxos_process_tag:t => (!t || /^[A-Za-z0-9]{1,63}$/.test(t) ? '' : t.length > 63 ? t.length + ' karakter girdiniz, en fazla 63' : 'yalnızca harf ve rakam kullanılır (boşluk, _ - olmaz)'),
-    objname_list:    t => { if (!t || CG_VALIDATORS.objname_list.fn(t)) return ''; if (/[,;]/.test(t)) return 'adları virgülle değil boşlukla ayırın';
-                            const x = t.split(/\s+/).find(y => !CG_VALIDATORS.objname.re.test(y)); return x ? _cgQ(x) + ': ' + (CG_WHY.objname(x) || 'geçersiz ad') : 'liste tanınmadı'; },
-    bgp_community_list: t => { if (!t || CG_VALIDATORS.bgp_community_list.fn(t)) return '';
-                            const x = t.split(/\s+/).find(y => !/^(?:\d+:\d+|internet|local-as|no-advertise|no-export|graceful-shutdown)$/i.test(y));
-                            return /^\d+$/.test(x) ? _cgQ(x) + ': AA:NN biçiminde yazılır (örn: 65000:100)' : _cgQ(x) + ' AA:NN veya bilinen community adı değil'; },
-    uint32_delta:    t => (!t || CG_VALIDATORS.uint32_delta.fn(t) ? '' : /^[+-]?\d+[.,]\d+$/.test(t) ? 'ondalıklı değil, tam sayı olmalı'
-                         : /^[+-]?\d+$/.test(t) ? 'mutlak değer 4294967295 üst sınırını aşıyor' : 'yalnızca sayı ve tek bir +/− işareti kullanılır'),
-    uint32:          t => _cgNumWhy(t, 0, 4294967295),
-    tcpudp_port:     t => _cgNumWhy(t, 1, 65535),
-    telemetry_id:    t => (!t || /^[A-Za-z0-9]+$/.test(t) ? '' : 'yalnızca harf ve rakam kullanılır (boşluk, - _ olmaz)'),
-    telemetry_depth: t => (!t || /^(?:unbounded|\d+)$/i.test(t) ? '' : /^-/.test(t) ? 'negatif değer kabul edilmez' : _cgQ(t) + ' sayı veya unbounded değil'),
-    single_cli_line: t => (/[\r\n\0]/.test(String(t)) ? 'değer satır sonu içeremez; tek satır girin' : !String(t).trim() ? 'yalnızca boşluktan oluşuyor' : ''),
-    fhrp_group:      t => _cgNumWhy(t, 0, 4095) || (_cgInt(t, 0, 255) ? '' : 'HSRPv1 için 0-255; daha büyük grup numarası HSRPv2 (0-4095), GLBP (0-1023) ister'),
-    wildcard_mask:   t => _cgIpWhy(t) || (CG_VALIDATORS.wildcard_mask.fn(t) ? '' : cgMaskLen(t) !== '' && t !== '0.0.0.0' && t !== '255.255.255.255'
-                         ? 'subnet maskesi girdiniz; wildcard onun tersidir (255.255.255.0 → 0.0.0.255)' : 'bitler dağınık — wildcard 0 bitleri soldan kesintisiz olmalı (örn: 0.0.15.255)'),
-    ios_rt:          t => (!t || CG_VALIDATORS.ios_rt.fn(t) ? '' : /^(target|origin):/i.test(t) ? 'IOS\'ta target:/origin: öneki yazılmaz (örn: 65000:100)'
-                         : t.toLowerCase() === 'auto' ? 'bu alanda auto kullanılmaz; ASN:NN veya IPv4:NN girin'
-                         : t.indexOf(':') < 0 ? 'iki bölüm gerekir, ":" ile ayrılır (örn: 65000:100)' : 'sol bölüm ASN veya IPv4, sağ bölüm sayı olmalı'),
-    ios_iface:       _cgIosIfaceWhy,
-    ios_iface_or_ip: t => (/^[\d.]+$/.test(t) ? _cgIpWhy(t) : _cgIosIfaceWhy(t)),
-    ios_iface_lines: t => { const xs = String(t).split(/[\r\n,]+/).map(x => x.trim()).filter(Boolean); if (!xs.length) return 'en az bir arayüz girin';
-                            const x = xs.find(y => !_cgIosIface(y)); return x ? _cgQ(x) + ': ' + _cgIosIfaceWhy(x) : ''; },
-});
-Object.assign(CG_RULES, {
-    subnet:          'Bitişik ağ maskesi, noktalı dörtlü: 255.255.255.0 olur, 255.0.255.0 olmaz. Ağ adresi (10.0.0.0) bu alana yazılmaz.',
-    ipv6:            'IPv6 adresi: en fazla 8 onaltılık grup, "::" yalnızca bir kez. Önek (/64) yazılmaz. Örn: 2001:db8::1',
-    ipv6_cidr:       'IPv6 adres/önek, önek 0–128 zorunlu. Örn: 2001:db8::/32',
-    ios_acl:         'IP ACL numarası 1–199 (standart 1–99, genişletilmiş 100–199), 1300–1999 (standart), 2000–2699 (genişletilmiş) ya da harfle başlayan, boşluksuz ACL adı.',
-    snmpv3_secret:   'SNMPv3 auth/priv parolası: en az 8 karakter (Cisco USM alt sınırı).',
-    ios_domain:      'Tam domain adı: en az bir nokta, etiketler harf/rakam/tire (tireyle başlamaz/bitmez), toplam en fazla 253 karakter. Örn: example.com',
-    ios_proto_list:  'Virgülle ayrılmış protokoller: tcp, udp, icmp, ftp, http, https, dns, smtp, sip, h323.',
-    isis_net:        'IS-IS NET: alan kimliği + system-id (3 dörtlü) + NSEL .00 — örn: 49.0001.0000.0000.0001.00',
-    archive_path:    'flash:, bootflash:, nvram:, disk0:, scp://, tftp://, ftp://, http://, https:// veya rcp:// ile başlayan, boşluksuz yol.',
-    track_id:        'Track nesne numarası, tam sayı 1–1000.',
-    ip_sla_id:       'IP SLA operasyon numarası, tam sayı 1–2147483647.',
-    ospf_pid:        'OSPF process ID, tam sayı 1–65535 (yerel anlamlıdır, komşuyla eşleşmesi gerekmez).',
-    ospf_area:       'Area: tam sayı 0–4294967295 veya noktalı biçim (0.0.0.0).',
-    nxos_process_tag:'NX-OS process/instance tag: 1–63 harf veya rakam; boşluk, _ ve - olmaz.',
-    objname_list:    'Boşlukla ayrılmış adlar; her ad harfle başlar, boşluk içermez.',
-    bgp_community_list: 'Boşlukla ayrılmış AA:NN (65000:100) veya internet, local-as, no-advertise, no-export, graceful-shutdown.',
-    uint32_delta:    'Tam sayı 0–4294967295; başında + veya − ile değişim olarak da yazılabilir.',
-    uint32:          'Tam sayı 0–4294967295.',
-    tcpudp_port:     'TCP/UDP portu, tam sayı 1–65535.',
-    telemetry_id:    'Yalnızca harf ve rakam; boşluk ve özel karakter olmaz.',
-    telemetry_depth: '0, pozitif tam sayı veya unbounded.',
-    single_cli_line: 'Tek satırlık CLI değeri; satır sonu içeremez.',
-    fhrp_group:      'Grup numarası: HSRPv1 0–255, HSRPv2 0–4095, VRRP 1–255, GLBP 0–1023 (seçilen protokole göre).',
-    wildcard_mask:   'Ters subnet maskesi: /24 için 0.0.0.255, /30 için 0.0.0.3. Subnet maskesi (255.255.255.0) ve dağınık bitli wildcard kabul edilmez.',
-    ios_rt:          'ASN:NN (65000:100) veya IPv4:NN (192.0.2.1:100). target: öneki ve auto yazılmaz.',
-    ios_iface:       'Cisco IOS arayüzü: aile adı veya kısaltması + numara (GigabitEthernet1/0/24, Gi0/1, Te1/1/1, Port-channel1, Vlan10, Loopback0), alt arayüz .100. Slot/port 0–255.',
-    ios_iface_or_ip: 'IPv4 adresi (192.0.2.1) veya Cisco IOS arayüzü (GigabitEthernet0/0).',
-    ios_iface_lines: 'Her satıra (veya virgülle) bir Cisco IOS arayüzü: GigabitEthernet0/0, Loopback0.',
-});
-
-// ─── Cisco ASA doğrulayıcıları (Cisco parti 4) ─────────────────────────────
-// Kaynak: ansible-collections/cisco.asa @c467f33 argspec (asa_acls kaynak/hedef
-// biçimleri, asa_objects/asa_ogs ad ve port alanları) + Cisco ASA 9.x CLI
-// yapılandırma kılavuzları ve komut başvurusu. Sınır belgede yoksa yalnız
-// "tek sözcük" (boşluk ve çift tırnak yok) kuralı uygulanır: üretilen CLI bu
-// değerleri tırnaksız tek argüman olarak yazar. Yalnız ASA araçları kullanır.
-function _asaTok(v, max) { const s = String(v).trim(); return s.length >= 1 && s.length <= max && !/[\s"]/.test(s); }
-function _asaTokWhy(t, max) {
-    if (!t) return '';
-    if (/\s/.test(t)) return 'boşluk içeremez; CLI\'de tek sözcük olarak yazılır';
-    if (t.indexOf('"') >= 0) return 'çift tırnak içeremez';
-    return t.length > max ? t.length + ' karakter girdiniz, en fazla ' + max : '';
-}
-const _ASA_OBJ_RE = /^[A-Za-z0-9.!@#$%^&()_{}-]{1,64}$/;
-function _asaObjWhy(t) {
-    if (!t || _ASA_OBJ_RE.test(t)) return '';
-    if (/\s/.test(t)) return 'ad boşluk içeremez';
-    if (t.length > 64) return t.length + ' karakter girdiniz, en fazla 64';
-    const c = t.replace(/[A-Za-z0-9.!@#$%^&()_{}-]/g, '');
-    return _cgQ(c.charAt(0)) + ' karakteri nesne adında kullanılamaz';
-}
-const _ASA_PORT_NAMES = ['aol','bgp','biff','bootpc','bootps','chargen','cifs','citrix-ica','cmd','ctiqbe','daytime','discard','dnsix',
-    'domain','echo','exec','finger','ftp','ftp-data','gopher','h323','hostname','http','https','ident','imap4','irc','isakmp','kerberos',
-    'klogin','kshell','ldap','ldaps','login','lotusnotes','lpd','mobile-ip','nameserver','netbios-dgm','netbios-ns','netbios-ssn','nfs',
-    'nntp','ntp','pcanywhere-data','pcanywhere-status','pim-auto-rp','pop2','pop3','pptp','radius','radius-acct','rip','rsh','rtsp',
-    'secureid-udp','sip','smtp','snmp','snmptrap','sqlnet','ssh','sunrpc','syslog','tacacs','talk','telnet','tftp','time','uucp','vxlan',
-    'who','whois','www','xdmcp'];
-function _asaPort(p) { return /^\d+$/.test(p) ? _cgInt(p, 0, 65535) : _ASA_PORT_NAMES.includes(p.toLowerCase()); }
-function _asaAclAddr(v) {
-    const p = String(v).trim().split(/\s+/);
-    if (p.length === 1) {
-        if (['any', 'any4', 'any6'].includes(p[0].toLowerCase())) return true;
-        const i = p[0].indexOf('/');
-        return i > 0 && _cgIpv6(p[0].slice(0, i)) && _cgInt(p[0].slice(i + 1), 0, 128);
-    }
-    if (p.length !== 2) return false;
-    const k = p[0].toLowerCase();
-    if (k === 'host') return _CG_IPRE.test(p[1]);
-    if (k === 'interface') return CG_VALIDATORS.nameif.re.test(p[1]);
-    if (k === 'object' || k === 'object-group') return _ASA_OBJ_RE.test(p[1]);
-    return _CG_IPRE.test(p[0]) && _CG_IPRE.test(p[1]);
-}
-function _asaAclAddrWhy(t) {
-    if (!t || _asaAclAddr(t)) return '';
-    const p = t.split(/\s+/), k = p[0].toLowerCase();
-    if (p.length > 2) return p.length + ' sözcük girdiniz; biçim tek anahtar sözcük veya iki parçadır';
-    if (p.length === 1) {
-        if (_CG_IPRE.test(p[0])) return 'maske eksik: "' + p[0] + ' 255.255.255.0" veya "host ' + p[0] + '" yazın';
-        if (p[0].indexOf('/') > 0) return /^[\d.]+\//.test(p[0]) ? 'IPv4 önek (/24) ASA ACL\'de yazılmaz; adres + maske kullanın' : _cgIpv6CidrWhy(p[0]);
-        return _cgQ(p[0]) + ' tanınmadı (any, any4, any6, host, object, object-group, interface)';
-    }
-    if (k === 'host') return _cgIpWhy(p[1]) || 'host yalnız IPv4 adresi alır';
-    if (k === 'interface') return CG_WHY.nameif(p[1]) || 'geçersiz nameif';
-    if (k === 'object' || k === 'object-group') return _asaObjWhy(p[1]);
-    return _cgIpWhy(p[0]) ? 'adres: ' + _cgIpWhy(p[0]) : _cgIpWhy(p[1]) ? 'maske: ' + _cgIpWhy(p[1]) : 'geçersiz adres/maske';
-}
-
-Object.assign(CG_VALIDATORS, {
-    asa_objname:       { re: _ASA_OBJ_RE, msg: 'ASA nesne adı girin: en fazla 64 karakter; harf, rakam ve . ! @ # $ % ^ & ( ) - _ { }' },
-    asa_acl_name:      { fn: v => _asaTok(v, 241), msg: 'ASA ACL adı girin: tek sözcük, en fazla 241 karakter' },
-    asa_acl_addr:      { fn: _asaAclAddr, msg: 'ASA ACL adresi girin: any/any4/any6, host 192.0.2.1, 192.0.2.0 255.255.255.0, 2001:db8::/32, object AD, object-group AD veya interface NAMEIF' },
-    asa_mpf_name:      { fn: v => _asaTok(v, 40), msg: 'class-map/policy-map adı: tek sözcük, en fazla 40 karakter' },
-    asa_psk:           { fn: v => _asaTok(v, 128), msg: 'IKEv1 pre-shared key: boşluksuz, 1-128 karakter' },
-    asa_radius_key:    { fn: v => _asaTok(v, 64), msg: 'RADIUS paylaşılan anahtarı: boşluksuz, en fazla 64 karakter' },
-    asa_failover_key:  { fn: v => /^hex [0-9a-fA-F]{32}$/.test(String(v).trim()) || _asaTok(v, 63), msg: 'Failover anahtarı: boşluksuz 1-63 karakter veya "hex" + 32 onaltılık hane' },
-    asa_name64:        { fn: v => _asaTok(v, 64), msg: 'Tek sözcük, en fazla 64 karakter girin' },
-    asa_token:         { fn: v => _asaTok(v, Infinity), msg: 'Boşluk ve çift tırnak içermeyen tek sözcük girin' },
-    asa_ldap_dn:       { re: /^[A-Za-z][A-Za-z0-9-]*=[^,=]+(,\s*[A-Za-z][A-Za-z0-9-]*=[^,=]+)*$/, msg: 'LDAP DN girin (örn: DC=example,DC=com)' },
-    asa_snmp_user:     { re: /^[A-Za-z][^\s"]{0,31}$/, msg: 'SNMP kullanıcı adı: harfle başlar, boşluksuz, en fazla 32 karakter' },
-    asa_snmp_community:{ fn: v => _asaTok(v, 32), msg: 'SNMP community: boşluksuz, en fazla 32 karakter' },
-    asa_user_pw:       { re: /^[\x21-\x7E]{1,64}$/, msg: 'Parola: boşluksuz yazdırılabilir ASCII, en fazla 64 karakter' },
-    asa_port_list:     { fn: v => { const p = String(v).trim().split(/\s+/).filter(Boolean); return p.length > 0 && p.every(_asaPort); },
-                         msg: 'Boşlukla ayrılmış port numaraları (0-65535) veya ASA port adları (www https domain …)' },
-    asa_ntp_key:       { fn: v => _asaTok(v, 32), msg: 'NTP anahtarı: boşluksuz, en fazla 32 karakter' },
-});
-Object.assign(CG_WHY, {
-    asa_objname:        _asaObjWhy,
-    asa_acl_name:       t => _asaTokWhy(t, 241),
-    asa_acl_addr:       _asaAclAddrWhy,
-    asa_mpf_name:       t => _asaTokWhy(t, 40),
-    asa_psk:            t => _asaTokWhy(t, 128),
-    asa_radius_key:     t => _asaTokWhy(t, 64),
-    asa_failover_key:   t => (/^hex\s/i.test(t) ? (/^hex [0-9a-fA-F]{32}$/.test(t) ? '' : 'hex anahtar tam 32 onaltılık hane (0-9, a-f) olmalı') : _asaTokWhy(t, 63)),
-    asa_name64:         t => _asaTokWhy(t, 64),
-    asa_token:          t => _asaTokWhy(t, Infinity),
-    asa_ldap_dn:        t => (!t || CG_VALIDATORS.asa_ldap_dn.re.test(t) ? '' : t.indexOf('=') < 0 ? 'öznitelik=değer biçimi yok (örn: DC=example)'
-                             : /,\s*,|,\s*$|^,/.test(t) ? 'boş DN bileşeni var' : 'her bileşen öznitelik=değer olmalı, virgülle ayrılır'),
-    asa_snmp_user:      t => (!t || CG_VALIDATORS.asa_snmp_user.re.test(t) ? '' : !/^[A-Za-z]/.test(t) ? 'ad harfle başlamalı' : _asaTokWhy(t, 32)),
-    asa_snmp_community: t => _asaTokWhy(t, 32),
-    asa_user_pw:        t => (!t || CG_VALIDATORS.asa_user_pw.re.test(t) ? '' : /\s/.test(t) ? 'parola boşluk içeremez; CLI\'de sözcüğü böler'
-                             : t.length > 64 ? t.length + ' karakter girdiniz, en fazla 64' : 'yalnızca yazdırılabilir ASCII karakterler kullanılır'),
-    asa_port_list:      t => { if (!t) return ''; const x = t.split(/\s+/).find(p => !_asaPort(p)); if (x === undefined) return '';
-                               return /^\d+$/.test(x) ? 'port ' + x + ' geçersiz (0-65535)' : /[,;]/.test(x) ? 'portları virgülle değil boşlukla ayırın' : _cgQ(x) + ' ASA port adı değil'; },
-    asa_ntp_key:        t => _asaTokWhy(t, 32),
-});
-Object.assign(CG_RULES, {
-    asa_objname:        'ASA object / object-group adı: en fazla 64 karakter; harf, rakam ve . ! @ # $ % ^ & ( ) - _ { }; büyük-küçük harf duyarlı, boşluk olmaz.',
-    asa_acl_name:       'ACL adı: tek sözcük (boşluk yok), en fazla 241 karakter. Büyük harf kullanmak running-config\'te bulmayı kolaylaştırır.',
-    asa_acl_addr:       'any, any4, any6; host 192.0.2.1; adres + maske (192.0.2.0 255.255.255.0); IPv6 önek (2001:db8::/32); object AD; object-group AD; interface NAMEIF. Wildcard ve IPv4 /önek yazılmaz.',
-    asa_mpf_name:       'class-map / policy-map adı: tek sözcük, en fazla 40 karakter.',
-    asa_psk:            'IKEv1 pre-shared key: 1–128 karakter, boşluk içermez; iki uçta birebir aynı olmalı.',
-    asa_radius_key:     'RADIUS paylaşılan anahtarı: en fazla 64 karakter, boşluk içermez, büyük-küçük harf duyarlı.',
-    asa_failover_key:   'Paylaşılan sır 1–63 karakter (harf, rakam, noktalama; boşluk yok) veya "hex" + 32 onaltılık hane.',
-    asa_name64:         'Tek sözcük (boşluk ve çift tırnak yok), en fazla 64 karakter.',
-    asa_token:          'Tek sözcük: boşluk ve çift tırnak içermez. Cisco belgesi ayrıca uzunluk sınırı vermez.',
-    asa_ldap_dn:        'LDAP DN: öznitelik=değer bileşenleri virgülle ayrılır. Örn: DC=example,DC=com veya OU=Users,DC=example,DC=com.',
-    asa_snmp_user:      'SNMP kullanıcı adı: harfle başlar, boşluk içermez, en fazla 32 karakter.',
-    asa_snmp_community: 'Community: büyük-küçük harf duyarlı, boşluk içermez, en fazla 32 karakter.',
-    asa_user_pw:        'Yazdırılabilir ASCII, en fazla 64 karakter; boşluk olmaz (CLI\'de sözcüğü böler).',
-    asa_port_list:      'Boşlukla ayrılmış port listesi: numara (0–65535) veya ASA port adı (www, https, domain, ssh, ntp …).',
-    asa_ntp_key:        'NTP kimlik doğrulama anahtarı: boşluk içermez, en fazla 32 karakter.',
-});
-// ASA 'router ospf' altındaki 'network <ip> <mask> area <id>' SUBNET maskesi alır
-// (IOS'taki wildcard değil). Geçerlilik 'subnet' ile aynı; sebep üreteci IOS
-// alışkanlığıyla girilen wildcard'ı (0.0.0.255) tanıyıp karşılığını söyler.
-function _asaOspfMaskWhy(t) {
-    if (!t || cgMaskLen(t) !== '') return '';
-    const ipw = _cgIpWhy(t);
-    if (ipw) return ipw;
-    const inv = t.split('.').map(o => 255 - (+o)).join('.');
-    return cgMaskLen(inv) !== '' ? 'wildcard girdiniz; ASA subnet maskesi ister, ör. 255.255.255.0 (' + t + ' yerine ' + inv + ')'
-        : 'maske bitişik değil — 1 bitleri soldan kesintisiz olmalı (örn: 255.255.240.0)';
-}
-Object.assign(CG_VALIDATORS, {
-    asa_ospf_mask:     { fn: v => cgMaskLen(String(v).trim()) !== '', msg: 'ASA subnet maskesi ister, ör. 255.255.255.0 (wildcard 0.0.0.255 yazılmaz)' },
-});
-Object.assign(CG_WHY, { asa_ospf_mask: _asaOspfMaskWhy });
-Object.assign(CG_RULES, {
-    asa_ospf_mask:      'ASA OSPF network maskesi: bitişik subnet maskesi, noktalı dörtlü (255.255.255.0). IOS\'taki wildcard (0.0.0.255) ASA\'da kullanılmaz.',
-});
-
 // min/max tasiyan ama dogrulayicisi olmayan alanlar icin dinamik aralik
 // dogrulayicisi: 'range:1:4094'. Kural metni, hata mesaji ve sebebi otomatik.
+// Anlami her vendorda ayni oldugu icin common kumesine yazilir.
 function cgRangeValidator(min, max) {
     const lo = (min === undefined || min === '') ? -Infinity : +min;
     const hi = (max === undefined || max === '') ?  Infinity : +max;
     const key = 'range:' + lo + ':' + hi;
-    if (!CG_VALIDATORS[key]) {
+    if (!cgValidator(key)) {
         const span = isFinite(lo) && isFinite(hi) ? lo + '–' + hi
                    : isFinite(lo) ? lo + ' veya daha büyük' : hi + ' veya daha küçük';
-        CG_VALIDATORS[key] = { fn: v => /^-?\d+$/.test(String(v).trim()) && +v >= lo && +v <= hi,
-                               msg: 'Değer ' + span + ' arasında olmalı' };
-        CG_WHY[key]   = t => _cgNumWhy(t, isFinite(lo) ? lo : -2147483648, isFinite(hi) ? hi : 2147483647);
-        CG_RULES[key] = 'Tam sayı, ' + span + '.';
+        cgDefineValidators('common',
+            { [key]: { fn: v => /^-?\d+$/.test(String(v).trim()) && +v >= lo && +v <= hi,
+                       msg: 'Değer ' + span + ' arasında olmalı' } },
+            { [key]: 'Tam sayı, ' + span + '.' },
+            { [key]: t => _cgNumWhy(t, isFinite(lo) ? lo : -2147483648, isFinite(hi) ? hi : 2147483647) });
     }
     return key;
 }
 
-function cgRuleLine(vtype) {
-    const r = CG_RULES[vtype];
+function cgRuleLine(vtype, family) {
+    const r = cgValRule(vtype, family);
     return r ? '<div class="cg-rule"><i class="fas fa-check-circle"></i> <b>Geçerli değer:</b> ' + r + '</div>' : '';
 }
 
@@ -862,11 +140,11 @@ function cgValidate(form) {
         }
         // Format kontrolü (dolu ama validate tipi var)
         const vtype = el.dataset.cgv;
-        if (vtype && val && CG_VALIDATORS[vtype]) {
-            const v = CG_VALIDATORS[vtype];
+        const v = vtype && val ? cgElValidator(el) : null;
+        if (v) {
             const pass = v.re ? v.re.test(val) : v.fn(val, el);
             el.classList.toggle('is-invalid', !pass);
-            if (!pass) { _cgSetError(el, cgFieldMsg(vtype, val)); ok = false; }
+            if (!pass) { _cgSetError(el, cgFieldMsg(vtype, val, el.dataset.cgf)); ok = false; }
             else _cgClearError(el);
         } else {
             el.classList.remove('is-invalid');
@@ -884,11 +162,11 @@ function cgValidateSoft(form) {
         if (el.disabled) return;
         const val = (el.value || '').trim();
         if (!val) { _cgClearError(el); return; }
-        const v = CG_VALIDATORS[el.dataset.cgv];
+        const v = cgElValidator(el);
         if (!v) return;
         const pass = v.re ? v.re.test(val) : v.fn(val, el);
         if (pass) _cgClearError(el);
-        else { el.classList.add('is-invalid'); _cgSetError(el, cgFieldMsg(el.dataset.cgv, val)); }
+        else { el.classList.add('is-invalid'); _cgSetError(el, cgFieldMsg(el.dataset.cgv, val, el.dataset.cgf)); }
     });
 }
 
@@ -1209,6 +487,7 @@ function cgPostRender(container) {
 // ─── Schema-Based Form Builder ───────────────────────────────────────────────
 
 function cgFormBuilder(container, schema, generateFn) {
+    const valFam = cgValFamily;   // doğrulayıcı ailesi: alanlar kurulurken sabitlenir
     const esc = cgEsc;
 
     function renderBadge(badge) {
@@ -1272,11 +551,12 @@ function cgFormBuilder(container, schema, generateFn) {
         // min/max var ama dogrulayici yoksa: tarayici kirmizi cizip SEBEP soylemiyordu,
         // deger de config'e aynen giriyordu. Dinamik aralik dogrulayicisina bagla.
         const vtype = f.validate || ((f.min !== undefined || f.max !== undefined) ? cgRangeValidator(f.min, f.max) : '');
-        const why  = cgWhyBox(f.why, f.name) + cgRuleLine(vtype);
+        const why  = cgWhyBox(f.why, f.name) + cgRuleLine(vtype, valFam);
 
         const baseAttrs = 'name="' + esc(f.name) + '" id="cgfb_' + esc(f.name) + '"' +
             (f.required    ? ' required'                        : '') +
             (vtype         ? ' data-cgv="' + esc(vtype) + '"' : '') +
+            (vtype && valFam ? ' data-cgf="' + esc(valFam) + '"' : '') +
             (ri ? ' data-req-if="' + esc(ri.field) + '"' +
                   (ri.checked !== undefined ? ' data-req-checked="' + (ri.checked ? '1' : '0') + '"'
                                             : ' data-req-in="' + esc([].concat(ri.in).join('|')) + '"') : '') +
@@ -1389,13 +669,13 @@ function cgFormBuilder(container, schema, generateFn) {
             if (el.disabled) return;
             const raw = String(data[el.name] != null ? data[el.name] : '').trim();
             if (!raw) return;
-            const v = CG_VALIDATORS[el.dataset.cgv];
+            const v = cgElValidator(el);
             if (!v) return;
             const pass = v.re ? v.re.test(raw) : v.fn(raw, el);
             if (!pass) {
                 data.__cgInvalid.push({ name: el.name, label: _cgLabelOf(el), value: raw,
-                                        msg: cgFieldMsg(el.dataset.cgv, raw),
-                                        reason: cgFieldReason(el.dataset.cgv, raw), el });
+                                        msg: cgFieldMsg(el.dataset.cgv, raw, el.dataset.cgf),
+                                        reason: cgFieldReason(el.dataset.cgv, raw, el.dataset.cgf), el });
                 // Silmek yerine BOS dize: korumasiz generator'lar (data.x'i dogrudan
                 // yazanlar) aksi halde config'e 'undefined' yaziyordu.
                 data[el.name] = '';
@@ -2747,6 +2027,7 @@ const ConfigGenerator = {
 
         const formArea = document.getElementById('cg-form-area');
         cgShowOutput('', []);
+        cgValFamily = (typeof cgFamilyOf === 'function' && cgFamilyOf(vendorId) || {}).slug || null;
         gen.init(formArea);
         cgPostRender(formArea);
         cgBindLegacyLive(formArea);

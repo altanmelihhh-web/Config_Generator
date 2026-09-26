@@ -2644,11 +2644,11 @@ function cgNxBgpAfGen(data) {
     const afi = data._cgtype || 'ipv4', safi = cgNxStr(data.baf_safi), vrf = cgNxStr(data.baf_vrf);
     const as = cgNxStr(data.baf_as), w = [];
     const ipAfi = afi === 'ipv4' || afi === 'ipv6';
-    if (!CG_VALIDATORS.asn.fn(as)) w.push('Yerel AS geçersiz veya boş.');
+    if (!cgValidator('asn', 'cisco').fn(as)) w.push('Yerel AS geçersiz veya boş.');
     cgNxBgpAfCheck(afi, safi, vrf, w);
-    if (vrf && !CG_VALIDATORS.objname.re.test(vrf)) w.push('VRF adı geçersiz.');
-    ['baf_mp', 'baf_mp_ibgp'].forEach(k => { if (cgNxStr(data[k]) && !CG_VALIDATORS.posint.fn(cgNxStr(data[k]))) w.push('maximum-paths pozitif tam sayı olmalı.'); });
-    const pfxOk = afi === 'ipv6' ? CG_VALIDATORS.ipv6_cidr.fn : (v => CG_VALIDATORS.cidr.re.test(v));
+    if (vrf && !cgValidator('objname', 'cisco').re.test(vrf)) w.push('VRF adı geçersiz.');
+    ['baf_mp', 'baf_mp_ibgp'].forEach(k => { if (cgNxStr(data[k]) && !cgValidator('posint', 'cisco').fn(cgNxStr(data[k]))) w.push('maximum-paths pozitif tam sayı olmalı.'); });
+    const pfxOk = afi === 'ipv6' ? cgValidator('ipv6_cidr', 'cisco').fn : (v => cgValidator('cidr', 'cisco').re.test(v));
     const nets = ipAfi ? cgNxList(afi === 'ipv6' ? data.baf_net6 : data.baf_net4) : [];
     nets.forEach(n => { if (!pfxOk(n)) w.push('network ' + n + ' geçerli ' + afi + ' prefix değil.'); });
     const agg = ipAfi ? cgNxStr(afi === 'ipv6' ? data.baf_agg6 : data.baf_agg4) : '';
@@ -2723,8 +2723,8 @@ function cgNxNbrAfFields(p) {
 function cgNxNbrAfBody(data, p, s, w) {
     const v = k => cgNxStr(data[p + k]);
     const lines = [];
-    ['rm_in', 'rm_out', 'pl_in', 'pl_out', 'dorig_rm'].forEach(k => { if (v(k) && !CG_VALIDATORS.objname.re.test(v(k))) w.push(k + ' adı geçersiz.'); });
-    if (v('allowas_n') && !CG_VALIDATORS.posint.fn(v('allowas_n'))) w.push('allowas-in tekrar sayısı pozitif tam sayı olmalı.');
+    ['rm_in', 'rm_out', 'pl_in', 'pl_out', 'dorig_rm'].forEach(k => { if (v(k) && !cgValidator('objname', 'cisco').re.test(v(k))) w.push(k + ' adı geçersiz.'); });
+    if (v('allowas_n') && !cgValidator('posint', 'cisco').fn(v('allowas_n'))) w.push('allowas-in tekrar sayısı pozitif tam sayı olmalı.');
     if (v('maxp') && !cgNxInt(v('maxp'), 1, 300000)) w.push('maximum-prefix 1-300000 olmalı.');
     if (v('maxp_th') && !cgNxInt(v('maxp_th'), 1, 100)) w.push('maximum-prefix eşiği 1-100 olmalı.');
     if (!v('maxp') && (v('maxp_th') || v('maxp_act'))) w.push('maximum-prefix eşiği/aşım eylemi için önce maximum-prefix değeri girilmeli.');
@@ -2786,13 +2786,13 @@ function cgNxBgpNbrAfGen(data) {
     const fam = data.nbaf_nfam === 'ipv6' ? 'ipv6' : 'ipv4';
     const as = cgNxStr(data.nbaf_as), n4 = fam === 'ipv4' ? cgNxStr(data.nbaf_nbr4) : '', n6 = fam === 'ipv6' ? cgNxStr(data.nbaf_nbr6) : '';
     const inh = cgNxStr(data.nbaf_inh), seq = cgNxStr(data.nbaf_inh_seq), w = [];
-    if (!CG_VALIDATORS.asn.fn(as)) w.push('Yerel AS geçersiz veya boş.');
+    if (!cgValidator('asn', 'cisco').fn(as)) w.push('Yerel AS geçersiz veya boş.');
     cgNxBgpAfCheck(afi, safi, vrf, w);
-    if (vrf && !CG_VALIDATORS.objname.re.test(vrf)) w.push('VRF adı geçersiz.');
+    if (vrf && !cgValidator('objname', 'cisco').re.test(vrf)) w.push('VRF adı geçersiz.');
     if (!n4 && !n6) w.push('Komşu ' + (fam === 'ipv6' ? 'IPv6' : 'IPv4') + ' adresi girilmedi.');
-    if (n4 && !CG_VALIDATORS.ip.re.test(n4)) w.push('Komşu IPv4 adresi geçersiz.');
-    if (n6 && !CG_VALIDATORS.ipv6.fn(n6)) w.push('Komşu IPv6 adresi geçersiz.');
-    if (inh && (!CG_VALIDATORS.objname.re.test(inh) || !CG_VALIDATORS.posint.fn(seq))) w.push('inherit peer-policy için geçerli ad ve pozitif sıra numarası gerekir.');
+    if (n4 && !cgValidator('ip', 'cisco').re.test(n4)) w.push('Komşu IPv4 adresi geçersiz.');
+    if (n6 && !cgValidator('ipv6', 'cisco').fn(n6)) w.push('Komşu IPv6 adresi geçersiz.');
+    if (inh && (!cgValidator('objname', 'cisco').re.test(inh) || !cgValidator('posint', 'cisco').fn(seq))) w.push('inherit peer-policy için geçerli ad ve pozitif sıra numarası gerekir.');
     if (!inh && seq) w.push('peer-policy sırası yalnız inherit peer-policy ile yazılır.');
     let c = cgNxHdr('BGP Neighbor Address-Family');
     let ind = '  ';
@@ -2867,12 +2867,12 @@ CiscoNXOS.bgpTemplate = {
 function cgNxBgpTemplateGen(data) {
     const v = k => cgNxStr(data[k]);
     const w = [];
-    if (!CG_VALIDATORS.asn.fn(v('bt_as'))) w.push('Yerel AS geçersiz veya boş.');
-    if (!CG_VALIDATORS.objname.re.test(v('bt_name'))) w.push('Şablon adı geçersiz veya boş.');
-    ['bt_remote_as', 'bt_local_as'].forEach(k => { if (v(k) && !CG_VALIDATORS.asn.fn(v(k))) w.push(k.replace('bt_', '') + ' geçersiz.'); });
+    if (!cgValidator('asn', 'cisco').fn(v('bt_as'))) w.push('Yerel AS geçersiz veya boş.');
+    if (!cgValidator('objname', 'cisco').re.test(v('bt_name'))) w.push('Şablon adı geçersiz veya boş.');
+    ['bt_remote_as', 'bt_local_as'].forEach(k => { if (v(k) && !cgValidator('asn', 'cisco').fn(v(k))) w.push(k.replace('bt_', '') + ' geçersiz.'); });
     if (v('bt_desc') && /[\r\n\0]/.test(String(data.bt_desc))) w.push('description tek satır olmalı.');
-    if (v('bt_upd') && !CG_VALIDATORS.iface.fn(v('bt_upd'))) w.push('update-source arayüz adı geçersiz.');
-    if (v('bt_inh_sess') && !CG_VALIDATORS.objname.re.test(v('bt_inh_sess'))) w.push('peer-session adı geçersiz.');
+    if (v('bt_upd') && !cgValidator('iface', 'cisco').fn(v('bt_upd'))) w.push('update-source arayüz adı geçersiz.');
+    if (v('bt_inh_sess') && !cgValidator('objname', 'cisco').re.test(v('bt_inh_sess'))) w.push('peer-session adı geçersiz.');
     if (v('bt_mhop') && !cgNxInt(v('bt_mhop'), 2, 255)) w.push('ebgp-multihop 2-255 olmalı.');
     if (v('bt_ttl') && !cgNxInt(v('bt_ttl'), 1, 254)) w.push('ttl-security hops 1-254 olmalı.');
     if (v('bt_mhop') && v('bt_ttl')) w.push('ebgp-multihop ile ttl-security hops birlikte kullanılmaz (NX-OS 9.3(5) öncesi komut reddedilir).');
@@ -2882,7 +2882,7 @@ function cgNxBgpTemplateGen(data) {
     if (afi) {
         if (!['ipv4', 'ipv6', 'link-state', 'l2vpn'].includes(afi)) w.push('Şablon AFI geçersiz.');
         else cgNxBgpAfCheck(afi, safi, '', w);
-        if (v('bt_inh_pol') && !CG_VALIDATORS.objname.re.test(v('bt_inh_pol'))) w.push('peer-policy adı geçersiz.');
+        if (v('bt_inh_pol') && !cgValidator('objname', 'cisco').re.test(v('bt_inh_pol'))) w.push('peer-policy adı geçersiz.');
         af = cgNxNbrAfBody(data, 'bt_af_', '      ', w);
     }
     let c = cgNxHdr('BGP Peer Template');
@@ -2924,15 +2924,15 @@ function cgNxBgpTemplateGen(data) {
 // Belgede sınırı olmayan değerler (udld message-time, track nesnesi) yalnız tür olarak doğrulanır.
 const CG_NX_P3_PLATFORM = 'Hedef: Nexus 9000, NX-OS 10.x; diğer Nexus ailelerinde seçenek ve sınırlar farklı olabilir.';
 const CG_NX_P3_BADGE = { text: 'NX-OS N9K', cls: 'recommended' };
-function cgNxOk(type, v) { const x = CG_VALIDATORS[type]; return !!x && (x.re ? x.re.test(v) : x.fn(v)); }
+function cgNxOk(type, v) { const x = cgValidator(type, 'cisco'); return !!x && (x.re ? x.re.test(v) : x.fn(v)); }
 // Sayısal alan: boşsa sorun yok; doluysa [min,max] içinde olmalı. Uyarı girilen değeri içerir.
 function cgNxRng(data, key, min, max, label, w) {
     const v = cgNxStr(data[key]);
     if (v && !cgNxInt(v, min, max)) w.push(label + ' "' + v + '" geçersiz; ' + min + '-' + max + ' aralığında tam sayı olmalı.');
     return v;
 }
-function cgNxMcast(ip) { return CG_VALIDATORS.ip.re.test(ip) && +ip.split('.')[0] >= 224 && +ip.split('.')[0] <= 239; }
-function cgNxMcastPfx(p) { const s = String(p).split('/'); return CG_VALIDATORS.cidr.re.test(p) && cgNxMcast(s[0]) && +s[1] >= 4; }
+function cgNxMcast(ip) { return cgValidator('ip', 'cisco').re.test(ip) && +ip.split('.')[0] >= 224 && +ip.split('.')[0] <= 239; }
+function cgNxMcastPfx(p) { const s = String(p).split('/'); return cgValidator('cidr', 'cisco').re.test(p) && cgNxMcast(s[0]) && +s[1] >= 4; }
 function cgNxP3Fail(title, w) { return { config: cgNxHdr(title) + '! Geçersiz girdi; çıktı üretilmedi.\n', warnings: w }; }
 
 // ── IGMP (nxos_igmp + nxos_igmp_interface) ──

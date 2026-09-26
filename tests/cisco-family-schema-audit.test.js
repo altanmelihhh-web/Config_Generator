@@ -25,8 +25,10 @@ function source(file) {
     return fs.readFileSync(path.join(root, file), 'utf8');
 }
 
+for (const f of ['common.js'].concat(fs.readdirSync(path.join(root, 'assets/js/validators')).filter(x => x.endsWith('.js') && x !== 'common.js').sort()))
+    vm.runInContext(source('assets/js/validators/' + f), context, { filename: 'validators/' + f });   // aile doğrulayıcıları CGM'den önce
 vm.runInContext(source('assets/js/ConfigGeneratorManagement.js') +
-    '\nthis.__validators = CG_VALIDATORS; this.__registry = CG_REGISTRY;', context);
+    '\nthis.__validators = new Proxy({}, { get: (_, k) => typeof k === "string" ? cgValidator(k, "cisco") : undefined }); this.__registry = CG_REGISTRY;', context);
 
 const families = [
     { id: 'cisco-ios', file: 'assets/js/ConfigGenerators_Cisco.js', symbol: 'CiscoIOS', expected: 49,

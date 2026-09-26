@@ -28,13 +28,15 @@ function load(file) {
     vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, { filename: file });
 }
 
+for (const f of ['common.js'].concat(fs.readdirSync(path.join(root, 'assets/js/validators')).filter(x => x.endsWith('.js') && x !== 'common.js').sort()))
+    load('assets/js/validators/' + f);   // aile doğrulayıcıları CGM'den önce
 load('assets/js/ConfigGeneratorManagement.js');
 load('assets/js/ConfigConverter_Writers_Common.js');
 load('assets/js/ConfigConverter_Writers_Cisco.js');
 vm.runInContext('cgFormBuilder = (container, schema, generateFn) => __capture(schema, generateFn);',
     Object.assign(context, { __capture: (schema, generateFn) => captured.push({ schema, generateFn }) }));
 vm.runInContext(fs.readFileSync(path.join(root, 'assets/js/ConfigGenerators_Cisco.js'), 'utf8') +
-    '\nthis.__CiscoIOS = CiscoIOS; this.__validators = CG_VALIDATORS;', context);
+    '\nthis.__CiscoIOS = CiscoIOS; this.__validators = new Proxy({}, { get: (_, k) => typeof k === "string" ? cgValidator(k, "cisco") : undefined });', context);
 
 const generators = context.__CiscoIOS;
 const validators = context.__validators;

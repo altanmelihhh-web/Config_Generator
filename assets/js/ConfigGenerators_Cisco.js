@@ -3167,8 +3167,8 @@ const _CC_TRI_OPTS = [
     { value: 'on', label: 'Etkin' },
     { value: 'off', label: 'Kapalı (no ...)' }
 ];
-function _ccIsMcast4(ip) { const n = _ccN(ip); return CG_VALIDATORS.ip.re.test(String(ip || '').trim()) && n >= 3758096384 && n <= 4026531839; }
-function _ccIsMcast6(ip) { return /^ff[0-9a-f]{2}:/i.test(String(ip || '').trim()) && CG_VALIDATORS.ipv6.fn(ip); }
+function _ccIsMcast4(ip) { const n = _ccN(ip); return cgValidator('ip', 'cisco').re.test(String(ip || '').trim()) && n >= 3758096384 && n <= 4026531839; }
+function _ccIsMcast6(ip) { return /^ff[0-9a-f]{2}:/i.test(String(ip || '').trim()) && cgValidator('ipv6', 'cisco').fn(ip); }
 
 CiscoIOS.evpnGlobal = {
     label: 'EVPN Global',
@@ -3344,7 +3344,7 @@ CiscoIOS.vxlanVtep = {
             if (l2 && !_cgInt(f('vt_l2_vni'), 1, 16777215)) warnings.push('⛔ L2VNI 1-16777215 arasında olmalı.');
             if (rep === 'static' && !_ccIsMcast4(f('vt_mcast4'))) warnings.push('⛔ IPv4 multicast grubu 224.0.0.0-239.255.255.255 aralığında olmalı.');
             if (rep === 'static' && f('vt_mcast6') && !_ccIsMcast6(f('vt_mcast6'))) warnings.push('⛔ IPv6 multicast grubu ff00::/8 içinde olmalı.');
-            if (data.vt_l3 && (!_cgInt(f('vt_l3_vni'), 1, 16777215) || !CG_VALIDATORS.objname.re.test(f('vt_l3_vrf')))) warnings.push('⛔ L3VNI için geçerli VNI ve VRF adı gerekir.');
+            if (data.vt_l3 && (!_cgInt(f('vt_l3_vni'), 1, 16777215) || !cgValidator('objname', 'cisco').re.test(f('vt_l3_vrf')))) warnings.push('⛔ L3VNI için geçerli VNI ve VRF adı gerekir.');
             if (data.vt_l3 && l2 && f('vt_l3_vni') === f('vt_l2_vni')) warnings.push('⛔ Aynı VNI hem L2VNI hem L3VNI olamaz.');
             if (!l2 && !data.vt_l3) warnings.push('⛔ En az bir L2VNI veya L3VNI üyeliği seçin.');
             let c = _ccEvpnHdr('VXLAN VTEP');

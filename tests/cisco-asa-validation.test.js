@@ -23,11 +23,14 @@ const context = {
     },
 };
 vm.createContext(context);
+// Aile doğrulayıcıları (assets/js/validators/) CGM'den önce yüklenir; Cisco alanları 'cisco' ailesinde çözülür.
+for (const f of ['common.js'].concat(fs.readdirSync(path.join(root, 'assets/js/validators')).filter(x => x.endsWith('.js') && x !== 'common.js').sort()))
+    vm.runInContext(fs.readFileSync(path.join(root, 'assets/js/validators', f), 'utf8'), context, { filename: 'validators/' + f });
 vm.runInContext(fs.readFileSync(path.join(root, 'assets/js/ConfigGeneratorManagement.js'), 'utf8'), context);
 context.__capture = (schema, generateFn) => captured.push({ schema, generateFn });
 vm.runInContext('cgFormBuilder = (c, schema, fn) => __capture(schema, fn);', context);
 vm.runInContext(fs.readFileSync(path.join(root, 'assets/js/ConfigGenerators_ASA.js'), 'utf8') +
-    '\nthis.__A = CiscoASA; this.__V = CG_VALIDATORS; this.__W = CG_WHY; this.__R = CG_RULES; this.__RV = cgRangeValidator;', context);
+    '\nthis.__A = CiscoASA; this.__V = new Proxy({}, { get: (_, k) => typeof k === "string" ? cgValidator(k, "cisco") : undefined }); this.__W = new Proxy({}, { get: (_, k) => typeof k === "string" ? cgValWhy(k, "cisco") : undefined }); this.__R = new Proxy({}, { get: (_, k) => typeof k === "string" ? cgValRule(k, "cisco") : undefined }); this.__RV = cgRangeValidator;', context);
 
 const A = context.__A, V = context.__V, W = context.__W, R = context.__R;
 const tools = {};
