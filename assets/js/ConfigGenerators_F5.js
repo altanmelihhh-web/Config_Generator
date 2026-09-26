@@ -350,36 +350,37 @@ F5LTM.persistence = {
     label: 'Persistence Profile',
     init(container) {
         cgFormBuilder(container, {
-            topic: {
-                icon: 'fas fa-thumbtack',
-                title: 'Persistence Profile',
-                desc: 'İstemci oturumlarını belirli bir sunucuya bağlayan persistence profili oluşturur; cookie insert veya kaynak IP yöntemi desteklenir.'
-            },
+            topic: { icon: 'fas fa-link', title: 'Persistence Profile', desc: 'Cookie insert (şifreleme dahil) ya da kaynak adres kalıcılık profili üretir ve virtual server\'a bağlar.' },
             sections: [
-                {
-                    title: 'Profil Ayarları',
-                    icon: 'fas fa-cog',
-                    fields: [
-                        { name: 'prof_name', why: "Persistence profili bir virtual server'a bağlanmadığı sürece hiçbir etkisi olmaz; profili oluşturup VS'ye bağlamayı unutmak en sık yapılan hatadır.", label: 'Profil Adı', type: 'text', required: true, placeholder: 'MY_COOKIE_PERSIST', hint: 'Persistence profili için benzersiz bir isim.' },
-                        { name: 'persist_type', why: "Cookie persistence uygulama katmanında çalışır ve HTTP profili gerektirir; SSL sonlandırılmıyorsa hiç devreye girmez. Source-addr ise NAT arkasındaki binlerce kullanıcıyı tek üyeye yığar ve yük dengesini bozar.", label: 'Tip', type: 'select', options: [
-                            { value: 'cookie', label: 'Cookie Insert' },
-                            { value: 'source-addr', label: 'Source IP' }
-                        ]},
-                        { name: 'timeout', why: "Persistence timeout uygulamanın oturum süresinden kısaysa kullanıcı oturum ortasında başka sunucuya düşer ve sepetini/oturumunu kaybeder. Çok uzunsa bakım sırasında üye boşaltma (draining) beklenenden çok uzun sürer.", label: 'Timeout (sn)', type: 'text', optional: true, placeholder: '300', hint: 'Oturum süresi; varsayılan 300 saniye.' }
-                    ]
-                }
+                { title: 'Profil', icon: 'fas fa-cog', fields: [
+                    { name: 'prof_name', label: 'Profil adı', type: 'text', required: true, placeholder: 'p_cookie', why: 'Profil VS\'ye persist ile bağlanır; aynı VS\'de tek birincil persistence profili olur.' },
+                    { name: 'persist_type', label: 'Tür', type: 'select', options: [{ value: 'cookie', label: 'cookie (insert)' }, { value: 'source-addr', label: 'source-addr' }], why: '<b>cookie</b> her tarayıcıya ayrı BIGipServer çerezi verir (HTTP profili gerekir). <b>source-addr</b> istemci IP\'sine göre yapışır: aynı NAT arkasındaki herkes tek sunucuya yığılır.' },
+                    { name: 'cookie_enc', label: 'Çerez şifreleme (cookie-encryption)', type: 'select', options: [{ value: 'preferred', label: 'preferred (geçiş: şifreli ve düz kabul)' }, { value: 'required', label: 'required (yalnız şifreli)' }, { value: 'disabled', label: 'disabled (değer iç IP/port\'u açık eder)' }], why: 'Şifresiz BIGipServer değeri iç IP ve portu kodlar; güvenlik taramalarında bulgu olur. Yeni kurulumda required; mevcut sistemde önce preferred, çerezler yenilendikten sonra required (doğrudan required açık oturumları koparır).' },
+                    { name: 'cookie_pass', label: 'Şifreleme parolası', type: 'text', optional: true, placeholder: 'GizliAnahtar2026', hint: 'Şifreleme açıksa zorunlu; HA eşinde aynı olmalı', why: 'Parola config sync ile eşitlenmeli; farklı parola failover\'da kalıcılığı bozar.' },
+                    { name: 'cookie_exp', label: 'Çerez ömrü (expiration)', type: 'text', optional: true, placeholder: '0', hint: '0 = oturum çerezi; ya da gün:sa:dk:sn', why: 'Oturum çerezi tarayıcı kapanınca silinir; uzun ömür, sunucu değişse de eski üyeye bağlılık demektir.' },
+                    { name: 'timeout', label: 'source-addr zaman aşımı (sn)', type: 'text', optional: true, min: 1, max: 86400, placeholder: '180', hint: 'Yalnız source-addr', why: 'Kayıt, son bağlantıdan bu kadar süre sonra silinir.' },
+                    { name: 'vs_name', label: 'Bağlanacak virtual server', type: 'text', optional: true, placeholder: 'vs_web', why: 'Cookie persistence için VS\'de HTTP profili olmalı.' }
+                ] }
             ],
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
-            const { prof_name, persist_type, timeout } = data;
-            const tout = timeout || '300';
+            const { prof_name, persist_type, cookie_enc, cookie_pass, cookie_exp, timeout, vs_name } = data, w = [];
             let c = '# ========================================\n# F5 BIG-IP LTM — Persistence Profile\n# ========================================\n\n';
-            c += 'tmsh create ltm persistence ' + persist_type + ' ' + prof_name + ' {\n';
-            c += '    timeout ' + tout + '\n';
-            if (persist_type === 'cookie') c += '    cookie-name "NSSERVICEID"\n    method insert\n';
-            c += '}\n\n';
-            c += '# Doğrulama:\n# tmsh show ltm persistence ' + persist_type + ' ' + prof_name + '\n';
-            return c;
+            if (persist_type === 'cookie') {
+                c += 'tmsh create ltm persistence cookie ' + prof_name + ' defaults-from cookie method insert';
+                if (cookie_exp) c += ' expiration ' + cookie_exp;
+                if (cookie_enc !== 'disabled') { if (!cookie_pass) w.push('⛔ cookie-encryption ' + cookie_enc + ' için parola gerekli.'); c += ' cookie-encryption ' + cookie_enc + ' cookie-encryption-passphrase ' + (cookie_pass || '<parola>'); }
+                else w.push('⚠ Şifresiz çerez değeri iç IP ve portu açık eder (ör. 840843274.20480.0000 = 10.64.30.50:80).');
+                c += '\n';
+                if (cookie_enc === 'required') w.push('ℹ Mevcut bir profili required\'a çeviriyorsanız önce preferred kullanın: required eski (şifresiz) çerezleri kabul etmez, açık oturumlar kopar.');
+            } else {
+                c += 'tmsh create ltm persistence source-addr ' + prof_name + ' defaults-from source_addr' + (timeout ? ' timeout ' + timeout : '') + '\n';
+                w.push('ℹ source-addr: aynı NAT adresinden gelen tüm kullanıcılar tek üyeye gider; HTTP için cookie tercih edin.');
+            }
+            if (vs_name) c += 'tmsh modify ltm virtual ' + vs_name + ' persist replace-all-with { ' + prof_name + ' }\n';
+            c += '\ntmsh save sys config\n\n# Doğrulama:\n# tmsh list ltm persistence ' + persist_type + ' ' + prof_name + '\n';
+            c += persist_type === 'cookie' ? '# curl -I -c /var/tmp/j -b /var/tmp/j http://<vip>/   # Set-Cookie: BIGipServer<pool>=' + (cookie_enc !== 'disabled' ? '!…  (şifreli)' : '<ip>.<port>.0000') + '\n' : '# tmsh show ltm persistence persist-records\n';
+            return { config: c, warnings: w };
         });
     }
 };
