@@ -124,11 +124,41 @@
 }
 :root[data-theme="dark"] #config-generator-root .cg-land-plh { color: var(--text); }
 
+/* Nasıl çalışır (S11b) */
+#config-generator-root .cg-land-sub { margin-top: var(--space-2); }
+#config-generator-root .cg-land-how { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: 0 0 var(--space-3); padding: 0; list-style: none; }
+#config-generator-root .cg-land-how > li { position: relative; display: flex; flex-direction: column; padding: 18px 18px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+#config-generator-root .cg-land-how .cg-land-p { flex: 1; font-size: .92rem; }
+#config-generator-root .cg-land-how code { font-family: var(--font-mono); padding: 0 4px; border-radius: 4px; background: var(--surface-2); color: var(--text); }
+#config-generator-root .cg-land-hn {
+    display: grid; place-items: center; width: 30px; height: 30px; margin-bottom: var(--space-2); border-radius: 999px;
+    background: var(--primary-soft); color: var(--primary); font: 700 .9rem/1 var(--font-mono);
+}
+:root[data-theme="dark"] #config-generator-root .cg-land-hn { color: var(--text); }
+#config-generator-root .cg-land-mini { padding: 8px 12px; font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+#config-generator-root .cg-land-sp a { color: var(--primary); font-weight: 600; }
+
+/* Kapanış CTA bandı (S11b) */
+#config-generator-root .cg-land-band {
+    margin-top: var(--space-12); padding: var(--space-8); border-radius: var(--radius-lg);
+    border: 1px solid var(--border); background: var(--primary-soft); text-align: center;
+}
+#config-generator-root .cg-land-band .cg-land-h2 { margin-bottom: var(--space-2); }
+#config-generator-root .cg-land-band .cg-land-p { color: var(--text); }
+#config-generator-root .cg-land-band .cg-land-cta { justify-content: center; }
+
+/* Çok sütunlu altbilgi (S11b) */
 #config-generator-root .cg-land-ftr {
-    display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-4);
-    margin-top: var(--space-12); padding-top: var(--space-6); border-top: 1px solid var(--border);
+    margin-top: var(--space-12); padding-top: var(--space-8); border-top: 1px solid var(--border);
     color: var(--muted); font-size: .88rem;
 }
+#config-generator-root .cg-land-fcols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-6); }
+#config-generator-root .cg-land-fh { margin: 0 0 var(--space-2); font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+#config-generator-root .cg-land-fcol ul { margin: 0; padding: 0; list-style: none; }
+#config-generator-root .cg-land-fcol a { display: inline-flex; align-items: center; min-height: 36px; color: var(--text); text-decoration: none; }
+#config-generator-root .cg-land-fcol a:hover { color: var(--primary); text-decoration: underline; }
+#config-generator-root .cg-land-fcol a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+#config-generator-root .cg-land-fnote { margin: var(--space-6) 0 0; padding-top: var(--space-4); border-top: 1px solid var(--border); }
 
 @media (max-width: 1024px) {
     #config-generator-root .cg-land-hero { gap: var(--space-8); }
@@ -147,4 +177,8 @@
     #config-generator-root .cg-land-about { grid-template-columns: minmax(0, 1fr); padding: var(--space-4); }
     #config-generator-root .cg-land-ph { width: 96px; height: 96px; }
     #config-generator-root .cg-land-cta .cg-land-btn { flex: 1 1 auto; justify-content: center; }
+    #config-generator-root .cg-land-how { grid-template-columns: minmax(0, 1fr); }
+    #config-generator-root .cg-land-band { padding: var(--space-6) var(--space-4); }
+    #config-generator-root .cg-land-fcols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #config-generator-root .cg-land-fcol a { min-height: 44px; }
 }

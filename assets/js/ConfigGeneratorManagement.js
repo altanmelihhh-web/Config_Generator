@@ -2097,6 +2097,9 @@ const ConfigGenerator = {
         if (ar) { this._renderArena(ar[1], ar[2]); return; }
         const ts = h.match(/^#\/troubleshoot(?:\/([a-z0-9-]+))?(?:\/(\d+))?$/);
         if (ts) { this._renderTs(ts[1], ts[2]); return; }
+        // İçerik sayfaları (S11b): #/rehber, #/blog[/<slug>], #/iletisim
+        const pg = h.match(/^#\/(rehber|iletisim|blog)(?:\/([a-z0-9-]+))?$/);
+        if (pg && typeof CgPages !== 'undefined' && (pg[1] === 'blog' || !pg[2])) { this._renderPage(pg[1], pg[2]); return; }
         const m = h.match(/^#\/([^/]+)\/([^/]+)$/);
         if (m && CG_REGISTRY[m[1]]) this._renderWork(m[1], m[2]);
         else if (h === '#/converter') this._renderConverter();
@@ -2189,14 +2192,14 @@ const ConfigGenerator = {
     // title verilirse sekme eşlemesi yerine o başlık yazılır (aile sayfaları: Vendorlar sekmesi + "<Aile> lablar")
     // Üst menü (S11a): Ana Sayfa · Platform (· Rehber · Blog · İletişim). Ürün bölümleri (vendors/tools/cli/lab/arena/ts/conv) Platform altında.
     _setNav(which, title) {
-        const top = which === 'home' ? 'home' : ['rehber', 'blog', 'iletisim'].includes(which) ? which : which ? 'platform' : null;
+        const top = which === 'home' ? 'home' : ['conv', 'rehber', 'blog', 'iletisim'].includes(which) ? which : which ? 'platform' : null;
         document.querySelectorAll('.app-nav-tab').forEach(b => {
             const on = b.dataset.nav === top;
             b.classList.toggle('active', on);
             if (on && b.tagName === 'A') b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
         });
         if (typeof CgShell !== 'undefined') CgShell._nav = which;   // çekmece ve Platform menüsü geçerli bölümü işaretler
-        const T = { home: '', vendors: 'Vendorlar', tools: 'Config araçları', cli: 'Komut kütüphanesi', lab: 'CLI Laboratuvarı', arena: 'iRule Arenası', ts: 'Sorun giderme', conv: 'Dönüştürücü' };
+        const T = { home: '', vendors: 'Vendorlar', tools: 'Config araçları', cli: 'Komut kütüphanesi', lab: 'CLI Laboratuvarı', arena: 'iRule Arenası', ts: 'Sorun giderme', conv: 'Dönüştürücü', rehber: 'Rehber', blog: 'Blog', iletisim: 'İletişim' };
         document.title = (title || T[which] ? (title || T[which]) + ' · ' : '') + 'Config Generator';
     },
 
@@ -2501,6 +2504,13 @@ const ConfigGenerator = {
     },
 
     // ── TANITIM (A7): kırıntı ve sol ağaç yok (CgShell bu rotada ikisini de gizler); lab verisi yüklenmez ──
+    _renderPage(which, arg) {
+        this._setNav(which);
+        this._vendor = this._type = null;
+        CgPages.render(this._root, which, arg);   // document.title'ı CgPages yazar
+        window.scrollTo(0, 0);
+    },
+
     _renderLanding() {
         this._setNav('home');
         this._vendor = this._type = null;

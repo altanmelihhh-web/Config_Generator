@@ -14,6 +14,7 @@ const CgPalette = {
         ['Ana Sayfa', '#/', 'giriş tanıtım'], ['Vendorlar', '#/v', 'vendor seç aileler platform'], ['Tüm araçlar', '#/araclar', 'config araçları generator şablon'], ['Tüm komutlar', '#/cli', 'komut kütüphanesi cli show'],
         ['Tüm lablar', '#/lab', 'cli laboratuvarı lab terminal simülatör'],
         ['Sorun giderme (belirtiye göre)', '#/troubleshoot', 'sihirbaz troubleshoot arıza teşhis belirti'], ['Config dönüştürücü', '#/converter', 'converter çevir taşı migrasyon'],
+        ['Rehber', '#/rehber', 'başlangıç nereden başlamalı öğrenme yolu kılavuz'], ['Blog', '#/blog', 'yazı makale haber'], ['İletişim', '#/iletisim', 'github e-posta linkedin iletişim'],
     ],
 
     init() {

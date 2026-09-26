@@ -3,15 +3,19 @@
 // Yalnız okur: hash + yüklenmiş veriler (CG_FAMILIES, CG_REGISTRY, CG_LABS, CG_CLI_INDEX, CgTroubleshoot._list, CG_ARENA_*).
 // Tembel yüklenen modüller ekranı sonradan çizdiği için #config-generator-root'un doğrudan çocukları değişince kırıntı yenilenir.
 const CgShell = {
-    // Mobil çekmece ve üst "Platform" menüsü (S11a: üst menü Ana Sayfa · Platform; ürün bölümleri Platform altında)
+    // Mobil çekmece ve üst menü. top: üst menüde ayrı öğe (S11b: Ana Sayfa · Platform ▾ · Dönüştürücü · Rehber · Blog · İletişim);
+    // top olmayanlar "Platform" açılır listesinde ve çekmecede Platform grubunun altında.
     NAV: [
-        { id: 'home', href: '#/', icon: 'fas fa-home', label: 'Ana Sayfa' },
+        { id: 'home', top: 1, href: '#/', icon: 'fas fa-home', label: 'Ana Sayfa' },
         { id: 'vendors', href: '#/v', icon: 'fas fa-building', label: 'Vendorlar', d: 'Vendor seç: araçlar, lablar, komutlar, sorun giderme' },
-        { id: 'conv', href: '#/converter', icon: 'fas fa-exchange-alt', label: 'Dönüştürücü', d: 'Bir vendorun config\'ini diğerine çevir' },
         { id: 'tools', href: '#/araclar', icon: 'fas fa-th-large', label: 'Tüm araçlar', d: 'Tüm vendorların config araçları' },
         { id: 'lab', href: '#/lab', icon: 'fas fa-flask', label: 'Tüm lablar', d: 'Tüm vendorların CLI labları' },
         { id: 'cli', href: '#/cli', icon: 'fas fa-terminal', label: 'Tüm komutlar', d: 'Komut kütüphanesi' },
         { id: 'ts', href: '#/troubleshoot', icon: 'fas fa-stethoscope', label: 'Sorun giderme (belirtiye göre)', d: 'Belirtiden başlayan sihirbaz' },
+        { id: 'conv', top: 1, href: '#/converter', icon: 'fas fa-exchange-alt', label: 'Dönüştürücü' },
+        { id: 'rehber', top: 1, href: '#/rehber', icon: 'fas fa-compass', label: 'Rehber' },
+        { id: 'blog', top: 1, href: '#/blog', icon: 'fas fa-pen-nib', label: 'Blog' },
+        { id: 'iletisim', top: 1, href: '#/iletisim', icon: 'fas fa-envelope', label: 'İletişim' },
     ],
     ARENA: { masa: ['Trafik Masası', 'CG_ARENA_MASA'], meydan: ['Meydan Okuma', 'CG_ARENA_MO'], waf: ['WAF Masası', 'CG_ARENA_WAF'], nobet: ['Nöbet', 'CG_ARENA_NOBET'] },
 
@@ -54,7 +58,7 @@ const CgShell = {
         const btn = document.querySelector('[data-nav="platform"]'), menu = document.getElementById('cg-plat-menu');
         if (!btn || !menu) return;
         const open = () => {
-            menu.innerHTML = this.NAV.filter(x => x.id !== 'home').map(x => '<li><a href="' + x.href + '"' + (this._nav === x.id ? ' aria-current="page"' : '') + '><i class="' + x.icon + '" aria-hidden="true"></i><span><b>' + this._esc(x.label) + '</b>' + (x.d ? '<small>' + this._esc(x.d) + '</small>' : '') + '</span></a></li>').join('');
+            menu.innerHTML = this.NAV.filter(x => !x.top).map(x => '<li><a href="' + x.href + '"' + (this._nav === x.id ? ' aria-current="page"' : '') + '><i class="' + x.icon + '" aria-hidden="true"></i><span><b>' + this._esc(x.label) + '</b>' + (x.d ? '<small>' + this._esc(x.d) + '</small>' : '') + '</span></a></li>').join('');
             menu.hidden = false; btn.setAttribute('aria-expanded', 'true');
         };
         const close = focus => { if (menu.hidden) return; menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); if (focus) btn.focus(); };
@@ -156,6 +160,12 @@ const CgShell = {
             if (!f) return { items: [base].concat(tp ? [{ t: tp.label, h: '#/troubleshoot/' + tp.id }] : [], [{ t: this._cliName(m[1]) }, title]), cross: true };
             return { items: [V, FH(f), SEC(f, 'sorun', 'Sorun giderme')].concat(tp ? [SEC(f, 'sorun', tp.label, '?k=' + tp.id)] : [], [title]), fam: f.slug, sec: 'sorun' };
         }
+        if ((m = h.match(/^#\/blog\/([a-z0-9-]+)$/))) {
+            // Blog yazısı: vendor alanı olan yazıda aile bağlamı (sol menü yok)
+            const b = (window.CG_BLOG || []).find(x => x.slug === m[1]) || (window.CG_BLOG_INDEX || []).find(x => x.slug === m[1]);
+            const f = b && this._fam(b.vendor);
+            return { items: [{ t: 'Blog', h: '#/blog' }].concat(f ? [{ t: f.name, h: '#/v/' + f.slug }] : [], [{ t: b ? b.title : m[1] }]), cross: true };
+        }
         if ((m = h.match(/^#\/([^/]+)\/([^/]+)$/)) && this._reg(m[1])) {
             const r = this._reg(m[1]), ty = r.types.find(t => t.id === m[2]), f = this._famOf(m[1]);
             const items = f ? [V, FH(f), SEC(f, 'araclar', 'Config araçları')] : [{ t: 'Tüm araçlar', h: '#/araclar' }];
@@ -241,7 +251,10 @@ const CgShell = {
     openDrawer() {
         const d = this._drawer; if (!d) return;
         const M = this._ctx || this._model();
-        d.querySelector('.cg-drawer-nav').innerHTML = this.NAV.map(x => '<a href="' + x.href + '"' + (this._nav === x.id ? ' class="on" aria-current="page"' : '') + '><i class="' + x.icon + '" aria-hidden="true"></i><span>' + x.label + '</span></a>').join('');
+        // Sıra üst menüyle aynı: Ana Sayfa · Platform (grup) · Dönüştürücü · Rehber · Blog · İletişim
+        const a = (x, sub) => '<a href="' + x.href + '"' + (this._nav === x.id ? ' class="on' + (sub ? ' cg-drawer-sub' : '') + '" aria-current="page"' : sub ? ' class="cg-drawer-sub"' : '') + '><i class="' + x.icon + '" aria-hidden="true"></i><span>' + this._esc(x.label) + '</span></a>';
+        const top = this.NAV.filter(x => x.top);
+        d.querySelector('.cg-drawer-nav').innerHTML = a(top[0]) + '<div class="cg-drawer-grp">Platform</div>' + this.NAV.filter(x => !x.top).map(x => a(x, true)).join('') + top.slice(1).map(x => a(x)).join('');
         d.querySelector('.cg-drawer-tree').innerHTML = this._tree(M.fam, M.sec, true);
         d.hidden = false;
         document.body.classList.add('cg-drawer-open');

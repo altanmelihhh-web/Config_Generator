@@ -25,9 +25,10 @@
   <link rel="stylesheet" href="assets/css/cg-nobet.css?v=a244faf9">
   <link rel="stylesheet" href="assets/css/shell.css?v=02e5d233">
   <link rel="stylesheet" href="assets/css/hub.css?v=aec05429">
-  <link rel="stylesheet" href="assets/css/landing.css?v=999762c6">
+  <link rel="stylesheet" href="assets/css/landing.css?v=f4d93ff1">
   <link rel="stylesheet" href="assets/css/tools.css?v=dd73c90e">
   <link rel="stylesheet" href="assets/css/palette.css?v=79268dd7">
+  <link rel="stylesheet" href="assets/css/pages.css?v=b1cfe251">
   <!--CG_ASSET_V--><script>window.CG_ASSET_V = {"assets/data/arena/masa.js":"848c7673","assets/data/arena/meydan.js":"abbc9c3e","assets/data/arena/nobet.js":"a74c68e9","assets/data/arena/waf.js":"c2b49903","assets/data/blog/blast-radius-fortigate.js":"17de274d","assets/data/blog/cisco-vlan-trunk-5-hata.js":"c50283d7","assets/data/blog/f5-http-profili-metot-kisitlama.js":"d63d6512","assets/data/blog/fortios-763-sslvpn-ipsec-gecis.js":"9f51d973","assets/data/blog/index.js":"400c1f7b","assets/data/cli/arista.js":"079e29e1","assets/data/cli/checkpoint.js":"d9b4c753","assets/data/cli/cisco-asa.js":"1c48bed8","assets/data/cli/cisco-ios.js":"33c80b23","assets/data/cli/citrix-adc.js":"1b03bb63","assets/data/cli/dell.js":"47d2175a","assets/data/cli/extreme.js":"375d5035","assets/data/cli/f5-ltm.js":"09100140","assets/data/cli/fortigate.js":"9b3f0083","assets/data/cli/huawei.js":"5c00d6c0","assets/data/cli/index.js":"dc49c921","assets/data/cli/juniper.js":"6639cecf","assets/data/cli/mikrotik.js":"5306d683","assets/data/cli/paloalto.js":"c58feba7","assets/data/labs/checkpoint-yol.js":"f7b64de1","assets/data/labs/checkpoint.js":"b665379a","assets/data/labs/dell.js":"c1658c70","assets/data/labs/f5.js":"f5cb4c78","assets/data/labs/fortigate-76.js":"eeb51b40","assets/data/labs/fortigate-yol.js":"2002e27b","assets/data/labs/fortigate.js":"6a0bbe5a","assets/data/labs/huawei.js":"4096c076","assets/data/labs/index.js":"f98de710","assets/data/labs/ios.js":"ab0504dc","assets/data/labs/juniper.js":"ecd0b431","assets/data/labs/paloalto-yol.js":"206fec74","assets/data/labs/paloalto.js":"0dbbc530","assets/data/labs/paths.js":"c8e27179","assets/data/ts/checkpoint.js":"ec67ca68","assets/data/ts/cisco-ios.js":"5e4484d7","assets/data/ts/dell.js":"54455fb6","assets/data/ts/f5-ltm.js":"5dc74535","assets/data/ts/fortigate.js":"6ccd3ead","assets/data/ts/huawei.js":"d692a23c","assets/data/ts/index.js":"38b1ec25","assets/data/ts/juniper.js":"47b63369","assets/data/ts/paloalto.js":"012310e2","assets/js/lab/asm.js":"14162a59","assets/js/lab/core.js":"6d5973f3","assets/js/lab/fortios.js":"4e3e0bf6","assets/js/lab/gaia-mgmt.js":"2b78562a","assets/js/lab/gaia.js":"885529b4","assets/js/lab/ios.js":"92bc8dfd","assets/js/lab/irule.js":"fd7112dd","assets/js/lab/os10.js":"177c5714","assets/js/lab/setcli.js":"f8be4c10","assets/js/lab/tmsh.js":"6234e35d","assets/js/lab/vrp.js":"8972cd94"};</script><!--/CG_ASSET_V-->
 </head>
 <body>
@@ -43,10 +44,10 @@
         <button type="button" class="app-nav-tab" data-nav="platform" aria-expanded="false" aria-controls="cg-plat-menu"><i class="fas fa-cubes" aria-hidden="true"></i> <span class="app-nav-l">Platform</span> <i class="fas fa-chevron-down app-nav-caret" aria-hidden="true"></i></button>
         <ul class="app-nav-menu" id="cg-plat-menu" aria-label="Platform" hidden></ul>
       </div>
-      <!-- S11b: Rehber, Blog, İletişim sayfaları hazır olunca görünür -->
-      <a class="app-nav-tab" data-nav="rehber" href="#/rehber" hidden><i class="fas fa-compass" aria-hidden="true"></i> <span class="app-nav-l">Rehber</span></a>
-      <a class="app-nav-tab" data-nav="blog" href="#/blog" hidden><i class="fas fa-pen-nib" aria-hidden="true"></i> <span class="app-nav-l">Blog</span></a>
-      <a class="app-nav-tab" data-nav="iletisim" href="#/iletisim" hidden><i class="fas fa-envelope" aria-hidden="true"></i> <span class="app-nav-l">İletişim</span></a>
+      <a class="app-nav-tab" data-nav="conv" href="#/converter"><i class="fas fa-exchange-alt" aria-hidden="true"></i> <span class="app-nav-l">Dönüştürücü</span></a>
+      <a class="app-nav-tab" data-nav="rehber" href="#/rehber"><i class="fas fa-compass" aria-hidden="true"></i> <span class="app-nav-l">Rehber</span></a>
+      <a class="app-nav-tab" data-nav="blog" href="#/blog"><i class="fas fa-pen-nib" aria-hidden="true"></i> <span class="app-nav-l">Blog</span></a>
+      <a class="app-nav-tab" data-nav="iletisim" href="#/iletisim"><i class="fas fa-envelope" aria-hidden="true"></i> <span class="app-nav-l">İletişim</span></a>
     </nav>
     <div class="app-actions">
       <button type="button" class="app-search" data-pal-open aria-haspopup="dialog" aria-expanded="false" aria-controls="cg-pal" aria-keyshortcuts="Control+K" aria-label="Vendor, araç, lab, komut ara (Ctrl K)" title="Ara (Ctrl K)"><i class="fas fa-search" aria-hidden="true"></i><span class="app-search-t" aria-hidden="true">Vendor, araç, lab, komut ara…</span><kbd aria-hidden="true">Ctrl K</kbd></button>
@@ -137,15 +138,16 @@
   <script src="assets/js/cg-brands.js?v=3a103b17"></script>
   <script src="assets/js/cg-logos-extra.js?v=96d21c19"></script>
   <script src="assets/js/cg-families.js?v=7ac3fd09"></script>
-  <script src="assets/js/CgShell.js?v=2d2349c2"></script>
+  <script src="assets/js/CgShell.js?v=eb5394ad"></script>
   <script src="assets/js/CgCli.js?v=6c35c522"></script>
   <script src="assets/js/CgTroubleshoot.js?v=9d145728"></script>
   <script src="assets/js/CgLab.js?v=5572b74c"></script>
   <script src="assets/js/CgArena.js?v=1335782a"></script>
   <script src="assets/js/CgHub.js?v=9cca5f66"></script>
-  <script src="assets/js/CgLanding.js?v=69527945"></script>
-  <script src="assets/js/CgPalette.js?v=0d625417"></script>
-  <script src="assets/js/ConfigGeneratorManagement.js?v=97d5f08b"></script>
+  <script src="assets/js/CgLanding.js?v=aa98636f"></script>
+  <script src="assets/js/CgPages.js?v=d255356e"></script>
+  <script src="assets/js/CgPalette.js?v=c31c1600"></script>
+  <script src="assets/js/ConfigGeneratorManagement.js?v=94f063ad"></script>
   <script src="assets/js/app.js?v=02017eb1"></script>
 </body>
 </html>

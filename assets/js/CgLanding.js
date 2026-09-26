@@ -1,6 +1,7 @@
 'use strict';
 // ─── Tanıtım sayfası (landing, '' / '#/') — UI A7, Tema 1 "Kılavuz" ───
-// Bölümler: hero + canlı sayılar + vendorlar + öne çıkanlar + öğrenme yolları tablosu + Hakkında (yer tutucu) + iletişim.
+// Bölümler: hero + canlı sayılar + nasıl çalışır + vendorlar + öne çıkanlar + öğrenme yolları tablosu + Hakkında (yer tutucu)
+// + kapanış CTA bandı + iletişim + çok sütunlu altbilgi (S11b). Birincil CTA: Cisco yolunun ilk labı (yol tanımından, tembel).
 // Sayılar render anında hesaplanır; sabit sayı yazılmaz. Ağırlık: yalnız küçük dosyalar tembel yüklenir
 // (komut dizini ve yol tanımları, CgCli._load ile). Lab verisi (CgLab._loadAll) bilerek ÇAĞRILMAZ:
 // lab sayısı yalnız CG_LABS zaten bellekteyse gösterilir. Vendor kartları CgHub'dan (değiştirilmeden) yeniden kullanılır.
@@ -74,9 +75,10 @@ const CgLanding = {
                     <h1 class="cg-land-h1" id="cg-land-h1">Ağ mühendisleri için tek yerde config, lab ve teşhis.</h1>
                     <p class="cg-land-lead" data-land-lead>${E(this._lead(this._stats()))}</p>
                     <div class="cg-land-cta">
-                        <a class="cg-land-btn cg-land-btn-pri" href="#/v">Vendor seç ${this._ico('arrow')}</a>
-                        <a class="cg-land-btn" href="#cg-land-yollar" data-land-jump="cg-land-yollar">Öğrenme yolları</a>
+                        <a class="cg-land-btn cg-land-btn-pri" href="${this.FIRST_FALLBACK}" data-land-first>İlk labı başlat ${this._ico('arrow')}</a>
+                        <a class="cg-land-btn" href="#/v">Vendor seç</a>
                     </div>
+                    <a class="cg-land-more cg-land-sub" href="#cg-land-yollar" data-land-jump="cg-land-yollar">Tüm öğrenme yolları ${this._ico('arrow')}</a>
                 </div>
                 <pre class="cg-land-term" role="img" aria-label="Örnek lab terminali: VLAN oluşturup porta atama ve görev doğrulaması"><span class="c"># Lab: VLAN ve access port</span>
 <span class="p">SW1(config)#</span> vlan 10
@@ -89,6 +91,22 @@ const CgLanding = {
 
             <section class="cg-land-stats-w" aria-label="Sitedeki içerik sayıları">
                 <dl class="cg-land-stats" data-land-stats>${this._statsHtml(this._stats())}</dl>
+            </section>
+
+            <section class="cg-land-sec" aria-labelledby="cg-land-how">
+                <h2 class="cg-land-h2" id="cg-land-how">Nasıl çalışır</h2>
+                <ol class="cg-land-how" role="list">
+                    <li><span class="cg-land-hn" aria-hidden="true">1</span><h3 class="cg-land-h3">Görevi oku</h3>
+                        <p class="cg-land-p">Her lab kısa bir senaryo ve açık görevlerle başlar.</p>
+                        <pre class="cg-land-term cg-land-mini" aria-hidden="true"><span class="c"># Görev: Gi0/1'i VLAN 10'a al</span></pre></li>
+                    <li><span class="cg-land-hn" aria-hidden="true">2</span><h3 class="cg-land-h3">Terminale yaz</h3>
+                        <p class="cg-land-p">Komutları tarayıcıdaki terminale yazın; <code>?</code> ve kısaltmalar çalışır.</p>
+                        <pre class="cg-land-term cg-land-mini" aria-hidden="true"><span class="p">SW1(config-if)#</span> sw acc vlan 10</pre></li>
+                    <li><span class="cg-land-hn" aria-hidden="true">3</span><h3 class="cg-land-h3">Durum doğrulanır</h3>
+                        <p class="cg-land-p">Sonuç cihaz durumuna göre kontrol edilir; takılırsanız ipuçları kademeli açılır.</p>
+                        <pre class="cg-land-term cg-land-mini" aria-hidden="true"><span class="g">✓ Görev tamam</span></pre></li>
+                </ol>
+                <p class="cg-land-sp">Senaryolu pratik için <a href="${this._arenaHref()}">${E(this._arenaLabel())}</a>, sahadaki arızalar için <a href="#/troubleshoot">belirtiye göre sorun giderme</a>.</p>
             </section>
 
             <section class="cg-land-sec" aria-labelledby="cg-land-vend">
@@ -127,6 +145,15 @@ const CgLanding = {
                 </div>
             </section>
 
+            <section class="cg-land-band" aria-labelledby="cg-land-band">
+                <h2 class="cg-land-h2" id="cg-land-band">İlk labınızı şimdi başlatın</h2>
+                <p class="cg-land-p">Kurulum ve hesap gerekmez; lab tarayıcıda açılır.</p>
+                <div class="cg-land-cta">
+                    <a class="cg-land-btn cg-land-btn-pri" href="${this.FIRST_FALLBACK}" data-land-first>İlk labı başlat ${this._ico('arrow')}</a>
+                    <a class="cg-land-btn" href="#/cli">Komut kütüphanesine göz at</a>
+                </div>
+            </section>
+
             <section class="cg-land-sec" id="cg-land-iletisim" aria-labelledby="cg-land-contact">
                 <h2 class="cg-land-h2" id="cg-land-contact">İletişim</h2>
                 <ul class="cg-land-cards" role="list">
@@ -146,7 +173,8 @@ const CgLanding = {
             </section>
 
             <footer class="cg-land-ftr">
-                <span>Vendor adları ve logoları sahiplerinin tescilli markalarıdır; yalnız cihazı belirtmek için kullanılır.</span>
+                <nav class="cg-land-fcols" aria-label="Site haritası">${this._footCols()}</nav>
+                <p class="cg-land-fnote">Vendor adları ve logoları sahiplerinin tescilli markalarıdır; yalnız cihazı belirtmek için kullanılır.</p>
             </footer>
         </div>`;
 
@@ -169,11 +197,36 @@ const CgLanding = {
             const pt = root.querySelector('[data-land-paths]'), ph = this._pathsHtml();
             if (pt && pt.innerHTML !== ph && !pt.contains(document.activeElement)) pt.innerHTML = ph;
             if (h) fams.forEach(f => h._vcardCounts(root, f));
+            const first = this._firstLab();
+            if (first) root.querySelectorAll('[data-land-first]').forEach(a => a.setAttribute('href', '#/lab/' + first));
         };
         // Yalnız küçük dosyalar: komut dizini (~1 KB) ve lab özeti (~9 KB: vendor başına lab sayısı + yollar). Lab verisi yüklenmez.
         this._load('assets/data/cli/index.js').then(paint, () => {});
         this._load('assets/data/labs/index.js').then(paint, () => {});
         this._load('assets/data/ts/index.js').then(paint, () => {});   // senaryo sayısı (~1 KB)
+        this._load('assets/data/labs/paths.js').then(paint, () => {});  // yalnız "İlk labı başlat" hedefi için (~18 KB)
+    },
+
+    // "İlk labı başlat": Cisco yolunun ilk modülündeki ilk lab (Cisco önce kuralı). Yol tanımı yüklenene kadar yol sayfası.
+    FIRST_FALLBACK: '#/lab/path/cisco-swrt',
+    _firstLab() {
+        const p = (window.CG_LAB_PATHS || []).find(x => x.vendor === 'cisco-ios');
+        const m = p && (p.modules || []).find(x => x && Array.isArray(x.labs) && x.labs.length);
+        return m ? m.labs[0] : null;
+    },
+    _arenaFam() { return this._fams().find(f => f.arena) || null; },
+    _arenaHref() { const f = this._arenaFam(); return f ? '#/v/' + f.slug + '/arena' : '#/lab'; },
+    _arenaLabel() { const f = this._arenaFam(); return f ? (typeof cgArenaName === 'function' ? cgArenaName(f) : 'Arena') : 'lablar'; },
+    // Çok sütunlu altbilgi: yalnız mevcut adresler
+    _footCols() {
+        const E = v => this._esc(v);
+        const C = [
+            ['Platform', [['Vendorlar', '#/v'], ['Tüm araçlar', '#/araclar'], ['Tüm lablar', '#/lab'], ['Tüm komutlar', '#/cli'], ['Dönüştürücü', '#/converter']]],
+            ['Rehber', [['Rehber', '#/rehber'], ['Cisco öğrenme yolu', '#/lab/path/cisco-swrt'], ['Sorun giderme', '#/troubleshoot']]],
+            ['Blog', [['Tüm yazılar', '#/blog']]],
+            ['İletişim', [['İletişim', '#/iletisim'], ['GitHub', this.REPO, 1]]],
+        ];
+        return C.map(([t, L]) => `<div class="cg-land-fcol"><h2 class="cg-land-fh">${E(t)}</h2><ul role="list">${L.map(([l, u, ext]) => `<li><a href="${E(u)}"${ext ? ' target="_blank" rel="noopener"' : ''}>${E(l)}</a></li>`).join('')}</ul></div>`).join('');
     },
 
     _lead(s) {
