@@ -340,5 +340,88 @@
                 { q: 'CAPWAP hangi portları kullanır?', choices: [['udp', 'UDP 5246 (kontrol) ve UDP 5247 (veri)'], ['tcp', 'TCP 541'], ['8013', 'TCP 8013']], correct: 'udp', why: 'FortiOS port tablolarında FortiAP için CAPWAP UDP 5246–5247. TCP 541 FortiManager (FGFM), TCP 8013 Security Fabric içindir.' },
             ],
         },
+        // ── Müfredat Seviye 2–3: central NAT (fgt-42), web/DNS filtre (fgt-43), IPS/uygulama (fgt-44), SSL incelemesi (fgt-45), log okuma (fgt-46)
+        {
+            title: 'Central NAT Açıldıktan Sonra İnternet Çıkışı Kesildi ya da Yanlış Adresle Çıkıyor', severity: 'err', topic: 'traffic', lab: 'fgt-42',
+            symptom: 'Merkezi NAT (central NAT) açıldıktan hemen sonra kullanıcılar internete çıkamıyor ya da karşı taraf beklenmeyen bir kaynak adres görüyor.',
+            steps: [
+                { code: 'show system settings', desc: '"set central-nat enable" satırı varsa kurallardaki NAT ayarı yok sayılır; kaynak NAT yalnız central-snat-map tablosundan yapılır.' },
+                { expect: 'bad', code: 'show firewall central-snat-map', desc: 'Tablo yukarıdan aşağı okunur ve ilk eşleşen kayıt uygulanır. Tablo boşsa ya da trafik hiçbir kayda uymuyorsa kaynak adres çevrilmez: özel adresle çıkan paketin dönüşü gelmez.',
+                  sample: 'config firewall central-snat-map\nend\n\n# Tablo boş: central NAT açık ama hiçbir trafik çevrilmiyor',
+                  fix: [{ cause: 'Tablo boş ya da LAN için kayıt yok', cmd: 'config firewall central-snat-map\nedit 1\nset srcintf port2\nset dstintf port1\nset orig-addr LAN-NET\nset dst-addr all\nset nat-ippool POOL-OUT\nend' },
+                        { cause: 'Daha geniş bir kayıt, dar kaydın üstünde: sırayı düzeltin', cmd: 'config firewall central-snat-map\nmove 2 before 1\nend' }] },
+                { code: 'diagnose sys session list', desc: 'Önce "diagnose sys session filter src <kullanıcı IP>". Oturum satırındaki "act=snat … (çevrilen adres:port)" hangi adresle çıkıldığını gösterir; satır yoksa çeviri yapılmıyordur. Değişiklikten önce açılmış oturumlar eski kararı taşır.' },
+                { code: 'show firewall schedule recurring', desc: 'Belirli saatlerde çalışmayan bir kural varsa zamanlamasına bakın: gün listesi ve start/end aralığı dışında kural hiç eşleşmez ve trafik örtük deny\'a düşer.' },
+            ],
+            quiz: [
+                { q: 'Central NAT açıkken kuraldaki "set nat enable" ne yapar?', choices: [['ignored', 'Yok sayılır: SNAT yalnız central-snat-map\'ten'], ['both', 'Önce kural, sonra tablo uygulanır'], ['override', 'Tabloyu geçersiz kılar']], correct: 'ignored', why: 'Central NAT açıldığında kurallardaki NAT seçeneği atlanır; çeviri merkezi tablodan yapılır.' },
+                { q: 'central-snat-map\'te hiçbir kayıt eşleşmezse?', choices: [['none', 'Kaynak adres çevrilmez'], ['if', 'Çıkış arayüzü adresi kullanılır'], ['drop', 'Paket düşürülür']], correct: 'none', why: 'Tablo yukarıdan aşağı okunur; eşleşen kayıt yoksa çeviri yapılmaz.' },
+            ],
+        },
+        {
+            title: 'Web Filtre Profili Yazıldı Ama Site Hâlâ Açılıyor', severity: 'warn', topic: 'traffic', lab: 'fgt-43',
+            symptom: 'Engellenmesi istenen bir sayfa ya da kategori hâlâ açılıyor; profil yapılandırmada görünüyor.',
+            steps: [
+                { expect: 'bad', code: 'show firewall policy 1', desc: 'Kuralda "set utm-status enable", "set webfilter-profile <profil>" ve HTTPS için bir "set ssl-ssh-profile" olmalı. Profil kurala bağlı değilse hiçbir etkisi yoktur.',
+                  sample: 'config firewall policy\n    edit 1\n        set name "LAN-TO-WAN"\n        set srcintf "port2"\n        set dstintf "port1"\n        set action accept\n        set srcaddr "LAN-NET"\n        set dstaddr "all"\n        set schedule "always"\n        set service "HTTP" "HTTPS" "DNS"\n        set nat enable\n    next\nend\n\n# utm-status ve webfilter-profile yok: profil bağlı değil',
+                  fix: [{ cause: 'Profil kurala bağlı değil', cmd: 'config firewall policy\nedit 1\nset utm-status enable\nset webfilter-profile WF-KURUM\nset ssl-ssh-profile certificate-inspection\nend' }] },
+                { code: 'show webfilter urlfilter', desc: 'URL kaydının eylemi: varsayılan "exempt" engellemez. Engellemek için "set action block". Eşleşme tipi (simple, wildcard, regex) yazılan URL biçimine uymalı.',
+                  fix: [{ cause: 'Kayıt var ama eylem block değil', cmd: 'config webfilter urlfilter\nedit 1\nconfig entries\nedit 1\nset action block\nnext\nend\nnext\nend' }] },
+                { code: 'show webfilter profile WF-KURUM', desc: '"config web" altında urlfilter-table doğru liste numarası mı; FortiGuard kategorisi "config ftgd-wf" → "config filters" altında doğru numara ve "action block" ile mi?' },
+                { code: 'execute log filter category 3', desc: 'Ardından "execute log display": web filtre logunda istek hiç görünmüyorsa trafik profilden geçmiyordur (kural ya da SSL incelemesi). "passthrough" görünüyorsa kayıt eşleşmiş ama engellememiştir.' },
+            ],
+            quiz: [
+                { q: 'HTTPS\'te certificate-inspection ile "www.example.com/oyun" yolu engellenebilir mi?', choices: [['no', 'Hayır: yalnız ana bilgisayar adı (SNI) görülür; yol için deep inspection gerekir'], ['yes', 'Evet'], ['dns', 'Yalnız DNS filtresiyle']], correct: 'no', why: 'Şifreli bağlantıda yol, FortiGate bağlantıyı açmadan görülemez.' },
+                { q: 'URL filtre kaydında eylem yazılmazsa?', choices: [['exempt', 'exempt: engellenmez, sonraki denetimler atlanır'], ['block', 'block'], ['monitor', 'monitor']], correct: 'exempt', why: 'CLI başvurusuna göre urlfilter kaydının varsayılan eylemi exempt\'tir.' },
+            ],
+        },
+        {
+            title: 'IPS ya da Uygulama Kontrolü Beklenen Trafiği Engellemiyor (veya Fazlasını Engelliyor)', severity: 'warn', topic: 'traffic', lab: 'fgt-44',
+            symptom: 'P2P uygulaması çalışmaya devam ediyor, bir saldırı imzası logda görünmüyor ya da tersine meşru bir uygulama engelleniyor.',
+            steps: [
+                { code: 'show firewall policy 1', desc: '"set utm-status enable" ile birlikte "set ips-sensor" ve "set application-list" doğru profil adlarını göstermeli. Trafik başka bir kurala düşüyorsa (iprope lookup ile bakın) o kuralın profilleri geçerlidir.' },
+                { expect: 'bad', code: 'show ips sensor IPS-KURUM', desc: 'Sensör yalnız kayıtlarına uyan imzaları denetler. Önem düzeyi listede yoksa imza bu sensörde hiç görülmez; "action default" imzanın kendi varsayılan eylemidir (her imza engellemez).',
+                  sample: 'config ips sensor\n    edit "IPS-KURUM"\n        config entries\n            edit 1\n                set severity critical\n                set action block\n            next\n        end\n    next\nend\n\n# high düzeyi listede yok: high imzalar bu sensörde denetlenmiyor',
+                  fix: [{ cause: 'İstenen önem düzeyi kayıtta yok', cmd: 'config ips sensor\nedit IPS-KURUM\nconfig entries\nedit 1\nset severity high critical\nset action block\nnext\nend\nnext\nend' }] },
+                { code: 'show application list APP-KURUM', desc: 'Kategori ya da uygulama numarası doğru mu? Kayıttaki eylem varsayılan olarak block\'tur; meşru bir uygulama engelleniyorsa onu kapsayan ve üstte duran bir kayıt vardır.' },
+                { code: 'execute log filter category 4', desc: 'Ardından "execute log display"; uygulama olayları için kategori 10. IPS satırında attack ve severity, uygulama satırında app ve appcat alanları hangi kaydın çalıştığını gösterir.' },
+            ],
+            quiz: [
+                { q: 'Sensör kaydı "severity high critical", saldırı "low". Sonuç?', choices: [['none', 'Bu sensörde denetlenmez: olay ve log yok'], ['block', 'Engellenir'], ['monitor', 'İzlenir ve loglanır']], correct: 'none', why: 'Sensör yalnız kayıtlarına uyan imzaları kullanır.' },
+                { q: 'Uygulama kontrolü neye göre tanır?', choices: [['sig', 'Uygulama imzasına: port ne olursa olsun'], ['port', 'Hedef porta'], ['dns', 'Alan adına']], correct: 'sig', why: 'Uygulama imzaları trafiğin içeriğinden eşleşir; 443 kullanan bir P2P istemcisi de yakalanır.' },
+            ],
+        },
+        {
+            title: 'HTTPS\'te Web Filtre Yolu Göremiyor ya da Deep Inspection Sonrası Sertifika Uyarısı', severity: 'warn', topic: 'traffic', lab: 'fgt-45',
+            symptom: 'HTTPS sitelerde yol tabanlı engel çalışmıyor; ya da derin inceleme açıldıktan sonra kullanıcılar her sitede sertifika uyarısı görüyor, bazı uygulamalar bağlanamıyor.',
+            steps: [
+                { expect: 'bad', code: 'show firewall policy 1', desc: 'ssl-ssh-profile "certificate-inspection" ise FortiGate HTTPS\'te yalnız ana bilgisayar adını görür; yol ve içerik tabanlı denetimler için derin inceleme yapan bir profil gerekir.',
+                  sample: '        set utm-status enable\n        set ssl-ssh-profile "certificate-inspection"\n        set webfilter-profile "WF-KURUM"\n\n# Yol (/oyun) HTTPS\'te görülemez',
+                  fix: [{ cause: 'Derin inceleme profili yok ya da bağlı değil', cmd: 'config firewall ssl-ssh-profile\nedit DEEP-KURUM\nconfig https\nset ports 443\nset status deep-inspection\nend\nnext\nend\nconfig firewall policy\nedit 1\nset ssl-ssh-profile DEEP-KURUM\nend' }] },
+                { code: 'show firewall ssl-ssh-profile DEEP-KURUM', desc: '"set caname" FortiGate\'in site sertifikalarını imzaladığı CA\'dır. Bu CA istemcilerin güvenilir kök deposunda değilse her sitede sertifika uyarısı çıkar: CA\'yı istemcilere dağıtın.' },
+                { code: 'show firewall ssl-ssh-profile DEEP-KURUM', desc: '"config ssl-exempt" muafiyetleri: bankacılık/sağlık gibi kategoriler ya da sertifika sabitlemesi (pinning) kullanan uygulamaların alan adları buraya eklenir. Muaf trafikte yol tabanlı web filtre çalışmaz.',
+                  fix: [{ cause: 'Sertifika sabitlemesi yüzünden bağlanamayan uygulama', cmd: 'config firewall ssl-ssh-profile\nedit DEEP-KURUM\nconfig ssl-exempt\nedit 2\nset type wildcard-fqdn\nset wildcard-fqdn "*.uygulama.example.com"\nnext\nend\nnext\nend' }] },
+            ],
+            quiz: [
+                { q: 'Deep inspection\'da tarayıcı uyarısını önleyen nedir?', choices: [['ca', 'Profildeki CA sertifikasının istemcilere güvenilir kök olarak yüklenmesi'], ['port', 'HTTPS portunu değiştirmek'], ['exempt', 'Tüm siteleri muaf tutmak']], correct: 'ca', why: 'FortiGate sitelerin sertifikalarını bu CA ile yeniden imzalar.' },
+                { q: 'ssl-exempt\'e eklenen bir kategoride yol tabanlı URL kaydı?', choices: [['no', 'Çalışmaz: trafik açılmadığı için yol görülmez'], ['yes', 'Çalışır'], ['dns', 'DNS filtresine dönüşür']], correct: 'no', why: 'Muafiyet derin incelemeyi o trafik için kapatır.' },
+            ],
+        },
+        {
+            title: '"Saldırı Var mı?" Sorusuna Cihaz Logundan Cevap: execute log filter ve Örtük Deny Logu', severity: 'info', topic: 'ops', lab: 'fgt-46',
+            symptom: 'Güvenlik ekibi belirli bir porta (ör. RDP 3389) dışarıdan deneme olup olmadığını soruyor; SIEM yok ya da gecikmeli, cihazın kendi loguna bakmak gerekiyor.',
+            steps: [
+                { code: 'show log setting', desc: 'Hiçbir kurala uymayan trafik örtük deny (policy 0) ile düşer ve varsayılan olarak loglanmaz. "set fwpolicy-implicit-log enable" satırı yoksa bu denemeler logda görünmez.',
+                  fix: [{ cause: 'Örtük deny logu kapalı', cmd: 'config log setting\nset fwpolicy-implicit-log enable\nend' }] },
+                { code: 'execute log filter category 0', desc: 'Trafik logunu seçer (parametresiz yazılırsa kategori listesi gelir). Ardından alan filtresi: "execute log filter field dstport 3389", kaynağa göre "field srcip <adres>"; sona "not" eklenirse tersini alır.' },
+                { expect: 'bad', code: 'execute log display', desc: 'Önce "N logs found. / N logs returned." satırı; sonra eşleşen loglar. srcip, dstport, policyid ve action alanları sorunun cevabıdır.',
+                  sample: '2 logs found.\n2 logs returned.\n\n1: date=2026-09-26 time=10:13:21 … type="traffic" subtype="forward" level="warning" vd="root" srcip=198.51.100.8 … dstport=3389 … policyid=0 … action="deny"\n\n2: date=2026-09-26 time=10:12:14 … srcip=198.51.100.7 … dstport=3389 … policyid=0 … action="deny"\n\n# İki ayrı kaynaktan RDP denemesi, örtük deny ile düşmüş' },
+                { code: 'execute log filter reset', desc: 'Filtreler oturum boyunca kalır; iş bitince temizleyin, yoksa sonraki sorgular yanıltıcı olur. Geçerli filtreyi görmek için "execute log filter dump".' },
+            ],
+            quiz: [
+                { q: 'fwpolicy-implicit-log varsayılan değeri?', choices: [['disable', 'disable: örtük deny loglanmaz'], ['enable', 'enable'], ['utm', 'utm']], correct: 'disable', why: 'CLI başvurusunda varsayılan disable; açılmadıkça policy 0 düşüşleri trafik loguna yazılmaz.' },
+                { q: 'Web filtre engellerini görmek için hangi kategori?', choices: [['3', '3 (utm-webfilter)'], ['0', '0 (traffic)'], ['1', '1 (event)']], correct: '3', why: 'UTM olayları ayrı kategorilerdedir: 3 web filtre, 4 IPS, 10 uygulama kontrolü, 15 DNS.' },
+            ],
+        },
     ];
 })();

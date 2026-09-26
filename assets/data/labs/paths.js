@@ -96,15 +96,23 @@
         M(16, 'iRule Arenası', 'Bulmaca ve oyunlar: Dedektif, Tahmin Et, Kırmızı → Yeşil, Döngü Kırıcı, Data Group\'a Taşı, Olay Sırası, Policy mi iRule mı, Performans Avcısı, Eksik Satır, Log Okuyucu, Olay Yanlış Yerde, Zamana Karşı, Açık Avı.', ids[16]),
         M(17, 'Advanced WAF (ASM)', 'Provision, politika, LTM policy ile bağlama, publish, blocking; blok sayfası, support ID ve yanlış pozitif.', ids[17]),
     ];
+    // FortiGate yolunun lab kimlikleri (7.4). 7.6 yolu aynı modülleri f76- klonlarıyla kullanır (fortigate-76.js);
+    // SSL-VPN tünel lab'ları (fgt-12, fgt-24) 7.6'da yok, yerlerine 7.6'ya özgü planlı lab'lar (f76-30 dial-up, f76-47 ZTNA, f76-54 dial-up tanılama).
+    const FGT_IDS = { 1: ['fgt-00'], 2: ['fgt-40'], 3: ['fgt-41'], 4: ['fgt-20', 'fgt-26'], 5: ['fgt-01', 'fgt-17', 'fgt-09'], 6: ['fgt-02'], 7: ['fgt-13'], 8: ['fgt-03'], 9: ['fgt-04', 'fgt-05'],
+              10: ['fgt-06'], 11: ['fgt-07', 'fgt-08', 'fgt-42'], 12: ['fgt-18'], 13: ['fgt-58'], 14: ['fgt-10', 'fgt-43', 'fgt-44', 'fgt-45'], 15: ['fgt-14', 'fgt-46'],
+              16: ['fgt-11', 'fgt-31'], 17: ['fgt-12'], 18: ['fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-60', 'fgt-52', 'fgt-53'], 21: ['fgt-59', 'fgt-56', 'fgt-57'],
+              22: ['fgt-15', 'fgt-16', 'fgt-32'], 23: ['fgt-21', 'fgt-22'], 24: ['fgt-23', 'fgt-24'], 25: ['fgt-27'], 26: ['fgt-55'] };
+    const FGT_76 = {};
+    Object.keys(FGT_IDS).forEach(n => { FGT_76[n] = FGT_IDS[n].filter(id => id !== 'fgt-12' && id !== 'fgt-24').map(id => id.replace(/^fgt-/, 'f76-')); });
+    FGT_76[17] = ['f76-30', 'f76-47']; FGT_76[24] = FGT_76[24].concat(['f76-54']);
     root.CG_LAB_PATHS = [
         { id: 'cisco-swrt', vendor: 'cisco-ios', title: 'Cisco Switch & Router: sıfırdan üretime', desc: 'Kurulumdan yedekliliğe, bir kampüs switch\'i ve şube router\'ını adım adım üretime hazırlayın.',
           modules: SWRT('cisco-ios', { 1: ['ios-00', 'ios-01', 'ios-02'], 2: ['ios-35a'], 3: ['ios-03'], 4: ['ios-35b'], 5: ['ios-35c'], 6: ['ios-31'], 7: ['ios-30'], 8: ['ios-10'], 9: ['ios-04'],
               10: ['ios-34'], 11: ['ios-11m'], 12: ['ios-14', 'ios-13'], 13: ['ios-16', 'ios-17', 'ios-18'], 14: ['ios-32', 'ios-33'], 15: ['ios-05'], 16: ['ios-15', 'ios-22'], 17: ['ios-40', 'ios-43', 'ios-47', 'ios-45', 'ios-46', 'ios-44'] }) },
         { id: 'fortigate-fw', vendor: 'fortigate', title: 'FortiGate: sıfırdan üretime', desc: 'Yedi seviyede ağ temellerinden FortiGate temellerine, güvenlik profillerine, VPN\'e, HA\'ya ve sorun gidermede ustalığa adım adım ilerleyin.',
-          modules: FGT({ 1: ['fgt-00'], 2: ['fgt-40'], 3: ['fgt-41'], 4: ['fgt-20', 'fgt-26'], 5: ['fgt-01', 'fgt-17', 'fgt-09'], 6: ['fgt-02'], 7: ['fgt-13'], 8: ['fgt-03'], 9: ['fgt-04', 'fgt-05'],
-              10: ['fgt-06'], 11: ['fgt-07', 'fgt-08', 'fgt-42'], 12: ['fgt-18'], 13: ['fgt-58'], 14: ['fgt-10', 'fgt-43', 'fgt-44', 'fgt-45'], 15: ['fgt-14', 'fgt-46'],
-              16: ['fgt-11', 'fgt-31'], 17: ['fgt-12'], 18: ['fgt-28', 'fgt-29', 'fgt-48', 'fgt-49', 'fgt-50'], 19: ['fgt-25', 'fgt-51'], 20: ['fgt-60', 'fgt-52', 'fgt-53'], 21: ['fgt-59', 'fgt-56', 'fgt-57'],
-              22: ['fgt-15', 'fgt-16', 'fgt-32'], 23: ['fgt-21', 'fgt-22'], 24: ['fgt-23', 'fgt-24'], 25: ['fgt-27'], 26: ['fgt-55'] }) },
+          modules: FGT(FGT_IDS) },
+        { id: 'fortigate-fw-76', vendor: 'fortigate-76', title: 'FortiGate 7.6: sıfırdan üretime', desc: 'Aynı yedi seviyeli yol FortiOS 7.6 görünümünde. Uzaktan erişim 7.6\'da IPsec dial-up ile yapılır (7.6.3 ve sonrasında SSL-VPN tünel modu yok).',
+          modules: FGT(FGT_76, { 17: 'Uzaktan erişim 7.6\'da IPsec dial-up (FortiClient) ile; 7.6.3 ve sonrasında SSL-VPN tünel modu yok.' }) },
         { id: 'paloalto-fw', vendor: 'paloalto', title: 'Palo Alto: sıfırdan üretime', desc: 'PAN-OS güvenlik duvarını kurulumdan güvenlik profillerine ve arıza teşhisine adım adım üretime hazırlayın.',
           modules: FW({ 1: ['pan-01'], 2: ['pan-07'], 3: ['pan-08'], 4: ['pan-02', 'pan-09'], 5: ['pan-03'], 6: ['pan-05'], 8: ['pan-14'], 9: ['pan-04'], 11: ['pan-10'], 12: ['pan-11'], 15: ['pan-12'], 16: ['pan-15'], 17: ['pan-06', 'pan-13'] },
               { 1: 'configure/set/commit akışı, arayüzler ve yönetim erişimi.', 2: 'Yönetim profili, izinli IP\'ler, güçlü şifreleme, giriş kilidi.', 15: 'Yapılandırma dışa aktarma, sürüm ve geri yükleme.' }) },
