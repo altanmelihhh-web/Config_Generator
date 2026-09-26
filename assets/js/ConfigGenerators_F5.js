@@ -445,6 +445,25 @@ F5LTM.ha = {
     }
 };
 
+// ── ASM yardımcıları ─────────────────────────────────────────────────────────
+// tmsh asm policy yalnız şunları kabul eder: active|inactive, blocking-mode, encoding, policy-builder, policy-template, policy-type, parent-policy, description.
+// Policy VS'ye profil olarak eklenmez: "asm enable policy" eylemli LTM policy + websecurity profili (K16303347).
+function cgF5AsmCreate(pol, template, enc, enforcement) {
+    let c = '# 1) Policy oluştur (blocking-mode enabled = Blocking, disabled = Transparent)\n';
+    c += 'tmsh create asm policy /Common/' + pol + ' policy-template ' + template + ' encoding ' + enc + ' blocking-mode ' + (enforcement === 'blocking' ? 'enabled' : 'disabled') + '\n';
+    c += 'tmsh modify asm policy /Common/' + pol + ' active\n';
+    c += 'tmsh publish asm policy /Common/' + pol + '\n\n';
+    return c;
+}
+function cgF5AsmAttach(pol, vs) {
+    let c = '# 2) Virtual server\'a bağla: ASM eylemli LTM policy (taslak → yayın) + websecurity profili\n';
+    c += '#    VS\'de HTTP profili olmalı; HTTPS\'te client-ssl ile şifre çözülmüş olmalı (yoksa WAF içeriği göremez)\n';
+    c += 'tmsh create ltm policy /Common/Drafts/asm_' + pol + ' controls add { asm } requires add { http } rules add { default { ordinal 1 actions add { 1 { asm enable policy /Common/' + pol + ' } } } }\n';
+    c += 'tmsh publish ltm policy /Common/Drafts/asm_' + pol + '\n';
+    c += 'tmsh modify ltm virtual /Common/' + vs + ' profiles add { websecurity } policies add { asm_' + pol + ' }\n\n';
+    return c;
+}
+
 // ── F5 BIG-IP: ASM Policy ─────────────────────────────────────────────────────
 F5LTM.asm = {
     label: 'ASM WAF Policy',
@@ -470,9 +489,10 @@ F5LTM.asm = {
                             { value: 'POLICY_TEMPLATE_FUNDAMENTAL', label: 'Fundamental' },
                             { value: 'POLICY_TEMPLATE_COMPREHENSIVE', label: 'Comprehensive' }
                         ]},
-                        { name: 'lang', why: "Uygulama dili aslında karakter kodlamasıdır; yanlış seçilirse Türkçe karakterli girdiler bozuk çözümlenir ve meşru istekler <b>illegal meta character</b> ihlali üretir. Policy oluşturulduktan sonra bu değer değiştirilemez.", label: 'Uygulama Dili', type: 'select', options: [
+                        { name: 'lang', why: "Uygulama dili aslında karakter kodlamasıdır (tmsh: <code>encoding</code>); yanlış seçilirse Türkçe karakterli girdiler bozuk çözümlenir ve meşru istekler <b>illegal meta character</b> ihlali üretir. Policy oluşturulduktan sonra bu değer değiştirilemez.", label: 'Uygulama Dili (encoding)', type: 'select', options: [
                             { value: 'utf-8', label: 'UTF-8' },
-                            { value: 'auto-detect', label: 'Auto Detect' }
+                            { value: 'windows-1254', label: 'Windows-1254 (Türkçe)' },
+                            { value: 'iso-8859-9', label: 'ISO-8859-9 (Türkçe)' }
                         ]}
                     ]
                 },
@@ -488,19 +508,12 @@ F5LTM.asm = {
         }, (data) => {
             const { pol_name, enforcement, template, vs_name, lang } = data;
             let c = '# ========================================\n# F5 BIG-IP — ASM WAF Policy\n# ========================================\n\n';
-            c += '# TMSH komutları\n';
-            c += 'tmsh create asm policy /Common/' + pol_name + ' {\n';
-            c += '    active yes\n';
-            c += '    enforcement-mode ' + enforcement + '\n';
-            c += '    application-language ' + lang + '\n';
-            c += '    template { name ' + template + ' }\n';
-            c += '}\n\n';
-            c += '# Virtual Server\'e bağla\n';
-            c += 'tmsh modify ltm virtual /Common/' + vs_name + ' {\n';
-            c += '    profiles add { /Common/' + pol_name + ' { context all } }\n';
-            c += '}\n\n';
+            c += '# Ön koşul: ASM modülü provision edilmiş olmalı (tmsh list sys provision asm)\n\n';
+            c += cgF5AsmCreate(pol_name, template, lang, enforcement);
+            c += cgF5AsmAttach(pol_name, vs_name);
             c += 'tmsh save sys config\n\n';
-            c += '# Doğrulama:\n# tmsh show asm policy /Common/' + pol_name + '\n# tmsh show ltm virtual /Common/' + vs_name + '\n';
+            c += '# Doğrulama:\n# tmsh list asm policy /Common/' + pol_name + '\n# tmsh list ltm virtual /Common/' + vs_name + ' policies profiles\n';
+            c += '# Rapid Deployment şablonu varsayılan olarak transparent başlar; burada blocking-mode açıkça ayarlandı.\n';
             return c;
         });
     }
@@ -548,23 +561,17 @@ F5LTM.awaf = {
         }, (data) => {
             const { pol_name, enforcement, bot_defense, staging, vs_name } = data;
             let c = '# ========================================\n# F5 BIG-IP — Advanced WAF (AWAF)\n# ========================================\n\n';
-            c += '# AWAF policy JSON ile de oluşturulabilir; tmsh yolu:\n';
-            c += 'tmsh create asm policy /Common/' + pol_name + ' {\n';
-            c += '    active yes\n    enforcement-mode ' + enforcement + '\n';
-            c += '    template { name POLICY_TEMPLATE_RAPID_DEPLOYMENT }\n';
-            if (staging === 'no') c += '    signature-staging false\n';
-            c += '}\n\n';
+            c += cgF5AsmCreate(pol_name, 'POLICY_TEMPLATE_RAPID_DEPLOYMENT', 'utf-8', enforcement);
+            c += '# Signature staging tmsh ile ayarlanmaz: GUI (Policy Building > Learning and Blocking Settings > Attack Signatures)\n';
+            c += '# ya da declarative JSON: { "policy": { "signature-settings": { "signatureStaging": ' + (staging === 'yes') + ' } } }\n\n';
+            c += cgF5AsmAttach(pol_name, vs_name);
             if (bot_defense === 'yes') {
-                c += '# Bot Defense Profili\n';
-                c += 'tmsh create security bot-defense profile /Common/BD_' + pol_name + ' {\n';
-                c += '    enforcement-mode blocking\n}\n\n';
-                c += 'tmsh modify ltm virtual /Common/' + vs_name + ' {\n';
-                c += '    profiles add { /Common/BD_' + pol_name + ' { context all } }\n}\n\n';
+                c += '# Bot Defense profili (template: relaxed | balanced | strict)\n';
+                c += 'tmsh create security bot-defense profile /Common/BD_' + pol_name + ' template balanced enforcement-mode ' + enforcement + '\n';
+                c += 'tmsh modify ltm virtual /Common/' + vs_name + ' profiles add { /Common/BD_' + pol_name + ' }\n\n';
             }
-            c += 'tmsh modify ltm virtual /Common/' + vs_name + ' {\n';
-            c += '    profiles add { /Common/' + pol_name + ' { context all } }\n}\n\n';
             c += 'tmsh save sys config\n\n';
-            c += '# Doğrulama:\n# tmsh show asm policy /Common/' + pol_name + ' detail\n# tmsh show security bot-defense profile\n';
+            c += '# Doğrulama:\n# tmsh list asm policy /Common/' + pol_name + '\n# tmsh list ltm virtual /Common/' + vs_name + ' policies profiles\n' + (bot_defense === 'yes' ? '# tmsh list security bot-defense profile /Common/BD_' + pol_name + '\n' : '');
             return c;
         });
     }
@@ -1113,21 +1120,18 @@ F5LTM.asmtuning = {
                     icon: 'fas fa-shield-alt',
                     fields: [
                         { name: 'policy_name', why: "Düzenlenecek policy adı yanlış yazılırsa komut farklı bir policy'ye uygulanabilir veya <code>not found</code> ile başarısız olur. Yapılan değişiklikler <b>apply policy</b> ve <code>tmsh save sys config</code> yapılmadan kalıcı olmaz.", label: 'Policy Adı', type: 'text', required: true, placeholder: 'ASM-POLICY-APP', hint: 'Düzenlenecek ASM policy adı.' },
-                        { name: 'learning_mode', why: "Otomatik öğrenme açıkken policy trafikten öğrenip kendini gevşetir; saldırı trafiği öğrenilirse koruma sessizce zayıflar. Manuel modda öneriler birikir ama kimse incelemezse policy uygulamanın güncel haliyle uyumsuz kalır.", label: 'Learning Mode', type: 'select', options: [
-                            { value: 'manual', label: 'manual' },
-                            { value: 'automatic', label: 'automatic' },
-                            { value: 'disabled', label: 'disabled' }
+                        { name: 'learning_mode', why: "Otomatik öğrenmede (Policy Builder açık) policy trafikten öğrenip kendini gevşetir; saldırı trafiği öğrenilirse koruma sessizce zayıflar. Kapalıyken öneriler Traffic Learning ekranında birikir ama kimse incelemezse policy uygulamanın güncel haliyle uyumsuz kalır.", label: 'Otomatik Öğrenme (Policy Builder)', type: 'select', options: [
+                            { value: 'disabled', label: 'Kapalı (öneriler elle onaylanır)' },
+                            { value: 'enabled', label: 'Açık (otomatik)' }
                         ]},
                         { name: 'enforcement_mode', why: "Transparent modda hiçbir istek engellenmez, yalnızca log tutulur; güvenlik ekibi korunduğunu sanarak yanlış bir güven duyar. Blocking'e geçmeden önce yanlış pozitifler temizlenmelidir.", label: 'Enforcement Mode', type: 'select', options: [
-                            { value: 'blocking', label: 'blocking' },
-                            { value: 'transparent', label: 'transparent' }
+                            { value: 'blocking', label: 'Blocking' },
+                            { value: 'transparent', label: 'Transparent' }
                         ]},
-                        { name: 'signature_sets', why: "<code>all</code> tüm imzaları uygular ve yanlış pozitif riskini ciddi şekilde artırır; uygulamanın gerçek teknolojisine uygun set seçmek hem performans hem doğruluk kazandırır. Yeni imzalar önce staging ile denenmelidir.", label: 'Signature Set\'ler (virgülle ayrılmış)', type: 'text', required: true, placeholder: 'all', hint: 'Uygulanacak imza setleri; "all" tümünü seçer.' },
-                        { name: 'violation_rating', why: "Violation rating eşiği düşük tutulursa meşru istekler engellenir; yüksek tutulursa gerçek saldırılar yalnızca loglanıp geçilir. Eşik uygulamanın olgunluğu arttıkça kademeli olarak sıkılaştırılmalıdır.", label: 'Violation Rating Eşiği', type: 'select', options: [
-                            { value: '4', label: '4 (en yüksek)' },
-                            { value: '3', label: '3' },
-                            { value: '2', label: '2' },
-                            { value: '1', label: '1' }
+                        { name: 'signature_sets', why: "<code>All Signatures</code> tüm imzaları uygular ve yanlış pozitif riskini ciddi şekilde artırır; uygulamanın gerçek teknolojisine uygun set seçmek hem performans hem doğruluk kazandırır. Yeni imzalar önce staging ile denenmelidir.", label: 'Signature Set\'ler (virgülle ayrılmış)', type: 'text', required: true, placeholder: 'Generic Detection Signatures', hint: 'Set adları GUI\'deki gibi (ör. Generic Detection Signatures, All Signatures). "all" yazarsanız All Signatures kullanılır.' },
+                        { name: 'violation_rating', why: "Violation rating 1–5 arasıdır. Varsayılanda 4–5 (tehdit) engellenir, 1–3 yalnız loglanır. 3'ü (incelenmeli) de engellemek daha sıkıdır ama yanlış pozitifi artırır; uygulama olgunlaştıkça kademeli sıkılaştırın.", label: 'Engellenecek en düşük violation rating', type: 'select', options: [
+                            { value: '4', label: '4 ve üstü (varsayılan: tehdit)' },
+                            { value: '3', label: '3 ve üstü (sıkı: incelenmeli dahil)' }
                         ]}
                     ]
                 }
@@ -1135,18 +1139,25 @@ F5LTM.asmtuning = {
             submit: 'Konfigürasyon Oluştur'
         }, (data) => {
             const { policy_name, learning_mode, enforcement_mode, signature_sets: sigSetsRaw, violation_rating } = data;
-            const sigSets = sigSetsRaw.split(',').map(s => s.trim()).filter(Boolean);
+            const sigSets = sigSetsRaw.split(',').map(s => s.trim()).filter(Boolean).map(s => (s.toLowerCase() === 'all' ? 'All Signatures' : s));
+            const pol = policy_name.startsWith('/') ? policy_name : '/Common/' + policy_name, file = '/var/tmp/' + pol.split('/').pop() + '.json';
             let c = '# ========================================\n# F5 BIG-IP ASM — Policy Tuning\n# ========================================\n\n';
-            c += '# ASM (WAF) Policy Tuning:\n';
-            c += 'tmsh modify asm policy ' + policy_name + ' learning-mode ' + learning_mode + ' enforcement-mode ' + enforcement_mode + '\n\n';
-            if (sigSets.length > 0) {
-                c += 'tmsh modify asm policy ' + policy_name + ' signature-sets replace-all-with {';
-                sigSets.forEach(s => { c += ' "' + s + '" { alarm enabled block enabled }'; });
-                c += ' }\n\n';
-            }
-            c += '# Violation rating eşiği: ' + violation_rating + '\n';
-            c += '# Enable Attack Signatures:\n# tmsh modify asm policy ' + policy_name + ' attack-signatures-check enabled\n\n';
-            c += '# Doğrulama:\n# tmsh list asm policy ' + policy_name + ' learning-mode enforcement-mode\n# tmsh show asm policy ' + policy_name + ' violations\n';
+            c += '# 1) tmsh ile ayarlanabilenler: engelleme modu ve otomatik öğrenme\n';
+            c += 'tmsh modify asm policy ' + pol + ' blocking-mode ' + (enforcement_mode === 'blocking' ? 'enabled' : 'disabled') + ' policy-builder ' + learning_mode + '\n\n';
+            c += '# 2) İmza setleri ve violation rating tmsh\'te yok: declarative JSON ile\n';
+            c += '#    Önce mevcut policy\'yi dışa aktarın (yedek + düzenlenecek dosya)\n';
+            c += 'tmsh save asm policy ' + pol + ' json-file ' + file + '\n\n';
+            c += '#    Dosyadaki "policy" nesnesine şu bölümleri ekleyin/birleştirin:\n';
+            const js = { 'signature-sets': sigSets.map(n => ({ name: n, alarm: true, block: true })),
+                'blocking-settings': { violations: [{ name: 'VIOL_RATING_THREAT', alarm: true, block: true }, { name: 'VIOL_RATING_NEED_EXAMINATION', alarm: true, block: violation_rating === '3' }] } };
+            c += JSON.stringify(js, null, 2).split('\n').map(l => '#    ' + l).join('\n') + '\n\n';
+            c += '#    Düzenlenen dosyayı yükleyip yayınlayın\n';
+            c += 'tmsh load asm policy ' + pol + ' overwrite file ' + file + '\n';
+            c += 'tmsh publish asm policy ' + pol + '\n';
+            c += 'tmsh save sys config\n\n';
+            c += '# Not: JSON\'u tam dosyadan değil yalnız bu parçadan yüklerseniz, dosyada olmayan ayarlar şablon varsayılanına döner.\n';
+            c += '# VIOL_RATING_* adları declarative şemadandır (BIG-IP 16+ / NGINX App Protect); sürümünüzün şemasında doğrulayın.\n';
+            c += '# Doğrulama:\n# tmsh list asm policy ' + pol + ' blocking-mode policy-builder\n';
             return c;
         });
     }
