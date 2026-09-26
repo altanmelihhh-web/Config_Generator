@@ -239,6 +239,7 @@ const CgLabFgt = (() => {
             distance: { t: 'int', min: 1, max: 255, def: 10, d: 'Yönetsel mesafe' },
             priority: { t: 'int', min: 1, max: 65535, def: 1, d: 'Öncelik (aynı mesafede)' },
             device: { t: 'ref', ds: 'intf', d: 'Çıkış arayüzü' },
+            'sdwan-zone': { t: 'refs', ds: 'sdwanZones', d: 'SD-WAN zone (üyeler üzerinden)' },
             blackhole: { t: 'enum', v: ED, def: 'disable', d: 'Kara delik rota' },
             comment: { t: 'str', max: 255, d: 'Açıklama' } } },
         // ── Parti 2 (M1–M6). Kaynak: FortiOS 7.4.8 CLI Reference (7.6.6'da aynı alanlar):
@@ -333,6 +334,47 @@ const CgLabFgt = (() => {
         'system vdom-link': { key: 'name', attrs: {
             type: { t: 'enum', v: ['ppp', 'ethernet'], def: 'ppp', d: 'Bağlantı tipi' },
             vcluster: { t: 'enum', v: ['vcluster1', 'vcluster2'], def: 'vcluster1', quietDef: true, d: 'Sanal küme' } } },
+        // M19 — CLI Ref 7.4.8 config system sdwan (838040159); tanılama biçimleri: 7.4.4 Admin Guide "SD-WAN related diagnose commands"
+        'system sdwan': { single: true, children: ['zone', 'members', 'health-check', 'service'], attrs: {
+            status: { t: 'enum', v: ED, def: 'disable', d: 'SD-WAN' } } },
+        'system sdwan zone': { key: 'name', parent: 'system sdwan', sub: 'zone', attrs: {} },
+        'system sdwan members': { key: 'seq-num', num: true, parent: 'system sdwan', sub: 'members', req: ['interface'], attrs: {
+            interface: { t: 'ref', ds: 'physIntf', d: 'Üye arayüz' },
+            zone: { t: 'ref', ds: 'sdwanZones', def: 'virtual-wan-link', d: 'SD-WAN zone' },
+            gateway: { t: 'ip', def: '0.0.0.0', d: 'Ağ geçidi' },
+            cost: { t: 'int', min: 0, max: 4294967295, def: 0, d: 'SLA modunda maliyet' },
+            priority: { t: 'int', min: 1, max: 65535, def: 1, d: 'Öncelik' },
+            status: { t: 'enum', v: ED, def: 'enable', d: 'Durum' } } },
+        'system sdwan health-check': { key: 'name', parent: 'system sdwan', sub: 'health-check', children: ['sla'], attrs: {
+            server: { t: 'str', max: 255, d: 'Ölçüm sunucusu' },
+            protocol: { t: 'enum', v: ['ping', 'tcp-echo', 'udp-echo', 'http', 'https', 'twamp', 'dns', 'tcp-connect', 'ftp'], def: 'ping', d: 'Ölçüm protokolü' },
+            members: { t: 'ints', max: 4294967295, d: 'Ölçülen üyeler (seq-num)' },
+            interval: { t: 'int', min: 20, max: 3600000, def: 500, d: 'Aralık (ms)' },
+            failtime: { t: 'int', min: 1, max: 3600, def: 5, d: 'Ölü sayılmadan önceki başarısızlık' },
+            recoverytime: { t: 'int', min: 1, max: 3600, def: 5, d: 'Canlı sayılmadan önceki başarı' } } },
+        'system sdwan health-check sla': { key: 'id', num: true, parent: 'system sdwan health-check', sub: 'sla', attrs: {
+            'latency-threshold': { t: 'int', min: 0, max: 10000000, def: 5, d: 'Gecikme eşiği (ms)' },
+            'jitter-threshold': { t: 'int', min: 0, max: 10000000, def: 5, d: 'Jitter eşiği (ms)' },
+            'packetloss-threshold': { t: 'int', min: 0, max: 100, def: 0, d: 'Kayıp eşiği (%)' } } },
+        'system sdwan service': { key: 'id', num: true, parent: 'system sdwan', sub: 'service', children: ['sla'], attrs: {
+            name: { t: 'str', max: 35, d: 'Kural adı' },
+            mode: { t: 'enum', v: ['auto', 'manual', 'priority', 'sla'], def: 'manual', d: 'Üye seçim modu' },
+            dst: { t: 'refs', ds: 'addr', d: 'Hedef adres' }, src: { t: 'refs', ds: 'addr', d: 'Kaynak adres' },
+            'health-check': { t: 'refs', ds: 'sdwanHc', when: o => o.mode === 'priority' || o.mode === 'auto', d: 'Ölçüm (priority/auto)' },
+            'link-cost-factor': { t: 'enum', v: ['latency', 'jitter', 'packet-loss'], def: 'latency', when: o => o.mode === 'priority' || o.mode === 'auto', d: 'Kalite ölçütü' },
+            'priority-members': { t: 'ints', max: 4294967295, d: 'Üye sırası (seq-num)' } } },
+        'system sdwan service sla': { key: 'health-check', parent: 'system sdwan service', sub: 'sla', attrs: {
+            id: { t: 'int', min: 1, max: 255, d: 'Ölçümdeki SLA kimliği (yazılmazsa 1)' } } },
+        // M20 — CLI Ref 7.4.8 config router policy (796289482)
+        'router policy': { key: 'seq-num', num: true, move: true, attrs: {
+            'input-device': { t: 'refs', ds: 'intf', d: 'Giriş arayüzü (boş = hepsi)' },
+            src: { t: 'nets', d: 'Kaynak alt ağ(lar)' }, srcaddr: { t: 'refs', ds: 'addr', d: 'Kaynak adres nesnesi' },
+            dst: { t: 'nets', d: 'Hedef alt ağ(lar)' }, dstaddr: { t: 'refs', ds: 'addr', d: 'Hedef adres nesnesi' },
+            protocol: { t: 'int', min: 0, max: 255, def: 0, d: 'Protokol (0 = hepsi)' },
+            'start-port': { t: 'int', min: 0, max: 65535, def: 0, d: 'Hedef port başı' }, 'end-port': { t: 'int', min: 0, max: 65535, def: 65535, d: 'Hedef port sonu' },
+            'output-device': { t: 'ref', ds: 'intf', d: 'Çıkış arayüzü' }, gateway: { t: 'ip', def: '0.0.0.0', d: 'Ağ geçidi' },
+            action: { t: 'enum', v: ['deny', 'permit'], def: 'permit', d: 'permit = yönlendir, deny = politika yönlendirmeyi durdur (rota tablosu)' },
+            status: { t: 'enum', v: ED, def: 'enable', d: 'Durum' }, comments: { t: 'str', max: 1023, d: 'Açıklama' } } },
         'firewall schedule recurring': { key: 'name', attrs: {
             day: { t: 'menum', v: DAYS, def: ['none'], d: 'Günler' },
             start: { t: 'hhmm', def: '00:00', d: 'Başlangıç (ss:dd)' },
@@ -343,7 +385,7 @@ const CgLabFgt = (() => {
     // M12: çoklu VDOM kipinde "config global" altında kalan tablolar; geri kalanlar VDOM başınadır
     const GLOBALP = new Set(['system global', 'system ha', 'system admin', 'system dns', 'system ntp', 'system interface', 'system central-management', 'log fortianalyzer setting', 'log syslogd setting', 'system vdom-link']);
     const rootOf = p => { while (SCHEMA[p].parent) p = SCHEMA[p].parent; return p; };
-    const NEWP = new Set(['webfilter urlfilter', 'webfilter profile', 'dnsfilter domain-filter', 'dnsfilter profile', 'ips sensor', 'application list', 'firewall ssl-ssh-profile', 'system settings', 'log setting', 'firewall central-snat-map', 'firewall schedule recurring', 'system central-management', 'log fortianalyzer setting', 'system vdom-link']);
+    const NEWP = new Set(['webfilter urlfilter', 'webfilter profile', 'dnsfilter domain-filter', 'dnsfilter profile', 'ips sensor', 'application list', 'firewall ssl-ssh-profile', 'system settings', 'log setting', 'firewall central-snat-map', 'firewall schedule recurring', 'system central-management', 'log fortianalyzer setting', 'system vdom-link', 'system sdwan', 'router policy']);
     const childPath = (p, sub) => ALLP.find(q => SCHEMA[q].parent === p && SCHEMA[q].sub === sub);
     const SERVICES = ['ALL', 'ALL_TCP', 'ALL_UDP', 'ALL_ICMP', 'PING', 'HTTP', 'HTTPS', 'SSH', 'DNS', 'NTP', 'SMTP', 'RDP', 'TELNET', 'SNMP', 'FTP'];
     const GETS = ['system status', 'system performance status', 'system session status', 'system session list', 'router info routing-table all', 'router info routing-table database', 'router info routing-table details', 'vpn ipsec tunnel summary', 'system arp', 'system ha status', 'vpn ssl monitor', 'wireless-controller wtp-status'];
@@ -379,7 +421,7 @@ const CgLabFgt = (() => {
         const DS = {
             intf: () => vdIfs().concat(M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
             // Politika arayüzü: zone'a üye arayüzler doğrudan seçilemez, zone seçilir
-            intfAny: () => ['any'].concat(vdIfs().filter(n => !zoneOf(n)), M().t['system zone'].o, M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
+            intfAny: () => ['any'].concat(sdwanOn() ? DS.sdwanZones() : [], vdIfs().filter(n => !zoneOf(n)), M().t['system zone'].o, M().t['vpn ipsec phase1-interface'].o, ['ssl.root']),
             zoneMember: () => vdIfs().filter(n => !zoneOf(n) || (S.ctx && S.ctx.path === 'system zone' && zoneOf(n) === S.ctx.key)),
             sslProf: () => ['certificate-inspection', 'deep-inspection', 'no-inspection', 'custom-deep-inspection'].concat(M().t['firewall ssl-ssh-profile'].o),
             avProf: () => ['default', 'wifi-default'], wfProf: () => ['default', 'monitor-all', 'wifi-default'].concat(M().t['webfilter profile'].o),
@@ -397,6 +439,8 @@ const CgLabFgt = (() => {
             sched: () => ['always', 'none'].concat(M().t['firewall schedule recurring'].o),
             accprofile: () => ['super_admin', 'prof_admin'],
             vdoms: () => M().vdt ? Object.keys(M().vdt) : ['root'],
+            sdwanZones: () => ['virtual-wan-link'].concat(M().t['system sdwan zone'].o.filter(z => z !== 'virtual-wan-link')),
+            sdwanHc: () => M().t['system sdwan health-check'].o,
             ippool: () => M().t['firewall ippool'].o,
         };
 
@@ -475,6 +519,13 @@ const CgLabFgt = (() => {
                 case 'menum': { const allow = a.v76 && IS76 ? a.v.concat(a.v76) : a.v; for (let i = 0; i < vals.length; i++) if (!allow.includes(vals[i])) return bad(i); return { v: [...new Set(vals)] }; }
                 case 'ints': { for (let i = 0; i < vals.length; i++) if (!/^\d+$/.test(vals[i]) || +vals[i] > a.max) return bad(i); return { v: [...new Set(vals.map(x => String(+x)))] }; }
                 case 'ports1': { for (let i = 0; i < vals.length; i++) if (!/^\d+$/.test(vals[i]) || +vals[i] < 1 || +vals[i] > 65535) return bad(i); return { v: [...new Set(vals.map(x => String(+x)))] }; }
+                case 'nets': {
+                    // <a.b.c.d/len> … ya da <a.b.c.d> <maske> çiftleri
+                    const out = []; let i = 0;
+                    while (i < vals.length) { const m = vals[i].match(/^([\d.]+)\/(\d{1,2})$/); if (m && isIp(m[1]) && +m[2] <= 32) { out.push(n2ip(netOf(m[1], +m[2])) + ' ' + lenMask(+m[2])); i++; continue; }
+                        if (isIp(vals[i]) && vals[i + 1] && maskLen(vals[i + 1]) >= 0) { out.push(vals[i] + ' ' + vals[i + 1]); i += 2; continue; } return bad(i); }
+                    return { v: out };
+                }
                 case 'hhmm': { if (vals.length > 1) return bad(1); const m = vals[0].match(/^(\d{1,2}):(\d{2})$/); if (!m || +m[1] > 23 || +m[2] > 59) return bad(0); return { v: m[1].padStart(2, '0') + ':' + m[2] }; }
                 case 'refn': { if (vals.length > 1) return bad(1); if (!DS[a.ds]().includes(vals[0])) return { err: 'ds', at: 0 }; return { v: vals[0] }; }
                 case 'ports': {
@@ -503,7 +554,7 @@ const CgLabFgt = (() => {
         function fmtVal(a, v) {
             if (a.t === 'str' || a.t === 'ref' || a.t === 'iprangeq') return qt(v);
             if (a.t === 'refs') return v.map(qt).join(' ');
-            if (a.t === 'menum' || a.t === 'ports' || a.t === 'ints' || a.t === 'ports1') return v.join(' ');
+            if (a.t === 'menum' || a.t === 'ports' || a.t === 'ints' || a.t === 'ports1' || a.t === 'nets') return v.join(' ');
             if (a.t === 'hb') { const o = []; for (let i = 0; i < v.length; i += 2) o.push(qt(v[i]) + ' ' + v[i + 1]); return o.join(' '); }
             if (a.t === 'secret') return 'ENC ' + fakeHash('enc' + v, 88);
             return v;
@@ -547,7 +598,7 @@ const CgLabFgt = (() => {
                     const cp = childPath(p, sub), ct = M().t[cp], cs = SCHEMA[cp];
                     if (!ct.o.length) continue;
                     L.push('    config ' + sub);
-                    for (const k of ct.o) { L.push('        edit ' + (cs.num ? k : qt(k)), ...objLines(cp, ct.v[k], full, '            '), '        next'); }
+                    for (const k of ct.o) { L.push('        edit ' + (cs.num ? k : qt(k)), ...objLines(cp, ct.v[k], full, '            '), ...subLines(cp, ct.v[k], full, '            '), '        next'); }
                     L.push('    end');
                 }
                 L.push('end'); return L.join('\n');
@@ -681,6 +732,12 @@ const CgLabFgt = (() => {
                 const r = M().t['router static'].v[k];
                 if ((r.status || 'enable') !== 'enable') continue;
                 if (r.blackhole === 'enable') { const [bip, bm] = (r.dst || '0.0.0.0 0.0.0.0').split(' '), bl = maskLen(bm); cands.push({ c: 'S', net: n2ip(netOf(bip, bl)), len: bl, gw: '0.0.0.0', dev: 'Null', ad: +(r.distance || 10), pri: +(r.priority || 1), bh: true }); continue; }
+                if (!r.device && (r['sdwan-zone'] || []).length) {
+                    // M19: SD-WAN zone rotası → zone'daki canlı üyeler üzerinden ECMP adayları
+                    const [dip, dm] = (r.dst || '0.0.0.0 0.0.0.0').split(' '), len = maskLen(dm);
+                    sdwanMembers().filter(mb => r['sdwan-zone'].includes(mb.zone) && mb.alive).forEach(mb => cands.push({ c: len === 0 ? 'S*' : 'S', net: n2ip(netOf(dip, len)), len, gw: mb.gateway, dev: mb.interface, ad: +(r.distance || 10), pri: +(r.priority || 1), sdwan: true }));
+                    continue;
+                }
                 if (!r.device) continue;
                 if (noTun && isTun(r.device)) continue;
                 const [dip, dm] = (r.dst || '0.0.0.0 0.0.0.0').split(' '), len = maskLen(dm);
@@ -736,7 +793,11 @@ const CgLabFgt = (() => {
             const L = ['Codes: K - kernel, C - connected, S - static, R - RIP, B - BGP', '       O - OSPF, IA - OSPF inter area',
                 '       N1 - OSPF NSSA external type 1, N2 - OSPF NSSA external type 2', '       E1 - OSPF external type 1, E2 - OSPF external type 2',
                 '       i - IS-IS, L1 - IS-IS level-1, L2 - IS-IS level-2, ia - IS-IS inter area', '       V - BGP VPNv4', '       * - candidate default', '', 'Routing table for VRF=0'];
+            let prev = null;
             for (const r of rib()) {
+                // SD-WAN ECMP: aynı hedefin sonraki üyeleri devam satırıyla (FortiOS rota tablosu biçimi)
+                if (r.sdwan && prev && prev.sdwan && prev.net === r.net && prev.len === r.len) { L.push(' '.repeat(8 + (r.net + '/' + r.len).length + 1) + '[' + r.ad + '/0] via ' + r.gw + ', ' + r.dev + ', [' + r.pri + '/0]'); prev = r; continue; }
+                prev = r;
                 if (r.c === 'C') L.push(pad('C', 8) + r.net + '/' + r.len + ' is directly connected, ' + r.dev);
                 else if (r.bh) L.push(pad(r.c, 8) + r.net + '/' + r.len + ' [' + r.ad + '/0] is a summary, Null, [' + r.pri + '/0]');
                 else if (isTun(r.dev)) L.push(pad(r.c, 8) + r.net + '/' + r.len + ' [' + r.ad + '/0] via ' + r.dev + ' tunnel ' + (M().t['vpn ipsec phase1-interface'].v[r.dev]['remote-gw'] || '') + ', [' + r.pri + '/0]');
@@ -1103,13 +1164,91 @@ const CgLabFgt = (() => {
             }
             return out();
         }
+        // ── M19: SD-WAN durumu. Bağlantı kalitesi lab.sim.links: { <arayüz>: { latency, jitter, loss, dead } } (yoksa 10 ms / 1 ms / %0)
+        const sdwanOn = () => (M().t['system sdwan'].status || 'disable') === 'enable';
+        const linkQ = n => Object.assign({ latency: 10, jitter: 1, loss: 0, dead: false }, (SIM.links || {})[n] || {});
+        function hcStates(hcName) {
+            const H = M().t['system sdwan health-check'].v[hcName], mt = M().t['system sdwan members'];
+            if (!H) return [];
+            const seqs = (H.members || []).length && !(H.members || []).includes('0') ? H.members : mt.o;
+            const slas = H._sub_sla ? H._sub_sla.o.map(k => [k, H._sub_sla.v[k]]) : [];
+            return seqs.filter(q => mt.v[q]).map(q => {
+                const m = mt.v[q], L = linkQ(m.interface), alive = (m.status || 'enable') === 'enable' && ifUp(m.interface) && !L.dead && L.loss < 100;
+                let map = 0; if (alive) slas.forEach(([id, sl]) => { if (L.latency <= +(sl['latency-threshold'] || 5) && L.jitter <= +(sl['jitter-threshold'] || 5) && L.loss <= +(sl['packetloss-threshold'] || 0)) map |= 1 << (+id - 1); });
+                return { seq: q, iface: m.interface, alive, L, map };
+            });
+        }
+        function sdwanMembers() {
+            if (!sdwanOn()) return [];
+            const mt = M().t['system sdwan members'], hcs = M().t['system sdwan health-check'].o;
+            return mt.o.map(q => { const m = mt.v[q]; const dead = hcs.some(h => hcStates(h).some(x => x.seq === q && !x.alive));
+                return { seq: q, interface: m.interface, zone: m.zone || 'virtual-wan-link', gateway: m.gateway || '0.0.0.0', cost: +(m.cost || 0), priority: +(m.priority || 1), alive: (m.status || 'enable') === 'enable' && ifUp(m.interface) && !dead }; });
+        }
+        const sdwanZoneOf = n => { if (!sdwanOn()) return null; const mb = sdwanMembers().find(x => x.interface === n); return mb ? mb.zone : null; };
+        // Hizmet kuralı: ilk eşleşen kuralın moduna göre üye seçimi → { id, seq, iface, gw, cand: [...] } | null
+        function sdwanPick(f, dst) {
+            if (!sdwanOn()) return null;
+            const st = M().t['system sdwan service'], mbs = sdwanMembers();
+            for (const id of st.o) {
+                const sv = st.v[id];
+                if ((sv.dst || []).length && !sv.dst.some(a => addrMatch(a, dst))) continue;
+                if ((sv.src || []).length && !sv.src.some(a => addrMatch(a, f.src))) continue;
+                const order = (sv['priority-members'] || []).map(q => mbs.find(m => m.seq === q)).filter(Boolean);
+                const mode = sv.mode || 'manual';
+                let cand = order.map(m => ({ m, ok: m.alive }));
+                if (mode === 'sla') {
+                    const slas = sv._sub_sla ? sv._sub_sla.o.map(h => [h, +(sv._sub_sla.v[h].id || 1)]) : [];
+                    cand = order.map(m => { const meet = m.alive && slas.every(([h, sid]) => (hcStates(h).find(x => x.seq === m.seq) || { map: 0 }).map & (1 << (sid - 1))); return { m, ok: meet, alive: m.alive }; });
+                    if (!cand.some(x => x.ok)) cand.forEach(x => { x.ok = x.alive; x.fallback = true; });
+                } else if (mode === 'priority' || mode === 'auto') {
+                    const hc = (sv['health-check'] || [])[0], fac = sv['link-cost-factor'] || 'latency';
+                    const val = m => { const s0 = hc && hcStates(hc).find(x => x.seq === m.seq); const L = s0 ? s0.L : linkQ(m.interface); return fac === 'jitter' ? L.jitter : fac === 'packet-loss' ? L.loss : L.latency; };
+                    cand = order.map(m => ({ m, ok: m.alive, v: val(m) })).sort((a, b) => (b.ok - a.ok) || a.v - b.v);
+                }
+                const pick = cand.find(x => x.ok);
+                return { id, name: sv.name || '', mode, cand, seq: pick && pick.m.seq, iface: pick && pick.m.interface, gw: pick && pick.m.gateway, none: !pick };
+            }
+            return null;
+        }
+        // ── M20: politika tabanlı yönlendirme (router policy) — ilk eşleşen kayıt; deny = rota tablosuna bırak
+        function pbrPick(f, dst) {
+            const T = M().t['router policy'];
+            for (const k of T.o) {
+                const p = T.v[k];
+                if ((p.status || 'enable') !== 'enable') continue;
+                if ((p['input-device'] || []).length && !p['input-device'].includes(f.in)) continue;
+                const netIn = (list, ip) => list.some(x => { const [n, m] = x.split(' '); return sameNet(n, ip, maskLen(m)); });
+                if ((p.src || []).length && !netIn(p.src, f.src)) continue;
+                if ((p.srcaddr || []).length && !p.srcaddr.some(a => addrMatch(a, f.src))) continue;
+                if ((p.dst || []).length && !netIn(p.dst, dst)) continue;
+                if ((p.dstaddr || []).length && !p.dstaddr.some(a => addrMatch(a, dst))) continue;
+                const pr = +(p.protocol || 0), pn = { tcp: 6, udp: 17, icmp: 1 }[f.proto];
+                if (pr && pr !== pn) continue;
+                if ((pn === 6 || pn === 17) && (f.dport < +(p['start-port'] || 0) || f.dport > +(p['end-port'] === undefined ? 65535 : p['end-port']))) continue;
+                if ((p.action || 'permit') === 'deny') return { id: k, deny: true };
+                if (!p['output-device'] || !ifUp(p['output-device'])) continue;   // çıkış arayüzü kapalıysa bu kayıt atlanır
+                return { id: k, out: p['output-device'], gw: p.gateway && p.gateway !== '0.0.0.0' ? p.gateway : null };
+            }
+            return null;
+        }
         // M17: çoklu VDOM'da karar, giriş arayüzünün VDOM'unun tablolarıyla verilir (kural, rota, NAT o VDOM'a aittir)
-        function decide(f) {
+        function decide(f, depth) {
             const I = M().vdt && M().t['system interface'].v[f.in];
             const want = I ? (I.vdom || 'root') : null, cur = M().curVd || 'root';
-            if (!want || want === cur) return decideIn(f);
-            swapVd(want);
-            try { const r = decideIn(f); r.vdom = want; return r; } finally { swapVd(cur); }
+            let r;
+            if (!want || want === cur) r = decideIn(f);
+            else { swapVd(want); try { r = decideIn(f); r.vdom = want; } finally { swapVd(cur); } }
+            // Parti 6: vdom-link zinciri — izin verilen paket bir vdom-link ucundan çıkarsa karşı uçtan diğer VDOM'a girer
+            // ve orada (kendi kural/rota/NAT tablolarıyla) yeniden değerlendirilir. <ad>0 ↔ <ad>1.
+            const O = M().vdt && r.stage === 'allowed' && r.out && M().t['system interface'].v[r.out];
+            if (O && O.type === 'vdom-link' && (depth || 0) < 4) {
+                const peer = r.out.slice(0, -1) + (r.out.slice(-1) === '0' ? '1' : '0');
+                if (M().t['system interface'].v[peer]) {
+                    const r2 = decide(Object.assign({}, f, { in: peer, src: r.snat || f.src, sport: r.snat ? r.sport2 : f.sport, dst: r.dst, dport: r.dport }), (depth || 0) + 1);
+                    return Object.assign({}, r2, { hops: [Object.assign({}, r, { hops: undefined })].concat(r2.hops || [Object.assign({}, r2, { hops: undefined })]), f });
+                }
+            }
+            return r;
         }
         // Tek karar motoru: VIP (DNAT) → rota → kural → NAT
         function decideIn(f) {
@@ -1122,10 +1261,20 @@ const CgLabFgt = (() => {
                     r.vip = k; r.dst = String(v.mappedip).split('-')[0]; r.dport = v.portforward === 'enable' ? +v.mappedport : f.dport; break;
                 }
             }
-            const rt = rib().filter(x => x.len === 0 || sameNet(x.net, r.dst, x.len)).sort((a, b) => b.len - a.len)[0];
+            const pb = M().t['router policy'].o.length ? pbrPick(f, r.dst) : null;
+            const sw = !pb || pb.deny ? sdwanPick(f, r.dst) : null;
+            if (pb && !pb.deny) { r.pbr = pb.id; r.out = pb.out; r.gw = pb.gw || r.dst; }
+            else if (sw && !sw.none) { r.sdwan = sw.id; r.out = sw.iface; r.gw = sw.gw; }
+            else {
+            if (pb && pb.deny) r.pbrDeny = pb.id;
+            const all = rib().filter(x => x.len === 0 || sameNet(x.net, r.dst, x.len)).sort((a, b) => b.len - a.len);
+            let rt = all[0];
+            // SD-WAN ECMP (hizmet kuralı yok): kaynak IP'ye göre üye seçimi (varsayılan source-ip-based)
+            if (rt && rt.sdwan) { const eq = all.filter(x => x.sdwan && x.len === rt.len && x.net === rt.net); rt = eq[ip2n(f.src) % eq.length]; }
             if (!rt) return Object.assign(r, { stage: 'noroute' });
             if (rt.bh) return Object.assign(r, { stage: 'blackhole', out: 'Null' });
             r.out = rt.dev; r.gw = rt.c === 'C' ? r.dst : rt.gw;
+            }
             const pf = Object.assign({}, f, { dport: r.dport });
             // Aynı zone'un iki üyesi arası: intrazone allow ise kural aranmaz
             const zi = zoneOf(f.in);
@@ -1133,7 +1282,7 @@ const CgLabFgt = (() => {
             for (const k of M().t['firewall policy'].o) {
                 const p = M().t['firewall policy'].v[k];
                 if ((p.status || 'enable') !== 'enable') continue;
-                const hasIf = (list, n) => (list || []).includes('any') || (list || []).includes(n) || (!!zoneOf(n) && (list || []).includes(zoneOf(n)));
+                const hasIf = (list, n) => (list || []).includes('any') || (list || []).includes(n) || (!!zoneOf(n) && (list || []).includes(zoneOf(n))) || (!!sdwanZoneOf(n) && (list || []).includes(sdwanZoneOf(n)));
                 if (!hasIf(p.srcintf, f.in) || !hasIf(p.dstintf, r.out)) continue;
                 if (!(p.srcaddr || []).some(a => addrMatch(a, f.src))) continue;
                 const dOk = r.vip ? (p.dstaddr || []).includes(r.vip) : (p.dstaddr || []).some(a => addrMatch(a, r.dst));
@@ -1193,11 +1342,12 @@ const CgLabFgt = (() => {
             const pre = 'id=65308 trace_id=' + tid + ' ';
             const fn = (name, line) => S.dbg.fn ? 'func=' + name + ' line=' + line + ' ' : '';
             const pn = { tcp: 6, udp: 17, icmp: 1 }[f.proto];
-            L.push(pre + fn('print_pkt_detail', 5895) + 'msg="vd-root:0 received a packet(proto=' + pn + ', ' + hostPort(f.src, f.sport, f) + '->' + hostPort(f.dst, f.dport, f) + ') tun_id=0.0.0.0 from ' + f.in + '.' + (f.proto === 'tcp' ? ' flag [S], seq 1' + String(tid).padStart(9, '0') + ', ack 0, win 64240"' : f.proto === 'icmp' ? ' type=8, code=0, id=1, seq=' + tid + '."' : '"'));
+            L.push(pre + fn('print_pkt_detail', 5895) + 'msg="vd-' + ((d.hops ? d.hops[0].vdom : d.vdom) || (M().vdt ? (M().t['system interface'].v[f.in] || {}).vdom || 'root' : 'root')) + ':0 received a packet(proto=' + pn + ', ' + hostPort(f.src, f.sport, f) + '->' + hostPort(f.dst, f.dport, f) + ') tun_id=0.0.0.0 from ' + f.in + '.' + (f.proto === 'tcp' ? ' flag [S], seq 1' + String(tid).padStart(9, '0') + ', ack 0, win 64240"' : f.proto === 'icmp' ? ' type=8, code=0, id=1, seq=' + tid + '."' : '"'));
             L.push(pre + fn('init_ip_session_common', 6076) + 'msg="allocate a new session-000' + (4096 + tid).toString(16) + ', tun_id=0.0.0.0"');
             if (d.vip) L.push(pre + fn('get_new_addr', 1219) + 'msg="find DNAT: IP-' + d.dst + ', port-' + d.dport + '"');
             if (d.stage === 'blackhole') { L.push(pre + fn('vf_ip_route_input_common', 2605) + 'msg="find a route: flag=04000000 gw-0.0.0.0 via Null (blackhole), drop"'); return { d, text: L.join('\n') }; }
             if (d.stage === 'noroute') { L.push(pre + fn('vf_ip_route_input_common', 2605) + 'msg="no route to ' + d.dst + ', drop"'); return { d, text: L.join('\n') }; }
+            if (d.pbr) L.push(pre + fn('vf_ip_route_input_common', 2582) + 'msg="Match policy routing id=' + d.pbr + ': to ' + d.dst + ' via ifindex-' + Math.max(1, M().t['system interface'].o.indexOf(d.out) + 3) + '"');
             L.push(pre + fn('vf_ip_route_input_common', 2605) + 'msg="find a route: flag=04000000 gw-' + d.gw + ' via ' + d.out + '"');
             if (d.stage === 'denied') { L.push(pre + fn('fw_forward_handler', 881) + 'msg="Denied by forward policy check (policy ' + d.policy + ')"'); return { d, text: L.join('\n') }; }
             if (d.vip) L.push(pre + fn('fw_forward_handler', 997) + 'msg="Allowed by Policy-' + d.policy + ':"');
@@ -1405,7 +1555,8 @@ const CgLabFgt = (() => {
         DIAG.test = { authserver: { radius: 'tradius', ldap: 'tldap' } };
         DIAG.sys.ntp = { status: 'ntpst' };
         DIAG.log = { test: 'logtest' };
-        DIAG.firewall = { iprope: { lookup: 'iplookup' } };
+        DIAG.firewall = { iprope: { lookup: 'iplookup' }, proute: { list: 'proute' } };
+        DIAG.sys.sdwan = { 'health-check': 'sdhc', member: 'sdmem', service4: 'sdsvc' };
         DIAG.fdsm = { 'central-mgmt-status': 'cmstat' };
         DIAG.debug.application.fgfmd = 'appfgfm';
         S.dbg.apps = {}; S.ikeFilter = null;
@@ -1705,6 +1856,47 @@ const CgLabFgt = (() => {
             return ['Managed-devices in current vdom root:', '', 'FortiLink interface : ' + (list[0] ? list[0].intf : '-'), 'SWITCH-ID           VERSION           STATUS         FLAG   ADDRESS     JOIN-TIME']
                 .concat(list.map(w => pad(w.sn, 20) + pad('v7.4', 18) + pad(!w.off && fabricOn(w.intf) ? 'Authorized/Up' : 'Authorized/Down', 15) + pad('0', 7) + pad(w.ip || '169.254.1.2', 12) + (!w.off && fabricOn(w.intf) ? 'Fri Sep 26 10:12:44 2026' : 'N/A')), ['# [Simülatör] Çıktı sadeleştirildi.']).join('\n');
         }
+        // M19/M20 tanılama çıktıları (biçim: 7.4.4 Admin Guide "SD-WAN related diagnose commands", Fortinet belgesi "Policy routes")
+        function sdwanDiag(node, a) {
+            const f3 = x => (+x).toFixed(3);
+            if (node === 'proute') {
+                const T = M().t['router policy'], L = ['list route policy info(vf=root):'];
+                const idx = n => Math.max(1, M().t['system interface'].o.indexOf(n) + 3);
+                T.o.forEach(k => { const p = T.v[k]; if ((p.status || 'enable') !== 'enable') return;
+                    L.push('id=' + k + '(0x' + (+k).toString(16).padStart(2, '0') + ') dscp_tag=0xfc 0xfc flags=' + ((p.action || 'permit') === 'deny' ? '0x8' : '0x0') + ' tos=0x00 tos_mask=0x00 protocol=' + (p.protocol || 0) + ' sport=0-0 iif=' + ((p['input-device'] || [])[0] ? idx(p['input-device'][0]) + '(' + p['input-device'][0] + ')' : '0(any)') + ' dport=' + (p['start-port'] || 0) + '-' + (p['end-port'] === undefined ? 65535 : p['end-port']) + ' path(1) oif=' + (p['output-device'] ? idx(p['output-device']) + '(' + p['output-device'] + ')' : '0') + ' gwy=' + (p.gateway || '0.0.0.0'),
+                        'source wildcard(' + Math.max(1, (p.src || []).length) + '): ' + ((p.src || []).map(x => x.replace(' ', '/')).join(' ') || '0.0.0.0/0.0.0.0'), 'destination wildcard(' + Math.max(1, (p.dst || []).length) + '): ' + ((p.dst || []).map(x => x.replace(' ', '/')).join(' ') || '0.0.0.0/0.0.0.0')); });
+                L.push('# [Simülatör] Kaynak/hedef adres nesneleri (srcaddr/dstaddr) ve sayaç satırları gösterilmez.');
+                log({ proute: T.o.length });
+                return L.join('\n');
+            }
+            if (!sdwanOn()) return '# [Simülatör] SD-WAN kapalı (config system sdwan → set status enable).';
+            if (node === 'sdmem') { log({ sdmem: true }); return sdwanMembers().map(m => 'Member(' + m.seq + '): interface: ' + m.interface + ', gateway: ' + m.gateway + ', priority: ' + m.priority + ' 1024, weight: 0').join('\n'); }
+            if (node === 'sdhc') {
+                const args = a.map(x => x.t).filter(x => x !== 'status'), hs = M().t['system sdwan health-check'].o.filter(h => !args[0] || h === args[0]);
+                if (args[0] && !hs.length) return 'Health Check(' + args[0] + ') is not found.';
+                log({ sdhc: hs });
+                return hs.map(h => ['Health Check(' + h + '):'].concat(hcStates(h).map(x => 'Seq(' + x.seq + ' ' + x.iface + '): state(' + (x.alive ? 'alive' : 'dead') + '), packet-loss(' + f3(x.alive ? x.L.loss : 100) + '%)' + (x.alive ? ' latency(' + f3(x.L.latency) + '), jitter(' + f3(x.L.jitter) + ')' : '') + ' sla_map=0x' + x.map.toString(16))).join('\n')).join('\n');
+            }
+            // service4
+            const st = M().t['system sdwan service'], mbs = sdwanMembers(), L = [];
+            st.o.forEach(id => {
+                const sv = st.v[id], mode = sv.mode || 'manual', P = sdwanPickById(id);
+                L.push('Service(' + id + '): Address Mode(IPV4) flags=0x200', 'Gen(1), TOS(0x0/0x0), Protocol(0: 1->65535), Mode(' + mode + ')' + (mode === 'sla' ? ', sla-compare-order' : (mode === 'priority' || mode === 'auto') ? ', link-cost-factor(' + (sv['link-cost-factor'] || 'latency') + '), link-cost-threshold(10), heath-check(' + ((sv['health-check'] || [])[0] || '') + ')' : ''));
+                L.push('Members(' + P.cand.length + '):');
+                P.cand.forEach((c, i) => L.push((i + 1) + ': Seq_num(' + c.m.seq + ' ' + c.m.interface + '), ' + (c.m.alive ? 'alive' : 'dead') + (mode === 'sla' ? ', sla(0x' + (c.ok && !c.fallback ? 1 : 0) + '), gid(0), cfg_order(' + i + '), cost(' + c.m.cost + ')' : (mode === 'priority' || mode === 'auto') ? ', ' + (sv['link-cost-factor'] || 'latency') + ': ' + f3(c.v) : '') + (c.ok ? ', selected' : '')));
+                const dsts = (sv.dst || []).map(n => { const o = M().t['firewall address'].v[n]; if (!o || n === 'all') return '0.0.0.0-255.255.255.255'; if ((o.type || 'ipmask') === 'iprange') return o['start-ip'] + '-' + o['end-ip']; const [ip, m] = (o.subnet || '0.0.0.0 0.0.0.0').split(' '), l = maskLen(m), b = netOf(ip, l); return n2ip(b) + '-' + n2ip(b + 2 ** (32 - l) - 1); });
+                L.push('Dst address(' + dsts.length + '):', ...dsts.map(x => '        ' + x));
+            });
+            log({ sdsvc: st.o });
+            return L.join('\n') || '# [Simülatör] SD-WAN kuralı (service) tanımlı değil; trafik zone rotasıyla (ECMP) dağıtılır.';
+        }
+        function sdwanPickById(id) {
+            const T = M().t['system sdwan service'], keep = T.o;
+            T.o = [id];
+            try { const sv = T.v[id]; const d = (sv.dst || [])[0], dsrc = (sv.src || [])[0]; const probe = n => { const o = n && M().t['firewall address'].v[n]; return o && (o.type || 'ipmask') === 'ipmask' ? o.subnet.split(' ')[0] : o && o['start-ip'] || '0.0.0.0'; };
+                const T2 = Object.assign({}, sv); delete T2.dst; delete T2.src; const save = T.v[id]; T.v[id] = T2; try { return sdwanPick({ src: probe(dsrc) }, probe(d)) || { cand: [] }; } finally { T.v[id] = save; } }
+            finally { T.o = keep; }
+        }
         function diagCmd(t, line) {
             let node = DIAG, i = 1, words = ['diagnose'];
             while (node && typeof node === 'object') {
@@ -1747,6 +1939,7 @@ const CgLabFgt = (() => {
                     if (d.stage === 'noroute' || d.stage === 'noarrive') return '# [Simülatör] Hedefe rota yok ya da giriş arayüzü kapalı: kural araması yapılmadı.';
                     return '<src [' + v[0] + '-' + v[1] + '] dst [' + v[2] + '-' + v[3] + '] proto ' + v[4].toLowerCase() + ' dev ' + v[5] + '> matches policy id: ' + (d.policy === 'intrazone' ? '0 (intrazone)' : d.policy);
                 }
+                case 'sdhc': case 'sdmem': case 'sdsvc': case 'proute': return ok(sdwanDiag(node, a));
                 case 'cmstat': return ok(cmStatus());
                 case 'appfgfm': {
                     const lv = a[0] ? a[0].t : null;
@@ -2157,7 +2350,7 @@ const CgLabFgt = (() => {
                 M().t[c.path] = c.draft; return null;
             }
             const miss = (sc.req || []).filter(k => { const v = c.draft[k]; return v === undefined || (Array.isArray(v) && !v.length); });
-            if (c.path === 'router static' && c.draft.blackhole !== 'enable' && !c.draft.device) miss.push('device');
+            if (c.path === 'router static' && c.draft.blackhole !== 'enable' && !c.draft.device && !(c.draft['sdwan-zone'] || []).length) miss.push('device');
             if (c.path === 'vpn ipsec phase1-interface' && c.draft.type === 'dynamic') { const i = miss.indexOf('remote-gw'); if (i >= 0) miss.splice(i, 1); }
             if (c.path === 'system interface' && c.draft.type === 'vlan') ['vdom', 'interface', 'vlanid'].forEach(k => { if (c.draft[k] === undefined && !miss.includes(k)) miss.push(k); });
             if (miss.length) return miss.map(k => 'node_check_object fail! for ' + k + '\nAttribute \'' + k + '\' MUST be set.').join('\n');
@@ -2347,7 +2540,7 @@ const CgLabFgt = (() => {
             ha: () => { const E = haElect(); return { formed: E.formed, primary: E.formed ? E.meP : true, reason: E.reason || E.why, synced: haInSync(), onPeer: S.ha.onPeer }; },
             tun: n => { const T = tun(n); return { p1up: T.p1up, p2up: T.p2up, reason: T.reason }; },
             variant: () => S.variant, decide: f => decide(Object.assign({ sport: 50000, proto: 'tcp', reply: 'ok', arrives: true }, f)), fos: FOS,
-            logs: () => genLogs(), adminScope: n => { const a = M().t['system admin'].v[n]; if (!a) return null; return { profile: a.accprofile, vdoms: a.vdom || ['root'], global: a.accprofile === 'super_admin' }; }, dialup: user => { const r = dialAll().find(x => x.user === user); return r || null; }, dialups: () => dialAll(), vdom: () => ({ mode: M().vdt ? 'multi-vdom' : 'no-vdom', where: S.vd ? S.vd.where : null, cur: M().curVd || 'root', list: M().vdt ? Object.keys(M().vdt) : ['root'] }), subObj: (p, k, sub) => { const o = M().t[p].v[k]; return o ? o['_sub_' + sub] || null : null; },
+            logs: () => genLogs(), sdwan: () => ({ members: sdwanMembers(), hc: M().t['system sdwan health-check'].o.map(h => ({ name: h, states: hcStates(h) })) }), adminScope: n => { const a = M().t['system admin'].v[n]; if (!a) return null; return { profile: a.accprofile, vdoms: a.vdom || ['root'], global: a.accprofile === 'super_admin' }; }, dialup: user => { const r = dialAll().find(x => x.user === user); return r || null; }, dialups: () => dialAll(), vdom: () => ({ mode: M().vdt ? 'multi-vdom' : 'no-vdom', where: S.vd ? S.vd.where : null, cur: M().curVd || 'root', list: M().vdt ? Object.keys(M().vdt) : ['root'] }), subObj: (p, k, sub) => { const o = M().t[p].v[k]; return o ? o['_sub_' + sub] || null : null; },
             get model() { return S.m; }, ev: E, mode: () => (S.ctx ? (S.ctx.key !== undefined ? 'edit' : 'config') : 'root'),
             obj, keys: p => M().t[p].o.filter(k => !M().t[p].v[k]._builtin), order: p => M().t[p].o.slice(),
             rib, ifUp, saved: () => !S.ctx, dhcpLeases: () => dhcpLeases(), zoneOf: n => zoneOf(n), revs: () => S.revs.map(r => r.comment), tftp: () => Object.keys(S.tftp),

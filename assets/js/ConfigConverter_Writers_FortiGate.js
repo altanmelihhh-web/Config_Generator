@@ -150,7 +150,9 @@ function ccWriteFortiGate(ir) {
             // aksi halde kapali kural acilir (fail-open).
             if (pol.enabled === false) polTxt += '        set status disable\n';
             polTxt += '        set schedule "always"\n';
-            if (pol.log) polTxt += '        set logtraffic all\n';
+            // FortiGate kaynağı: logtraffic kipi korunur (varsayılan utm yazılmaz); diğer vendor'lar: eski davranış (log → all)
+            if (pol.logMode) { if (pol.logMode !== 'utm') polTxt += '        set logtraffic ' + pol.logMode + '\n'; }
+            else if (pol.log) polTxt += '        set logtraffic all\n';
             if (pol.profile && (pol.profile.av || pol.profile.ips || pol.profile.webfilter || pol.profile.appctrl)) {
                 polTxt += '        set utm-status enable\n';
                 if (pol.profile.av)         polTxt += '        set av-profile "' + pol.profile.av + '"\n';
@@ -278,6 +280,46 @@ function ccWriteFortiGate(ir) {
         });
         c += 'end\n\n';
     }
+    // Dinamik yönlendirme (F76-C4). CLI Ref 7.4.8/7.6.6 config router ospf (103419153), config router bgp (225427711).
+    // FortiOS'ta tek OSPF süreci vardır; alan kimliği noktalı biçimdedir (Cisco "area 0" → 0.0.0.0).
+    if (ir.ospf && ir.ospf.length) {
+        const dot = a => /^\d+$/.test(String(a)) ? [24, 16, 8, 0].map(sh => (+a >>> sh) & 255).join('.') : String(a);
+        const len2mask = l => { const n = +l === 0 ? 0 : (0xFFFFFFFF << (32 - +l)) >>> 0; return [24, 16, 8, 0].map(sh => (n >>> sh) & 255).join('.'); };
+        const P = ir.ospf[0];
+        ir.ospf.slice(1).forEach(x => ccDropField(ir, 'ospf', String(x.process_id || ''), 'process', x.process_id, 'fortigate-ospf-single-process-manual', 'fortigate', CC_SEVERITY.MANUAL));
+        let oc = 'config router ospf\n';
+        if (P.router_id) oc += '    set router-id ' + P.router_id + '\n';
+        if ((P.passive_interfaces || []).length) oc += '    set passive-interface ' + P.passive_interfaces.map(x => '"' + x + '"').join(' ') + '\n';
+        const areas = (P.areas || []);
+        if (areas.length) { oc += '    config area\n'; areas.forEach(a => { oc += '        edit ' + dot(a.id) + '\n        next\n'; if (a.auth) ccDropField(ir, 'ospf', dot(a.id), 'auth', a.auth, 'fortigate-ospf-area-auth-manual', 'fortigate', CC_SEVERITY.MANUAL); }); oc += '    end\n'; }
+        const nets = [].concat(...areas.map(a => (a.networks || []).map(n => [n, dot(a.id)])));
+        if (nets.length) { oc += '    config network\n'; nets.forEach(([n, aid], k) => { const [ip, l] = n.split('/'); oc += '        edit ' + (k + 1) + '\n            set prefix ' + ip + ' ' + len2mask(l || '32') + '\n            set area ' + aid + '\n        next\n'; }); oc += '    end\n'; }
+        if ((P.redistribute || []).length) { oc += '    config redistribute\n'; P.redistribute.forEach(r => { oc += '        edit "' + r + '"\n            set status enable\n        next\n'; }); oc += '    end\n'; }
+        c += oc + 'end\n\n';
+        if (!P.router_id) ccDropField(ir, 'ospf', '1', 'router-id', '', 'fortigate-ospf-router-id-missing-manual', 'fortigate', CC_SEVERITY.MANUAL);
+    }
+    if (ir.bgp && ir.bgp.as_number) {
+        const B = ir.bgp, len2mask = l => { const n = +l === 0 ? 0 : (0xFFFFFFFF << (32 - +l)) >>> 0; return [24, 16, 8, 0].map(sh => (n >>> sh) & 255).join('.'); };
+        let bc = 'config router bgp\n    set as ' + B.as_number + '\n';
+        if (B.router_id) bc += '    set router-id ' + B.router_id + '\n';
+        const nbs = (B.neighbors || []).filter(n => n.ip);
+        if (nbs.length) {
+            bc += '    config neighbor\n';
+            nbs.forEach(n => {
+                bc += '        edit "' + n.ip + '"\n';
+                if (n.remote_as) bc += '            set remote-as ' + n.remote_as + '\n';
+                else ccDropField(ir, 'bgp', n.ip, 'remote-as', '', 'fortigate-bgp-neighbor-remote-as-missing-manual', 'fortigate', CC_SEVERITY.MANUAL);
+                if (n.desc) bc += '            set description "' + String(n.desc).replace(/"/g, '').slice(0, 63) + '"\n';
+                if (n.bfd) bc += '            set bfd enable\n';
+                bc += '        next\n';
+            });
+            bc += '    end\n';
+        }
+        const bnet = (B.networks || []).filter(Boolean);
+        if (bnet.length) { bc += '    config network\n'; bnet.forEach((n, k) => { const [ip, l] = String(n).split('/'); bc += '        edit ' + (k + 1) + '\n            set prefix ' + ip + ' ' + len2mask(l || '32') + '\n        next\n'; }); bc += '    end\n'; }
+        if ((B.redistribute || []).length) { bc += '    config redistribute\n'; B.redistribute.forEach(r => { bc += '        edit "' + r + '"\n            set status enable\n        next\n'; }); bc += '    end\n'; }
+        c += bc + 'end\n\n';
+    }
     {
         let at = '';
         addrObjs.filter(a => a.type !== 'group').forEach(a => {
@@ -288,6 +330,10 @@ function ccWriteFortiGate(ir) {
             if (a.type === 'host' && val) body = '        set subnet ' + val + ' 255.255.255.255\n';
             else if (a.type === 'network' && val) body = '        set subnet ' + val + ' ' + (a.mask || '255.255.255.0') + '\n';
             else if (a.type === 'fqdn' && val) body = '        set type fqdn\n        set fqdn "' + val + '"\n';
+            // CLI Ref 7.4.8 firewall address (306021697): type geography (country), mac (macaddr), wildcard
+            else if (a.type === 'geography' && /^[A-Za-z]{2}$/.test(val)) body = '        set type geography\n        set country "' + val.toUpperCase() + '"\n';
+            else if (a.type === 'mac' && val) body = '        set type mac\n        set macaddr ' + val.split(/\s+/).map(x => '"' + x + '"').join(' ') + '\n';
+            else if (a.type === 'wildcard' && /^(\d{1,3}\.){3}\d{1,3}\s+(\d{1,3}\.){3}\d{1,3}$/.test(val)) body = '        set type wildcard\n        set wildcard ' + val + '\n';
             else if (a.type === 'range' && /-/.test(val)) {
                 const r = val.split('-').map(x => x.trim());
                 body = '        set type iprange\n        set start-ip ' + r[0] + '\n        set end-ip ' + r[1] + '\n';

@@ -25,6 +25,51 @@ function ccReadFortiGate(text) {
         return tokens;
     }
 
+    const _mask2len = m => ccMaskToPrefix(m || '255.255.255.255');
+    // Tablo gövdesini (edit … next) kayıtlara böl: [{ key, sets: {ad: değer}, subs: { tablo: [...] } }] (tek düzey alt tablo yeterli)
+    function _fgTable(body, name) {
+        const out = []; let k = body.indexOf('config ' + name); if (k < 0) return out;
+        let cur = null, depth = 0;
+        for (let j = k + 1; j < body.length; j++) {
+            const l = body[j];
+            if (depth === 0 && l === 'end') break;
+            if (/^config\s/.test(l)) { depth++; continue; }
+            if (l === 'end') { depth--; continue; }
+            if (depth > 0) continue;
+            if (l.startsWith('edit ')) { cur = { key: l.slice(5).replace(/"/g, '').trim(), sets: {} }; out.push(cur); }
+            else if (l === 'next') cur = null;
+            else if (cur && l.startsWith('set ')) { const m = l.match(/^set\s+(\S+)\s*(.*)$/); if (m) cur.sets[m[1]] = m[2]; }
+        }
+        return out;
+    }
+    // Üst düzey "set" satırları (iç içe tabloların dışındakiler)
+    function _fgTop(body) { const o = {}; let depth = 0; body.forEach(l => { if (/^config\s/.test(l)) depth++; else if (l === 'end') depth--; else if (depth === 0) { const m = l.match(/^set\s+(\S+)\s*(.*)$/); if (m) o[m[1]] = m[2]; } }); return o; }
+    const _redist = body => _fgTable(body, 'redistribute').filter(r => /enable/.test(r.sets.status || '')).map(r => r.key);
+    function _fgParseOspf(body) {
+        const top = _fgTop(body), rid = (top['router-id'] || '').trim();
+        const proc = { process_id: '1', router_id: rid === '0.0.0.0' ? '' : rid, areas: [] };
+        _fgTable(body, 'area').forEach(a => proc.areas.push({ id: a.key, networks: [], auth: (a.sets.authentication || '').trim() === 'none' ? '' : (a.sets.authentication || '').trim() }));
+        _fgTable(body, 'network').forEach(n => {
+            const p = (n.sets.prefix || '').trim().split(/\s+/), aid = (n.sets.area || '0.0.0.0').trim();
+            if (!p[0]) return;
+            let area = proc.areas.find(a => a.id === aid); if (!area) { area = { id: aid, networks: [], auth: '' }; proc.areas.push(area); }
+            area.networks.push(p[0] + '/' + _mask2len(p[1]));
+        });
+        if (top['passive-interface']) proc.passive_interfaces = parseQuotedTokens(top['passive-interface']);
+        const rd = _redist(body); if (rd.length) proc.redistribute = rd;
+        // Tam yapılandırmadaki boş (yapılandırılmamış) OSPF bloğu IR'ye alınmaz
+        if (proc.router_id || proc.areas.some(a => a.networks.length)) ir.ospf.push(proc);
+    }
+    function _fgParseBgp(body) {
+        const top = _fgTop(body), as = (top.as || '').replace(/"/g, '').trim(), rid = (top['router-id'] || '').trim();
+        if (!as || as === '0') return;   // as 0 = BGP kapalı
+        const bgp = { as_number: as, router_id: rid === '0.0.0.0' ? '' : rid, neighbors: [], networks: [] };
+        _fgTable(body, 'neighbor').forEach(n => bgp.neighbors.push({ ip: n.key, remote_as: (n.sets['remote-as'] || '').replace(/"/g, '').trim(), desc: (n.sets.description || '').replace(/"/g, ''), bfd: /enable/.test(n.sets.bfd || '') || undefined }));
+        _fgTable(body, 'network').forEach(n => { const p = (n.sets.prefix || '').trim().split(/\s+/); if (p[0] && p[0] !== '0.0.0.0') bgp.networks.push(p[0] + '/' + _mask2len(p[1])); });
+        const rd = _redist(body); if (rd.length) bgp.redistribute = rd;
+        ir.bgp = bgp;
+    }
+
     // Kaynak sürüm (#config-version=MODEL-7.6.5-FW-...) — faz 1 varsayılanları sürüme bağlı.
     const _srcVer = ((text.split('\n').slice(0, 5).find(l => l.indexOf('#config-version=') === 0) || '').match(/-(\d+)\.(\d+)\.(\d+)-FW-/) || []).slice(1).map(Number);
     // FortiOS CLI Ref (phase1-interface): ike-version varsayılanı 1 (7.4.8 ve 7.6.6);
@@ -81,6 +126,19 @@ function ccReadFortiGate(text) {
         if (line === 'config system syslogd' ||
             line === 'config log syslogd setting' ||
             line.startsWith('config log syslogd')) { block = 'syslogd'; i++; continue; }
+        // OSPF / BGP: blok iç içe config … end içerir; sonuna kadar toplanıp ayrıştırılır
+        // (önceden "config router" atlanıyor, iç içe ilk "end" bloğu erken kapatıp kalan satırları unknowns'a düşürüyordu)
+        if (line === 'config router ospf' || line === 'config router bgp') {
+            const body = []; let depth = 0; i++;
+            while (i < lines.length) {
+                const l = lines[i].trim();
+                if (/^config\s/.test(l)) depth++;
+                else if (l === 'end') { if (depth === 0) break; depth--; }
+                body.push(l); i++;
+            }
+            if (line === 'config router ospf') _fgParseOspf(body); else _fgParseBgp(body);
+            i++; continue;
+        }
         // Silently skip known unhandled config blocks
         if (line === 'config system global' ||
             line.startsWith('config firewall schedule') ||
@@ -202,6 +260,12 @@ function ccReadFortiGate(text) {
                 if (t === 'iprange') curAddr.type = 'range';
                 else if (t === 'fqdn') curAddr.type = 'fqdn';
                 else if (t !== 'ipmask') { curAddr.type = t; curAddr.value = ''; }
+            } else if (curAddr && curAddr.type === 'geography' && line.startsWith('set country ')) {
+                curAddr.value = line.slice(12).replace(/"/g, '').trim();
+            } else if (curAddr && curAddr.type === 'mac' && line.startsWith('set macaddr ')) {
+                curAddr.value = parseQuotedTokens(line.slice(12)).join(' ');
+            } else if (curAddr && curAddr.type === 'wildcard' && line.startsWith('set wildcard ')) {
+                curAddr.value = line.slice(13).trim();
             } else if (curAddr && curAddr.type === 'range' && line.startsWith('set start-ip ')) {
                 const st = line.slice(13).trim(); const r = String(curAddr.value || '').split('-');
                 curAddr.value = st + '-' + (r[1] || st);
@@ -328,6 +392,7 @@ function ccReadFortiGate(text) {
                     _actionExplicit: false,
                     enabled: true,
                     log: true,
+                    logMode: 'utm',      // FortiOS varsayılanı (CLI Ref 7.4.8 firewall policy: logtraffic utm)
                     schedule: 'always',
                     profile: {},
                     // internal scratch fields for service resolution
@@ -374,7 +439,8 @@ function ccReadFortiGate(text) {
                     // hedef cihaza AKTIF olarak yazilir (fail-open).
                     curPolicy.enabled = !line.includes('disable');
                 } else if (line.startsWith('set logtraffic ')) {
-                    curPolicy.log = !line.includes('disable');
+                    curPolicy.log = !line.includes('disable');   // diğer yazıcılar için eski anlam korunur
+                    const lm = line.slice(15).trim(); if (['all', 'utm', 'disable'].includes(lm)) curPolicy.logMode = lm;
                 } else if (line.startsWith('set schedule ')) {
                     curPolicy.schedule = line.slice(13).replace(/"/g, '').trim();
                 } else if (line.startsWith('set utm-status ') || line.startsWith('set profile-protocol-options ')) {
