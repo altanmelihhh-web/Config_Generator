@@ -1,0 +1,29 @@
+/* ─── Tasarım tokenları (Tema 1 "Kılavuz") ───────────────────────────────────
+   Tek kaynak: bileşenler yalnız bu anlamsal adları (ya da base.css'teki eski adları,
+   bunlar da buraya bağlıdır) kullanır. Koyu tema: <html data-theme="dark"> (app.js).
+   Kaynak: ~/inventory/notes/ui-yeniden-tasarim.md §4.2; mockup ~/inventory/mockups/tema-1 */
+:root {
+  --bg: #FFFFFF; --surface: #F6F8FA; --surface-2: #EEF2F6;
+  --text: #0F172A; --muted: #475569; --subtle: #64748B; --border: #E2E8F0; --border-strong: #8492A6;
+  --primary: #1D4ED8; --primary-hover: #1E40AF; --primary-soft: #E0E7FF; --on-primary: #FFFFFF;
+  --accent: #0E7490; --ok: #15803D; --ok-soft: #DCFCE7; --warn: #B45309; --warn-soft: #FEF3C7; --err: #B91C1C; --err-soft: #FEE2E2;
+  --code-bg: #0F172A; --code-fg: #E2E8F0; --focus: #2563EB;
+  --shadow: 0 1px 2px rgba(15, 23, 42, .06), 0 1px 3px rgba(15, 23, 42, .08);
+  --radius-sm: 6px; --radius: 10px; --radius-lg: 12px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px; --space-12: 48px;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --dur-fast: 150ms; --dur: 200ms;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #0B1220; --surface: #111A2E; --surface-2: #17223A;
+  --text: #E2E8F0; --muted: #A3B1C6; --subtle: #8A99B0; --border: #22304A; --border-strong: #5B6B8A;
+  --primary: #7AA7FF; --primary-hover: #9BBEFF; --primary-soft: #1B2A4A; --on-primary: #0B1220;
+  --accent: #5CC8DB; --ok: #4ADE80; --ok-soft: rgba(74, 222, 128, .14); --warn: #FBBF24; --warn-soft: rgba(251, 191, 36, .14); --err: #F87171; --err-soft: rgba(248, 113, 113, .14);
+  --code-bg: #060B16; --code-fg: #D6E2F5; --focus: #93C5FD;
+  --shadow: none;
+  color-scheme: dark;
+}
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }

@@ -5,20 +5,20 @@
    ============================================================================ */
 
 :root {
-  --primary-color: #4F46E5;
-  --primary-light: #818CF8;
-  --primary-dark: #3730A3;
+  --primary-color: var(--primary);
+  --primary-light: var(--primary-hover);
+  --primary-dark: var(--primary-hover);
   --secondary-color: #1E293B;
   --secondary-light: #334155;
   --accent-color: #F59E0B;
   --accent-light: #FCD34D;
-  --success-color: #10B981;
+  --success-color: var(--ok);
   --success-light: #6EE7B7;
-  --warning-color: #F59E0B;
+  --warning-color: var(--warn);
   --warning-light: #FCD34D;
-  --danger-color: #EF4444;
+  --danger-color: var(--err);
   --danger-light: #FCA5A5;
-  --info-color: #3B82F6;
+  --info-color: var(--primary);
   --info-light: #93C5FD;
   --gray-50: #F9FAFB;
   --gray-100: #F3F4F6;
@@ -30,20 +30,20 @@
   --gray-700: #374151;
   --gray-800: #1F2937;
   --gray-900: #111827;
-  --bg-primary: #FFFFFF;
-  --bg-secondary: #F9FAFB;
-  --bg-tertiary: #F3F4F6;
+  --bg-primary: var(--bg);
+  --bg-secondary: var(--surface);
+  --bg-tertiary: var(--surface-2);
   /* Terminal yuzeyi — kod ve ASCII topoloji bloklari icin. Her iki temada da
      KOYU kalir: bu bloklar acik metin rengiyle tasarlandi, tema degiskenine
      baglanirsa acik temada acik zemin uzerine acik metin dusuyor. */
-  --code-surface: #1E293B;
-  --text-primary: #1F2937;
-  --text-secondary: #6B7280;
-  --text-tertiary: #9CA3AF;
-  --border-color: #E5E7EB;
+  --code-surface: var(--code-bg);
+  --text-primary: var(--text);
+  --text-secondary: var(--muted);
+  --text-tertiary: var(--subtle);
+  --border-color: var(--border);
   --sidebar-bg: linear-gradient(180deg, #1E293B 0%, #0F172A 100%);
-  --card-bg: #FFFFFF;
-  --input-bg: #FFFFFF;
+  --card-bg: var(--bg);
+  --input-bg: var(--bg);
   --light-color: #FFFFFF;
   --dark-color: #1F2937;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
@@ -61,50 +61,50 @@
 
 body.dark-mode {
   color-scheme: dark;
-  --primary-color: #5865F2;
-  --primary-light: #7289DA;
-  --primary-dark: #4752C4;
+  --primary-color: var(--primary);
+  --primary-light: var(--primary-hover);
+  --primary-dark: var(--primary-hover);
   --secondary-color: #B9BBBE;
   --secondary-light: #DCDDDE;
   --accent-color: #FEE75C;
   --accent-light: #FFF7B3;
-  --success-color: #43B581;
+  --success-color: var(--ok);
   --success-light: #4FDC7C;
-  --warning-color: #FAA61A;
+  --warning-color: var(--warn);
   --warning-light: #FFC145;
-  --danger-color: #F04747;
+  --danger-color: var(--err);
   --danger-light: #FF6B6B;
-  --info-color: #5865F2;
+  --info-color: var(--primary);
   --info-light: #7289DA;
-  --gray-50: #FFFFFF;
-  --gray-100: #F6F6F7;
-  --gray-200: #EBEBEB;
-  --gray-300: #DCDDDE;
-  --gray-400: #B9BBBE;
-  --gray-500: #8E9297;
-  --gray-600: #72767D;
-  --gray-700: #4F545C;
-  --gray-800: #36393F;
-  --gray-900: #2F3136;
-  --bg-primary: #36393F;
-  --bg-secondary: #2F3136;
-  --bg-tertiary: #202225;
-  --code-surface: #16181B;
-  --text-primary: #DCDDDE;
-  --text-secondary: #B9BBBE;
-  --text-tertiary: #8E9297;
-  --border-color: #202225;
+  --gray-50: #0B1220;
+  --gray-100: #111A2E;
+  --gray-200: #17223A;
+  --gray-300: #22304A;
+  --gray-400: #5B6B8A;
+  --gray-500: #8A99B0;
+  --gray-600: #A3B1C6;
+  --gray-700: #CBD5E1;
+  --gray-800: #E2E8F0;
+  --gray-900: #F1F5F9;
+  --bg-primary: var(--bg);
+  --bg-secondary: var(--surface);
+  --bg-tertiary: var(--surface-2);
+  --code-surface: var(--code-bg);
+  --text-primary: var(--text);
+  --text-secondary: var(--muted);
+  --text-tertiary: var(--subtle);
+  --border-color: var(--border);
   --sidebar-bg: linear-gradient(180deg, #2F3136 0%, #202225 100%);
-  --card-bg: #2F3136;
-  --input-bg: #202225;
+  --card-bg: var(--bg);
+  --input-bg: var(--bg);
   --light-color: #FFFFFF;
   --dark-color: #202225;
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 10px 25px 0 rgba(0, 0, 0, 0.5);
   --shadow-xl: 0 20px 40px 0 rgba(0, 0, 0, 0.6);
-  --link-color: #00AFF4;
-  --link-hover-color: #5DCCFF;
+  --link-color: var(--primary);
+  --link-hover-color: var(--primary-hover);
 }
 
 
@@ -297,7 +297,7 @@ body.dark-mode .alert-danger {
 
 .fa-sidebar .fa-tab.active {
   background: var(--primary-color, #3498db);
-  color: #fff;
+  color: var(--on-primary, #fff);
   font-weight: 600;
 }
 
@@ -351,9 +351,9 @@ body.dark-mode .alert-danger {
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--bg-secondary, #f5f7fa);
-  color: var(--text-primary, #2c3e50);
+  font-family: var(--font-sans, 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif);
+  background: var(--bg, #FFFFFF);
+  color: var(--text, #0F172A);
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -377,7 +377,7 @@ button, input, select, textarea { font-family: inherit; }
 .app-brand-logo {
   width: 32px; height: 32px; border-radius: 8px;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--primary-color, #3498db); color: #fff; font-size: .9rem;
+  background: var(--primary-color, #3498db); color: var(--on-primary, #fff); font-size: .9rem;
 }
 .app-brand small { display: block; font-weight: 400; font-size: .72rem; color: var(--text-tertiary, #95a5a6); }
 .app-actions { display: flex; align-items: center; gap: 8px; }

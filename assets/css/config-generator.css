@@ -88,9 +88,9 @@
 #config-generator-root .cg-topic-box-content strong { color: var(--text-primary, #2c3e50); }
 #config-generator-root .cg-card-badge { display: inline-block; padding: 2px 9px; border-radius: 9px; font-size: .68rem; font-weight: 700; text-transform: uppercase; background: var(--gray-200, #eaeded); color: var(--text-secondary, #7f8c8d); }
 #config-generator-root .gen-type-card-enhanced .cg-card-badge { position: absolute; top: 10px; right: 10px; }
-#config-generator-root .cg-card-badge.recommended { background: #d5f5e3; color: #1e8449; }
-#config-generator-root .cg-card-badge.common { background: #d6eaf8; color: #21618c; }
-#config-generator-root .cg-card-badge.advanced { background: #fdebd0; color: #b9770e; }
+#config-generator-root .cg-card-badge.recommended { background: var(--ok-soft); color: var(--ok); }
+#config-generator-root .cg-card-badge.common { background: var(--primary-soft); color: var(--primary); }
+#config-generator-root .cg-card-badge.advanced { background: var(--warn-soft); color: var(--warn); }
 
 /* Yapılandırma tipi kartları (cgFormBuilder) — sayfanın geri kalanına ve 240px'e
    çıkardığımız yan sekmelere oranla küçük kalmasın diye büyütüldü, ayrıca satır
@@ -338,7 +338,7 @@
     transition: background .15s, border-color .15s, color .15s, transform .1s;
 }
 #config-generator-root .cc-btn:active { transform: translateY(1px); }
-#config-generator-root .cc-btn-primary { background: var(--primary-color, #4F46E5); color: #fff; }
+#config-generator-root .cc-btn-primary { background: var(--primary-color, #4F46E5); color: var(--on-primary); }
 #config-generator-root .cc-btn-primary:hover { background: var(--primary-dark, #3730A3); }
 #config-generator-root .cc-btn-ghost { background: transparent; border-color: var(--border-color, #dcdcdc); color: var(--text-secondary, #64748b); }
 #config-generator-root .cc-btn-ghost:hover { border-color: var(--primary-color, #4F46E5); color: var(--primary-color, #4F46E5); }
@@ -507,7 +507,7 @@
 
 /* Boş / bekleme durumu */
 #config-generator-root .cg-term-idle {
-    color: #6e7781;
+    color: #8b949e;
     font-style: italic;
     display: flex;
     align-items: baseline;
@@ -559,7 +559,7 @@
 [data-theme="dark"] .fa-sidebar .fa-tab {
     background: transparent;
     border-color: transparent;
-    color: #c9d1d9;
+    color: var(--text);
 }
 [data-theme="dark"] .fa-sidebar .fa-tab:hover {
     background: rgba(88, 101, 242, .16);
@@ -571,15 +571,15 @@
     font-weight: 700;
 }
 [data-theme="dark"] .fa-sidebar .fa-tab.active i { color: #fff; }
-[data-theme="dark"] .fa-sidebar .fa-tab.cg-stub { color: #6e7681; }
+[data-theme="dark"] .fa-sidebar .fa-tab.cg-stub { color: var(--muted); }
 
 [data-theme="dark"] .fa-sidebar-label {
-    color: #8b949e;
+    color: var(--muted);
     letter-spacing: .6px;
 }
 [data-theme="dark"] .fa-tab-badge {
-    background: #30363d !important;
-    color: #c9d1d9;
+    background: var(--border) !important;
+    color: var(--text);
 }
 [data-theme="dark"] .fa-sidebar .fa-tab.active .fa-tab-badge {
     background: rgba(255,255,255,.22) !important;
@@ -587,71 +587,71 @@
 }
 
 /* ── Üst sekmeler (Generator / Dönüştürücü) ──────────────────────────────── */
-[data-theme="dark"] #config-generator-root .cg-top-tab { color: #8b949e; }
-[data-theme="dark"] #config-generator-root .cg-top-tab:hover { color: #c9d1d9; }
+[data-theme="dark"] #config-generator-root .cg-top-tab { color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-top-tab:hover { color: var(--text); }
 [data-theme="dark"] #config-generator-root .cg-top-tab.active { color: #818CF8; }
 
 /* ── Form etiketleri ve alan ipuçları ────────────────────────────────────── */
 [data-theme="dark"] #config-generator-root .col-form-label,
 [data-theme="dark"] #config-generator-root label:not(.form-check-label) {
-    color: #e6edf3;
+    color: var(--text);
 }
-[data-theme="dark"] #config-generator-root .cg-field-hint { color: #8b949e; }
-[data-theme="dark"] #config-generator-root .cg-opt { color: #8b949e; }
-[data-theme="dark"] #config-generator-root .form-check-label { color: #c9d1d9; }
+[data-theme="dark"] #config-generator-root .cg-field-hint { color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-opt { color: var(--muted); }
+[data-theme="dark"] #config-generator-root .form-check-label { color: var(--text); }
 
 /* ── Girdi alanları ──────────────────────────────────────────────────────── */
 [data-theme="dark"] #config-generator-root .form-control,
 [data-theme="dark"] #config-generator-root .form-select,
 [data-theme="dark"] #config-generator-root textarea {
-    background: #0d1117;
-    border-color: #30363d;
-    color: #e6edf3;
+    background: var(--bg);
+    border-color: var(--border);
+    color: var(--text);
 }
 [data-theme="dark"] #config-generator-root .form-control:focus,
 [data-theme="dark"] #config-generator-root .form-select:focus,
 [data-theme="dark"] #config-generator-root textarea:focus {
     border-color: #58a6ff;
     box-shadow: 0 0 0 3px rgba(88, 166, 255, .18);
-    background: #0d1117;
-    color: #e6edf3;
+    background: var(--bg);
+    color: var(--text);
 }
 [data-theme="dark"] #config-generator-root .form-control::placeholder,
-[data-theme="dark"] #config-generator-root textarea::placeholder { color: #6e7681; }
+[data-theme="dark"] #config-generator-root textarea::placeholder { color: var(--muted); }
 
 /* ── Bölüm başlıkları, konu kutusu, arama ────────────────────────────────── */
-[data-theme="dark"] #config-generator-root .cg-section-title { color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-section { border-color: #30363d; }
+[data-theme="dark"] #config-generator-root .cg-section-title { color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-section { border-color: var(--border); }
 
 [data-theme="dark"] #config-generator-root .cg-topic-box {
-    background: #161b22;
-    border-color: #30363d;
+    background: var(--surface);
+    border-color: var(--border);
 }
-[data-theme="dark"] #config-generator-root .cg-topic-box h6 { color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-topic-box h6 { color: var(--text); }
 [data-theme="dark"] #config-generator-root .cg-topic-box p  { color: #b1bac4; }
 [data-theme="dark"] #config-generator-root .cg-topic-box code {
-    background: #0d1117;
+    background: var(--code-bg);
     color: #79c0ff;
-    border: 1px solid #30363d;
+    border: 1px solid var(--border);
 }
 
 [data-theme="dark"] #config-generator-root .cg-type-search-box input {
-    background: #0d1117;
-    border-color: #30363d;
-    color: #e6edf3;
+    background: var(--bg);
+    border-color: var(--border);
+    color: var(--text);
 }
-[data-theme="dark"] #config-generator-root .cg-type-search-box i { color: #6e7681; }
+[data-theme="dark"] #config-generator-root .cg-type-search-box i { color: var(--muted); }
 
 /* ── Karşılama ekranı ────────────────────────────────────────────────────── */
-[data-theme="dark"] #config-generator-root .cg-welcome h5 { color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-welcome p  { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-welcome h5 { color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-welcome p  { color: var(--muted); }
 [data-theme="dark"] #config-generator-root .cg-welcome-ico { color: #484f58; }
 
 /* ── Tip kartları ────────────────────────────────────────────────────────── */
 [data-theme="dark"] #config-generator-root .gen-type-card-enhanced {
-    background: #161b22;
-    border-color: #30363d;
-    color: #c9d1d9;
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text);
 }
 [data-theme="dark"] #config-generator-root .gen-type-card-enhanced:hover {
     border-color: #58a6ff;
@@ -662,7 +662,7 @@
     background: rgba(88,101,242,.14);
     color: #fff;
 }
-[data-theme="dark"] #config-generator-root .gen-type-card-enhanced .card-desc { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .gen-type-card-enhanced .card-desc { color: var(--muted); }
 
 /* ── Bilgi / uyarı kutuları ──────────────────────────────────────────────── */
 [data-theme="dark"] #config-generator-root .cg-info-callout {
@@ -671,8 +671,8 @@
 [data-theme="dark"] #config-generator-root .cg-warn-box {
     background: #2d2211; border-color: #5c4415; color: #e3b341;
 }
-[data-theme="dark"] #config-generator-root .cg-page-hd h2 { color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-subtitle { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-page-hd h2 { color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-subtitle { color: var(--muted); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    YENİ DÜZEN: ana sayfa ızgarası + tam genişlik çalışma sayfası
@@ -703,7 +703,7 @@
     transition: background .15s, color .15s;
 }
 #config-generator-root .cg-appbar-tab:hover { background: var(--bg-tertiary, #f3f4f6); color: var(--text-primary, #1f2937); }
-#config-generator-root .cg-appbar-tab.active { background: var(--primary-color, #4F46E5); color: #fff; }
+#config-generator-root .cg-appbar-tab.active { background: var(--primary-color, #4F46E5); color: var(--on-primary); }
 
 /* ── Ana sayfa: hero + arama + çipler ────────────────────────────────────── */
 #config-generator-root .cg-home-hero { text-align: center; padding: 18px 0 26px; }
@@ -757,13 +757,13 @@
 }
 #config-generator-root .cg-chip:hover { border-color: var(--primary-color, #4F46E5); color: var(--text-primary, #1f2937); }
 #config-generator-root .cg-chip.active {
-    background: var(--primary-color, #4F46E5); border-color: var(--primary-color, #4F46E5); color: #fff;
+    background: var(--primary-color, #4F46E5); border-color: var(--primary-color, #4F46E5); color: var(--on-primary);
 }
 #config-generator-root .cg-chip-n {
     font-size: .7rem; opacity: .75; background: rgba(0,0,0,.07);
     padding: 1px 6px; border-radius: 999px;
 }
-#config-generator-root .cg-chip.active .cg-chip-n { background: rgba(255,255,255,.24); }
+#config-generator-root .cg-chip.active .cg-chip-n { background: rgba(0,0,0,.2); opacity: 1; }
 
 /* ── Vendor grupları + araç kartları ─────────────────────────────────────── */
 #config-generator-root .cg-vgroup { margin-bottom: 30px; }
@@ -856,34 +856,34 @@
 #config-generator-root .cg-split.is-single .cg-split-out { display: none; }
 
 /* ── Karanlık tema ───────────────────────────────────────────────────────── */
-[data-theme="dark"] #config-generator-root .cg-appbar { border-bottom-color: #30363d; }
-[data-theme="dark"] #config-generator-root .cg-appbar-brand { color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-appbar-tab { color: #8b949e; }
-[data-theme="dark"] #config-generator-root .cg-appbar-tab:hover { background: #21262d; color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-home-hero h1 { color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-home-hero p { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-appbar { border-bottom-color: var(--border); }
+[data-theme="dark"] #config-generator-root .cg-appbar-brand { color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-appbar-tab { color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-appbar-tab:hover { background: var(--surface-2); color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-home-hero h1 { color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-home-hero p { color: var(--muted); }
 [data-theme="dark"] #config-generator-root .cg-home-search input {
-    background: #0d1117; border-color: #30363d; color: #e6edf3;
+    background: var(--bg); border-color: var(--border); color: var(--text);
 }
-[data-theme="dark"] #config-generator-root .cg-home-search kbd { background: #21262d; border-color: #30363d; color: #6e7681; }
-[data-theme="dark"] #config-generator-root .cg-chip { background: #161b22; border-color: #30363d; color: #8b949e; }
-[data-theme="dark"] #config-generator-root .cg-chip:hover { color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-home-search kbd { background: var(--surface-2); border-color: var(--border); color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-chip { background: var(--surface); border-color: var(--border); color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-chip:hover { color: var(--text); }
 [data-theme="dark"] #config-generator-root .cg-chip-n { background: rgba(255,255,255,.08); }
-[data-theme="dark"] #config-generator-root .cg-chip.active { background: var(--primary-color, #4F46E5); border-color: var(--primary-color, #4F46E5); color: #fff; }
-[data-theme="dark"] #config-generator-root .cg-chip.active .cg-chip-n { background: rgba(255,255,255,.24); }
-[data-theme="dark"] #config-generator-root .cg-vgroup-hd h3 { color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-vgroup-n { background: #21262d; color: #6e7681; }
-[data-theme="dark"] #config-generator-root .cg-card { background: #161b22; border-color: #30363d; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-chip.active { background: var(--primary-color, #4F46E5); border-color: var(--primary-color, #4F46E5); color: var(--on-primary); }
+[data-theme="dark"] #config-generator-root .cg-chip.active .cg-chip-n { background: rgba(0,0,0,.2); }
+[data-theme="dark"] #config-generator-root .cg-vgroup-hd h3 { color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-vgroup-n { background: var(--surface-2); color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-card { background: var(--surface); border-color: var(--border); color: var(--text); }
 [data-theme="dark"] #config-generator-root .cg-card:hover:not(:disabled) { border-color: #5865F2; box-shadow: 0 6px 18px -6px rgba(88,101,242,.4); }
 [data-theme="dark"] #config-generator-root .cg-card > i { background: rgba(88,101,242,.16); color: #818CF8; }
-[data-theme="dark"] #config-generator-root .cg-work-hd { border-bottom-color: #30363d; }
-[data-theme="dark"] #config-generator-root .cg-back { border-color: #30363d; color: #8b949e; }
-[data-theme="dark"] #config-generator-root .cg-back:hover { color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-crumb { color: #8b949e; }
-[data-theme="dark"] #config-generator-root .cg-crumb strong { color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-work-jump select { background: #0d1117; border-color: #30363d; color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-empty { color: #8b949e; }
-[data-theme="dark"] #config-generator-root .cg-btn-ghost { border-color: #30363d; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-work-hd { border-bottom-color: var(--border); }
+[data-theme="dark"] #config-generator-root .cg-back { border-color: var(--border); color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-back:hover { color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-crumb { color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-crumb strong { color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-work-jump select { background: var(--bg); border-color: var(--border); color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-empty { color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-btn-ghost { border-color: var(--border); color: var(--text); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    MARKA İŞARETLERİ + SADELEŞTİRME (Tabler üstü)
@@ -901,9 +901,9 @@
 }
 .app-nav-tab:hover { background: var(--bg-tertiary, #f3f4f6); color: var(--text-primary, #1f2937); }
 .app-nav-tab.active { background: var(--bg-tertiary, #f3f4f6); color: var(--primary-color, #4F46E5); }
-[data-theme="dark"] .app-nav-tab { color: #8b949e; }
+[data-theme="dark"] .app-nav-tab { color: var(--muted); }
 [data-theme="dark"] .app-nav-tab:hover,
-[data-theme="dark"] .app-nav-tab.active { background: #21262d; color: #e6edf3; }
+[data-theme="dark"] .app-nav-tab.active { background: var(--surface-2); color: var(--text); }
 .app-brand { text-decoration: none; color: inherit; }
 @media (max-width: 960px) { .app-nav { margin-left: auto; } .app-nav-l { display: none; } .app-nav-tab { padding: 8px 10px; } }
 
@@ -927,8 +927,8 @@
     color: var(--text-tertiary, #9ca3af);
 }
 #config-generator-root .cg-meta strong { color: var(--text-secondary, #6b7280); font-weight: 700; }
-[data-theme="dark"] #config-generator-root .cg-meta { color: #6e7681; }
-[data-theme="dark"] #config-generator-root .cg-meta strong { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-meta { color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-meta strong { color: var(--muted); }
 
 /* ── Çipler: logo + ad + sayı, daha sıkı ─────────────────────────────────── */
 #config-generator-root .cg-chips {
@@ -938,7 +938,7 @@
 #config-generator-root .cg-chip { gap: 8px; padding: 5px 12px 5px 6px; }
 #config-generator-root .cg-chip .cg-mark { width: 22px; height: 22px; border-radius: 6px; }
 #config-generator-root .cg-chip-l { line-height: 1; }
-#config-generator-root .cg-chip.active .cg-mark { background: rgba(255,255,255,.2); color: #fff; }
+#config-generator-root .cg-chip.active .cg-mark { background: rgba(255,255,255,.2); color: inherit; }
 
 /* ── Grup başlığı ────────────────────────────────────────────────────────── */
 #config-generator-root .cg-vgroup-hd { gap: 11px; margin-bottom: 13px; }
@@ -952,7 +952,7 @@
     background: transparent; color: var(--text-tertiary, #9ca3af);
 }
 #config-generator-root .cg-card:hover:not(:disabled) > i { color: var(--primary-color, #4F46E5); }
-[data-theme="dark"] #config-generator-root .cg-card > i { background: transparent; color: #6e7681; }
+[data-theme="dark"] #config-generator-root .cg-card > i { background: transparent; color: var(--muted); }
 [data-theme="dark"] #config-generator-root .cg-card:hover:not(:disabled) > i { color: #818CF8; }
 
 /* ── Breadcrumb ──────────────────────────────────────────────────────────── */
@@ -988,7 +988,7 @@
     color: #b1bac4;
 }
 [data-theme="dark"] #config-generator-root .cg-why b { color: #a5b4fc; }
-[data-theme="dark"] #config-generator-root .cg-why code { background: #0d1117; color: #79c0ff; }
+[data-theme="dark"] #config-generator-root .cg-why code { background: var(--code-bg); color: #79c0ff; }
 
 /* "Geçerli değer" satırı — alanın kabul ettiği aralık/biçim (CG_RULES) */
 #config-generator-root .cg-rule {
@@ -1023,7 +1023,7 @@
     color: var(--text-tertiary, #6b7280);
 }
 #config-generator-root .cg-catgroup-hd i { color: var(--primary-color, #4F46E5); font-size: .75rem; }
-[data-theme="dark"] #config-generator-root .cg-catgroup-hd { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-catgroup-hd { color: var(--muted); }
 [data-theme="dark"] #config-generator-root .cg-catgroup-hd i { color: #a5b4fc; }
 
 /* ── Komutlar (#/cli) ─────────────────────────────────────────────────── */
@@ -1055,7 +1055,7 @@
 #config-generator-root .cg-cli-sym { font-size: .85rem; margin: 8px 0 0; }
 #config-generator-root .cg-cli-links li { font-size: .85rem; margin: 4px 0; }
 @media (max-width: 640px) { #config-generator-root .cg-cli-row { grid-template-columns: 12px minmax(0, 1fr); } #config-generator-root .cg-cli-row .cg-cli-desc { grid-column: 2; } }
-[data-theme="dark"] #config-generator-root .cg-cli code[data-code] { background: #0d1117; color: #79c0ff; }
+[data-theme="dark"] #config-generator-root .cg-cli code[data-code] { background: var(--code-bg); color: #79c0ff; }
 [data-theme="dark"] #config-generator-root .cg-cli code.is-copied { background: #064e3b !important; }
 
 /* ─── Sorun Giderme Sihirbazı (#/troubleshoot) ─────────────────────────── */
@@ -1113,17 +1113,17 @@
 #config-generator-root .cg-ts-fix ul { margin: 6px 0 0; padding-left: 18px; }
 #config-generator-root .cg-ts-fix li { margin: 4px 0; line-height: 1.5; }
 #config-generator-root .cg-ts-fix li code { display: block; margin-top: 3px; white-space: pre-wrap; cursor: copy; }
-[data-theme="dark"] #config-generator-root .cg-ts-topic, [data-theme="dark"] #config-generator-root .cg-ts-scen, [data-theme="dark"] #config-generator-root .cg-ts-btn { background: #161b22; border-color: #30363d; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-ts-topic, [data-theme="dark"] #config-generator-root .cg-ts-scen, [data-theme="dark"] #config-generator-root .cg-ts-btn { background: var(--surface); border-color: var(--border); color: var(--text); }
 [data-theme="dark"] #config-generator-root .cg-ts-btn.ok { background: #059669; border-color: #059669; }
 [data-theme="dark"] #config-generator-root .cg-ts-btn.bad { background: #dc2626; border-color: #dc2626; }
-[data-theme="dark"] #config-generator-root .cg-ts code { background: #0d1117; color: #79c0ff; }
+[data-theme="dark"] #config-generator-root .cg-ts code { background: var(--code-bg); color: #79c0ff; }
 [data-theme="dark"] #config-generator-root .cg-ts code.is-copied { background: #064e3b !important; }
-[data-theme="dark"] #config-generator-root .cg-ts-prog { background: #21262d; }
-[data-theme="dark"] #config-generator-root .cg-ts-step, [data-theme="dark"] #config-generator-root .cg-ts-step.is-cur .cg-ts-step-b { border-color: #30363d; }
+[data-theme="dark"] #config-generator-root .cg-ts-prog { background: var(--surface-2); }
+[data-theme="dark"] #config-generator-root .cg-ts-step, [data-theme="dark"] #config-generator-root .cg-ts-step.is-cur .cg-ts-step-b { border-color: var(--border); }
 [data-theme="dark"] #config-generator-root .cg-ts-step.is-cur .cg-ts-step-b { border-color: var(--primary-color, #5865f2); }
 [data-theme="dark"] #config-generator-root .cg-ts-result.is-bad { background: #2d1215; border-color: #7f1d1d; }
 [data-theme="dark"] #config-generator-root .cg-ts-result.is-ok { background: #0f2a1f; border-color: #065f46; }
-[data-theme="dark"] #config-generator-root .cg-ts-look, [data-theme="dark"] #config-generator-root .cg-ts-scen-s { color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-ts-look, [data-theme="dark"] #config-generator-root .cg-ts-scen-s { color: var(--muted); }
 
 /* ─── CLI Laboratuvarı (#/lab) ─────────────────────────────────────────── */
 #config-generator-root .cg-lab-stats { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; font-size: .86rem; color: var(--text-secondary, #6b7280); margin: 4px 0 10px; }
@@ -1132,7 +1132,7 @@
 #config-generator-root .cg-lab-stats-act label { cursor: pointer; }
 #config-generator-root .cg-lab-simnote { font-size: .8rem; color: var(--text-secondary, #6b7280); background: var(--bg-tertiary, #f3f4f6); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
 #config-generator-root .cg-lab-level h3 { font-size: .95rem; font-weight: 800; margin: 22px 0 10px; display: flex; gap: 10px; align-items: center; }
-#config-generator-root .cg-lab-lvn { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border-radius: 6px; background: var(--primary-color, #4F46E5); color: #fff; }
+#config-generator-root .cg-lab-lvn { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border-radius: 6px; background: var(--primary-color, #4F46E5); color: var(--on-primary); }
 #config-generator-root .cg-lab-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 #config-generator-root .cg-lab-card { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--border-color, #e5e7eb); border-radius: var(--cg-r, 10px); background: var(--bg-primary, #fff); color: var(--text-primary, #1f2937); text-decoration: none; transition: border-color .15s, transform .15s; }
 #config-generator-root .cg-lab-card:hover { border-color: var(--primary-color, #4F46E5); transform: translateY(-1px); }
@@ -1144,7 +1144,7 @@
 #config-generator-root .cg-lab-badge.run { background: #e0e7ff; color: #4338ca; }
 #config-generator-root .cg-lab-card-t { font-weight: 700; font-size: .95rem; }
 #config-generator-root .cg-lab-card-m, #config-generator-root .cg-lab-card-pre { font-size: .76rem; color: var(--text-secondary, #6b7280); }
-#config-generator-root .cg-lab-card-pre { color: #b45309; }
+#config-generator-root .cg-lab-card-pre { color: var(--warn); }
 #config-generator-root .cg-lab-grid { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 10px; }
 #config-generator-root .cg-lab-side { font-size: .86rem; line-height: 1.5; }
 #config-generator-root .cg-lab-title { font-size: 1.15rem; font-weight: 800; margin: 0 0 6px; }
@@ -1158,7 +1158,7 @@
 #config-generator-root .cg-lab-task { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--border-color, #e5e7eb); }
 #config-generator-root .cg-lab-task-i { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: .72rem; font-weight: 800; background: var(--bg-tertiary, #f3f4f6); color: var(--text-secondary, #6b7280); }
 #config-generator-root .cg-lab-task.is-ok .cg-lab-task-i { background: #10b981; color: #fff; }
-#config-generator-root .cg-lab-task.is-cur .cg-lab-task-i, #config-generator-root .cg-lab-task.is-open .cg-lab-task-i { background: var(--primary-color, #4F46E5); color: #fff; }
+#config-generator-root .cg-lab-task.is-cur .cg-lab-task-i, #config-generator-root .cg-lab-task.is-open .cg-lab-task-i { background: var(--primary-color, #4F46E5); color: var(--on-primary); }
 #config-generator-root .cg-lab-task.is-lock .cg-lab-task-t { color: var(--text-secondary, #6b7280); }
 #config-generator-root .cg-lab-task.is-lock .cg-lab-task-i { opacity: .7; }
 #config-generator-root .cg-lab-task.is-ok .cg-lab-task-t { color: var(--text-secondary, #6b7280); }
@@ -1206,16 +1206,16 @@
   #config-generator-root .cg-lab-termwrap { position: static; order: -1; }
   #config-generator-root .cg-term { height: 52vh; font-size: .8rem; }
 }
-[data-theme="dark"] #config-generator-root .cg-lab-card { background: #161b22; border-color: #30363d; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-lab-card { background: var(--surface); border-color: var(--border); color: var(--text); }
 [data-theme="dark"] #config-generator-root .cg-lab-card.is-done { border-color: #065f46; }
-[data-theme="dark"] #config-generator-root .cg-lab-badge { background: #21262d; color: #8b949e; }
+[data-theme="dark"] #config-generator-root .cg-lab-badge { background: var(--surface-2); color: var(--muted); }
 [data-theme="dark"] #config-generator-root .cg-lab-badge.ok { background: #3b2f0b; color: #fbbf24; }
 [data-theme="dark"] #config-generator-root .cg-lab-badge.run { background: #1e1b4b; color: #a5b4fc; }
-[data-theme="dark"] #config-generator-root .cg-lab-simnote, [data-theme="dark"] #config-generator-root .cg-lab-side code, [data-theme="dark"] #config-generator-root .cg-lab-sol pre { background: #161b22; color: #c9d1d9; }
-[data-theme="dark"] #config-generator-root .cg-lab-task { border-color: #30363d; }
-[data-theme="dark"] #config-generator-root .cg-lab-task-i { background: #21262d; color: #8b949e; }
-[data-theme="dark"] #config-generator-root .cg-lab-story, [data-theme="dark"] #config-generator-root .cg-lab-why div { color: #8b949e; }
-[data-theme="dark"] #config-generator-root .cg-lab-hint { background: #2a2210; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-lab-simnote, [data-theme="dark"] #config-generator-root .cg-lab-side code, [data-theme="dark"] #config-generator-root .cg-lab-sol pre { background: var(--surface); color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-lab-task { border-color: var(--border); }
+[data-theme="dark"] #config-generator-root .cg-lab-task-i { background: var(--surface-2); color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-lab-story, [data-theme="dark"] #config-generator-root .cg-lab-why div { color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-lab-hint { background: #2a2210; color: var(--text); }
 [data-theme="dark"] #config-generator-root .cg-lab-hint.lv3 { background: #1e1b4b; }
 [data-theme="dark"] #config-generator-root .cg-lab-finish { background: #0f2a1f; border-color: #065f46; }
 [data-theme="dark"] #config-generator-root .cg-lab-fb { color: #f87171; }
@@ -1251,7 +1251,7 @@
 #config-generator-root .cg-lab-choice.ok { border-color: #10b981; background: #ecfdf5; font-weight: 600; }
 #config-generator-root .cg-lab-choice.bad { border-color: #ef4444; background: #fef2f2; }
 #config-generator-root .cg-lab-choice[disabled] { cursor: default; opacity: .85; }
-[data-theme="dark"] #config-generator-root .cg-lab-choice { background: #161b22; border-color: #30363d; color: #e6edf3; }
+[data-theme="dark"] #config-generator-root .cg-lab-choice { background: var(--surface); border-color: var(--border); color: var(--text); }
 [data-theme="dark"] #config-generator-root .cg-lab-choice.ok { background: #0f2a1f; border-color: #065f46; }
 [data-theme="dark"] #config-generator-root .cg-lab-choice.bad { background: #2d1215; border-color: #7f1d1d; }
 @media (max-width: 900px) { #config-generator-root .cg-lab-choice { min-height: 44px; } }
@@ -1279,11 +1279,11 @@
 #config-generator-root .cg-lab-lesson p, #config-generator-root .cg-lab-lesson li { font-size: .84rem; line-height: 1.55; color: var(--text-secondary, #374151); }
 #config-generator-root .cg-lab-lesson ul { padding-left: 18px; margin: 4px 0; }
 #config-generator-root .cg-lab-lesson pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; background: #0d1117; color: #d1d9e0; padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 6px 0; }
-[data-theme="dark"] #config-generator-root .cg-lab-pcard { background: #1b1d3a; color: #e6edf3; }
-[data-theme="dark"] #config-generator-root .cg-lab-pnum { background: #0d1117; }
-[data-theme="dark"] #config-generator-root .cg-lab-lesson { background: #161b22; border-color: #30363d; }
-[data-theme="dark"] #config-generator-root .cg-lab-lesson p, [data-theme="dark"] #config-generator-root .cg-lab-lesson li, [data-theme="dark"] #config-generator-root .cg-lab-pbody p { color: #8b949e; }
-[data-theme="dark"] #config-generator-root .cg-lab-path::before { background: #30363d; }
+[data-theme="dark"] #config-generator-root .cg-lab-pcard { background: var(--primary-soft); color: var(--text); }
+[data-theme="dark"] #config-generator-root .cg-lab-pnum { background: var(--code-bg); }
+[data-theme="dark"] #config-generator-root .cg-lab-lesson { background: var(--surface); border-color: var(--border); }
+[data-theme="dark"] #config-generator-root .cg-lab-lesson p, [data-theme="dark"] #config-generator-root .cg-lab-lesson li, [data-theme="dark"] #config-generator-root .cg-lab-pbody p { color: var(--muted); }
+[data-theme="dark"] #config-generator-root .cg-lab-path::before { background: var(--border); }
 
 /* ═══ iRule Arenası · Trafik Masası (CgArena.js) ═══ */
 #config-generator-root .cg-ar { max-width: 1320px; margin: 0 auto; padding: 16px; }
@@ -1300,7 +1300,7 @@
 #config-generator-root .cg-ar-task { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 10px; text-decoration: none; color: var(--text-primary, #111827); transition: border-color .15s, transform .15s; }
 #config-generator-root .cg-ar-task:hover { border-color: var(--primary-color, #4F46E5); transform: translateY(-1px); }
 #config-generator-root .cg-ar-task small { display: block; color: var(--text-secondary, #6b7280); }
-#config-generator-root .cg-ar-tn { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-color, #4F46E5); color: #fff; font-weight: 700; flex: none; }
+#config-generator-root .cg-ar-tn { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-color, #4F46E5); color: var(--on-primary); font-weight: 700; flex: none; }
 #config-generator-root .cg-ar-task.is-done .cg-ar-tn { background: #16a34a; }
 #config-generator-root .cg-ar-ts { margin-left: auto; color: #f59e0b; white-space: nowrap; }
 
@@ -1358,7 +1358,7 @@
 #config-generator-root .cg-ar-node { display: grid; grid-template-columns: 22px 1fr; column-gap: 6px; }
 #config-generator-root .cg-ar-node i { grid-row: span 2; align-self: center; color: #93c5fd; font-size: 1rem; }
 #config-generator-root .cg-ar-node b { color: #e5e7eb; font-weight: 600; }
-#config-generator-root .cg-ar-node small { color: #6b7280; }
+#config-generator-root .cg-ar-node small { color: #9ca3af; }
 #config-generator-root .cg-ar-node.is-act { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(96, 165, 250, .25); }
 #config-generator-root .cg-ar-bigip { border: 1px solid #4F46E5; border-radius: 12px; background: #131a2e; padding: 10px; box-shadow: 0 0 24px rgba(79, 70, 229, .25); }
 #config-generator-root .cg-ar-bh { font-weight: 700; color: #e0e7ff; font-size: .9rem; margin-bottom: 8px; }
@@ -1376,11 +1376,11 @@
 #config-generator-root .cg-ar-verdict.is-resp { background: rgba(245, 158, 11, .18); color: #fcd34d; }
 #config-generator-root .cg-ar-pool { border: 1px dashed #263041; border-radius: 10px; padding: 6px; display: grid; gap: 6px; }
 #config-generator-root .cg-ar-ph { font: .72rem ui-monospace, Menlo, monospace; color: #a5b4fc; }
-#config-generator-root .cg-ar-ph small { color: #6b7280; }
+#config-generator-root .cg-ar-ph small { color: #9ca3af; }
 #config-generator-root .cg-ar-mem { display: flex; align-items: center; gap: 6px; font-family: ui-monospace, Menlo, monospace; color: #d1d5db; }
 #config-generator-root .cg-ar-mem i { color: #34d399; }
 #config-generator-root .cg-ar-mem.is-act { border-color: #34d399; box-shadow: 0 0 0 3px rgba(52, 211, 153, .25); }
-#config-generator-root .cg-ar-hits { margin-left: auto; font-size: .68rem; color: #6b7280; }
+#config-generator-root .cg-ar-hits { margin-left: auto; font-size: .68rem; color: #9ca3af; }
 #config-generator-root .cg-ar-pkt { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%; background: #60a5fa; box-shadow: 0 0 12px #60a5fa; pointer-events: none; z-index: 2; }
 #config-generator-root .cg-ar-pkt.is-back { background: #34d399; box-shadow: 0 0 12px #34d399; }
 #config-generator-root .cg-ar-pkt.is-resp { background: #fbbf24; box-shadow: 0 0 12px #fbbf24; }
@@ -1568,3 +1568,15 @@
 #config-generator-root .cg-waf-eh > span, #config-generator-root .cg-waf-e > div, #config-generator-root .cg-waf-v > div { min-width: 0; overflow-wrap: anywhere; }
 #config-generator-root .cg-waf-e code { white-space: normal; overflow-wrap: anywhere; }
 #config-generator-root .cg-waf-e { grid-template-columns: minmax(0, 1fr); } #config-generator-root .cg-waf-eh { min-width: 0; flex-wrap: wrap; }
+
+/* Denetim S3 görsel: kontrast ve tokenlar */
+#config-generator-root .cg-vgroup-n, #config-generator-root .cg-home-search kbd { color: var(--muted); background: var(--surface-2); }
+#config-generator-root .cg-ar-go, #config-generator-root .cg-ts-btn.ok { background: #15803d; border-color: #15803d; color: #fff; }
+#config-generator-root .cg-ar-go:hover { background: #166534; }
+#config-generator-root .cg-ts-btn.bad, [data-theme="dark"] #config-generator-root .cg-ts-btn.bad, #config-generator-root .cg-term-bar .cg-ts-btn.bad { background: #b91c1c; border-color: #b91c1c; color: #fff; }
+#config-generator-root .cg-nb .cg-ar-lnk, #config-generator-root .cg-mo .cg-ar-lnk:not(.cg-ar-ed *) { color: var(--primary); }
+#config-generator-root input:not([type=checkbox]):not([type=radio]):not([type=range]), #config-generator-root select, #config-generator-root textarea:not(.cg-ar-edbox textarea) { border-color: var(--border-strong); }
+
+#config-generator-root p kbd, #config-generator-root li kbd { color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; box-shadow: none; }
+#config-generator-root .cg-mark-txt, .cg-mark-txt { color: color-mix(in srgb, var(--bc, #6B7280) 65%, #000000); }
+[data-theme="dark"] #config-generator-root .cg-mark, [data-theme="dark"] .cg-mark { color: color-mix(in srgb, var(--bc, #6B7280) 45%, #FFFFFF); background: color-mix(in srgb, var(--bc, #6B7280) 22%, transparent); }
