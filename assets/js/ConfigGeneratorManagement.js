@@ -1592,6 +1592,8 @@ const CG_REGISTRY = {
             { id: 'snatpool',    cat: 'adc', label: 'SNAT Pool',              gen: () => typeof F5LTM !== 'undefined' && F5LTM.snatpool },
             { id: 'httpprofile', cat: 'adc', label: 'HTTP Profile',           gen: () => typeof F5LTM !== 'undefined' && F5LTM.httpprofile },
             { id: 'httpaudit', cat: 'adc', label: 'HTTP Profil Denetle',    gen: () => typeof F5LTM !== 'undefined' && F5LTM.httpaudit },
+            { id: 'wafjson', cat: 'adc', label: 'WAF Policy (JSON)',      gen: () => typeof F5LTM !== 'undefined' && F5LTM.wafjson },
+            { id: 'wafexception', cat: 'adc', label: 'WAF İstisnası',      gen: () => typeof F5LTM !== 'undefined' && F5LTM.wafexception },
             { id: 'tcpprofile',  cat: 'adc', label: 'TCP Profile',            gen: () => typeof F5LTM !== 'undefined' && F5LTM.tcpprofile },
             { id: 'routedomain', cat: 'routing', label: 'Route Domain (VRF)',     gen: () => typeof F5LTM !== 'undefined' && F5LTM.routedomain },
             { id: 'vlanself',    cat: 'iface', label: 'VLAN + Self IP',         gen: () => typeof F5LTM !== 'undefined' && F5LTM.vlanself },

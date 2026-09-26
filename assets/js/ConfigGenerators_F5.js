@@ -519,6 +519,105 @@ F5LTM.asm = {
     }
 };
 
+// ── F5 BIG-IP: WAF Policy (declarative JSON) ─────────────────────────────────
+// Alan adları: techdocs "Declarative Policy Entity Examples" (15.1) ve clouddocs declarative v17.1; sunucu teknolojisi adları clouddocs server_technology listesi.
+const CG_WAF_TECH = ['Apache/NCSA HTTP Server', 'Apache Tomcat', 'Nginx', 'IIS', 'Microsoft Windows', 'Unix/Linux', 'PHP', 'ASP.NET', 'ASP', 'Java Servlets/JSP', 'Node.js', 'Express.js', 'Python', 'Django', 'Ruby', 'Laravel', 'Spring Boot', 'MySQL', 'PostgreSQL', 'Microsoft SQL Server', 'Oracle', 'MongoDB', 'Redis', 'Elasticsearch', 'WordPress', 'Joomla', 'SharePoint', 'jQuery', 'React', 'AngularJS', 'Vue.js', 'GraphQL', 'XML', 'WebDAV', 'Apache Struts', 'JBoss', 'Jetty', 'CGI'];
+const cgWafList = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+F5LTM.wafjson = {
+    label: 'WAF Policy (Declarative JSON)',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-file-code', title: 'WAF Policy (Declarative JSON)', desc: 'Advanced WAF / ASM politikasını declarative JSON olarak üretir: şablon, dil, mod, sunucu teknolojileri, metotlar, yasak dosya türleri ve parametre istisnaları; yükleme, yayın ve VS\'ye bağlama komutlarıyla.', badge: { text: 'AWAF', cls: 'info' } },
+            sections: [
+                { title: 'Politika', icon: 'fas fa-shield-alt', fields: [
+                    { name: 'pol_name', label: 'Politika adı', type: 'text', required: true, placeholder: 'waf_magaza', hint: 'Harf, rakam, _ ve -', why: "JSON'daki ad, BIG-IP'deki politika adıdır; aynı adla yükleme mevcut politikanın üzerine yazar (overwrite)." },
+                    { name: 'template', label: 'Şablon', type: 'select', options: [{ value: 'POLICY_TEMPLATE_RAPID_DEPLOYMENT', label: 'Rapid Deployment' }, { value: 'POLICY_TEMPLATE_FUNDAMENTAL', label: 'Fundamental' }, { value: 'POLICY_TEMPLATE_COMPREHENSIVE', label: 'Comprehensive' }], why: "Declarative politika şablonun üzerine yalnız farkları yazar; JSON'da olmayan her ayar şablon varsayılanıdır." },
+                    { name: 'lang', label: 'Uygulama dili (applicationLanguage)', type: 'select', options: [{ value: 'utf-8', label: 'UTF-8' }, { value: 'windows-1254', label: 'Windows-1254 (Türkçe)' }, { value: 'iso-8859-9', label: 'ISO-8859-9 (Türkçe)' }], why: 'Politika oluşturulduktan sonra değiştirilemez; yanlış kodlama Türkçe girdilerde meta karakter yanlış pozitifleri üretir.' },
+                    { name: 'mode', label: 'enforcementMode', type: 'select', options: [{ value: 'transparent', label: 'transparent (önce öğren)' }, { value: 'blocking', label: 'blocking' }], why: 'Yeni politikada önce transparent + staging ile yanlış pozitifleri ayıklamak, sonra blocking\'e geçmek önerilir.' },
+                    { name: 'staging', label: 'İmza staging (signatureStaging)', type: 'select', options: [{ value: 'true', label: 'Açık (yeni imzalar önce yalnız loglanır)' }, { value: 'false', label: 'Kapalı' }], why: 'Staging\'deki imza ihlal üretir ama engellemez; enforcement readiness süresi (varsayılan 7 gün) sonunda enforce edilir.' }
+                ] },
+                { title: 'Uygulamaya göre', icon: 'fas fa-sliders-h', fields: [
+                    { name: 'tech', label: 'Sunucu teknolojileri (virgülle)', type: 'text', optional: true, placeholder: 'Nginx, PHP, MySQL, Unix/Linux', hint: 'Yalnız gerçekten kullanılan teknolojiler', why: 'Seçilen teknolojilere ait imza setleri eklenir; kullanılmayan teknolojileri eklemek gereksiz yanlış pozitif ve yük demektir. Adlar F5 listesiyle birebir eşleşmeli.' },
+                    { name: 'methods', label: 'Ek izinli metotlar (virgülle)', type: 'text', optional: true, placeholder: 'PUT, DELETE', hint: 'Varsayılan GET, HEAD, POST\'a eklenir', why: 'Listede olmayan metot "Illegal method" ihlali üretir (K85840901). TRACE ve CONNECT eklemeyin.' },
+                    { name: 'deny_ft', label: 'Yasak dosya türleri (virgülle)', type: 'text', optional: true, placeholder: 'bak, old, sql, log, config', hint: 'Yedek ve iç dosya uzantıları', why: 'Yedek/iç dosyaların (.bak, .sql) indirilmesi sık görülen sızıntıdır; yasak dosya türü "Illegal file type" ihlali üretir.' },
+                    { name: 'meta_params', label: 'Meta karakter izinli parametreler (virgülle)', type: 'text', optional: true, placeholder: 'yorum, aciklama', hint: 'Serbest metin alanları; imza denetimi açık kalır', why: 'Serbest metin alanında kesme işareti ve etiketler meşrudur; izni yalnız o parametreye verin, imza denetimi (attackSignaturesCheck) açık kalsın.' }
+                ] },
+                { title: 'Bağlantı', icon: 'fas fa-plug', fields: [
+                    { name: 'vs_name', label: 'Bağlanacak virtual server', type: 'text', optional: true, placeholder: 'vs_magaza_https', hint: 'Boşsa bağlama komutu üretilmez', why: 'Politika VS\'ye LTM policy (asm enable) + websecurity profili ile bağlanır (K16303347).' }
+                ] }
+            ],
+            submit: 'JSON Oluştur'
+        }, data => cgF5WafJsonGen(data));
+    }
+};
+function cgF5WafJsonGen(d) {
+    const w = [], name = String(d.pol_name || '').trim();
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) w.push('⛔ Politika adı harfle başlamalı; harf, rakam, _ ve - kullanın.');
+    const tech = cgWafList(d.tech), unk = tech.filter(t => !CG_WAF_TECH.includes(t));
+    if (unk.length) w.push('⚠ Tanınmayan sunucu teknolojisi adı: ' + unk.join(', ') + ' (F5 listesindeki yazımla birebir olmalı, ör. "Apache/NCSA HTTP Server", "Unix/Linux").');
+    const methods = cgWafList(d.methods).map(x => x.toUpperCase());
+    if (methods.some(m => ['TRACE', 'CONNECT', 'TRACK'].includes(m))) w.push('⚠ TRACE/CONNECT/TRACK eklemek güvenlik taramalarında bulgu olur (K85840901).');
+    if (methods.some(m => !/^[A-Z][A-Z-]*$/.test(m))) w.push('⛔ Metot adları harflerden oluşmalı.');
+    const deny = cgWafList(d.deny_ft).map(x => x.replace(/^\./, '').toLowerCase()), metaP = cgWafList(d.meta_params);
+    if (metaP.includes('*')) w.push('⛔ Meta karakter iznini "*" (tüm parametreler) için vermeyin; yalnız serbest metin alanlarına verin.');
+    const pol = { name, template: { name: d.template }, applicationLanguage: d.lang, enforcementMode: d.mode, 'signature-settings': { signatureStaging: d.staging === 'true' } };
+    if (tech.length) pol['server-technologies'] = tech.map(t => ({ serverTechnologyName: t }));
+    if (methods.length) pol.methods = methods.map(m => ({ name: m }));
+    if (deny.length) pol.filetypes = deny.map(f => ({ name: f, allowed: false }));
+    if (metaP.length) pol.parameters = metaP.filter(p => p !== '*').map(p => ({ name: p, type: 'explicit', metacharsOnParameterValueCheck: false, attackSignaturesCheck: true }));
+    if (d.mode === 'blocking' && d.staging === 'false') w.push('ℹ Doğrudan blocking + staging kapalı: yeni imzalar yanlış pozitifleri anında engeller. İlk devreye alışta transparent ya da staging açık önerilir.');
+    const f = '/var/tmp/' + name + '.json';
+    let c = '# ========================================\n# F5 Advanced WAF — Declarative politika: ' + name + '\n# ========================================\n';
+    c += '# 1) İki işaret satırı arasındaki JSON\'u ' + f + ' olarak kaydedin\n# ---- ' + name + '.json başlangıç ----\n' + JSON.stringify({ policy: pol }, null, 2) + '\n# ---- ' + name + '.json bitiş ----\n\n';
+    c += '# 2) Yükleyin ve yayınlayın (JSON içe aktarma sürüme bağlıdır; desteklenmiyorsa GUI: Security > Application Security > Security Policies > Import)\n';
+    c += 'tmsh load asm policy /Common/' + name + ' file ' + f + '\ntmsh publish asm policy /Common/' + name + '\n\n';
+    if (String(d.vs_name || '').trim()) c += cgF5AsmAttach(name, String(d.vs_name).trim());
+    c += 'tmsh save sys config\n\n# Doğrulama:\n# tmsh list asm policy /Common/' + name + '\n# tmsh save asm policy /Common/' + name + ' json-file /var/tmp/' + name + '-kontrol.json   # yüklenen hali dışa aktarıp karşılaştırın\n';
+    return { config: c, warnings: w };
+}
+
+// ── F5 BIG-IP: WAF yanlış pozitif istisnası (en dar kapsam; K8866) ────────────
+F5LTM.wafexception = {
+    label: 'WAF Yanlış Pozitif İstisnası',
+    init(container) {
+        cgFormBuilder(container, {
+            topic: { icon: 'fas fa-user-check', title: 'WAF Yanlış Pozitif İstisnası', desc: 'Request log\'da yanlış pozitif olduğuna karar verdiğiniz ihlal için EN DAR istisnayı üretir: imzayı yalnız bir parametrede ya da URL\'de kapatma, parametrede meta karakter izni, metot ya da dosya türü izni. Politikayı transparent yapmak ya da imzayı tüm politikada kapatmak üretilmez.', badge: { text: 'AWAF', cls: 'info' } },
+            sections: [
+                { title: 'İstisna', icon: 'fas fa-filter', fields: [
+                    { name: 'pol_name', label: 'Politika adı', type: 'text', required: true, placeholder: 'waf_magaza', why: 'İstisna yalnız bu politikaya uygulanır; aynı uygulamanın başka politikaları etkilenmez.' },
+                    { name: 'kind', label: 'İstisna türü', type: 'select', options: [
+                        { value: 'sig_param', label: 'İmzayı yalnız bir parametrede kapat' }, { value: 'sig_url', label: 'İmzayı yalnız bir URL\'de kapat' },
+                        { value: 'meta_param', label: 'Parametrede meta karaktere izin ver' }, { value: 'method', label: 'Metodu izinli yap' }, { value: 'filetype', label: 'Dosya türüne izin ver' }], why: 'Kural: istisna, yanlış pozitifin görüldüğü varlığın (parametre / URL) dışına taşmamalı. İmzayı tüm politikada kapatmak aynı saldırıyı sitenin her yerinde serbest bırakır (K8866).' },
+                    { name: 'sig_id', label: 'İmza ID (request log\'daki)', type: 'text', optional: true, placeholder: '200001475', hint: 'Yalnız imza istisnalarında; 9 haneli', why: 'İstek detayındaki "Attack signature detected" satırında imzanın ID\'si yazar.' },
+                    { name: 'target', label: 'Parametre / URL / metot / dosya türü', type: 'text', required: true, placeholder: 'yorum', hint: 'İstisna türüne göre: parametre adı, URL yolu (/form/gonder), metot (PUT) ya da uzantı (json)', why: 'Request log detayındaki varlık adıyla birebir aynı olmalı (büyük/küçük harf dahil).' }
+                ] }
+            ],
+            submit: 'İstisna Oluştur'
+        }, data => cgF5WafExcGen(data));
+    }
+};
+function cgF5WafExcGen(d) {
+    const w = [], name = String(d.pol_name || '').trim(), tg = String(d.target || '').trim(), sid = String(d.sig_id || '').trim();
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) w.push('⛔ Politika adı harfle başlamalı; harf, rakam, _ ve - kullanın.');
+    let frag = {}, gui = '';
+    if (d.kind === 'sig_param' || d.kind === 'sig_url') {
+        if (!/^\d{9}$/.test(sid)) w.push('⛔ İmza ID 9 haneli bir sayı olmalı (request log detayından alın).');
+        const ov = [{ signatureId: +sid || 0, enabled: false }];
+        if (d.kind === 'sig_param') { frag = { parameters: [{ name: tg, type: 'explicit', attackSignaturesCheck: true, signatureOverrides: ov }] }; gui = 'Security > Application Security > Parameters > ' + tg + ' > Attack Signatures: imzayı bu parametre için devre dışı bırakın'; }
+        else { if (!tg.startsWith('/')) w.push('⛔ URL "/" ile başlamalı.'); frag = { urls: [{ name: tg, protocol: 'http', type: 'explicit', signatureOverrides: ov }] }; gui = 'Security > Application Security > URLs > ' + tg + ' > Attack Signatures: imzayı bu URL için devre dışı bırakın'; w.push('ℹ HTTPS sitesinde "protocol": "https" kullanın.'); }
+    } else if (d.kind === 'meta_param') { frag = { parameters: [{ name: tg, type: 'explicit', metacharsOnParameterValueCheck: false, attackSignaturesCheck: true }] }; gui = 'Security > Application Security > Parameters > ' + tg + ': meta karakter denetimi; imza denetimi açık kalsın'; if (tg === '*') w.push('⛔ "*" tüm parametreler demektir: bu dar bir istisna değildir.'); }
+    else if (d.kind === 'method') { const m = tg.toUpperCase(); frag = { methods: [{ name: m }] }; gui = 'Security > Application Security > Headers > Methods: ' + m + ' ekleyin'; if (['TRACE', 'CONNECT', 'TRACK'].includes(m)) w.push('⚠ ' + m + ' izni güvenlik taramalarında bulgu olur (K85840901).'); }
+    else { const f = tg.replace(/^\./, '').toLowerCase(); frag = { filetypes: [{ name: f, type: 'explicit', allowed: true }] }; gui = 'Security > Application Security > File Types: ' + f + ' ekleyin'; if (['bak', 'sql', 'old', 'log', 'config', 'env'].includes(f)) w.push('⚠ .' + f + ' genellikle yedek/iç dosyadır; izin vermeden önce gerçekten yayınlanması gerektiğini doğrulayın.'); }
+    w.push('ℹ İstisnadan sonra aynı isteği tekrarlayıp request log\'da "Legal"/geçti durumunu, ayrıca gerçek bir saldırı örneğinin hâlâ engellendiğini doğrulayın.');
+    const f = '/var/tmp/' + name + '.json';
+    let c = '# ========================================\n# WAF yanlış pozitif istisnası — ' + name + '\n# ========================================\n';
+    c += '# Yol 1 (GUI): ' + gui + ', sonra Apply Policy.\n\n# Yol 2 (declarative JSON):\n# a) Politikayı dışa aktarın\ntmsh save asm policy /Common/' + name + ' json-file ' + f + '\n\n';
+    c += '# b) Dosyadaki "policy" nesnesine şu parçayı ekleyin/birleştirin (aynı adlı varlık varsa onun içine):\n' + JSON.stringify(frag, null, 2).split('\n').map(l => '#    ' + l).join('\n') + '\n\n';
+    c += '# c) Yükleyip yayınlayın\ntmsh load asm policy /Common/' + name + ' overwrite file ' + f + '\ntmsh publish asm policy /Common/' + name + '\ntmsh save sys config\n\n';
+    c += '# YAPMAYIN: politikayı transparent yapmak ya da imzayı tüm politikada kapatmak (şikâyeti çözer, saldırıyı her yerde serbest bırakır).\n';
+    return { config: c, warnings: w };
+}
+
 // ── F5 BIG-IP: Advanced WAF (AWAF) ───────────────────────────────────────────
 F5LTM.awaf = {
     label: 'Advanced WAF (AWAF)',
